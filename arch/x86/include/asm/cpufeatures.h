@@ -36,6 +36,7 @@
 #define X86_FEATURE_MCE			( 0*32+ 7) /* Machine Check Exception */
 #define X86_FEATURE_CX8			( 0*32+ 8) /* CMPXCHG8 instruction */
 #define X86_FEATURE_APIC		( 0*32+ 9) /* Onboard APIC */
+#define X86_FEATURE_TDX_GUEST		( 0*32+10) /* Trusted Domain Extensions Guest */
 #define X86_FEATURE_SEP			( 0*32+11) /* SYSENTER/SYSEXIT */
 #define X86_FEATURE_MTRR		( 0*32+12) /* Memory Type Range Registers */
 #define X86_FEATURE_PGE			( 0*32+13) /* Page Global Enable */

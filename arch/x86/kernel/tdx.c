@@ -6,6 +6,9 @@
 #include <asm/insn.h>
 #include <linux/sched/signal.h> /* force_sig_fault() */
 
+#define CREATE_TRACE_POINTS
+#include <asm/trace/tdx.h>
+
 #ifdef CONFIG_KVM_GUEST
 #include "tdx-kvm.c"
 #endif
@@ -408,6 +411,9 @@ int tdx_handle_virtualization_exception(struct pt_regs *regs,
 {
 	unsigned long val;
 	int ret = 0;
+
+	trace_tdx_virtualization_exception(regs->ip, ve->exit_reason,
+			ve->exit_qual, ve->gpa, ve->instr_len, ve->instr_info);
 
 	switch (ve->exit_reason) {
 	case EXIT_REASON_HLT:

@@ -14,6 +14,9 @@
 #include <asm/insn-eval.h>
 #include <asm/pgtable.h>
 
+#define CREATE_TRACE_POINTS
+#include <asm/trace/tdx.h>
+
 /* TDX module Call Leaf IDs */
 #define TDX_GET_INFO			1
 #define TDX_GET_VEINFO			3
@@ -678,6 +681,11 @@ static inline bool is_private_gpa(u64 gpa)
  */
 static int virt_exception_kernel(struct pt_regs *regs, struct ve_info *ve)
 {
+
+	trace_tdx_virtualization_exception_rcuidle(regs->ip, ve->exit_reason,
+			ve->exit_qual, ve->gpa, ve->instr_len, ve->instr_info,
+			regs->cx, regs->ax, regs->dx);
+
 	switch (ve->exit_reason) {
 	case EXIT_REASON_HLT:
 		return handle_halt(ve);

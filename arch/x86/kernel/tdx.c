@@ -15,6 +15,9 @@
 #include <linux/sched/signal.h> /* force_sig_fault() */
 #include <linux/swiotlb.h>
 
+#define CREATE_TRACE_POINTS
+#include <asm/trace/tdx.h>
+
 /* TDX Module call Leaf IDs */
 #define TDINFO				1
 #define TDGETVEINFO			3
@@ -407,6 +410,10 @@ int tdg_handle_virtualization_exception(struct pt_regs *regs,
 {
 	unsigned long val;
 	int ret = 0;
+
+	trace_tdg_virtualization_exception_rcuidle(regs->ip, ve->exit_reason,
+		ve->exit_qual, ve->gpa, ve->instr_len, ve->instr_info,
+		regs->cx, regs->ax, regs->dx);
 
 	switch (ve->exit_reason) {
 	case EXIT_REASON_HLT:

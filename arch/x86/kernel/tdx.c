@@ -13,6 +13,9 @@
 
 #include <linux/cpu.h>
 
+#define CREATE_TRACE_POINTS
+#include <asm/trace/tdx.h>
+
 #ifdef CONFIG_KVM_GUEST
 #include "tdx-kvm.c"
 #endif
@@ -416,6 +419,9 @@ int tdg_handle_virtualization_exception(struct pt_regs *regs,
 {
 	unsigned long val;
 	int ret = 0;
+
+	trace_tdg_virtualization_exception_rcuidle(regs->ip, ve->exit_reason,
+		ve->exit_qual, ve->gpa, ve->instr_len, ve->instr_info);
 
 	switch (ve->exit_reason) {
 	case EXIT_REASON_HLT:

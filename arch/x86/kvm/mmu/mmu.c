@@ -538,9 +538,9 @@ static u64 mmu_spte_clear_track_bits(struct kvm *kvm, u64 *sptep)
 
 	if (!is_shadow_present_pte(old_spte) ||
 	    !spte_has_volatile_bits(old_spte))
-		__update_clear_spte_fast(sptep, 0ull);
+		__update_clear_spte_fast(sptep, SHADOW_NONPRESENT_VALUE);
 	else
-		old_spte = __update_clear_spte_slow(sptep, 0ull);
+		old_spte = __update_clear_spte_slow(sptep, SHADOW_NONPRESENT_VALUE);
 
 	if (!is_shadow_present_pte(old_spte))
 		return old_spte;
@@ -574,7 +574,7 @@ static u64 mmu_spte_clear_track_bits(struct kvm *kvm, u64 *sptep)
  */
 static void mmu_spte_clear_no_track(u64 *sptep)
 {
-	__update_clear_spte_fast(sptep, 0ull);
+	__update_clear_spte_fast(sptep, SHADOW_NONPRESENT_VALUE);
 }
 
 static u64 mmu_spte_get_lockless(u64 *sptep)
@@ -642,6 +642,55 @@ static void walk_shadow_page_lockless_end(struct kvm_vcpu *vcpu)
 	}
 }
 
+#ifdef CONFIG_X86_64
+static inline void kvm_init_shadow_page(void *page)
+{
+	int ign;
+
+	/*
+	 * AMD: "suppress #VE" bit is ignored
+	 * Intel non-TD(VMX): "suppress #VE" bit is ignored because
+	 *   EPT_VIOLATION_VE isn't set.
+	 * guest TD: TDX module sets EPT_VIOLATION_VE
+	 *   conventional SEPT: "suppress #VE" bit must be set to get EPT violation
+	 *   private SEPT: "suppress #VE" bit is ignored.  CPU doesn't walk it
+	 *
+	 * For simplicity, unconditionally initialize SPET to set "suppress #VE".
+	 */
+	asm volatile ("rep stosq\n\t"
+		      : "=c"(ign), "=D"(page)
+		      : "a"(SHADOW_NONPRESENT_VALUE), "c"(4096/8), "D"(page)
+		      : "memory"
+	);
+}
+
+static int mmu_topup_shadow_page_cache(struct kvm_vcpu *vcpu)
+{
+	struct kvm_mmu_memory_cache *mc = &vcpu->arch.mmu_shadow_page_cache;
+	int start, end, i, r;
+
+	start = kvm_mmu_memory_cache_nr_free_objects(mc);
+	r = kvm_mmu_topup_memory_cache(mc, PT64_ROOT_MAX_LEVEL);
+
+	/*
+	 * Note, topup may have allocated objects even if it failed to allocate
+	 * the minimum number of objects required to make forward progress _at
+	 * this time_.  Initialize newly allocated objects even on failure, as
+	 * userspace can free memory and rerun the vCPU in response to -ENOMEM.
+	 */
+	end = kvm_mmu_memory_cache_nr_free_objects(mc);
+	for (i = start; i < end; i++)
+		kvm_init_shadow_page(mc->objects[i]);
+	return r;
+}
+#else
+static int mmu_topup_shadow_page_cache(struct kvm_vcpu *vcpu)
+{
+	return kvm_mmu_topup_memory_cache(&vcpu->arch.mmu_shadow_page_cache,
+					  PT64_ROOT_MAX_LEVEL);
+}
+#endif /* CONFIG_X86_64 */
+
 static int mmu_topup_memory_caches(struct kvm_vcpu *vcpu, bool maybe_indirect)
 {
 	int r;
@@ -651,8 +700,7 @@ static int mmu_topup_memory_caches(struct kvm_vcpu *vcpu, bool maybe_indirect)
 				       1 + PT64_ROOT_MAX_LEVEL + PTE_PREFETCH_NUM);
 	if (r)
 		return r;
-	r = kvm_mmu_topup_memory_cache(&vcpu->arch.mmu_shadow_page_cache,
-				       PT64_ROOT_MAX_LEVEL);
+	r = mmu_topup_shadow_page_cache(vcpu);
 	if (r)
 		return r;
 	if (maybe_indirect) {
@@ -5815,7 +5863,24 @@ int kvm_mmu_create(struct kvm_vcpu *vcpu)
 	vcpu->arch.mmu_page_header_cache.kmem_cache = mmu_page_header_cache;
 	vcpu->arch.mmu_page_header_cache.gfp_zero = __GFP_ZERO;
 
-	vcpu->arch.mmu_shadow_page_cache.gfp_zero = __GFP_ZERO;
+	/*
+	 * When X86_64, initial SEPT entries are initialized with
+	 * SHADOW_NONPRESENT_VALUE.  Otherwise zeroed.  See
+	 * mmu_topup_shadow_page_cache().
+	 *
+	 * Shared EPTEs need to be initialized with SUPPRESS_VE=1, otherwise
+	 * not-present EPT violations would be reflected into the guest by
+	 * hardware as #VE exceptions.  This is handled by initializing page
+	 * allocations via kvm_init_shadow_page() during cache topup.
+	 * In that case, telling the page allocation to zero-initialize the page
+	 * would be wasted effort.
+	 *
+	 * The initialization is harmless for S-EPT entries because KVM's copy
+	 * of the S-EPT isn't consumed by hardware, and because under the hood
+	 * S-EPT entries should never #VE.
+	 */
+	if (!IS_ENABLED(X86_64))
+		vcpu->arch.mmu_shadow_page_cache.gfp_zero = __GFP_ZERO;
 
 	vcpu->arch.mmu = &vcpu->arch.root_mmu;
 	vcpu->arch.walk_mmu = &vcpu->arch.root_mmu;

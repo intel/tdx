@@ -35,6 +35,7 @@ u64 __read_mostly shadow_mmio_access_mask;
 u64 __read_mostly shadow_present_mask;
 u64 __read_mostly shadow_me_mask;
 u64 __read_mostly shadow_acc_track_mask;
+u64 __read_mostly shadow_init_value;
 
 u64 __read_mostly shadow_nonpresent_or_rsvd_mask;
 u64 __read_mostly shadow_nonpresent_or_rsvd_lower_gfn_mask;
@@ -223,6 +224,14 @@ u64 kvm_mmu_changed_pte_notifier_make_spte(u64 old_spte, kvm_pfn_t new_pfn)
 	return new_spte;
 }
 
+void kvm_mmu_set_spte_init_value(u64 init_value)
+{
+	if (WARN_ON(!IS_ENABLED(CONFIG_X86_64) && init_value))
+		init_value = 0;
+	shadow_init_value = init_value;
+}
+EXPORT_SYMBOL_GPL(kvm_mmu_set_spte_init_value);
+
 static u8 kvm_get_shadow_phys_bits(void)
 {
 	/*
@@ -367,6 +376,7 @@ void kvm_mmu_reset_all_pte_masks(void)
 	shadow_present_mask	= PT_PRESENT_MASK;
 	shadow_acc_track_mask	= 0;
 	shadow_me_mask		= sme_me_mask;
+	shadow_init_value	= 0;
 
 	shadow_host_writable_mask = DEFAULT_SPTE_HOST_WRITEABLE;
 	shadow_mmu_writable_mask  = DEFAULT_SPTE_MMU_WRITEABLE;

@@ -3167,7 +3167,7 @@ static int fast_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 			break;
 
 		sp = sptep_to_sp(sptep);
-		if (!is_last_spte(spte, sp->role.level))
+		if (!is_last_spte(spte, sp->role.level) || is_mmio_spte(spte))
 			break;
 
 		/*

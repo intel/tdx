@@ -3184,7 +3184,7 @@ static int fast_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		else
 			sptep = fast_pf_get_last_sptep(vcpu, fault->addr, &spte);
 
-		if (!is_shadow_present_pte(spte))
+		if (!is_shadow_present_pte(spte) || is_mmio_spte(spte))
 			break;
 
 		sp = sptep_to_sp(sptep);

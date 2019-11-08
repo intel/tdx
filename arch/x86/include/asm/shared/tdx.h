@@ -29,6 +29,12 @@
 #define TDVMCALL_STATUS_RETRY		1
 
 /*
+ * TDG.VP.VMCALL Status Codes (returned in R10)
+ */
+#define TDVMCALL_SUCCESS		0x0000000000000000ULL
+#define TDVMCALL_INVALID_OPERAND	0x8000000000000000ULL
+
+/*
  * Bitmasks of exposed registers (with VMM).
  */
 #define TDX_RDX		BIT(2)

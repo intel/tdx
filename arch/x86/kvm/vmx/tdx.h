@@ -8,6 +8,7 @@
 #include <uapi/asm/kvm.h>
 
 #include "tdx_arch.h"
+#include "tdx_errno.h"
 
 #ifdef CONFIG_INTEL_TDX_HOST
 struct kvm_tdx {

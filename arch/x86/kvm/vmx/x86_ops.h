@@ -163,6 +163,14 @@ int tdx_smi_allowed(struct kvm_vcpu *vcpu, bool for_injection);
 int tdx_enter_smm(struct kvm_vcpu *vcpu, char *smstate);
 int tdx_leave_smm(struct kvm_vcpu *vcpu, const char *smstate);
 void tdx_enable_smi_window(struct kvm_vcpu *vcpu);
+void tdx_set_virtual_apic_mode(struct kvm_vcpu *vcpu);
+
+int tdx_get_cpl(struct kvm_vcpu *vcpu);
+void tdx_cache_reg(struct kvm_vcpu *vcpu, enum kvm_reg reg);
+unsigned long tdx_get_rflags(struct kvm_vcpu *vcpu);
+bool tdx_is_emulated_msr(u32 index, bool write);
+u64 tdx_get_segment_base(struct kvm_vcpu *vcpu, int seg);
+void tdx_get_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var, int seg);
 
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp);
 int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp);
@@ -203,10 +211,19 @@ static inline void tdx_get_exit_info(
 static inline bool tdx_is_emulated_msr(u32 index, bool write) { return false; }
 static inline int tdx_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr) { return 1; }
 static inline int tdx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr) { return 1; }
+
 static inline int tdx_smi_allowed(struct kvm_vcpu *vcpu, bool for_injection) { return false; }
 static inline int tdx_enter_smm(struct kvm_vcpu *vcpu, char *smstate) { return 0; }
 static inline int tdx_leave_smm(struct kvm_vcpu *vcpu, const char *smstate) { return 0; }
 static inline void tdx_enable_smi_window(struct kvm_vcpu *vcpu) {}
+static inline void tdx_set_virtual_apic_mode(struct kvm_vcpu *vcpu) {}
+
+static inline int tdx_get_cpl(struct kvm_vcpu *vcpu) { return 0; }
+static inline void tdx_cache_reg(struct kvm_vcpu *vcpu, enum kvm_reg reg) {}
+static inline unsigned long tdx_get_rflags(struct kvm_vcpu *vcpu) { return 0; }
+static inline u64 tdx_get_segment_base(struct kvm_vcpu *vcpu, int seg) { return 0;}
+static inline void tdx_get_segment(
+	struct kvm_vcpu *vcpu, struct kvm_segment *var, int seg) {}
 
 static inline int tdx_vm_ioctl(struct kvm *kvm, void __user *argp) { return -EOPNOTSUPP; }
 static inline int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp) { return -EOPNOTSUPP; }

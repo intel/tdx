@@ -155,6 +155,16 @@ int tdx_smi_allowed(struct kvm_vcpu *vcpu, bool for_injection);
 int tdx_enter_smm(struct kvm_vcpu *vcpu, char *smstate);
 int tdx_leave_smm(struct kvm_vcpu *vcpu, const char *smstate);
 void tdx_enable_smi_window(struct kvm_vcpu *vcpu);
+void tdx_set_virtual_apic_mode(struct kvm_vcpu *vcpu);
+
+int tdx_get_cpl(struct kvm_vcpu *vcpu);
+void tdx_cache_reg(struct kvm_vcpu *vcpu, enum kvm_reg reg);
+unsigned long tdx_get_rflags(struct kvm_vcpu *vcpu);
+bool tdx_is_emulated_msr(u32 index, bool write);
+int tdx_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr);
+int tdx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr);
+u64 tdx_get_segment_base(struct kvm_vcpu *vcpu, int seg);
+void tdx_get_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var, int seg);
 
 int tdx_dev_ioctl(void __user *argp);
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp);

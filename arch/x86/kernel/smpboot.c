@@ -1033,7 +1033,7 @@ static int do_boot_cpu(int apicid, int cpu, struct task_struct *idle,
 		       int *cpu0_nmi_registered)
 {
 	/* start_ip had better be page-aligned! */
-	unsigned long start_ip = real_mode_header->trampoline_start;
+	unsigned long start_ip = get_trampoline_start_ip(real_mode_header);
 
 	unsigned long boot_error = 0;
 	unsigned long timeout;

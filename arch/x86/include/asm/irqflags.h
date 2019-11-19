@@ -68,11 +68,33 @@ static inline __cpuidle void native_halt(void)
 
 #endif
 
-#ifdef CONFIG_PARAVIRT_XXL
+#ifdef CONFIG_PARAVIRT_XL
 #include <asm/paravirt.h>
 #else
 #ifndef __ASSEMBLY__
 #include <linux/types.h>
+/*
+ * Used in the idle loop; sti takes one instruction cycle
+ * to complete:
+ */
+static inline __cpuidle void arch_safe_halt(void)
+{
+	native_safe_halt();
+}
+
+/*
+ * Used when interrupts are already enabled or to
+ * shutdown the processor:
+ */
+static inline __cpuidle void halt(void)
+{
+	native_halt();
+}
+#endif /* !__ASSEMBLY__ */
+#endif /* CONFIG_PARAVIRT_XL */
+
+#ifndef CONFIG_PARAVIRT_XXL
+#ifndef __ASSEMBLY__
 
 static __always_inline unsigned long arch_local_save_flags(void)
 {
@@ -92,24 +114,6 @@ static __always_inline void arch_local_irq_disable(void)
 static __always_inline void arch_local_irq_enable(void)
 {
 	native_irq_enable();
-}
-
-/*
- * Used in the idle loop; sti takes one instruction cycle
- * to complete:
- */
-static inline __cpuidle void arch_safe_halt(void)
-{
-	native_safe_halt();
-}
-
-/*
- * Used when interrupts are already enabled or to
- * shutdown the processor:
- */
-static inline __cpuidle void halt(void)
-{
-	native_halt();
 }
 
 /*

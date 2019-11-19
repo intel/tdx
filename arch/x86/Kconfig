@@ -783,8 +783,12 @@ config PARAVIRT
 	  over full virtualization.  However, when run without a hypervisor
 	  the kernel is theoretically slower and slightly larger.
 
+config PARAVIRT_XL
+	bool
+
 config PARAVIRT_XXL
 	bool
+	select PARAVIRT_XL
 
 config PARAVIRT_DEBUG
 	bool "paravirt-ops debugging"

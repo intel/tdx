@@ -59,27 +59,11 @@ static inline __cpuidle void native_halt(void)
 
 #endif
 
-#ifdef CONFIG_PARAVIRT_XXL
+#ifdef CONFIG_PARAVIRT_XL
 #include <asm/paravirt.h>
 #else
 #ifndef __ASSEMBLY__
 #include <linux/types.h>
-
-static __always_inline unsigned long arch_local_save_flags(void)
-{
-	return native_save_fl();
-}
-
-static __always_inline void arch_local_irq_disable(void)
-{
-	native_irq_disable();
-}
-
-static __always_inline void arch_local_irq_enable(void)
-{
-	native_irq_enable();
-}
-
 /*
  * Used in the idle loop; sti takes one instruction cycle
  * to complete:
@@ -96,6 +80,26 @@ static inline __cpuidle void arch_safe_halt(void)
 static inline __cpuidle void halt(void)
 {
 	native_halt();
+}
+#endif /* !__ASSEMBLY__ */
+#endif /* CONFIG_PARAVIRT_XL */
+
+#ifndef CONFIG_PARAVIRT_XXL
+#ifndef __ASSEMBLY__
+
+static __always_inline unsigned long arch_local_save_flags(void)
+{
+	return native_save_fl();
+}
+
+static __always_inline void arch_local_irq_disable(void)
+{
+	native_irq_disable();
+}
+
+static __always_inline void arch_local_irq_enable(void)
+{
+	native_irq_enable();
 }
 
 /*

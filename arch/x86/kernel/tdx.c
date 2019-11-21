@@ -34,6 +34,45 @@ static void tdx_get_info(void)
 	td_info.attributes = rdx;
 }
 
+static __cpuidle void tdx_halt(void)
+{
+	register long r10 asm("r10") = TDVMCALL_STANDARD;
+	register long r11 asm("r11") = EXIT_REASON_HLT;
+	register long rcx asm("rcx");
+	long ret;
+
+	/* Allow to pass R10 and R11 down to the VMM */
+	rcx = BIT(10) | BIT(11);
+
+	asm volatile(TDCALL
+			: "=a"(ret), "=r"(r10), "=r"(r11)
+			: "a"(TDVMCALL), "r"(rcx), "r"(r10), "r"(r11)
+			: );
+
+	/* It should never fail */
+	BUG_ON(ret || r10);
+}
+
+static __cpuidle void tdx_safe_halt(void)
+{
+	register long r10 asm("r10") = TDVMCALL_STANDARD;
+	register long r11 asm("r11") = EXIT_REASON_HLT;
+	register long rcx asm("rcx");
+	long ret;
+
+	/* Allow to pass R10 and R11 down to the VMM */
+	rcx = BIT(10) | BIT(11);
+
+	/* Enable interrupts next to the TDVMCALL to avoid performance degradation */
+	asm volatile("sti\n\t" TDCALL
+			: "=a"(ret), "=r"(r10), "=r"(r11)
+			: "a"(TDVMCALL), "r"(rcx), "r"(r10), "r"(r11)
+			: );
+
+	/* It should never fail */
+	BUG_ON(ret || r10);
+}
+
 void __init tdx_early_init(void)
 {
 	bool tdx_forced;
@@ -49,6 +88,9 @@ void __init tdx_early_init(void)
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
 
 	tdx_get_info();
+
+	pv_ops.irq.safe_halt = tdx_safe_halt;
+	pv_ops.irq.halt = tdx_halt;
 
 	pr_info("TDX guest is initialized\n");
 }
@@ -80,6 +122,9 @@ int tdx_handle_virtualization_exception(struct pt_regs *regs,
 	int ret = 0;
 
 	switch (ve->exit_reason) {
+	case EXIT_REASON_HLT:
+		tdx_halt();
+		break;
 	default:
 		pr_warn("Unhandled #VE: %d\n", ve->exit_reason);
 		return -EFAULT;

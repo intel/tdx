@@ -6,6 +6,7 @@
 
 #include <linux/linkage.h>
 
+#define TDVMCALL_VENDOR_KVM		0x4d564b2e584454 /* "TDX.KVM" */
 #define TDVMCALL_EXPOSE_REGS_MASK	0xfc00
 
 /*
@@ -162,3 +163,9 @@ SYM_FUNC_START(__tdvmcall)
 	call do_tdvmcall
 	retq
 SYM_FUNC_END(__tdvmcall)
+
+SYM_FUNC_START(__tdvmcall_vendor_kvm)
+	movq $TDVMCALL_VENDOR_KVM, %r10
+	call do_tdvmcall
+	retq
+SYM_FUNC_END(__tdvmcall_vendor_kvm)

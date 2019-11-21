@@ -3,6 +3,7 @@
 #include <asm/asm.h>
 #include <asm/frame.h>
 #include <asm/unwind_hints.h>
+#include <asm/export.h>
 
 #include <linux/linkage.h>
 #include <linux/bits.h>
@@ -280,3 +281,4 @@ SYM_FUNC_START(__tdx_hypercall)
 
        retq
 SYM_FUNC_END(__tdx_hypercall)
+EXPORT_SYMBOL(__tdx_hypercall);

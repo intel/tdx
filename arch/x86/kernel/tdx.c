@@ -108,6 +108,39 @@ static __cpuidle void tdx_safe_halt(void)
 	_tdx_halt(irq_disabled, do_sti);
 }
 
+static bool tdx_read_msr_safe(unsigned int msr, u64 *val)
+{
+	struct tdx_hypercall_output out;
+
+	/*
+	 * Emulate the MSR read via hypercall. More info about ABI
+	 * can be found in TDX Guest-Host-Communication Interface
+	 * (GHCI), sec titled "TDG.VP.VMCALL<Instruction.RDMSR>".
+	 */
+	if (_tdx_hypercall(EXIT_REASON_MSR_READ, msr, 0, 0, 0, &out))
+		return false;
+
+	*val = out.r11;
+
+	return true;
+}
+
+static bool tdx_write_msr_safe(unsigned int msr, unsigned int low,
+			       unsigned int high)
+{
+	u64 ret;
+
+	/*
+	 * Emulate the MSR write via hypercall. More info about ABI
+	 * can be found in TDX Guest-Host-Communication Interface
+	 * (GHCI) sec titled "TDG.VP.VMCALL<Instruction.WRMSR>".
+	 */
+	ret = _tdx_hypercall(EXIT_REASON_MSR_WRITE, msr, (u64)high << 32 | low,
+			     0, 0, NULL);
+
+	return ret ? false : true;
+}
+
 bool tdx_get_ve_info(struct ve_info *ve)
 {
 	struct tdx_module_output out;
@@ -153,8 +186,26 @@ static bool tdx_virt_exception_user(struct pt_regs *regs, struct ve_info *ve)
 /* Handle the kernel #VE */
 static bool tdx_virt_exception_kernel(struct pt_regs *regs, struct ve_info *ve)
 {
-	pr_warn("Unexpected #VE: %lld\n", ve->exit_reason);
-	return false;
+	bool ret = false;
+	u64 val;
+
+	switch (ve->exit_reason) {
+	case EXIT_REASON_MSR_READ:
+		ret = tdx_read_msr_safe(regs->cx, &val);
+		if (ret) {
+			regs->ax = (u32)val;
+			regs->dx = val >> 32;
+		}
+		break;
+	case EXIT_REASON_MSR_WRITE:
+		ret = tdx_write_msr_safe(regs->cx, regs->ax, regs->dx);
+		break;
+	default:
+		pr_warn("Unexpected #VE: %lld\n", ve->exit_reason);
+		break;
+	}
+
+	return ret;
 }
 
 bool tdx_handle_virt_exception(struct pt_regs *regs, struct ve_info *ve)

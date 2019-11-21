@@ -17,6 +17,10 @@
 extern void cmpxchg8b_emu(void);
 #endif
 
+#ifdef CONFIG_INTEL_TDX_GUEST
+#include <asm/tdx.h>
+#endif
+
 #ifdef CONFIG_RETPOLINE
 
 #undef GEN

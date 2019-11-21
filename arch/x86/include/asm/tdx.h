@@ -6,8 +6,9 @@
 #include <linux/cpufeature.h>
 #include <linux/types.h>
 
-#define TDX_CPUID_LEAF_ID	0x21
-#define TDX_HYPERCALL_STANDARD  0
+#define TDX_CPUID_LEAF_ID			0x21
+#define TDX_HYPERCALL_STANDARD			0
+#define TDX_HYPERCALL_VENDOR_KVM		0x4d564b2e584454
 
 /*
  * Used in __tdx_module_call() helper function to gather the
@@ -75,5 +76,30 @@ int tdg_handle_virtualization_exception(struct pt_regs *regs,
 static inline void tdx_early_init(void) { };
 
 #endif /* CONFIG_INTEL_TDX_GUEST */
+
+#ifdef CONFIG_INTEL_TDX_GUEST_KVM
+
+static inline long tdx_kvm_hypercall(unsigned int nr, unsigned long p1,
+				     unsigned long p2, unsigned long p3,
+				     unsigned long p4)
+{
+	struct tdx_hypercall_output out;
+	u64 err;
+
+	err = __tdx_hypercall(TDX_HYPERCALL_VENDOR_KVM, nr, p1, p2,
+			      p3, p4, &out);
+
+	BUG_ON(err);
+
+	return out.r10;
+}
+#else
+static inline long tdx_kvm_hypercall(unsigned int nr, unsigned long p1,
+				     unsigned long p2, unsigned long p3,
+				     unsigned long p4)
+{
+	return -ENODEV;
+}
+#endif /* CONFIG_INTEL_TDX_GUEST_KVM */
 
 #endif /* _ASM_X86_TDX_H */

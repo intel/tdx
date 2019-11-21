@@ -3,6 +3,7 @@
 #include <asm/asm.h>
 #include <asm/frame.h>
 #include <asm/unwind_hints.h>
+#include <uapi/asm/vmx.h>
 
 #include <linux/linkage.h>
 #include <linux/bits.h>
@@ -35,6 +36,13 @@
  * Binutils >= 2.36.
  */
 #define tdcall .byte 0x66,0x0f,0x01,0xcc
+
+/*
+ * Used in the __tdx_hypercall() function to test R15 register content
+ * and optionally include the STI instruction before the TDCALL
+ * instruction (for EXIT_REASON_HLT case).
+ */
+#define do_sti	0x01
 
 /*
  * __tdx_module_call()  - Used by TDX guests to request services from
@@ -228,6 +236,25 @@ SYM_FUNC_START(__tdx_hypercall)
 
 	movl $TDVMCALL_EXPOSE_REGS_MASK, %ecx
 
+	/*
+	 * For the idle loop STI needs to be called directly before
+	 * the TDCALL that enters idle (EXIT_REASON_HLT case). STI
+	 * enables interrupts only one instruction later.
+	 *
+	 * Since STI instruction is only required for the idle case
+	 * (a special case of EXIT_REASON_HLT), use the r15 register
+	 * value to identify it. Since the R15 register is not used
+	 * by the VMM as per EXIT_REASON_HLT ABI, re-use it in
+	 * software to identify the STI case.
+	 */
+	cmpl $EXIT_REASON_HLT, %r11d
+	jne skip_sti
+	cmpl $do_sti, %r15d
+	jne skip_sti
+	/* Set R15 register to 0, it is unused in EXIT_REASON_HLT case */
+	xor %r15, %r15
+	sti
+skip_sti:
 	tdcall
 
 	/* Restore output pointer to R9 */

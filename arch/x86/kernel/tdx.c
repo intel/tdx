@@ -5,6 +5,7 @@
 #define pr_fmt(fmt)     "tdx: " fmt
 
 #include <asm/tdx.h>
+#include <asm/vmx.h>
 
 /* TDX Module Call Leaf IDs */
 #define TDX_GET_VEINFO			3
@@ -33,6 +34,60 @@ static inline u64 _tdx_hypercall(u64 fn, u64 r12, u64 r13, u64 r14,
 		panic("Hypercall fn %llu failed (Buggy TDX module!)\n", fn);
 
 	return out->r10;
+}
+
+static __cpuidle void _tdx_halt(const bool irq_disabled, const bool do_sti)
+{
+	u64 ret;
+
+	/*
+	 * Emulate HLT operation via hypercall. More info about ABI
+	 * can be found in TDX Guest-Host-Communication Interface
+	 * (GHCI), sec 3.8 TDG.VP.VMCALL<Instruction.HLT>.
+	 *
+	 * The VMM uses the "IRQ disabled" param to understand IRQ
+	 * enabled status (RFLAGS.IF) of the TD guest and to determine
+	 * whether or not it should schedule the halted vCPU if an
+	 * IRQ becomes pending. E.g. if IRQs are disabled, the VMM
+	 * can keep the vCPU in virtual HLT, even if an IRQ is
+	 * pending, without hanging/breaking the guest.
+	 *
+	 * do_sti parameter is used by the __tdx_hypercall() to decide
+	 * whether to call the STI instruction before executing the
+	 * TDCALL instruction.
+	 */
+	ret = _tdx_hypercall(EXIT_REASON_HLT, irq_disabled, 0, 0, do_sti, NULL);
+
+	/*
+	 * Use WARN_ONCE() to report the failure.
+	 */
+	WARN_ONCE(ret, "HLT instruction emulation failed\n");
+}
+
+static __cpuidle void tdx_halt(void)
+{
+	/*
+	 * Since non safe halt is mainly used in CPU offlining
+	 * and the guest will always stay in the halt state, don't
+	 * call the STI instruction (set do_sti as false).
+	 */
+	const bool irq_disabled = irqs_disabled();
+	const bool do_sti = false;
+
+	_tdx_halt(irq_disabled, do_sti);
+}
+
+static __cpuidle void tdx_safe_halt(void)
+{
+	 /*
+	  * For do_sti=true case, __tdx_hypercall() function enables
+	  * interrupts using the STI instruction before the TDCALL. So
+	  * set irq_disabled as false.
+	  */
+	const bool irq_disabled = false;
+	const bool do_sti = true;
+
+	_tdx_halt(irq_disabled, do_sti);
 }
 
 bool tdx_get_ve_info(struct ve_info *ve)
@@ -120,6 +175,9 @@ void __init tdx_early_init(void)
 	tdx_guest_detected = true;
 
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
+
+	pv_ops.irq.safe_halt = tdx_safe_halt;
+	pv_ops.irq.halt = tdx_halt;
 
 	pr_info("Guest detected\n");
 }

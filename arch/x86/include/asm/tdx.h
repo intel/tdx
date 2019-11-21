@@ -9,8 +9,13 @@
 
 #define TDCALL	".byte 0x66,0x0f,0x01,0xcc"
 
+#define TDVMCALL	0
 #define TDINFO		1
 #define TDGETVEINFO	3
+
+/* TDVMCALL R10 Input */
+#define TDVMCALL_STANDARD	0
+#define TDVMCALL_VENDOR		1
 
 /* TDX support often needs to be queried before CPU caps is populated. */
 static inline bool __is_tdx_guest(void)

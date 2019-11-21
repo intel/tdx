@@ -25,6 +25,8 @@
 					  TDG_R12 | TDG_R13 | \
 					  TDG_R14 | TDG_R15 )
 
+#define TDVMCALL_VENDOR_KVM		0x4d564b2e584454 /* "TDX.KVM" */
+
 /*
  * TDX guests use the TDCALL instruction to make requests to the
  * TDX module and hypercalls to the VMM. It is supported in
@@ -213,3 +215,10 @@ SYM_FUNC_START(__tdx_hypercall)
 	call do_tdx_hypercall
 	retq
 SYM_FUNC_END(__tdx_hypercall)
+
+/* Helper function for KVM vendor TDVMCALLs */
+SYM_FUNC_START(__tdx_hypercall_vendor_kvm)
+	movq $TDVMCALL_VENDOR_KVM, %r10
+	call do_tdx_hypercall
+	retq
+SYM_FUNC_END(__tdx_hypercall_vendor_kvm)

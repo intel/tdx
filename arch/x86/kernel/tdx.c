@@ -9,6 +9,10 @@
 #include <linux/cpu.h>
 #include <linux/protected_guest.h>
 
+#ifdef CONFIG_KVM_GUEST
+#include "tdx-kvm.c"
+#endif
+
 static struct {
 	unsigned int gpa_width;
 	unsigned long attributes;

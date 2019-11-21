@@ -91,6 +91,39 @@ void __cpuidle tdx_safe_halt(void)
 		WARN_ONCE(1, "HLT instruction emulation failed\n");
 }
 
+static bool tdx_read_msr(unsigned int msr, u64 *val)
+{
+	struct tdx_hypercall_output out;
+
+	/*
+	 * Emulate the MSR read via hypercall. More info about ABI
+	 * can be found in TDX Guest-Host-Communication Interface
+	 * (GHCI), sec titled "TDG.VP.VMCALL<Instruction.RDMSR>".
+	 */
+	if (_tdx_hypercall(EXIT_REASON_MSR_READ, msr, 0, 0, 0, &out))
+		return false;
+
+	*val = out.r11;
+
+	return true;
+}
+
+static bool tdx_write_msr(unsigned int msr, unsigned int low,
+			       unsigned int high)
+{
+	u64 ret;
+
+	/*
+	 * Emulate the MSR write via hypercall. More info about ABI
+	 * can be found in TDX Guest-Host-Communication Interface
+	 * (GHCI) sec titled "TDG.VP.VMCALL<Instruction.WRMSR>".
+	 */
+	ret = _tdx_hypercall(EXIT_REASON_MSR_WRITE, msr, (u64)high << 32 | low,
+			     0, 0, NULL);
+
+	return ret ? false : true;
+}
+
 bool tdx_get_ve_info(struct ve_info *ve)
 {
 	struct tdx_module_output out;
@@ -132,10 +165,21 @@ static bool tdx_virt_exception_user(struct pt_regs *regs, struct ve_info *ve)
 static bool tdx_virt_exception_kernel(struct pt_regs *regs, struct ve_info *ve)
 {
 	bool ret = false;
+	u64 val;
 
 	switch (ve->exit_reason) {
 	case EXIT_REASON_HLT:
 		ret = tdx_halt();
+		break;
+	case EXIT_REASON_MSR_READ:
+		ret = tdx_read_msr(regs->cx, &val);
+		if (ret) {
+			regs->ax = lower_32_bits(val);
+			regs->dx = upper_32_bits(val);
+		}
+		break;
+	case EXIT_REASON_MSR_WRITE:
+		ret = tdx_write_msr(regs->cx, regs->ax, regs->dx);
 		break;
 	default:
 		pr_warn("Unexpected #VE: %lld\n", ve->exit_reason);

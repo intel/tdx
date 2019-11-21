@@ -40,6 +40,9 @@
  */
 #define tdcall .byte 0x66,0x0f,0x01,0xcc
 
+/* HLT TDVMCALL sub-function ID */
+#define EXIT_REASON_HLT			12
+
 /*
  * __tdx_module_call()  - Helper function used by TDX guests to request
  * services from the TDX module (does not include VMM services).
@@ -240,6 +243,32 @@ SYM_FUNC_START(__tdx_hypercall)
 
 	movl $TDVMCALL_EXPOSE_REGS_MASK, %ecx
 
+	/*
+	 * For the idle loop STI needs to be called directly before
+	 * the TDCALL that enters idle (EXIT_REASON_HLT case). STI
+	 * enables interrupts only one instruction later. If there
+	 * are any instructions between the STI and the TDCALL for
+	 * HLT then an interrupt could happen in that time, but the
+	 * code would go back to sleep afterwards, which can cause
+	 * longer delays. There leads to significant difference in
+	 * network performance benchmarks. So add a special case for
+	 * EXIT_REASON_HLT to trigger sti before TDCALL. But this
+	 * change is not required for all HLT cases. So use R15
+	 * register value to identify the case which needs sti. So,
+	 * if R11 is EXIT_REASON_HLT and R15 is 1, then call sti
+	 * before TDCALL instruction. Note that R15 register is not
+	 * required by TDCALL ABI when triggering the hypercall for
+	 * EXIT_REASON_HLT case. So use it in software to select the
+	 * sti case.
+	 */
+	cmpl $EXIT_REASON_HLT, %r11d
+	jne skip_sti
+	cmpl $1, %r15d
+	jne skip_sti
+	/* Set R15 register to 0, it is unused in EXIT_REASON_HLT case */
+	xor %r15, %r15
+	sti
+skip_sti:
 	tdcall
 
 	/* Restore output pointer to R9 */

@@ -56,6 +56,16 @@ u64 __tdcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
 /* Helper function used to request services from VMM */
 u64 __tdvmcall(u64 fn, u64 r12, u64 r13, u64 r14, u64 r15,
 	       struct tdvmcall_output *out);
+u64 __tdvmcall_vendor_kvm(u64 fn, u64 r12, u64 r13, u64 r14, u64 r15,
+			  struct tdvmcall_output *out);
+
+long tdx_kvm_hypercall0(unsigned int nr);
+long tdx_kvm_hypercall1(unsigned int nr, unsigned long p1);
+long tdx_kvm_hypercall2(unsigned int nr, unsigned long p1, unsigned long p2);
+long tdx_kvm_hypercall3(unsigned int nr, unsigned long p1, unsigned long p2,
+		unsigned long p3);
+long tdx_kvm_hypercall4(unsigned int nr, unsigned long p1, unsigned long p2,
+		unsigned long p3, unsigned long p4);
 
 #else // !CONFIG_INTEL_TDX_GUEST
 
@@ -65,6 +75,35 @@ static inline bool is_tdx_guest(void)
 }
 
 static inline void tdx_early_init(void) { };
+
+static inline long tdx_kvm_hypercall0(unsigned int nr)
+{
+	return -ENODEV;
+}
+
+static inline long tdx_kvm_hypercall1(unsigned int nr, unsigned long p1)
+{
+	return -ENODEV;
+}
+
+static inline long tdx_kvm_hypercall2(unsigned int nr, unsigned long p1,
+				      unsigned long p2)
+{
+	return -ENODEV;
+}
+
+static inline long tdx_kvm_hypercall3(unsigned int nr, unsigned long p1,
+				      unsigned long p2, unsigned long p3)
+{
+	return -ENODEV;
+}
+
+static inline long tdx_kvm_hypercall4(unsigned int nr, unsigned long p1,
+				      unsigned long p2, unsigned long p3,
+				      unsigned long p4)
+{
+	return -ENODEV;
+}
 
 #endif /* CONFIG_INTEL_TDX_GUEST */
 

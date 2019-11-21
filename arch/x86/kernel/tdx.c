@@ -7,6 +7,10 @@
 #include <asm/tdx.h>
 #include <asm/vmx.h>
 
+#ifdef CONFIG_KVM_GUEST
+#include "tdx-kvm.c"
+#endif
+
 static struct {
 	unsigned int gpa_width;
 	unsigned long attributes;

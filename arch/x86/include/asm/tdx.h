@@ -20,7 +20,7 @@
 
 /* TDVMCALL R10 Input */
 #define TDVMCALL_STANDARD	0
-#define TDVMCALL_VENDOR		1
+#define TDVMCALL_VENDOR_KVM	((u64) 0x4d564b2e584454) /* "TDX.KVM" */
 
 /* Common API to check TDX support in decompression and common kernel code. */
 bool is_tdx_guest(void);
@@ -50,5 +50,13 @@ struct ve_info {
 unsigned long tdx_get_ve_info(struct ve_info *ve);
 int tdx_handle_virtualization_exception(struct pt_regs *regs,
 		struct ve_info *ve);
+
+long tdx_kvm_hypercall0(unsigned int nr);
+long tdx_kvm_hypercall1(unsigned int nr, unsigned long p1);
+long tdx_kvm_hypercall2(unsigned int nr, unsigned long p1, unsigned long p2);
+long tdx_kvm_hypercall3(unsigned int nr, unsigned long p1, unsigned long p2,
+		unsigned long p3);
+long tdx_kvm_hypercall4(unsigned int nr, unsigned long p1, unsigned long p2,
+		unsigned long p3, unsigned long p4);
 
 #endif /* _ASM_X86_TDX_H */

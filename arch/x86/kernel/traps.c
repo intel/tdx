@@ -61,6 +61,7 @@
 #include <asm/insn.h>
 #include <asm/insn-eval.h>
 #include <asm/vdso.h>
+#include <asm/tdx.h>
 
 #ifdef CONFIG_X86_64
 #include <asm/x86_init.h>
@@ -1139,6 +1140,35 @@ DEFINE_IDTENTRY(exc_device_not_available)
 		die("unexpected #NM exception", regs, 0);
 	}
 }
+
+#ifdef CONFIG_INTEL_TDX_GUEST
+DEFINE_IDTENTRY(exc_virtualization_exception)
+{
+	struct ve_info ve;
+	int ret;
+
+	RCU_LOCKDEP_WARN(!rcu_is_watching(), "entry code didn't wake RCU");
+
+	/*
+	 * Consume #VE info before re-enabling interrupts. It will be
+	 * re-enabled after executing the TDGETVEINFO TDCALL.
+	 */
+	ret = tdg_get_ve_info(&ve);
+
+	cond_local_irq_enable(regs);
+
+	if (!ret)
+		ret = tdg_handle_virtualization_exception(regs, &ve);
+	/*
+	 * If tdg_handle_virtualization_exception() could not process
+	 * it successfully, treat it as #GP(0) and handle it.
+	 */
+	if (ret)
+		do_general_protection(regs, 0);
+
+	cond_local_irq_disable(regs);
+}
+#endif
 
 #ifdef CONFIG_X86_32
 DEFINE_IDTENTRY_SW(iret_error)

@@ -59,6 +59,7 @@
 #include <asm/umip.h>
 #include <asm/insn.h>
 #include <asm/insn-eval.h>
+#include <asm/tdx.h>
 
 #ifdef CONFIG_X86_64
 #include <asm/x86_init.h>
@@ -522,29 +523,13 @@ static enum kernel_gp_hint get_kernel_gp_address(struct pt_regs *regs,
 
 #define GPFSTR "general protection fault"
 
-DEFINE_IDTENTRY_ERRORCODE(exc_general_protection)
+static void do_general_protection(struct pt_regs *regs, long error_code)
 {
 	char desc[sizeof(GPFSTR) + 50 + 2*sizeof(unsigned long) + 1] = GPFSTR;
 	enum kernel_gp_hint hint = GP_NO_HINT;
-	struct task_struct *tsk;
+	struct task_struct *tsk = current;
 	unsigned long gp_addr;
 	int ret;
-
-	cond_local_irq_enable(regs);
-
-	if (static_cpu_has(X86_FEATURE_UMIP)) {
-		if (user_mode(regs) && fixup_umip_exception(regs))
-			goto exit;
-	}
-
-	if (v8086_mode(regs)) {
-		local_irq_enable();
-		handle_vm86_fault((struct kernel_vm86_regs *) regs, error_code);
-		local_irq_disable();
-		return;
-	}
-
-	tsk = current;
 
 	if (user_mode(regs)) {
 		tsk->thread.error_code = error_code;
@@ -596,6 +581,27 @@ DEFINE_IDTENTRY_ERRORCODE(exc_general_protection)
 
 exit:
 	cond_local_irq_disable(regs);
+}
+
+DEFINE_IDTENTRY_ERRORCODE(exc_general_protection)
+{
+	cond_local_irq_enable(regs);
+
+	if (static_cpu_has(X86_FEATURE_UMIP)) {
+		if (user_mode(regs) && fixup_umip_exception(regs)) {
+			cond_local_irq_disable(regs);
+			return;
+		}
+	}
+
+	if (v8086_mode(regs)) {
+		local_irq_enable();
+		handle_vm86_fault((struct kernel_vm86_regs *) regs, error_code);
+		local_irq_disable();
+		return;
+	}
+
+	do_general_protection(regs, error_code);
 }
 
 static bool do_int3(struct pt_regs *regs)
@@ -1064,6 +1070,26 @@ DEFINE_IDTENTRY(exc_device_not_available)
 		die("unexpected #NM exception", regs, 0);
 	}
 }
+
+#ifdef CONFIG_INTEL_TDX_GUEST
+DEFINE_IDTENTRY(exc_virtualization_exception)
+{
+	struct ve_info ve;
+	int ret;
+
+	RCU_LOCKDEP_WARN(!rcu_is_watching(), "entry code didn't wake RCU");
+
+	/* Consume #VE info before re-enabling interrupts */
+	ret = tdx_get_ve_info(&ve);
+	cond_local_irq_enable(regs);
+	if (!ret)
+		ret = tdx_handle_virtualization_exception(regs, &ve);
+	if (ret)
+		do_general_protection(regs, 0);
+	else
+		cond_local_irq_disable(regs);
+}
+#endif
 
 #ifdef CONFIG_X86_32
 DEFINE_IDTENTRY_SW(iret_error)

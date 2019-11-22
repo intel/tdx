@@ -6,6 +6,9 @@
 
 #include <asm/tdx.h>
 
+/* TDX Module call Leaf IDs */
+#define TDGETVEINFO			3
+
 /*
  * Wrapper for standard use of __tdx_hypercall with BUG_ON() check
  * for TDCALL error.
@@ -39,6 +42,41 @@ static inline bool cpuid_has_tdx_guest(void)
 	cpuid_count(TDX_CPUID_LEAF_ID, 0, &eax, &sig[0], &sig[2], &sig[1]);
 
 	return !memcmp("IntelTDX    ", sig, 12);
+}
+
+unsigned long tdg_get_ve_info(struct ve_info *ve)
+{
+	u64 ret;
+	struct tdx_module_output out = {0};
+
+	/*
+	 * NMIs and machine checks are suppressed. Before this point any
+	 * #VE is fatal. After this point (TDGETVEINFO call), NMIs and
+	 * additional #VEs are permitted (but we don't expect them to
+	 * happen unless you panic).
+	 */
+	ret = __tdx_module_call(TDGETVEINFO, 0, 0, 0, 0, &out);
+
+	ve->exit_reason = out.rcx;
+	ve->exit_qual   = out.rdx;
+	ve->gla         = out.r8;
+	ve->gpa         = out.r9;
+	ve->instr_len   = out.r10 & UINT_MAX;
+	ve->instr_info  = out.r10 >> 32;
+
+	return ret;
+}
+
+int tdg_handle_virtualization_exception(struct pt_regs *regs,
+					struct ve_info *ve)
+{
+	/*
+	 * TODO: Add handler support for various #VE exit
+	 * reasons. It will be added by other patches in
+	 * the series.
+	 */
+	pr_warn("Unexpected #VE: %lld\n", ve->exit_reason);
+	return -EFAULT;
 }
 
 void __init tdx_early_init(void)

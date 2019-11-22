@@ -11,6 +11,7 @@
 #include <linux/types.h>
 
 #define TDINFO			1
+#define TDGETVEINFO		3
 
 struct tdcall_output {
 	u64 rcx;
@@ -28,6 +29,20 @@ struct tdvmcall_output {
 	u64 r14;
 	u64 r15;
 };
+
+struct ve_info {
+	u64 exit_reason;
+	u64 exit_qual;
+	u64 gla;
+	u64 gpa;
+	u32 instr_len;
+	u32 instr_info;
+};
+
+unsigned long tdg_get_ve_info(struct ve_info *ve);
+
+int tdg_handle_virtualization_exception(struct pt_regs *regs,
+		struct ve_info *ve);
 
 /* Common API to check TDX support in decompression and common kernel code. */
 bool is_tdx_guest(void);

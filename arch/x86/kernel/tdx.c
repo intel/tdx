@@ -82,6 +82,44 @@ static void tdg_get_info(void)
 	td_info.attributes = out.rdx;
 }
 
+unsigned long tdg_get_ve_info(struct ve_info *ve)
+{
+	u64 ret;
+	struct tdcall_output out = {0};
+
+	/*
+	 * The #VE cannot be nested before TDGETVEINFO is called,
+	 * if there is any reason for it to nest the TD would shut
+	 * down. The TDX module guarantees that no NMIs (or #MC or
+	 * similar) can happen in this window. After TDGETVEINFO
+	 * the #VE handler can nest if needed, although we don’t
+	 * expect it to happen normally.
+	 */
+
+	ret = __tdcall(TDGETVEINFO, 0, 0, 0, 0, &out);
+
+	ve->exit_reason = out.rcx;
+	ve->exit_qual   = out.rdx;
+	ve->gla         = out.r8;
+	ve->gpa         = out.r9;
+	ve->instr_len   = out.r10 & UINT_MAX;
+	ve->instr_info  = out.r10 >> 32;
+
+	return ret;
+}
+
+int tdg_handle_virtualization_exception(struct pt_regs *regs,
+		struct ve_info *ve)
+{
+	/*
+	 * TODO: Add handler support for various #VE exit
+	 * reasons. It will be added by other patches in
+	 * the series.
+	 */
+	pr_warn("Unexpected #VE: %lld\n", ve->exit_reason);
+	return -EFAULT;
+}
+
 void __init tdx_early_init(void)
 {
 	if (!cpuid_has_tdx_guest())

@@ -61,6 +61,7 @@
 #include <asm/insn.h>
 #include <asm/insn-eval.h>
 #include <asm/vdso.h>
+#include <asm/tdx.h>
 
 #ifdef CONFIG_X86_64
 #include <asm/x86_init.h>
@@ -1138,6 +1139,74 @@ DEFINE_IDTENTRY(exc_device_not_available)
 		die("unexpected #NM exception", regs, 0);
 	}
 }
+
+#define VEFSTR "VE fault"
+static void ve_raise_fault(struct pt_regs *regs, long error_code)
+{
+	struct task_struct *tsk = current;
+
+	if (user_mode(regs)) {
+		tsk->thread.error_code = error_code;
+		tsk->thread.trap_nr = X86_TRAP_VE;
+
+		/*
+		 * Not fixing up VDSO exceptions similar to #GP handler
+		 * because we don't expect the VDSO to trigger #VE.
+		 */
+		show_signal(tsk, SIGSEGV, "", VEFSTR, regs, error_code);
+		force_sig(SIGSEGV);
+		return;
+	}
+
+	if (fixup_exception(regs, X86_TRAP_VE, error_code, 0))
+		return;
+
+	tsk->thread.error_code = error_code;
+	tsk->thread.trap_nr = X86_TRAP_VE;
+
+	/*
+	 * To be potentially processing a kprobe fault and to trust the result
+	 * from kprobe_running(), we have to be non-preemptible.
+	 */
+	if (!preemptible() &&
+	    kprobe_running() &&
+	    kprobe_fault_handler(regs, X86_TRAP_VE))
+		return;
+
+	notify_die(DIE_GPF, VEFSTR, regs, error_code, X86_TRAP_VE, SIGSEGV);
+
+	die_addr(VEFSTR, regs, error_code, 0);
+}
+
+#ifdef CONFIG_INTEL_TDX_GUEST
+DEFINE_IDTENTRY(exc_virtualization_exception)
+{
+	struct ve_info ve;
+	int ret;
+
+	RCU_LOCKDEP_WARN(!rcu_is_watching(), "entry code didn't wake RCU");
+
+	/*
+	 * NMIs/Machine-checks/Interrupts will be in a disabled state
+	 * till TDGETVEINFO TDCALL is executed. This prevents #VE
+	 * nesting issue.
+	 */
+	ret = tdg_get_ve_info(&ve);
+
+	cond_local_irq_enable(regs);
+
+	if (!ret)
+		ret = tdg_handle_virtualization_exception(regs, &ve);
+	/*
+	 * If tdg_handle_virtualization_exception() could not process
+	 * it successfully, treat it as #GP(0) and handle it.
+	 */
+	if (ret)
+		ve_raise_fault(regs, 0);
+
+	cond_local_irq_disable(regs);
+}
+#endif
 
 #ifdef CONFIG_X86_32
 DEFINE_IDTENTRY_SW(iret_error)

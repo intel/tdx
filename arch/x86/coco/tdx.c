@@ -10,6 +10,7 @@
 
 /* TDX module Call Leaf IDs */
 #define TDX_GET_INFO			1
+#define TDX_GET_VEINFO			3
 
 static struct {
 	unsigned int gpa_width;
@@ -56,6 +57,65 @@ static void get_info(void)
 
 	td_info.gpa_width = out.rcx & GENMASK(5, 0);
 	td_info.attributes = out.rdx;
+}
+
+void tdx_get_ve_info(struct ve_info *ve)
+{
+	struct tdx_module_output out;
+
+	/*
+	 * Retrieve the #VE info from the TDX module, which also clears the "#VE
+	 * valid" flag.  This must be done before anything else as any #VE that
+	 * occurs while the valid flag is set, i.e. before the previous #VE info
+	 * was consumed, is morphed to a #DF by the TDX module.  Note, the TDX
+	 * module also treats virtual NMIs as inhibited if the #VE valid flag is
+	 * set, e.g. so that NMI=>#VE will not result in a #DF.
+	 */
+	tdx_module_call(TDX_GET_VEINFO, 0, 0, 0, 0, &out);
+
+	ve->exit_reason = out.rcx;
+	ve->exit_qual   = out.rdx;
+	ve->gla         = out.r8;
+	ve->gpa         = out.r9;
+	ve->instr_len   = lower_32_bits(out.r10);
+	ve->instr_info  = upper_32_bits(out.r10);
+}
+
+/*
+ * Handle the user initiated #VE.
+ *
+ * For example, executing the CPUID instruction from user space
+ * is a valid case and hence the resulting #VE has to be handled.
+ *
+ * For dis-allowed or invalid #VE just return failure.
+ */
+static bool virt_exception_user(struct pt_regs *regs, struct ve_info *ve)
+{
+	pr_warn("Unexpected #VE: %lld\n", ve->exit_reason);
+	return false;
+}
+
+/* Handle the kernel #VE */
+static bool virt_exception_kernel(struct pt_regs *regs, struct ve_info *ve)
+{
+	pr_warn("Unexpected #VE: %lld\n", ve->exit_reason);
+	return false;
+}
+
+bool tdx_handle_virt_exception(struct pt_regs *regs, struct ve_info *ve)
+{
+	bool ret;
+
+	if (user_mode(regs))
+		ret = virt_exception_user(regs, ve);
+	else
+		ret = virt_exception_kernel(regs, ve);
+
+	/* After successful #VE handling, move the IP */
+	if (ret)
+		regs->ip += ve->instr_len;
+
+	return ret;
 }
 
 void __init tdx_early_init(void)

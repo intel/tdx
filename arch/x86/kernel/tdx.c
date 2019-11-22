@@ -62,3 +62,34 @@ void __init tdx_early_init(void)
 
 	pr_info("TDX guest is initialized\n");
 }
+
+unsigned long tdx_get_ve_info(struct ve_info *ve)
+{
+	register long r8 asm("r8");
+	register long r9 asm("r9");
+	register long r10 asm("r10");
+	unsigned long ret;
+
+	asm volatile(TDCALL
+		     : "=a"(ret), "=c"(ve->exit_reason), "=d"(ve->exit_qual),
+		     "=r"(r8), "=r"(r9), "=r"(r10)
+		     : "a"(TDGETVEINFO)
+		     :);
+
+	ve->gla = r8;
+	ve->gpa = r9;
+	ve->instr_len = r10 & UINT_MAX;
+	ve->instr_info = r10 >> 32;
+	return ret;
+}
+
+int tdx_handle_virtualization_exception(struct pt_regs *regs,
+		struct ve_info *ve)
+{
+	/*
+	 * TODO: Add handler support for various #VE exit
+	 * reasons
+	 */
+	pr_warn("Unexpected #VE: %d\n", ve->exit_reason);
+	return -EFAULT;
+}

@@ -6,6 +6,9 @@
 
 #include <asm/tdx.h>
 
+/* TDX Module call Leaf IDs */
+#define TDX_GET_VEINFO			3
+
 bool is_tdx_guest(void)
 {
 	static int tdx_guest = -1;
@@ -48,6 +51,41 @@ static inline u64 _tdx_hypercall(u64 fn, u64 r12, u64 r13, u64 r14,
 	BUG_ON(err);
 
 	return out->r10;
+}
+
+bool tdx_get_ve_info(struct ve_info *ve)
+{
+	struct tdx_module_output out;
+	u64 ret;
+
+	if (!ve)
+		return false;
+
+	/*
+	 * NMIs and machine checks are suppressed. Before this point any
+	 * #VE is fatal. After this point (TDGETVEINFO call), NMIs and
+	 * additional #VEs are permitted (but it is expected not to
+	 * happen unless kernel panics).
+	 */
+	ret = __tdx_module_call(TDX_GET_VEINFO, 0, 0, 0, 0, &out);
+	if (ret)
+		return false;
+
+	ve->exit_reason = out.rcx;
+	ve->exit_qual   = out.rdx;
+	ve->gla         = out.r8;
+	ve->gpa         = out.r9;
+	ve->instr_len   = out.r10 & UINT_MAX;
+	ve->instr_info  = out.r10 >> 32;
+
+	return true;
+}
+
+bool tdx_handle_virtualization_exception(struct pt_regs *regs,
+					 struct ve_info *ve)
+{
+	pr_warn("Unexpected #VE: %lld\n", ve->exit_reason);
+	return false;
 }
 
 void __init tdx_early_init(void)

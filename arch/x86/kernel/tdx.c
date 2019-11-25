@@ -157,6 +157,21 @@ static int tdg_write_msr_safe(unsigned int msr, unsigned int low,
 	return ret ? -EIO : 0;
 }
 
+static void tdg_handle_cpuid(struct pt_regs *regs)
+{
+	u64 ret;
+	struct tdx_hypercall_output out = {0};
+
+	ret = _tdx_hypercall(EXIT_REASON_CPUID, regs->ax, regs->cx, 0, 0, &out);
+
+	WARN_ON(ret);
+
+	regs->ax = out.r12;
+	regs->bx = out.r13;
+	regs->cx = out.r14;
+	regs->dx = out.r15;
+}
+
 unsigned long tdg_get_ve_info(struct ve_info *ve)
 {
 	u64 ret;
@@ -199,6 +214,9 @@ int tdg_handle_virtualization_exception(struct pt_regs *regs,
 		break;
 	case EXIT_REASON_MSR_WRITE:
 		ret = tdg_write_msr_safe(regs->cx, regs->ax, regs->dx);
+		break;
+	case EXIT_REASON_CPUID:
+		tdg_handle_cpuid(regs);
 		break;
 	default:
 		pr_warn("Unexpected #VE: %lld\n", ve->exit_reason);

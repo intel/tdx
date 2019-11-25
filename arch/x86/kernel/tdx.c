@@ -172,6 +172,35 @@ static int tdx_write_msr_safe(unsigned int msr, unsigned int low,
 	return ret || r10 ? -EIO : 0;
 }
 
+static void tdx_handle_cpuid(struct pt_regs *regs)
+{
+	register long r10 asm("r10") = TDVMCALL_STANDARD;
+	register long r11 asm("r11") = EXIT_REASON_CPUID;
+	register long r12 asm("r12") = regs->ax;
+	register long r13 asm("r13") = regs->cx;
+	register long r14 asm("r14");
+	register long r15 asm("r15");
+	register long rcx asm("rcx");
+	long ret;
+
+	/* Allow to pass R10, R11, R12, R13, R14 and R15 down to the VMM */
+	rcx = BIT(10) | BIT(11) | BIT(12) | BIT(13) | BIT(14) | BIT(15);
+
+	asm volatile(TDCALL
+			: "=a"(ret), "=r"(r10), "=r"(r11), "=r"(r12), "=r"(r13),
+			  "=r"(r14), "=r"(r15)
+			: "a"(TDVMCALL), "r"(rcx), "r"(r10), "r"(r11), "r"(r12),
+			  "r"(r13)
+			: );
+
+	regs->ax = r12;
+	regs->bx = r13;
+	regs->cx = r14;
+	regs->dx = r15;
+
+	WARN_ON(ret || r10);
+}
+
 void __init tdx_early_init(void)
 {
 	if (!cpuid_has_tdx_guest())
@@ -226,6 +255,9 @@ int tdx_handle_virtualization_exception(struct pt_regs *regs,
 		break;
 	case EXIT_REASON_MSR_WRITE:
 		ret = tdx_write_msr_safe(regs->cx, regs->ax, regs->dx);
+		break;
+	case EXIT_REASON_CPUID:
+		tdx_handle_cpuid(regs);
 		break;
 	default:
 		pr_warn("Unexpected #VE: %d\n", ve->exit_reason);

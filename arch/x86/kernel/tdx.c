@@ -14,12 +14,18 @@
 #include <linux/sched/signal.h> /* force_sig_fault() */
 
 /* TDX Module call Leaf IDs */
+#define TDINFO				1
 #define TDGETVEINFO			3
 
 #define VE_IS_IO_OUT(exit_qual)		(((exit_qual) & 8) ? 0 : 1)
 #define VE_GET_IO_SIZE(exit_qual)	(((exit_qual) & 7) + 1)
 #define VE_GET_PORT_NUM(exit_qual)	((exit_qual) >> 16)
 #define VE_IS_IO_STRING(exit_qual)	((exit_qual) & 16 ? 1 : 0)
+
+static struct {
+	unsigned int gpa_width;
+	unsigned long attributes;
+} td_info __ro_after_init;
 
 /*
  * Wrapper for standard use of __tdx_hypercall with BUG_ON() check
@@ -54,6 +60,19 @@ static inline bool cpuid_has_tdx_guest(void)
 	cpuid_count(TDX_CPUID_LEAF_ID, 0, &eax, &sig[0], &sig[2], &sig[1]);
 
 	return !memcmp("IntelTDX    ", sig, 12);
+}
+
+static void tdx_get_info(void)
+{
+	struct tdx_module_output out = {0};
+	u64 ret;
+
+	ret = __tdx_module_call(TDINFO, 0, 0, 0, 0, &out);
+
+	BUG_ON(ret);
+
+	td_info.gpa_width = out.rcx & GENMASK(5, 0);
+	td_info.attributes = out.rdx;
 }
 
 static __cpuidle void tdg_halt(void)
@@ -412,6 +431,8 @@ void __init tdx_early_init(void)
 		return;
 
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
+
+	tdx_get_info();
 
 	pv_ops.irq.safe_halt = tdg_safe_halt;
 	pv_ops.irq.halt = tdg_halt;

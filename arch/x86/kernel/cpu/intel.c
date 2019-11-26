@@ -66,6 +66,7 @@ bool intel_prot_guest_has(unsigned int flag)
 {
 	switch (flag) {
 	case PATTR_GUEST_TDX:
+	case PATTR_GUEST_UNROLL_STRING_IO:
 		return cpu_feature_enabled(X86_FEATURE_TDX_GUEST);
 	}
 

@@ -269,22 +269,26 @@ static int tdx_handle_mmio(struct pt_regs *regs, struct ve_info *ve)
 }
 
 /*
- * Handle early I/O, mainly for earlyprintk serial output.
+ * Emulate I/O using hypercall.
  *
  * Assumes the IO instruction was using ax, which is enforced
  * by the standard io.h macros.
  *
  * Return True on success or False on failure.
  */
-static __init bool tdx_early_io(struct pt_regs *regs, u32 exit_qual)
+static bool tdx_handle_io(struct pt_regs *regs, u32 exit_qual, bool early)
 {
 	struct tdx_hypercall_output out;
 	int size, port, ret;
+	bool in, string;
 	u64 mask;
-	bool in;
 
-	if (VE_IS_IO_STRING(exit_qual))
+	string = VE_IS_IO_STRING(exit_qual);
+
+	if (early && string)
 		return false;
+
+	BUG_ON(string);
 
 	in   = VE_IS_IO_IN(exit_qual);
 	size = VE_GET_IO_SIZE(exit_qual);
@@ -321,7 +325,7 @@ __init bool tdx_early_handle_ve(struct pt_regs *regs)
 	if (ve.exit_reason != EXIT_REASON_IO_INSTRUCTION)
 		return false;
 
-	return tdx_early_io(regs, ve.exit_qual);
+	return tdx_handle_io(regs, ve.exit_qual, 1);
 }
 
 bool tdx_get_ve_info(struct ve_info *ve)
@@ -405,6 +409,9 @@ static bool tdx_virt_exception_kernel(struct pt_regs *regs, struct ve_info *ve)
 		break;
 	default:
 		pr_warn("Unexpected #VE: %lld\n", ve->exit_reason);
+		break;
+	case EXIT_REASON_IO_INSTRUCTION:
+		ret = tdx_handle_io(regs, ve->exit_qual, 0);
 		break;
 	}
 

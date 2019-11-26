@@ -189,6 +189,36 @@ static void tdg_handle_cpuid(struct pt_regs *regs)
 	regs->dx = out.r15;
 }
 
+static void tdg_out(int size, int port, unsigned int value)
+{
+	tdvmcall(EXIT_REASON_IO_INSTRUCTION, size, 1, port, value);
+}
+
+static unsigned int tdg_in(int size, int port)
+{
+	return tdvmcall_out_r11(EXIT_REASON_IO_INSTRUCTION, size, 0, port, 0);
+}
+
+static void tdg_handle_io(struct pt_regs *regs, u32 exit_qual)
+{
+	bool string = exit_qual & 16;
+	int out, size, port;
+
+	/* I/O strings ops are unrolled at build time. */
+	BUG_ON(string);
+
+	out = (exit_qual & 8) ? 0 : 1;
+	size = (exit_qual & 7) + 1;
+	port = exit_qual >> 16;
+
+	if (out) {
+		tdg_out(size, port, regs->ax);
+	} else {
+		regs->ax &= ~GENMASK(8 * size, 0);
+		regs->ax |= tdg_in(size, port) & GENMASK(8 * size, 0);
+	}
+}
+
 unsigned long tdg_get_ve_info(struct ve_info *ve)
 {
 	u64 ret;
@@ -237,6 +267,9 @@ int tdg_handle_virtualization_exception(struct pt_regs *regs,
 		break;
 	case EXIT_REASON_CPUID:
 		tdg_handle_cpuid(regs);
+		break;
+	case EXIT_REASON_IO_INSTRUCTION:
+		tdg_handle_io(regs, ve->exit_qual);
 		break;
 	default:
 		pr_warn("Unexpected #VE: %lld\n", ve->exit_reason);

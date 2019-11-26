@@ -3,6 +3,7 @@
 #include <asm/asm.h>
 #include <asm/frame.h>
 #include <asm/unwind_hints.h>
+#include <asm/export.h>
 
 #include <linux/linkage.h>
 
@@ -12,6 +13,12 @@
  */
 #define TDVMCALL_EXPOSE_REGS_MASK	0xfc00
 #define TDVMCALL_VENDOR_KVM		0x4d564b2e584454 /* "TDX.KVM" */
+#define EXIT_REASON_IO_INSTRUCTION	30
+/*
+ * Current size of struct tdvmcall_output is 40 bytes,
+ * but allocate double to account future changes.
+ */
+#define TDVMCALL_OUTPUT_SIZE		80
 
 /*
  * TDX guests use the TDCALL instruction to make
@@ -205,3 +212,150 @@ SYM_FUNC_START(__tdvmcall_vendor_kvm)
 	call do_tdvmcall
 	retq
 SYM_FUNC_END(__tdvmcall_vendor_kvm)
+
+.macro io_save_registers
+	push %rbp
+	push %rbx
+	push %rcx
+	push %rdx
+	push %rdi
+	push %rsi
+	push %r8
+	push %r9
+	push %r10
+	push %r11
+	push %r12
+	push %r13
+	push %r14
+	push %r15
+.endm
+.macro io_restore_registers
+	pop %r15
+	pop %r14
+	pop %r13
+	pop %r12
+	pop %r11
+	pop %r10
+	pop %r9
+	pop %r8
+	pop %rsi
+	pop %rdi
+	pop %rdx
+	pop %rcx
+	pop %rbx
+	pop %rbp
+.endm
+
+/*
+ * tdg_out{b,w,l}()  - Write given data to the specified port.
+ *
+ * @arg1 (RAX)       - Value to be written (passed via R8 to do_tdvmcall()).
+ * @arg2 (RDX)       - Port id (passed via RCX to do_tdvmcall()).
+ *
+ */
+SYM_FUNC_START(tdg_outb)
+	io_save_registers
+	xor %r8, %r8
+	/* Move data to R8 register */
+	mov %al, %r8b
+	/* Set data width to 1 byte */
+	mov $1, %rsi
+	jmp 1f
+
+SYM_FUNC_START(tdg_outw)
+	io_save_registers
+	xor %r8, %r8
+	/* Move data to R8 register */
+	mov %ax, %r8w
+	/* Set data width to 2 bytes */
+	mov $2, %rsi
+	jmp 1f
+
+SYM_FUNC_START(tdg_outl)
+	io_save_registers
+	xor %r8, %r8
+	/* Move data to R8 register */
+	mov %eax, %r8d
+	/* Set data width to 4 bytes */
+	mov $4, %rsi
+1:
+	/*
+	 * Since io_save_registers does not save rax
+	 * state, save it here so that we can preserve
+	 * the caller register state.
+	 */
+	push %rax
+
+	mov %rdx, %rcx
+	/* Set 1 in RDX to select out operation */
+	mov $1, %rdx
+	/* Set TDVMCALL function id in RDI */
+	mov $EXIT_REASON_IO_INSTRUCTION, %rdi
+	/* Set TDVMCALL type info (0 - Standard, > 0 - vendor) in R10 */
+	xor %r10, %r10
+	/* Since we don't use tdvmcall output, set it to NULL */
+	xor %r9, %r9
+
+	call do_tdvmcall
+
+	pop %rax
+	io_restore_registers
+	ret
+SYM_FUNC_END(tdg_outb)
+SYM_FUNC_END(tdg_outw)
+SYM_FUNC_END(tdg_outl)
+EXPORT_SYMBOL(tdg_outb)
+EXPORT_SYMBOL(tdg_outw)
+EXPORT_SYMBOL(tdg_outl)
+
+/*
+ * tdg_in{b,w,l}()   - Read data to the specified port.
+ *
+ * @arg1 (RDX)       - Port id (passed via RCX to do_tdvmcall()).
+ *
+ * Returns data read via RAX register.
+ *
+ */
+SYM_FUNC_START(tdg_inb)
+	io_save_registers
+	/* Set data width to 1 byte */
+	mov $1, %rsi
+	jmp 1f
+
+SYM_FUNC_START(tdg_inw)
+	io_save_registers
+	/* Set data width to 2 bytes */
+	mov $2, %rsi
+	jmp 1f
+
+SYM_FUNC_START(tdg_inl)
+	io_save_registers
+	/* Set data width to 4 bytes */
+	mov $4, %rsi
+1:
+	mov %rdx, %rcx
+	/* Set 0 in RDX to select in operation */
+	mov $0, %rdx
+	/* Set TDVMCALL function id in RDI */
+	mov $EXIT_REASON_IO_INSTRUCTION, %rdi
+	/* Set TDVMCALL type info (0 - Standard, > 0 - vendor) in R10 */
+	xor %r10, %r10
+	/* Allocate memory in stack for Output */
+	subq $TDVMCALL_OUTPUT_SIZE, %rsp
+	/* Move tdvmcall_output pointer to R9 */
+	movq %rsp, %r9
+
+	call do_tdvmcall
+
+	/* Move data read from port to RAX */
+	mov TDVMCALL_r11(%r9), %eax
+	/* Free allocated memory */
+	addq $TDVMCALL_OUTPUT_SIZE, %rsp
+	io_restore_registers
+	ret
+SYM_FUNC_END(tdg_inb)
+SYM_FUNC_END(tdg_inw)
+SYM_FUNC_END(tdg_inl)
+EXPORT_SYMBOL(tdg_inb)
+EXPORT_SYMBOL(tdg_inw)
+EXPORT_SYMBOL(tdg_inl)

@@ -9,6 +9,10 @@
 
 #ifdef CONFIG_INTEL_TDX_GUEST
 
+#define TDCALL	".byte 0x66,0x0f,0x01,0xcc"
+
+#define TDINFO		1
+
 static inline bool cpuid_has_tdx_guest(void)
 {
 	uint32_t eax, signature[3];

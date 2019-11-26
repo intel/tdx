@@ -10,6 +10,8 @@
 #include <asm/cpufeature.h>
 #include <linux/types.h>
 
+#define TDINFO			1
+
 struct tdcall_output {
 	u64 rcx;
 	u64 rdx;

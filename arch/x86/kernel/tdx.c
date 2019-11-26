@@ -201,6 +201,75 @@ static void tdx_handle_cpuid(struct pt_regs *regs)
 	WARN_ON(ret || r10);
 }
 
+static void tdx_out(int size, unsigned int value, int port)
+{
+	register long r10 asm("r10") = TDVMCALL_STANDARD;
+	register long r11 asm("r11") = EXIT_REASON_IO_INSTRUCTION;
+	register long r12 asm("r12") = size;
+	register long r13 asm("r13") = 1;
+	register long r14 asm("r14") = port;
+	register long r15 asm("r15") = value;
+	register long rcx asm("rcx");
+	long ret;
+
+	/* Allow to pass R10, R11, R12, R13, R14 and R15 down to the VMM */
+	rcx = BIT(10) | BIT(11) | BIT(12) | BIT(13) | BIT(14) | BIT(15);
+
+	asm volatile(TDCALL
+			: "=a"(ret), "=r"(r10), "=r"(r11), "=r"(r12), "=r"(r13),
+			  "=r"(r14), "=r"(r15)
+			: "a"(TDVMCALL), "r"(rcx), "r"(r10), "r"(r11), "r"(r12),
+			  "r"(r13), "r"(r14), "r"(r15)
+			: );
+
+	WARN_ON(ret || r10);
+}
+
+static unsigned int tdx_in(int size, int port)
+{
+	register long r10 asm("r10") = TDVMCALL_STANDARD;
+	register long r11 asm("r11") = EXIT_REASON_IO_INSTRUCTION;
+	register long r12 asm("r12") = size;
+	register long r13 asm("r13") = 0;
+	register long r14 asm("r14") = port;
+	register long rcx asm("rcx");
+	long ret;
+
+	/* Allow to pass R10, R11, R12, R13 and R14 down to the VMM */
+	rcx = BIT(10) | BIT(11) | BIT(12) | BIT(13) | BIT(14);
+
+	asm volatile(TDCALL
+			: "=a"(ret), "=r"(r10), "=r"(r11), "=r"(r12), "=r"(r13),
+			  "=r"(r14)
+			: "a"(TDVMCALL), "r"(rcx), "r"(r10), "r"(r11), "r"(r12),
+			  "r"(r13), "r"(r14)
+			: );
+
+	WARN_ON(ret || r10);
+
+	return r11;
+}
+
+static void tdx_handle_io(struct pt_regs *regs, u32 exit_qual)
+{
+	bool string = exit_qual & 16;
+	int out, size, port;
+
+	/* I/O strings ops are unrolled at build time. */
+	BUG_ON(string);
+
+	out = (exit_qual & 8) ? 0 : 1;
+	size = (exit_qual & 7) + 1;
+	port = exit_qual >> 16;
+
+	if (out) {
+		tdx_out(size, regs->ax, port);
+	} else {
+		regs->ax &= ~GENMASK(8 * size, 0);
+		regs->ax |= tdx_in(size, port) & GENMASK(8 * size, 0);
+	}
+}
+
 void __init tdx_early_init(void)
 {
 	if (!cpuid_has_tdx_guest())
@@ -258,6 +327,9 @@ int tdx_handle_virtualization_exception(struct pt_regs *regs,
 		break;
 	case EXIT_REASON_CPUID:
 		tdx_handle_cpuid(regs);
+		break;
+	case EXIT_REASON_IO_INSTRUCTION:
+		tdx_handle_io(regs, ve->exit_qual);
 		break;
 	default:
 		pr_warn("Unexpected #VE: %d\n", ve->exit_reason);

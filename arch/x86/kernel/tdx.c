@@ -13,12 +13,18 @@
 #include <asm/insn-eval.h>
 
 /* TDX Module Call Leaf IDs */
+#define TDX_GET_INFO			1
 #define TDX_GET_VEINFO			3
 
 #define VE_IS_IO_IN(exit_qual)		(((exit_qual) & 8) ? 1 : 0)
 #define VE_GET_IO_SIZE(exit_qual)	(((exit_qual) & 7) + 1)
 #define VE_GET_PORT_NUM(exit_qual)	((exit_qual) >> 16)
 #define VE_IS_IO_STRING(exit_qual)	((exit_qual) & 16 ? 1 : 0)
+
+static struct {
+	unsigned int gpa_width;
+	unsigned long attributes;
+} td_info __ro_after_init;
 
 static bool tdx_guest_detected __ro_after_init;
 
@@ -61,6 +67,29 @@ long tdx_kvm_hypercall(unsigned int nr, unsigned long p1, unsigned long p2,
 }
 EXPORT_SYMBOL_GPL(tdx_kvm_hypercall);
 #endif
+
+static void tdx_get_info(void)
+{
+	struct tdx_module_output out;
+	u64 ret;
+
+	/*
+	 * TDINFO TDX Module call is used to get the TD
+	 * execution environment information like GPA
+	 * width, number of available vcpus, debug mode
+	 * information, etc. More details about the ABI
+	 * can be found in TDX Guest-Host-Communication
+	 * Interface (GHCI), sec 2.4.2 TDCALL [TDG.VP.INFO].
+	 */
+	ret = __tdx_module_call(TDX_GET_INFO, 0, 0, 0, 0, &out);
+
+	/* Non zero return value indicates buggy TDX module, so panic */
+	if (ret)
+		panic("TDINFO TDCALL failed (Buggy TDX module!)\n");
+
+	td_info.gpa_width = out.rcx & GENMASK(5, 0);
+	td_info.attributes = out.rdx;
+}
 
 static __cpuidle void _tdx_halt(const bool irq_disabled, const bool do_sti)
 {
@@ -454,6 +483,8 @@ void __init tdx_early_init(void)
 	tdx_guest_detected = true;
 
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
+
+	tdx_get_info();
 
 	pv_ops.irq.safe_halt = tdx_safe_halt;
 	pv_ops.irq.halt = tdx_halt;

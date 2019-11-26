@@ -7,6 +7,15 @@
 
 #ifdef CONFIG_INTEL_TDX_GUEST
 
+/*
+ * TDCALL instruction is newly added in TDX architecture,
+ * used by TD for requesting the host VMM to provide
+ * (untrusted) services. Supported in Binutils >= 2.36
+ */
+#define TDCALL	".byte 0x66,0x0f,0x01,0xcc"
+
+#define TDINFO		1
+
 /* Common API to check TDX support in decompression and common kernel code. */
 bool is_tdx_guest(void);
 

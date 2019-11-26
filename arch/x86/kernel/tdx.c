@@ -4,6 +4,14 @@
 #define pr_fmt(fmt) "TDX: " fmt
 
 #include <asm/tdx.h>
+#include <asm/vmx.h>
+
+#include <linux/cpu.h>
+
+static struct {
+	unsigned int gpa_width;
+	unsigned long attributes;
+} td_info __ro_after_init;
 
 /*
  * Wrapper for use case that checks for error code and print warning message.
@@ -61,12 +69,27 @@ bool is_tdx_guest(void)
 }
 EXPORT_SYMBOL_GPL(is_tdx_guest);
 
+static void tdg_get_info(void)
+{
+	u64 ret;
+	struct tdcall_output out = {0};
+
+	ret = __tdcall(TDINFO, 0, 0, 0, 0, &out);
+
+	BUG_ON(ret);
+
+	td_info.gpa_width = out.rcx & GENMASK(5, 0);
+	td_info.attributes = out.rdx;
+}
+
 void __init tdx_early_init(void)
 {
 	if (!cpuid_has_tdx_guest())
 		return;
 
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
+
+	tdg_get_info();
 
 	pr_info("TDX guest is initialized\n");
 }

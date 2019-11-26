@@ -5,6 +5,8 @@
 
 #define TDX_CPUID_LEAF_ID	0x21
 
+#ifndef __ASSEMBLY__
+
 #ifdef CONFIG_INTEL_TDX_GUEST
 
 #include <asm/cpufeature.h>
@@ -67,6 +69,48 @@ long tdx_kvm_hypercall3(unsigned int nr, unsigned long p1, unsigned long p2,
 long tdx_kvm_hypercall4(unsigned int nr, unsigned long p1, unsigned long p2,
 		unsigned long p3, unsigned long p4);
 
+/* Decompression code doesn't know how to handle alternatives */
+#ifdef BOOT_COMPRESSED_MISC_H
+#define __out(bwl, bw)							\
+do {									\
+	if (is_tdx_guest()) {						\
+		asm volatile("call tdg_out" #bwl : :			\
+				"a"(value), "d"(port));			\
+	} else {							\
+		asm volatile("out" #bwl " %" #bw "0, %w1" : :		\
+				"a"(value), "Nd"(port));		\
+	}								\
+} while (0)
+#define __in(bwl, bw)							\
+do {									\
+	if (is_tdx_guest()) {						\
+		asm volatile("call tdg_in" #bwl :			\
+				"=a"(value) : "d"(port));		\
+	} else {							\
+		asm volatile("in" #bwl " %w1, %" #bw "0" :		\
+				"=a"(value) : "Nd"(port));		\
+	}								\
+} while (0)
+#else
+#define __out(bwl, bw)							\
+	alternative_input("out" #bwl " %" #bw "1, %w2",			\
+			"call tdg_out" #bwl, X86_FEATURE_TDX_GUEST,	\
+			"a"(value), "d"(port))
+
+#define __in(bwl, bw)							\
+	alternative_io("in" #bwl " %w2, %" #bw "0",			\
+			"call tdg_in" #bwl, X86_FEATURE_TDX_GUEST,	\
+			"=a"(value), "d"(port))
+#endif
+
+void tdg_outb(unsigned char value, unsigned short port);
+void tdg_outw(unsigned short value, unsigned short port);
+void tdg_outl(unsigned int value, unsigned short port);
+
+unsigned char tdg_inb(unsigned short port);
+unsigned short tdg_inw(unsigned short port);
+unsigned int tdg_inl(unsigned short port);
+
 #else // !CONFIG_INTEL_TDX_GUEST
 
 static inline bool is_tdx_guest(void)
@@ -106,5 +150,5 @@ static inline long tdx_kvm_hypercall4(unsigned int nr, unsigned long p1,
 }
 
 #endif /* CONFIG_INTEL_TDX_GUEST */
-
+#endif /* __ASSEMBLY__ */
 #endif /* _ASM_X86_TDX_H */

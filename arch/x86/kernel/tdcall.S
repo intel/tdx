@@ -3,6 +3,7 @@
 #include <asm/asm.h>
 #include <asm/frame.h>
 #include <asm/unwind_hints.h>
+#include <asm/export.h>
 
 #include <linux/linkage.h>
 #include <linux/bits.h>
@@ -26,6 +27,15 @@
 					  TDG_R14 | TDG_R15 )
 
 #define TDVMCALL_VENDOR_KVM		0x4d564b2e584454 /* "TDX.KVM" */
+#define EXIT_REASON_IO_INSTRUCTION	30
+/*
+ * Current size of struct tdx_hypercall_output is 40 bytes,
+ * but allocate double to account future changes.
+ */
+#define TDVMCALL_OUTPUT_SIZE		80
+
+/* For IN instruction failure return all 1s */
+#define IO_IN_FAILED_RET_VALUE		0xfffffffff
 
 /*
  * TDX guests use the TDCALL instruction to make requests to the
@@ -222,3 +232,158 @@ SYM_FUNC_START(__tdx_hypercall_vendor_kvm)
 	call do_tdx_hypercall
 	retq
 SYM_FUNC_END(__tdx_hypercall_vendor_kvm)
+
+.macro io_save_registers
+	push %rbp
+	push %rbx
+	push %rcx
+	push %rdx
+	push %rdi
+	push %rsi
+	push %r8
+	push %r9
+	push %r10
+	push %r11
+	push %r12
+	push %r13
+	push %r14
+	push %r15
+.endm
+.macro io_restore_registers
+	pop %r15
+	pop %r14
+	pop %r13
+	pop %r12
+	pop %r11
+	pop %r10
+	pop %r9
+	pop %r8
+	pop %rsi
+	pop %rdi
+	pop %rdx
+	pop %rcx
+	pop %rbx
+	pop %rbp
+.endm
+
+/*
+ * tdg_out{b,w,l}()  - Write given data to the specified port. It sets
+ *		       registers in correct format acceptable to call
+ *		       do_tdx_hypercall().
+ *
+ * RAX       - Value to be written (passed via R8 to do_tdx_hypercall()).
+ * RDX       - Port id (passed via RCX to do_tdx_hypercall()).
+ *
+ */
+SYM_FUNC_START(tdg_outb)
+	io_save_registers
+	xor %r8, %r8
+	mov %al, %r8b		/* Move data to R8 */
+	mov $1, %rsi		/* Set data width to 1 byte */
+	jmp 1f
+
+SYM_FUNC_START(tdg_outw)
+	io_save_registers
+	xor %r8, %r8
+	mov %ax, %r8w		/* Move data to R8 */
+	mov $2, %rsi		/* Set data width to 2 bytes */
+	jmp 1f
+
+SYM_FUNC_START(tdg_outl)
+	io_save_registers
+	xor %r8, %r8
+	mov %eax, %r8d		/* Move data to R8 */
+	mov $4, %rsi		/* Set data width to 4 bytes */
+1:
+	/*
+	 * Since io_save_registers does not save rax
+	 * state, save it here so that we can preserve
+	 * the caller register state.
+	 */
+	push %rax
+
+	mov %rdx, %rcx
+	/* Set 1 in RDX to select out operation */
+	mov $1, %rdx
+	/* Set TDVMCALL function id in RDI */
+	mov $EXIT_REASON_IO_INSTRUCTION, %rdi
+	/* Set TDVMCALL type info (0 - Standard, > 0 - vendor) in R10 */
+	xor %r10, %r10
+	/* Since we don't use tdx_hypercall output, set it to NULL */
+	xor %r9, %r9
+
+	call do_tdx_hypercall
+
+	pop %rax
+	io_restore_registers
+	ret
+SYM_FUNC_END(tdg_outb)
+SYM_FUNC_END(tdg_outw)
+SYM_FUNC_END(tdg_outl)
+EXPORT_SYMBOL(tdg_outb)
+EXPORT_SYMBOL(tdg_outw)
+EXPORT_SYMBOL(tdg_outl)
+
+/*
+ * tdg_in{b,w,l}()   - Read data to the specified port. It sets
+ *		       registers in correct format acceptable to call
+ *		       do_tdx_hypercall().
+ *
+ * RDX       - Port id (passed via RCX to do_tdx_hypercall()).
+ *
+ * Returns data read via RAX register.
+ *
+ */
+SYM_FUNC_START(tdg_inb)
+	io_save_registers
+	mov $1, %rsi		/* Set data width to 1 byte */
+	jmp 1f
+
+SYM_FUNC_START(tdg_inw)
+	io_save_registers
+	mov $2, %rsi		/* Set data width to 2 bytes */
+	jmp 1f
+
+SYM_FUNC_START(tdg_inl)
+	io_save_registers
+	mov $4, %rsi		/* Set data width to 4 bytes */
+1:
+	/* Allocate memory in stack for struct tdx_hypercall_output */
+	subq $TDVMCALL_OUTPUT_SIZE, %rsp
+	/* R9 is not clobbered by VMM, So use it as temporary storage */
+	movq %rsp, %r9
+
+	mov %rdx, %rcx
+	/* Set 0 in RDX to select IN operation */
+	mov $0, %rdx
+	/* Set TDVMCALL function id in RDI */
+	mov $EXIT_REASON_IO_INSTRUCTION, %rdi
+	/* Set TDVMCALL type info (0 - Standard, > 0 - vendor) in R10 */
+	xor %r10, %r10
+
+	call do_tdx_hypercall
+
+	/* Check for success of TDVMCALL */
+	test %rax, %rax
+	jnz tdg_in_failed
+
+	/* Move data read from port to RAX */
+	mov TDX_HYPERCALL_r11(%r9), %eax
+
+	jmp out_tdg_in
+
+tdg_in_failed:
+	/* For failed "in" instruction return 0xff */
+	mov $IO_IN_FAILED_RET_VALUE, %rax
+
+out_tdg_in:
+	/* Free allocated memory */
+	addq $TDVMCALL_OUTPUT_SIZE, %rsp
+	io_restore_registers
+	ret
+SYM_FUNC_END(tdg_inb)
+SYM_FUNC_END(tdg_inw)
+SYM_FUNC_END(tdg_inl)
+EXPORT_SYMBOL(tdg_inb)
+EXPORT_SYMBOL(tdg_inw)
+EXPORT_SYMBOL(tdg_inl)

@@ -5,6 +5,7 @@
 #include <asm/string.h>
 #include <asm/page.h>
 #include <asm/checksum.h>
+#include <asm/tdx.h>
 
 #include <asm-generic/asm-prototypes.h>
 

@@ -3,12 +3,6 @@
 #ifndef _ASM_X86_TDX_H
 #define _ASM_X86_TDX_H
 
-#include <asm/cpufeature.h>
-
-#ifdef CONFIG_INTEL_TDX_GUEST
-
-#define TDCALL	".byte 0x66,0x0f,0x01,0xcc"
-
 #define TDVMCALL	0
 #define TDINFO		1
 #define TDGETVEINFO	3
@@ -16,6 +10,13 @@
 /* TDVMCALL R10 Input */
 #define TDVMCALL_STANDARD	0
 #define TDVMCALL_VENDOR		1
+
+#ifndef __ASSEMBLY__
+#include <asm/cpufeature.h>
+
+#define TDCALL	".byte 0x66,0x0f,0x01,0xcc"
+
+#ifdef CONFIG_INTEL_TDX_GUEST
 
 /* TDX support often needs to be queried before CPU caps is populated. */
 static inline bool __is_tdx_guest(void)
@@ -29,6 +30,24 @@ static inline bool is_tdx_guest(void)
 }
 
 void __init tdx_early_init(void);
+
+#define __out(bwl, bw)							\
+	alternative_input("out" #bwl " %" #bw "1, %w2",			\
+			"call tdx_out" #bwl, X86_FEATURE_TDX_GUEST,	\
+			"a"(value), "d"(port))
+
+#define __in(bwl, bw)							\
+	alternative_io("in" #bwl " %w2, %" #bw "0",			\
+			"call tdx_in" #bwl, X86_FEATURE_TDX_GUEST,	\
+			"=a"(value), "d"(port))
+
+void tdx_outb(unsigned char value, unsigned short port);
+void tdx_outw(unsigned short value, unsigned short port);
+void tdx_outl(unsigned int value, unsigned short port);
+
+unsigned char tdx_inb(unsigned short port);
+unsigned short tdx_inw(unsigned short port);
+unsigned int tdx_inl(unsigned short port);
 
 #else // !CONFIG_INTEL_TDX_GUEST
 static inline bool __is_tdx_guest(void)
@@ -68,4 +87,5 @@ long tdx_kvm_hypercall3(unsigned int nr, unsigned long p1, unsigned long p2,
 long tdx_kvm_hypercall4(unsigned int nr, unsigned long p1, unsigned long p2,
 		unsigned long p3, unsigned p4);
 
+#endif
 #endif /* _ASM_X86_TDX_H */

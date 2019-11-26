@@ -16,6 +16,7 @@
 #define PATTR_HOST_MEM_ENCRYPT		1	/* Host encrypted memory */
 #define PATTR_GUEST_MEM_ENCRYPT		2	/* Guest encrypted memory */
 #define PATTR_GUEST_PROT_STATE		3	/* Guest encrypted state */
+#define PATTR_GUEST_UNROLL_STRING_IO	4	/* Unrolled string IO */
 
 /* 0x800 - 0x8ff reserved for AMD */
 #define PATTR_SME			0x800

@@ -19,6 +19,7 @@ static bool intel_cc_platform_has(enum cc_attr attr)
 #ifdef CONFIG_INTEL_TDX_GUEST
 	switch (attr) {
 	case CC_ATTR_GUEST_TDX:
+	case CC_ATTR_GUEST_UNROLL_STRING_IO:
 		return is_tdx_guest();
 	default:
 		return false;

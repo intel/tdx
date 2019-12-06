@@ -6,6 +6,8 @@
 #include <linux/cpu.h>
 #include <asm/tdx.h>
 #include <asm/vmx.h>
+#include <asm/insn.h>
+#include <linux/sched/signal.h> /* force_sig_fault() */
 
 #ifdef CONFIG_KVM_GUEST
 #include "tdx-kvm.c"
@@ -270,6 +272,121 @@ static void tdx_handle_io(struct pt_regs *regs, u32 exit_qual)
 	}
 }
 
+static unsigned long tdx_mmio(int size, bool write, unsigned long addr,
+		unsigned long val)
+{
+	register long r10 asm("r10") = TDVMCALL_STANDARD;
+	register long r11 asm("r11") = EXIT_REASON_EPT_VIOLATION;
+	register long r12 asm("r12") = size;
+	register long r13 asm("r13") = write;
+	register long r14 asm("r14") = addr;
+	register long r15 asm("r15") = val;
+	register long rcx asm("rcx");
+	long ret;
+
+	/* Allow to pass R10, R11, R12, R13, R14 and R15 down to the VMM */
+	rcx = BIT(10) | BIT(11) | BIT(12) | BIT(13) | BIT(14) | BIT(15);
+
+	asm volatile(TDCALL
+			: "=a"(ret), "=r"(r10), "=r"(r11), "=r"(r12), "=r"(r13),
+			  "=r"(r14), "=r"(r15)
+			: "a"(TDVMCALL), "r"(rcx), "r"(r10), "r"(r11), "r"(r12),
+			  "r"(r13), "r"(r14), "r"(r15)
+			: );
+
+	WARN_ON(ret || r10);
+
+	return r11;
+}
+
+static inline void *get_reg_ptr(struct pt_regs *regs, struct insn *insn)
+{
+	static const int regoff[] = {
+		offsetof(struct pt_regs, ax),
+		offsetof(struct pt_regs, cx),
+		offsetof(struct pt_regs, dx),
+		offsetof(struct pt_regs, bx),
+		offsetof(struct pt_regs, sp),
+		offsetof(struct pt_regs, bp),
+		offsetof(struct pt_regs, si),
+		offsetof(struct pt_regs, di),
+		offsetof(struct pt_regs, r8),
+		offsetof(struct pt_regs, r9),
+		offsetof(struct pt_regs, r10),
+		offsetof(struct pt_regs, r11),
+		offsetof(struct pt_regs, r12),
+		offsetof(struct pt_regs, r13),
+		offsetof(struct pt_regs, r14),
+		offsetof(struct pt_regs, r15),
+	};
+	int regno;
+
+	regno = X86_MODRM_REG(insn->modrm.value);
+	if (X86_REX_R(insn->rex_prefix.value))
+		regno += 8;
+
+	return (void *)regs + regoff[regno];
+}
+
+static int tdx_handle_mmio(struct pt_regs *regs, struct ve_info *ve)
+{
+	int size;
+	bool write;
+	unsigned long *reg;
+	struct insn insn;
+	unsigned long val = 0;
+
+	/*
+	 * User mode would mean the kernel exposed a device directly
+	 * to ring3, which shouldn't happen except for things like
+	 * DPDK.
+	 */
+	if (user_mode(regs)) {
+		pr_err("Unexpected user-mode MMIO access.\n");
+		force_sig_fault(SIGBUS, BUS_ADRERR, (void __user *) ve->gla);
+		return 0;
+	}
+
+	kernel_insn_init(&insn, (void *) regs->ip, MAX_INSN_SIZE);
+	insn_get_length(&insn);
+	insn_get_opcode(&insn);
+
+	write = ve->exit_qual & 0x2;
+
+	size = insn.opnd_bytes;
+	switch (insn.opcode.bytes[0]) {
+	/* MOV r/m8	r8	*/
+	case 0x88:
+	/* MOV r8	r/m8	*/
+	case 0x8A:
+	/* MOV r/m8	imm8	*/
+	case 0xC6:
+		size = 1;
+		break;
+	}
+
+	if (inat_has_immediate(insn.attr)) {
+		BUG_ON(!write);
+		val = insn.immediate.value;
+		tdx_mmio(size, write, ve->gpa, val);
+		return insn.length;
+	}
+
+	BUG_ON(!inat_has_modrm(insn.attr));
+
+	reg = get_reg_ptr(regs, &insn);
+
+	if (write) {
+		memcpy(&val, reg, size);
+		tdx_mmio(size, write, ve->gpa, val);
+	} else {
+		val = tdx_mmio(size, write, ve->gpa, val);
+		memset(reg, 0, size);
+		memcpy(reg, &val, size);
+	}
+	return insn.length;
+}
+
 void __init tdx_early_init(void)
 {
 	if (!cpuid_has_tdx_guest())
@@ -330,6 +447,9 @@ int tdx_handle_virtualization_exception(struct pt_regs *regs,
 		break;
 	case EXIT_REASON_IO_INSTRUCTION:
 		tdx_handle_io(regs, ve->exit_qual);
+		break;
+	case EXIT_REASON_EPT_VIOLATION:
+		ve->instr_len = tdx_handle_mmio(regs, ve);
 		break;
 	default:
 		pr_warn("Unexpected #VE: %d\n", ve->exit_reason);

@@ -5,6 +5,8 @@
 
 #include <asm/tdx.h>
 #include <asm/vmx.h>
+#include <asm/insn.h>
+#include <linux/sched/signal.h> /* force_sig_fault() */
 
 #include <linux/cpu.h>
 
@@ -219,6 +221,101 @@ static void tdg_handle_io(struct pt_regs *regs, u32 exit_qual)
 	}
 }
 
+static unsigned long tdg_mmio(int size, bool write, unsigned long addr,
+		unsigned long val)
+{
+	return tdvmcall_out_r11(EXIT_REASON_EPT_VIOLATION, size,
+				write, addr, val);
+}
+
+static inline void *get_reg_ptr(struct pt_regs *regs, struct insn *insn)
+{
+	static const int regoff[] = {
+		offsetof(struct pt_regs, ax),
+		offsetof(struct pt_regs, cx),
+		offsetof(struct pt_regs, dx),
+		offsetof(struct pt_regs, bx),
+		offsetof(struct pt_regs, sp),
+		offsetof(struct pt_regs, bp),
+		offsetof(struct pt_regs, si),
+		offsetof(struct pt_regs, di),
+		offsetof(struct pt_regs, r8),
+		offsetof(struct pt_regs, r9),
+		offsetof(struct pt_regs, r10),
+		offsetof(struct pt_regs, r11),
+		offsetof(struct pt_regs, r12),
+		offsetof(struct pt_regs, r13),
+		offsetof(struct pt_regs, r14),
+		offsetof(struct pt_regs, r15),
+	};
+	int regno;
+
+	regno = X86_MODRM_REG(insn->modrm.value);
+	if (X86_REX_R(insn->rex_prefix.value))
+		regno += 8;
+
+	return (void *)regs + regoff[regno];
+}
+
+static int tdg_handle_mmio(struct pt_regs *regs, struct ve_info *ve)
+{
+	int size;
+	bool write;
+	unsigned long *reg;
+	struct insn insn;
+	unsigned long val = 0;
+
+	/*
+	 * User mode would mean the kernel exposed a device directly
+	 * to ring3, which shouldn't happen except for things like
+	 * DPDK.
+	 */
+	if (user_mode(regs)) {
+		pr_err("Unexpected user-mode MMIO access.\n");
+		force_sig_fault(SIGBUS, BUS_ADRERR, (void __user *) ve->gla);
+		return 0;
+	}
+
+	kernel_insn_init(&insn, (void *) regs->ip, MAX_INSN_SIZE);
+	insn_get_length(&insn);
+	insn_get_opcode(&insn);
+
+	write = ve->exit_qual & 0x2;
+
+	size = insn.opnd_bytes;
+	switch (insn.opcode.bytes[0]) {
+	/* MOV r/m8	r8	*/
+	case 0x88:
+	/* MOV r8	r/m8	*/
+	case 0x8A:
+	/* MOV r/m8	imm8	*/
+	case 0xC6:
+		size = 1;
+		break;
+	}
+
+	if (inat_has_immediate(insn.attr)) {
+		BUG_ON(!write);
+		val = insn.immediate.value;
+		tdg_mmio(size, write, ve->gpa, val);
+		return insn.length;
+	}
+
+	BUG_ON(!inat_has_modrm(insn.attr));
+
+	reg = get_reg_ptr(regs, &insn);
+
+	if (write) {
+		memcpy(&val, reg, size);
+		tdg_mmio(size, write, ve->gpa, val);
+	} else {
+		val = tdg_mmio(size, write, ve->gpa, val);
+		memset(reg, 0, size);
+		memcpy(reg, &val, size);
+	}
+	return insn.length;
+}
+
 unsigned long tdg_get_ve_info(struct ve_info *ve)
 {
 	u64 ret;
@@ -270,6 +367,9 @@ int tdg_handle_virtualization_exception(struct pt_regs *regs,
 		break;
 	case EXIT_REASON_IO_INSTRUCTION:
 		tdg_handle_io(regs, ve->exit_qual);
+		break;
+	case EXIT_REASON_EPT_VIOLATION:
+		ve->instr_len = tdg_handle_mmio(regs, ve);
 		break;
 	default:
 		pr_warn("Unexpected #VE: %lld\n", ve->exit_reason);

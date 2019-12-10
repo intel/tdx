@@ -103,6 +103,9 @@ static u64 tdx_read_msr_safe(unsigned int msr, int *err)
 
 	WARN_ON_ONCE(tdx_is_context_switched_msr(msr));
 
+	if (msr == MSR_CSTAR)
+		return 0;
+
 	/* Allow to pass R10, R11 and R12 down to the VMM */
 	rcx = BIT(10) | BIT(11) | BIT(12);
 
@@ -127,6 +130,9 @@ static int tdx_write_msr_safe(unsigned int msr, unsigned low, unsigned high)
 	long ret;
 
 	WARN_ON_ONCE(tdx_is_context_switched_msr(msr));
+
+	if (msr == MSR_CSTAR)
+		return 0;
 
 	/* Allow to pass R10, R11, R12 and R13 down to the VMM */
 	rcx = BIT(10) | BIT(11) | BIT(12) | BIT(13);

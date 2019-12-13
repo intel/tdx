@@ -99,11 +99,16 @@ EXPORT_SYMBOL_GPL(halt_poll_ns_shrink);
  */
 
 DEFINE_MUTEX(kvm_lock);
-static DEFINE_RAW_SPINLOCK(kvm_count_lock);
+DEFINE_RAW_SPINLOCK(kvm_count_lock);
+EXPORT_SYMBOL_GPL(kvm_count_lock);
+
 LIST_HEAD(vm_list);
 
 static cpumask_var_t cpus_hardware_enabled;
-static int kvm_usage_count;
+
+int kvm_usage_count;
+EXPORT_SYMBOL_GPL(kvm_usage_count);
+
 static atomic_t hardware_enable_failed;
 
 static struct kmem_cache *kvm_vcpu_cache;

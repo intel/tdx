@@ -171,6 +171,8 @@ bool kvm_make_cpus_request_mask(struct kvm *kvm, unsigned int req,
 
 extern struct mutex kvm_lock;
 extern struct list_head vm_list;
+extern raw_spinlock_t kvm_count_lock;
+extern int kvm_usage_count;
 
 struct kvm_io_range {
 	gpa_t addr;

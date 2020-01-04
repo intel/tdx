@@ -40,6 +40,7 @@
 #include <asm/extable.h>
 #include <asm/trapnr.h>
 #include <asm/sev.h>
+#include <asm/tdx.h>
 
 /*
  * Manage page tables very early on.
@@ -490,6 +491,8 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 	sme_early_init();
 
 	kasan_early_init();
+
+	tdx_early_init();
 
 	idt_setup_early_handler();
 

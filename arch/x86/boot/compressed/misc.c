@@ -370,6 +370,12 @@ asmlinkage __visible void *extract_kernel(void *rmode, memptr heap,
 	lines = boot_params->screen_info.orig_video_lines;
 	cols = boot_params->screen_info.orig_video_cols;
 
+	/*
+	 * Detect TDX guest support. It will be used in enabling
+	 * TDX-specific paravirtualized calls in __in/__out handlers.
+	 */
+	early_tdx_detect();
+
 	console_init();
 
 	/*

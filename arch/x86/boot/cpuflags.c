@@ -71,8 +71,7 @@ int has_eflag(unsigned long mask)
 # define EBX_REG "=b"
 #endif
 
-static inline void cpuid_count(u32 id, u32 count,
-		u32 *a, u32 *b, u32 *c, u32 *d)
+void cpuid_count(u32 id, u32 count, u32 *a, u32 *b, u32 *c, u32 *d)
 {
 	asm volatile(".ifnc %%ebx,%3 ; movl  %%ebx,%3 ; .endif	\n\t"
 		     "cpuid					\n\t"
@@ -80,6 +79,15 @@ static inline void cpuid_count(u32 id, u32 count,
 		    : "=a" (*a), "=c" (*c), "=d" (*d), EBX_REG (*b)
 		    : "a" (id), "c" (count)
 	);
+}
+
+u32 cpuid_eax(u32 id)
+{
+	u32 eax, ebx, ecx, edx;
+
+	cpuid_count(id, 0, &eax, &ebx, &ecx, &edx);
+
+	return eax;
 }
 
 #define cpuid(id, a, b, c, d) cpuid_count(id, 0, a, b, c, d)

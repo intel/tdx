@@ -9,9 +9,17 @@
 
 #include <asm/cpufeature.h>
 
+/* Common API to check TDX support in decompression and common kernel code. */
+bool is_tdx_guest(void);
+
 void __init tdx_early_init(void);
 
 #else // !CONFIG_INTEL_TDX_GUEST
+
+static inline bool is_tdx_guest(void)
+{
+	return false;
+}
 
 static inline void tdx_early_init(void) { };
 

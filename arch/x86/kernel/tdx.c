@@ -63,6 +63,14 @@ static inline bool cpuid_has_tdx_guest(void)
 	return true;
 }
 
+static inline bool cpuid_has_mwait(void)
+{
+	if (cpuid_ecx(1) & (1 << (X86_FEATURE_MWAIT % 32)))
+		return true;
+
+	return false;
+}
+
 bool is_tdx_guest(void)
 {
 	return static_cpu_has(X86_FEATURE_TDX_GUEST);
@@ -301,12 +309,25 @@ static int tdg_handle_mmio(struct pt_regs *regs, struct ve_info *ve)
 	return insn.length;
 }
 
+/* Initialize TDX specific CPU capabilities */
+static void __init tdx_cpu_cap_init(void)
+{
+	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
+
+	if (cpuid_has_mwait()) {
+		WARN(1, "TDX Module failed to disable MWAIT\n");
+		/* MWAIT is not supported in TDX platform, so suppress it */
+		setup_clear_cpu_cap(X86_FEATURE_MWAIT);
+	}
+
+}
+
 void __init tdx_early_init(void)
 {
 	if (!cpuid_has_tdx_guest())
 		return;
 
-	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
+	tdx_cpu_cap_init();
 
 	tdg_get_info();
 
@@ -361,6 +382,27 @@ int tdg_handle_virtualization_exception(struct pt_regs *regs,
 		break;
 	case EXIT_REASON_EPT_VIOLATION:
 		ve->instr_len = tdg_handle_mmio(regs, ve);
+		break;
+	case EXIT_REASON_WBINVD:
+		/*
+		 * TDX architecture does not support WBINVD instruction.
+		 * Currently, usage of this instruction is prevented by
+		 * disabling the drivers which uses it. So if we still
+		 * reach here, it needs user attention.
+		 */
+		pr_err("TD Guest used unsupported WBINVD instruction\n");
+		BUG();
+		break;
+	case EXIT_REASON_MONITOR_INSTRUCTION:
+	case EXIT_REASON_MWAIT_INSTRUCTION:
+		/*
+		 * MWAIT/MONITOR features are disabled by TDX Module (SEAM)
+		 * and also re-suppressed in kernel by clearing
+		 * X86_FEATURE_MWAIT CPU feature flag in tdx_early_init(). So
+		 * if TD guest still executes MWAIT/MONITOR instruction with
+		 * above suppression, it needs user attention.
+		 */
+		WARN(1, "TD Guest used unsupported MWAIT/MONITOR instruction\n");
 		break;
 	default:
 		pr_warn("Unexpected #VE: %d\n", ve->exit_reason);

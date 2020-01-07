@@ -418,6 +418,11 @@ int tdx_handle_virtualization_exception(struct pt_regs *regs,
 	case EXIT_REASON_EPT_VIOLATION:
 		ve->instr_len = tdx_handle_mmio(regs, ve);
 		break;
+	case EXIT_REASON_MWAIT_INSTRUCTION:
+	case EXIT_REASON_MONITOR_INSTRUCTION:
+	case EXIT_REASON_WBINVD:
+		/* Handle as nops. */
+		break;
 	default:
 		pr_warn("Unhandled #VE: %d\n", ve->exit_reason);
 		return -EFAULT;

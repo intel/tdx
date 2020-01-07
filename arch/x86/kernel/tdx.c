@@ -451,6 +451,23 @@ int tdx_handle_virtualization_exception(struct pt_regs *regs,
 	case EXIT_REASON_EPT_VIOLATION:
 		ve->instr_len = tdx_handle_mmio(regs, ve);
 		break;
+	/*
+	 * Per Guest-Host-Communication Interface (GHCI) for Intel Trust
+	 * Domain Extensions (Intel TDX) specification, sec 2.4,
+	 * some instructions that unconditionally cause #VE (such as WBINVD,
+	 * MONITOR, MWAIT) do not have corresponding TDCALL
+	 * [TDG.VP.VMCALL <Instruction>] leaves, since the TD has been designed
+	 * with no deterministic way to confirm the result of those operations
+	 * performed by the host VMM.  In those cases, the goal is for the TD
+	 * #VE handler to increment the RIP appropriately based on the VE
+	 * information provided via TDCALL.
+	 */
+	case EXIT_REASON_WBINVD:
+		pr_warn_once("WBINVD #VE Exception\n");
+	case EXIT_REASON_MWAIT_INSTRUCTION:
+	case EXIT_REASON_MONITOR_INSTRUCTION:
+		/* Handle as nops. */
+		break;
 	default:
 		pr_warn("Unexpected #VE: %d\n", ve->exit_reason);
 		return -EFAULT;

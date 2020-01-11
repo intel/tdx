@@ -7,6 +7,7 @@
 #include <linux/topology.h>
 #include <linux/nodemask.h>
 #include <linux/percpu.h>
+#include <linux/earlycpio.h>
 
 #ifdef CONFIG_SMP
 
@@ -36,6 +37,10 @@ extern int _debug_hotplug_cpu(int cpu, int action);
 #endif
 
 int mwait_usable(const struct cpuinfo_x86 *);
+
+#if defined(CONFIG_MICROCODE) || defined(CONFIG_INTEL_TDX_HOST)
+bool get_builtin_firmware(struct cpio_data *cd, const char *name);
+#endif
 
 unsigned int x86_family(unsigned int sig);
 unsigned int x86_model(unsigned int sig);

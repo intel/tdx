@@ -8,6 +8,8 @@
 
 #include <linux/cache.h>
 
+void tdx_early_init(void);
+
 /*
  * TDX extended return:
  * Some of The "TDX module" SEAMCALLs return extended values (which are function
@@ -64,6 +66,10 @@ extern bool is_debug_seamcall_available __read_mostly;
 extern bool is_nonarch_seamcall_available __read_mostly;
 
 #else
+static inline void tdx_early_init(void)
+{
+};
+
 static inline const char *tdx_seamcall_error_name(u64 error_code)
 {
 	return "";

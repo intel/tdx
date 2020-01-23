@@ -10,6 +10,8 @@
 
 #ifdef CONFIG_KVM_INTEL_TDX
 
+int __init seam_load_module(void *seamldr, unsigned long seamldr_size);
+
 /*
  * Return pointer to TDX system info (TDSYSINFO_STRUCT) if TDX has been
  * successfully initialized, or NULL.

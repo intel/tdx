@@ -4,6 +4,9 @@
 
 #ifdef CONFIG_KVM_INTEL_TDX
 
+extern int __init launch_seamldr(unsigned long seamldr_pa,
+				 unsigned long seamldr_size);
+
 #define SEAMLDR_MAX_NR_MODULE_PAGES    496
 
 struct seamldr_params {

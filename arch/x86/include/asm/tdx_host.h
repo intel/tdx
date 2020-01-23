@@ -8,12 +8,18 @@
 
 #include <linux/cache.h>
 
+void tdx_early_init(void);
+
 struct tdsysinfo_struct;
 const struct tdsysinfo_struct *tdx_get_sysinfo(void);
 
 bool range_is_tdx_memory(phys_addr_t start, phys_addr_t end);
 
 #else
+static inline void tdx_early_init(void)
+{
+}
+
 struct tdsysinfo_struct;
 static inline const struct tdsysinfo_struct *tdx_get_sysinfo(void)
 {

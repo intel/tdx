@@ -45,6 +45,7 @@
 #include <asm/debugreg.h>
 #include <asm/realmode.h>
 #include <asm/text-patching.h>
+#include <asm/tdx_host.h>
 #include <asm/ftrace.h>
 #include <asm/traps.h>
 #include <asm/desc.h>
@@ -1238,4 +1239,19 @@ void __init trap_init(void)
 	/* Setup traps as cpu_init() might #GP */
 	idt_setup_traps();
 	cpu_init();
+
+	/*
+	 * Launching the TDX first firmware loader (NP-SEAMLDR) clobbers some
+	 * registers including %rsp and %cr4.  There is a window where %rsp = 0
+	 * and %cr4 feature bits are disabled.
+	 *
+	 * The Interrupt Stack Table(IST) for NMI is needed because the modified
+	 * legacy stack-switching mechanism doesn't work in the window where
+	 * %rsp = 0.  The early IDT doesn't use IST and the default IDT
+	 * idt_setup_traps() setups uses IDT.
+	 *
+	 * It is before CPU feature discovery by check_bugs() and
+	 * identify_boot_cpu(). So they aren't enabled yet.
+	 */
+	tdx_early_init();
 }

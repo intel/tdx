@@ -26,9 +26,45 @@
 enum TDX_HOST_OPTION {
 	TDX_HOST_OFF,
 	TDX_HOST_ON,
+	TDX_HOST_INITRD,
 };
 
 static enum TDX_HOST_OPTION tdx_host __initdata;
+
+/* Later tdx_host will be overwritten by tdx_host_setup(). */
+static void __init tdx_host_param(void)
+{
+	char arg[7];
+	int ret;
+
+	ret = cmdline_find_option(boot_command_line, "tdx_host",
+				arg, sizeof(arg));
+	if (ret == 6 && !strncmp(arg, "initrd", 6))
+		tdx_host = TDX_HOST_INITRD;
+}
+
+void __init tdx_early_init(void)
+{
+	/*
+	 * It's early boot phase before kernel param() and __setup() are usable.
+	 */
+	tdx_host_param();
+
+	/* Try to load P-SEAMLDR from initrd. */
+	if (tdx_host != TDX_HOST_INITRD)
+		return;
+
+	/* TDX requires SEAM mode. */
+	if (!is_seamrr_enabled())
+		return;
+
+	/* TDX(SEAMCALL) requires VMX. */
+	if (__seam_init_vmx_early())
+		return;
+
+	/* Try to load P-SEAMLDR from initrd. */
+	load_p_seamldr();
+}
 
 static int __init tdx_host_setup(char *s)
 {
@@ -306,7 +342,7 @@ static int __init tdx_arch_init(void)
 	int ret = 0;
 
 	/* Avoid TDX overhead when opt-in is not present. */
-	if (tdx_host != TDX_HOST_ON)
+	if (tdx_host == TDX_HOST_OFF)
 		return 0;
 
 	/* TDX requires SEAM mode. */

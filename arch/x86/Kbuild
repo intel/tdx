@@ -4,6 +4,7 @@ obj-y += entry/
 obj-$(CONFIG_PERF_EVENTS) += events/
 
 obj-$(CONFIG_KVM) += kvm/
+obj-$(subst m,y,$(CONFIG_KVM)) += kvm/boot/
 
 # Xen paravirtualization support
 obj-$(CONFIG_XEN) += xen/

@@ -65,6 +65,42 @@ static u32 seam_vmxon_version_id __initdata;
 static DEFINE_PER_CPU(struct vmcs *, seam_vmxon_region);
 
 /*
+ * This function must be called before init_ia32_feat_ctl() that sets
+ * X86_FEATURE_VMX.
+ */
+int __init __seam_init_vmx_early(void)
+{
+	u64 msr;
+	u32 vmx_msr_low, vmx_msr_high;
+
+	/*
+	 * Can't enable TDX if VMX is unsupported or disabled by BIOS.
+	 * cpu_has(X86_FEATURE_VMX) can't be relied on as the BSP calls this
+	 * before the kernel has configured feat_ctl().
+	 */
+	if (!cpu_has_vmx())
+		return -EOPNOTSUPP;
+
+	if (rdmsrl_safe(MSR_IA32_FEAT_CTL, &msr) ||
+		!(msr & FEAT_CTL_LOCKED) ||
+		!(msr & FEAT_CTL_VMX_ENABLED_OUTSIDE_SMX))
+		return -EOPNOTSUPP;
+
+	rdmsr(MSR_IA32_VMX_BASIC, vmx_msr_low, vmx_msr_high);
+
+	/*
+	 * IA-32 SDM Vol 3C: VMCS size is never greater than 4kB.  The size of
+	 * VMXON region is same to VMCS size.
+	 */
+	if ((vmx_msr_high & 0x1fff) > PAGE_SIZE)
+		return -EIO;
+
+	seam_vmxon_version_id = vmx_msr_low;
+
+	return 0;
+}
+
+/*
  * This function must be called after init_ia32_feat_ctl() that sets
  * X86_FEATURE_VMX.
  */

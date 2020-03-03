@@ -31,6 +31,25 @@ static inline bool is_tdx_guest(void)
 
 void __init tdx_early_init(void);
 
+/* Decompression code doesn't know how to handle alternatives */
+#ifdef BOOT_COMPRESSED_MISC_H
+#define __out(bwl, bw)							\
+	if (__is_tdx_guest()) {						\
+		asm volatile("call tdx_out" #bwl : :			\
+				"a"(value), "d"(port));			\
+	} else {							\
+		asm volatile("out" #bwl " %" #bw "0, %w1" : :		\
+				"a"(value), "Nd"(port));		\
+	}
+#define __in(bwl, bw)							\
+	if (__is_tdx_guest()) {						\
+		asm volatile("call tdx_in" #bwl : 			\
+				"=a"(value) : "d"(port));		\
+	} else {							\
+		asm volatile("in" #bwl " %w1, %" #bw "0" :		\
+				"=a"(value) : "Nd"(port));		\
+	}
+#else
 #define __out(bwl, bw)							\
 	alternative_input("out" #bwl " %" #bw "1, %w2",			\
 			"call tdx_out" #bwl, X86_FEATURE_TDX_GUEST,	\
@@ -40,6 +59,7 @@ void __init tdx_early_init(void);
 	alternative_io("in" #bwl " %w2, %" #bw "0",			\
 			"call tdx_in" #bwl, X86_FEATURE_TDX_GUEST,	\
 			"=a"(value), "d"(port))
+#endif
 
 void tdx_outb(unsigned char value, unsigned short port);
 void tdx_outw(unsigned short value, unsigned short port);

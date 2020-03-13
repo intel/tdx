@@ -57,7 +57,7 @@ void test(void)
 	struct kvm_run *run;
 	struct thread_context tc;
 
-	kvm = open("/dev/kvm", O_RDWR);
+	kvm = open(KVM_DEV_PATH, O_RDWR);
 	TEST_ASSERT(kvm != -1, "failed to open /dev/kvm");
 	kvmvm = ioctl(kvm, KVM_CREATE_VM, 0);
 	TEST_ASSERT(kvmvm != -1, "KVM_CREATE_VM failed");

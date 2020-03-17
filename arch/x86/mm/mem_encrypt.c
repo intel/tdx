@@ -31,6 +31,7 @@
 #include <asm/processor-flags.h>
 #include <asm/msr.h>
 #include <asm/cmdline.h>
+#include <asm/mem_encrypt_common.h>
 
 #include "mm_internal.h"
 
@@ -412,7 +413,7 @@ bool amd_prot_guest_has(unsigned int attr)
 EXPORT_SYMBOL(amd_prot_guest_has);
 
 /* Override for DMA direct allocation check - ARCH_HAS_FORCE_DMA_UNENCRYPTED */
-bool force_dma_unencrypted(struct device *dev)
+bool amd_force_dma_unencrypted(struct device *dev)
 {
 	/*
 	 * For SEV, all DMA must be to unencrypted addresses.

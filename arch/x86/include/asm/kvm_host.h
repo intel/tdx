@@ -1370,6 +1370,7 @@ struct kvm_x86_ops {
 	void (*vcpu_deliver_sipi_vector)(struct kvm_vcpu *vcpu, u8 vector);
 
 	void (*do_seamcall)(struct kvm_seamcall *call);
+	void (*do_tdenter)(struct kvm_tdenter *tdenter);
 };
 
 struct kvm_x86_nested_ops {

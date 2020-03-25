@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/moduleparam.h>
+#include <linux/errno.h>
+
+#include <asm/tdx_host.h>
 
 static struct kvm_x86_ops vt_x86_ops __initdata;
 
@@ -65,8 +68,10 @@ static __init int vt_hardware_setup(void)
 	 * Not a typo, direct SEAMCALL is only allowed when it won't interfere
 	 * with TDs created and managed by KVM.
 	 */
-	if (!enable_tdx && !tdx_hardware_setup(&vt_x86_ops))
+	if (!enable_tdx && !tdx_hardware_setup(&vt_x86_ops)) {
 		vt_x86_ops.do_seamcall = tdx_do_seamcall;
+		vt_x86_ops.do_tdenter = tdx_do_tdenter;
+	}
 #endif
 
 	if (enable_ept) {

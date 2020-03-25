@@ -2173,3 +2173,31 @@ static void tdx_do_seamcall(struct kvm_seamcall *call)
 	out->r9 = ex.r9;
 	out->r10 = ex.r10;
 }
+
+static void tdx_do_tdenter(struct kvm_tdenter *tdenter)
+{
+	union tdx_exit_reason exit_reason;
+	u64 *regs = tdenter->regs;
+
+	preempt_disable();
+	local_irq_disable();
+
+	exit_reason.full = __tdx_vcpu_run(regs[VCPU_REGS_RAX], regs,
+					  regs[VCPU_REGS_RCX]);
+
+	/* __tdx_vcpu_run() doesn't bother saving RAX. */
+	regs[VCPU_REGS_RAX] = exit_reason.full;
+	if (exit_reason.error || exit_reason.non_recoverable)
+		goto out;
+
+	if (exit_reason.basic == EXIT_REASON_EXCEPTION_NMI &&
+	    is_nmi(regs[VCPU_REGS_R9])) {
+		asm("int $2");
+	} else if (exit_reason.basic == EXIT_REASON_EXTERNAL_INTERRUPT)
+		vmx_handle_external_interrupt_irqoff(NULL,
+						     regs[VCPU_REGS_R9]);
+
+out:
+	local_irq_enable();
+	preempt_enable();
+}

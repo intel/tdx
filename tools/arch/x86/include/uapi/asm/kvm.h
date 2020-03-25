@@ -573,4 +573,8 @@ struct kvm_seamcall {
 	struct kvm_seamcall_regs out;
 };
 
+struct kvm_tdenter {
+	__u64 regs[16];
+};
+
 #endif /* _ASM_X86_KVM_H */

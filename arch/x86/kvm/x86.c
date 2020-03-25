@@ -3983,6 +3983,26 @@ long kvm_arch_dev_ioctl(struct file *filp,
 		r = 0;
 		break;
 	}
+	case KVM_TDENTER: {
+		struct kvm_tdenter __user *user_tdenter = argp;
+		struct kvm_tdenter tdenter;
+
+		r = -EINVAL;
+		if (!kvm_x86_ops.do_tdenter)
+			goto out;
+
+		r = -EFAULT;
+		if (copy_from_user(&tdenter, user_tdenter, sizeof(tdenter)))
+			goto out;
+
+		kvm_x86_ops.do_tdenter(&tdenter);
+
+		if (copy_to_user(user_tdenter, &tdenter, sizeof(tdenter)))
+			goto out;
+
+		r = 0;
+		break;
+	}
 	default:
 		r = -EINVAL;
 		break;

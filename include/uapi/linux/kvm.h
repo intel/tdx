@@ -856,6 +856,7 @@ struct kvm_ppc_resize_hpt {
 #define KVM_S390_ENABLE_SIE       _IO(KVMIO,   0x06)
 
 #define KVM_SEAMCALL              _IOWR(KVMIO, 0x31, struct kvm_seamcall)
+#define KVM_TDENTER		  _IOWR(KVMIO, 0x32, struct kvm_tdenter)
 
 /*
  * Check if a kvm extension is available.  Argument is extension number,

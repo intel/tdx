@@ -32,6 +32,7 @@
 #include <linux/smp.h>
 #include <linux/irq.h>
 #include <asm/cpu.h>
+#include <asm/tdx.h>
 
 static DEFINE_PER_CPU(struct x86_cpu, cpu_devices);
 
@@ -128,7 +129,7 @@ int arch_register_cpu(int num)
 			}
 		}
 	}
-	if (num || cpu0_hotpluggable)
+	if ((num || cpu0_hotpluggable) && !is_tdx_guest())
 		per_cpu(cpu_devices, num).cpu.hotpluggable = 1;
 
 	return register_cpu(&per_cpu(cpu_devices, num).cpu, num);

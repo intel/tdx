@@ -17,8 +17,13 @@
 
 static bool intel_cc_platform_has(enum cc_attr attr)
 {
-	if (attr == CC_ATTR_GUEST_UNROLL_STRING_IO)
+	switch (attr) {
+	case CC_ATTR_GUEST_UNROLL_STRING_IO:
+	case CC_ATTR_HOTPLUG_DISABLED:
 		return true;
+	default:
+		return false;
+	}
 
 	return false;
 }

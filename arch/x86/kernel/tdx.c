@@ -5,6 +5,7 @@
 #define pr_fmt(fmt)     "x86/tdx: " fmt
 
 #include <linux/protected_guest.h>
+#include <linux/cpuhotplug.h>
 
 #include <asm/tdx.h>
 #include <asm/vmx.h>
@@ -306,6 +307,17 @@ static int tdg_handle_mmio(struct pt_regs *regs, struct ve_info *ve)
 	return insn.length;
 }
 
+static int tdg_cpu_offline_prepare(unsigned int cpu)
+{
+	/*
+	 * Per Intel TDX Virtual Firmware Design Guide,
+	 * sec 4.3.5 and sec 9.4, Hotplug is not supported
+	 * in TDX platforms. So don't support CPU
+	 * offline feature once it is turned on.
+	 */
+	return -EOPNOTSUPP;
+}
+
 unsigned long tdg_get_ve_info(struct ve_info *ve)
 {
 	u64 ret;
@@ -445,6 +457,9 @@ void __init tdx_early_init(void)
 
 	pv_ops.irq.safe_halt = tdg_safe_halt;
 	pv_ops.irq.halt = tdg_halt;
+
+	cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "tdg:cpu_hotplug",
+			  NULL, tdg_cpu_offline_prepare);
 
 	pr_info("Guest initialized\n");
 }

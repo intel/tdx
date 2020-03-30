@@ -28,7 +28,7 @@ void intel_seam_load_test(char *path)
 {
 	int ret, fd;
 
-	fd = open("/dev/kvm", O_RDWR);
+	fd = open(KVM_DEV_PATH, O_RDWR);
 	TEST_ASSERT(fd >= 0, "failed to open /dev/kvm fd: %i errno: %i",
 		    fd, errno);
 
@@ -43,7 +43,7 @@ int main(int argc, char **argv)
 {
 	char path[PATH_MAX];
 
-	TEST_ASSERT(argc == 2, "Must specific path to SEAM module");
+	TEST_ASSERT(argc == 2, "Must specify path to SEAM module");
 
 	strncpy(path, argv[1], PATH_MAX);
 

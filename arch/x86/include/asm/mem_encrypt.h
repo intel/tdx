@@ -51,6 +51,8 @@ void __init mem_encrypt_free_decrypted_mem(void);
 
 int amd_notify_range_enc_status_changed(unsigned long vaddr, int npages, bool enc);
 
+int amd_notify_range_enc_status_changed(unsigned long vaddr, int npages, bool enc);
+
 void __init sev_es_init_vc_handling(void);
 
 #define __bss_decrypted __section(".bss..decrypted")
@@ -83,6 +85,12 @@ static inline void __init
 early_set_mem_enc_dec_hypercall(unsigned long vaddr, int npages, bool enc) {}
 
 static inline void mem_encrypt_free_decrypted_mem(void) { }
+
+static inline int amd_notify_range_enc_status_changed(unsigned long vaddr,
+						      int npages, bool enc)
+{
+	return 0;
+}
 
 #define __bss_decrypted
 

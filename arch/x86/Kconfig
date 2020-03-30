@@ -880,7 +880,7 @@ config INTEL_TDX_GUEST
 	select PARAVIRT_XXL
 	select ARCH_HAS_CC_PLATFORM
 	select X86_MCE
-	select DYNAMIC_PHYSICAL_MASK
+	select X86_MEM_ENCRYPT
 	help
 	  Support running as a guest under TDX.  Without this support,
 	  the kernel can not boot or run under TDX.

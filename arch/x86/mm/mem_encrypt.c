@@ -14,6 +14,33 @@
 #include <linux/mem_encrypt.h>
 #include <linux/virtio_config.h>
 
+#include <asm/tdx.h>
+
+/*
+ * Used to set or unset encryption attribute in vendor agnostic way.
+ */
+pgprot_t pgrot_cc_encrypted(pgprot_t prot)
+{
+	if (cc_platform_has(CC_ATTR_HOST_MEM_ENCRYPT))
+		return __pgprot(__sme_set(pgprot_val(prot)));
+	else if (cc_platform_has(CC_ATTR_GUEST_TDX))
+		return __pgprot(pgprot_val(prot) & ~tdx_shared_mask());
+
+	return prot;
+}
+EXPORT_SYMBOL_GPL(pgrot_cc_encrypted);
+
+pgprot_t pgrot_cc_decrypted(pgprot_t prot)
+{
+	if (cc_platform_has(CC_ATTR_HOST_MEM_ENCRYPT))
+		return __pgprot(__sme_clr(pgprot_val(prot)));
+	else if (cc_platform_has(CC_ATTR_GUEST_TDX))
+		return __pgprot(pgprot_val(prot) | tdx_shared_mask());
+
+	return prot;
+}
+EXPORT_SYMBOL_GPL(pgrot_cc_decrypted);
+
 /* Override for DMA direct allocation check - ARCH_HAS_FORCE_DMA_UNENCRYPTED */
 bool force_dma_unencrypted(struct device *dev)
 {

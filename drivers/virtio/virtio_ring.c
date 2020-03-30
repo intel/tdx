@@ -13,6 +13,10 @@
 #include <linux/dma-mapping.h>
 #include <xen/xen.h>
 
+#ifdef CONFIG_INTEL_TDX_GUEST
+#include <asm/tdx.h>
+#endif
+
 #ifdef DEBUG
 /* For development, we want to crash whenever the ring is screwed. */
 #define BAD_RING(_vq, fmt, args...)				\
@@ -254,6 +258,11 @@ static bool vring_use_dma_api(struct virtio_device *vdev)
 	 */
 	if (xen_domain())
 		return true;
+
+#ifdef CONFIG_INTEL_TDX_GUEST
+	if (is_tdx_guest())
+		return true;
+#endif
 
 	return false;
 }

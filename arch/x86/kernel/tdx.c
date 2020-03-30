@@ -93,19 +93,39 @@ static void tdg_get_info(void)
 	physical_mask &= ~tdg_shared_mask();
 }
 
-int tdg_map_gpa(phys_addr_t gpa, int numpages, bool private)
+static int __tdg_map_gpa(phys_addr_t gpa, int numpages, bool private)
 {
 	u64 ret;
 
 	if (!private)
 		gpa |= tdg_shared_mask();
 
-	ret = __tdvmcall(TDVMCALL_MAP_GPA, gpa, PAGE_SIZE * numpages,
-			 0, 0, NULL);
+	ret = tdvmcall(TDVMCALL_MAP_GPA, gpa, PAGE_SIZE * numpages, 0, 0);
 
-	// Host kernel doesn't implement it yet.
-	// WARN_ON(ret || r10);
 	return ret ? -EIO : 0;
+}
+
+static void tdg_accept_page(phys_addr_t gpa)
+{
+	u64 ret;
+
+	ret = __tdcall(TDACCEPTPAGE, gpa, 0, NULL);
+
+	BUG_ON(ret && (ret & ~0xffull) != TDX_PAGE_ALREADY_ACCEPTED);
+}
+
+int tdg_map_gpa(phys_addr_t gpa, int numpages, bool private)
+{
+	int ret, i;
+
+	ret = __tdg_map_gpa(gpa, numpages, private);
+	if (ret || !private)
+		return ret;
+
+	for (i = 0; i < numpages; i++)
+		tdg_accept_page(gpa + i*PAGE_SIZE);
+
+	return 0;
 }
 
 static __cpuidle void tdg_halt(void)

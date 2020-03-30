@@ -24,6 +24,7 @@
 /* Make the page accesable by VMM for confidential guests */
 #define pgprot_cc_guest(prot) __pgprot(pgprot_val(prot) |	\
 					      tdx_shared_mask())
+#define pgprot_cc_shared_mask() __pgprot(tdx_shared_mask())
 
 #ifndef __ASSEMBLY__
 #include <asm/x86_init.h>

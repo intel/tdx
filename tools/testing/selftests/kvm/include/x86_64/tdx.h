@@ -17,6 +17,7 @@
 #define PAGE_SIZE	4096
 
 #include "../../../../../arch/x86/kvm/vmx/tdx_arch.h"
+#include "../../../../../arch/x86/kvm/vmx/tdx_errno.h"
 
 extern struct tdsysinfo_struct sysinfo;
 extern int kvm_fd;
@@ -25,8 +26,18 @@ struct td_page {
 	char data[PAGE_SIZE];
 } __aligned(PAGE_SIZE);
 
+struct test_td {
+	struct td_page tdr;
+	struct td_page tdcx[TDX1_NR_TDCX_PAGES];
+	struct td_page tdvpr;
+	struct td_page tdvpx[TDX1_NR_TDVPX_PAGES];
+	int hkid;
+};
+
 void tdx_enable(int argc, char **argv);
 void tdx_disable(void);
+void tdx_create_td(struct test_td *td);
+void tdx_destroy_td(struct test_td *td);
 
 static inline void __seamcall(struct kvm_seamcall *seamcall)
 {

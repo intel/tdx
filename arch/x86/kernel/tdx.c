@@ -16,9 +16,15 @@
 /* TDX Module call Leaf IDs */
 #define TDX_GET_INFO			1
 #define TDX_GET_VEINFO			3
+#define TDX_ACCEPT_PAGE			6
 
 /* TDX hypercall Leaf IDs */
 #define TDVMCALL_MAP_GPA		0x10001
+
+/* TDX Module call error codes */
+#define TDX_PAGE_ALREADY_ACCEPTED	0x00000b0a00000000
+#define TDCALL_RETURN_CODE_MASK		0xFFFFFFFF00000000
+#define TDCALL_RETURN_CODE(a)		((a) & TDCALL_RETURN_CODE_MASK)
 
 #define VE_IS_IO_OUT(exit_qual)		(((exit_qual) & 8) ? 0 : 1)
 #define VE_GET_IO_SIZE(exit_qual)	(((exit_qual) & 7) + 1)
@@ -108,18 +114,35 @@ static void tdx_get_info(void)
 	physical_mask &= ~tdx_shared_mask();
 }
 
+static void tdx_accept_page(phys_addr_t gpa)
+{
+	u64 ret;
+
+	/*
+	 * Pass the page physical address and size (0-4KB) to the
+	 * TDX module to accept the pending, private page. More info
+	 * about ABI can be found in TDX Guest-Host-Communication
+	 * Interface (GHCI), sec 2.4.7.
+	 */
+	ret = __tdx_module_call(TDX_ACCEPT_PAGE, gpa, 0, 0, 0, NULL);
+
+	/*
+	 * Non zero return value means buggy TDX module (which is
+	 * fatal for TDX guest). So panic here.
+	 */
+	BUG_ON(ret && TDCALL_RETURN_CODE(ret) != TDX_PAGE_ALREADY_ACCEPTED);
+}
+
 /*
  * Inform the VMM of the guest's intent for this physical page:
  * shared with the VMM or private to the guest.  The VMM is
  * expected to change its mapping of the page in response.
- *
- * Note: shared->private conversions require further guest
- * action to accept the page.
  */
 int tdx_hcall_gpa_intent(phys_addr_t gpa, int numpages,
 			 enum tdx_map_type map_type)
 {
-	u64 ret;
+	u64 ret = 0;
+	int i;
 
 	if (map_type == TDX_MAP_SHARED)
 		gpa |= tdx_shared_mask();
@@ -131,8 +154,20 @@ int tdx_hcall_gpa_intent(phys_addr_t gpa, int numpages,
 	 */
 	ret = _tdx_hypercall(TDVMCALL_MAP_GPA, gpa, PAGE_SIZE * numpages, 0, 0,
 			     NULL);
+	if (ret)
+		ret = -EIO;
 
-	return ret ? -EIO : 0;
+	if (ret || map_type == TDX_MAP_SHARED)
+		return ret;
+
+	/*
+	 * For shared->private conversion, accept the page using
+	 * TDX_ACCEPT_PAGE TDX module call.
+	 */
+	for (i = 0; i < numpages; i++)
+		tdx_accept_page(gpa + i * PAGE_SIZE);
+
+	return 0;
 }
 
 static __cpuidle void _tdx_halt(const bool irq_disabled, const bool do_sti)

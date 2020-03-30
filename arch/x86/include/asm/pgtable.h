@@ -24,6 +24,7 @@
 /* Make the page accesable by VMM for protected guests */
 #define pgprot_protected_guest(prot) __pgprot(pgprot_val(prot) |	\
 					      tdg_shared_mask())
+#define pgprot_pg_shared_mask() __pgprot(tdg_shared_mask())
 
 #ifndef __ASSEMBLY__
 #include <asm/x86_init.h>

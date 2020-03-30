@@ -13,6 +13,8 @@
 #include "tdx-kvm.c"
 #endif
 
+#define TDVMCALL_MAP_GPA	0x10001
+
 static struct {
 	unsigned int gpa_width;
 	unsigned long attributes;
@@ -97,6 +99,21 @@ static void tdg_get_info(void)
 
 	/* Exclude Shared bit from the __PHYSICAL_MASK */
 	physical_mask &= ~tdg_shared_mask();
+}
+
+int tdg_map_gpa(phys_addr_t gpa, int numpages, bool private)
+{
+	u64 ret;
+
+	if (!private)
+		gpa |= tdg_shared_mask();
+
+	ret = __tdvmcall(TDVMCALL_MAP_GPA, gpa, PAGE_SIZE * numpages,
+			 0, 0, NULL);
+
+	// Host kernel doesn't implement it yet.
+	// WARN_ON(ret || r10);
+	return ret ? -EIO : 0;
 }
 
 static __cpuidle void tdg_halt(void)

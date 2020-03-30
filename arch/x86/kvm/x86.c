@@ -4279,6 +4279,28 @@ long kvm_arch_dev_ioctl(struct file *filp,
 		break;
 	}
 #endif
+	case KVM_TRANSLATE_VA_TO_PA: {
+		struct kvm_va_to_pa __user *user_addr = argp;
+		struct kvm_va_to_pa addr;
+		struct page *page[1];
+
+		r = -EFAULT;
+		if (copy_from_user(&addr, user_addr, sizeof(addr)))
+			goto out;
+
+		if (get_user_pages_fast(addr.va, 1, 0, page) != 1)
+			goto out;
+
+		addr.pa = (page_to_pfn(page[0]) << PAGE_SHIFT) |
+			  (addr.va & ~PAGE_MASK);
+		put_page(page[0]);
+
+		if (copy_to_user(user_addr, &addr, sizeof(addr)))
+			goto out;
+
+		r = 0;
+		break;
+	}
 	default:
 		r = -EINVAL;
 		break;

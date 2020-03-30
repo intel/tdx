@@ -68,7 +68,7 @@ static void tdx_get_info(void)
 	physical_mask &= ~tdx_shared_mask();
 }
 
-int tdx_map_gpa(phys_addr_t gpa, int numpages, bool private)
+static int __tdx_map_gpa(phys_addr_t gpa, int numpages, bool private)
 {
 	register long r10 asm("r10") = TDVMCALL_STANDARD;
 	register long r11 asm("r11") = TDVMCALL_MAP_GPA;
@@ -89,9 +89,32 @@ int tdx_map_gpa(phys_addr_t gpa, int numpages, bool private)
 			  "r"(r13)
 			: );
 
-	// Host kernel doesn't implement it yet.
-	// WARN_ON(ret || r10);
+	WARN_ON(ret || r10);
 	return ret || r10 ? -EIO : 0;
+}
+
+static void tdx_accept_page(phys_addr_t gpa)
+{
+	u64 ret;
+
+	asm volatile(TDCALL : "=a"(ret) : "a"(TDACCEPTPAGE), "c"(gpa));
+
+	BUG_ON(ret && (ret & ~0xffull) != TDX_PAGE_ALREADY_ACCEPTED);
+}
+
+
+int tdx_map_gpa(phys_addr_t gpa, int numpages, bool private)
+{
+	int ret, i;
+
+	ret = __tdx_map_gpa(gpa, numpages, private);
+	if (ret || !private)
+		return ret;
+
+	for (i = 0; i < numpages; i++)
+		tdx_accept_page(gpa + i*PAGE_SIZE);
+
+	return 0;
 }
 
 static __cpuidle void tdx_halt(void)

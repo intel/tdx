@@ -16,6 +16,9 @@
 #define TDX_GET_INFO			1
 #define TDX_GET_VEINFO			3
 
+/* TDX hypercall Leaf IDs */
+#define TDVMCALL_MAP_GPA		0x10001
+
 #define VE_IS_IO_IN(exit_qual)		(((exit_qual) & 8) ? 1 : 0)
 #define VE_GET_IO_SIZE(exit_qual)	(((exit_qual) & 7) + 1)
 #define VE_GET_PORT_NUM(exit_qual)	((exit_qual) >> 16)
@@ -98,6 +101,37 @@ static void tdx_get_info(void)
 
 	td_info.gpa_width = out.rcx & GENMASK(5, 0);
 	td_info.attributes = out.rdx;
+}
+
+/*
+ * Inform the VMM of the guest's intent for this physical page:
+ * shared with the VMM or private to the guest.  The VMM is
+ * expected to change its mapping of the page in response.
+ *
+ * Note: shared->private conversions require further guest
+ * action to accept the page.
+ */
+int tdx_hcall_request_gpa_type(phys_addr_t start, phys_addr_t end,
+			       enum tdx_map_type map_type)
+{
+	u64 ret;
+
+	if (end <= start)
+		return -EINVAL;
+
+	if (map_type == TDX_MAP_SHARED) {
+		start |= tdx_shared_mask();
+		end |= tdx_shared_mask();
+	}
+
+	/*
+	 * Notify the VMM about page mapping conversion. More info
+	 * about ABI can be found in TDX Guest-Host-Communication
+	 * Interface (GHCI), sec "TDG.VP.VMCALL<MapGPA>"
+	 */
+	ret = _tdx_hypercall(TDVMCALL_MAP_GPA, start, end - start, 0, 0, NULL);
+
+	return ret ? -EIO : 0;
 }
 
 static __cpuidle void _tdx_halt(const bool irq_disabled, const bool do_sti)

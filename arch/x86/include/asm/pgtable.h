@@ -15,12 +15,6 @@
 		     cachemode2protval(_PAGE_CACHE_MODE_UC_MINUS)))	\
 	 : (prot))
 
-/*
- * Macros to add or remove encryption attribute
- */
-#define pgprot_encrypted(prot)	__pgprot(__sme_set(pgprot_val(prot)))
-#define pgprot_decrypted(prot)	__pgprot(__sme_clr(pgprot_val(prot)))
-
 #ifndef __ASSEMBLY__
 #include <linux/spinlock.h>
 #include <asm/x86_init.h>
@@ -37,6 +31,19 @@ void ptdump_walk_pgd_level_debugfs(struct seq_file *m, struct mm_struct *mm,
 				   bool user);
 void ptdump_walk_pgd_level_checkwx(void);
 void ptdump_walk_user_pgd_level_checkwx(void);
+
+/*
+ * Macros to add or remove encryption attribute
+ */
+#ifdef CONFIG_ARCH_HAS_CC_PLATFORM
+pgprot_t pgprot_encrypted(pgprot_t prot);
+pgprot_t pgprot_decrypted(pgprot_t prot);
+#define pgprot_encrypted(prot)	pgprot_encrypted(prot)
+#define pgprot_decrypted(prot)	pgprot_decrypted(prot)
+#else
+#define pgprot_encrypted(prot) (prot)
+#define pgprot_decrypted(prot) (prot)
+#endif
 
 #ifdef CONFIG_DEBUG_WX
 #define debug_checkwx()		ptdump_walk_pgd_level_checkwx()

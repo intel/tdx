@@ -12,6 +12,7 @@
 #include <linux/mem_encrypt.h>
 
 #include <asm/mshyperv.h>
+#include <asm/pgtable.h>
 #include <asm/processor.h>
 #include <asm/tdx.h>
 
@@ -88,3 +89,24 @@ bool cc_platform_has(enum cc_attr attr)
 	return false;
 }
 EXPORT_SYMBOL_GPL(cc_platform_has);
+
+pgprot_t pgprot_encrypted(pgprot_t prot)
+{
+	if (sme_me_mask)
+		return __pgprot(__sme_set(pgprot_val(prot)));
+	else if (cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
+		return __pgprot(pgprot_val(prot) & ~tdx_shared_mask());
+
+	return prot;
+}
+
+pgprot_t pgprot_decrypted(pgprot_t prot)
+{
+	if (sme_me_mask)
+		return __pgprot(__sme_clr(pgprot_val(prot)));
+	else if (cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
+		return __pgprot(pgprot_val(prot) | tdx_shared_mask());
+
+	return prot;
+}
+EXPORT_SYMBOL_GPL(pgprot_decrypted);

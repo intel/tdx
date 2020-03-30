@@ -56,6 +56,15 @@ struct ve_info {
 	u32 instr_info;
 };
 
+/*
+ * Page mapping type enum. This is software construct not
+ * part of any hardware or VMM ABI.
+ */
+enum tdx_map_type {
+	TDX_MAP_PRIVATE,
+	TDX_MAP_SHARED,
+};
+
 #ifdef CONFIG_INTEL_TDX_GUEST
 
 void __init tdx_early_init(void);
@@ -78,6 +87,9 @@ int tdg_handle_virtualization_exception(struct pt_regs *regs,
 bool tdg_early_handle_ve(struct pt_regs *regs);
 
 extern phys_addr_t tdg_shared_mask(void);
+
+extern int tdx_hcall_gpa_intent(phys_addr_t gpa, int numpages,
+				enum tdx_map_type map_type);
 
 /*
  * To support I/O port access in decompressor or early kernel init
@@ -148,6 +160,12 @@ static inline bool tdx_prot_guest_has(unsigned long flag) { return false; }
 static inline bool tdg_early_handle_ve(struct pt_regs *regs) { return false; }
 
 static inline phys_addr_t tdg_shared_mask(void) { return 0; }
+
+static inline int tdx_hcall_gpa_intent(phys_addr_t gpa, int numpages,
+				       enum tdx_map_type map_type)
+{
+	return -ENODEV;
+}
 
 #endif /* CONFIG_INTEL_TDX_GUEST */
 

@@ -885,7 +885,7 @@ config INTEL_TDX_GUEST
 	depends on X86_X2APIC
 	select ARCH_HAS_CC_PLATFORM
 	select X86_MCE
-	select DYNAMIC_PHYSICAL_MASK
+	select X86_MEM_ENCRYPT
 	help
 	  Support running as a guest under Intel TDX.  Without this support,
 	  the guest kernel can not boot or run under TDX.

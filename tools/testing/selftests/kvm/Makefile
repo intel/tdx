@@ -60,6 +60,7 @@ TEST_GEN_PROGS_x86_64 += x86_64/vmx_tsc_adjust_test
 TEST_GEN_PROGS_x86_64 += x86_64/xapic_ipi_test
 TEST_GEN_PROGS_x86_64 += x86_64/tdx_load_seam_test
 TEST_GEN_PROGS_x86_64 += x86_64/tdx_seamcall_test
+TEST_GEN_PROGS_x86_64 += x86_64/tdx_tdenter_test
 TEST_GEN_PROGS_x86_64 += x86_64/xss_msr_test
 TEST_GEN_PROGS_x86_64 += x86_64/debug_regs
 TEST_GEN_PROGS_x86_64 += x86_64/tsc_msrs_test

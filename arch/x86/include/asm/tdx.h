@@ -57,6 +57,8 @@ bool tdx_early_handle_ve(struct pt_regs *regs);
 
 phys_addr_t tdx_shared_mask(void);
 
+int tdx_hcall_request_gpa_type(phys_addr_t start, phys_addr_t end, bool enc);
+
 #else
 
 static inline void tdx_early_init(void) { };
@@ -66,6 +68,13 @@ static inline void tdx_safe_halt(void) { };
 static inline bool tdx_early_handle_ve(struct pt_regs *regs) { return false; }
 
 static inline phys_addr_t tdx_shared_mask(void) { return 0; }
+
+
+static inline int tdx_hcall_request_gpa_type(phys_addr_t start,
+					     phys_addr_t end, bool enc)
+{
+	return -ENODEV;
+}
 
 #endif /* CONFIG_INTEL_TDX_GUEST */
 

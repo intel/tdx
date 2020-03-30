@@ -66,6 +66,15 @@ long tdx_kvm_hypercall(unsigned int nr, unsigned long p1, unsigned long p2,
 EXPORT_SYMBOL_GPL(tdx_kvm_hypercall);
 #endif
 
+/*
+ * The highest bit of a guest physical address is the "sharing" bit.
+ * Set it for shared pages and clear it for private pages.
+ */
+phys_addr_t tdx_shared_mask(void)
+{
+	return BIT_ULL(td_info.gpa_width - 1);
+}
+
 static void tdx_get_info(void)
 {
 	struct tdx_module_output out;

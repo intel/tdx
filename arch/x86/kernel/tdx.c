@@ -15,6 +15,7 @@
 /* TDX Module Call Leaf IDs */
 #define TDX_GET_INFO			1
 #define TDX_GET_VEINFO			3
+#define TDX_ACCEPT_PAGE			6
 
 /* TDX hypercall Leaf IDs */
 #define TDVMCALL_MAP_GPA		0x10001
@@ -103,13 +104,25 @@ static void tdx_get_info(void)
 	td_info.attributes = out.rdx;
 }
 
+static bool tdx_accept_page(phys_addr_t gpa, bool page_2mb)
+{
+	/*
+	 * Pass the page physical address to the TDX module to accept the
+	 * pending, private page.
+	 *
+	 * Bits 2:0 if GPA encodes page size: 0 - 4K, 1 - 2M.
+	 */
+
+	if (page_2mb)
+		gpa |= 1;
+
+	return __tdx_module_call(TDX_ACCEPT_PAGE, gpa, 0, 0, 0, NULL);
+}
+
 /*
  * Inform the VMM of the guest's intent for this physical page:
  * shared with the VMM or private to the guest.  The VMM is
  * expected to change its mapping of the page in response.
- *
- * Note: shared->private conversions require further guest
- * action to accept the page.
  */
 int tdx_hcall_request_gpa_type(phys_addr_t start, phys_addr_t end,
 			       enum tdx_map_type map_type)
@@ -130,8 +143,30 @@ int tdx_hcall_request_gpa_type(phys_addr_t start, phys_addr_t end,
 	 * Interface (GHCI), sec "TDG.VP.VMCALL<MapGPA>"
 	 */
 	ret = _tdx_hypercall(TDVMCALL_MAP_GPA, start, end - start, 0, 0, NULL);
+	if (ret)
+		ret = -EIO;
 
-	return ret ? -EIO : 0;
+	if (ret || map_type == TDX_MAP_SHARED)
+		return ret;
+
+	/*
+	 * For shared->private conversion, accept the page using
+	 * TDX_ACCEPT_PAGE TDX module call.
+	 */
+	while (start < end) {
+		/* Try 2M page accept first if possible */
+		if (!(start & ~PMD_MASK) && end - start >= PMD_SIZE &&
+		    !tdx_accept_page(start, true)) {
+			start += PMD_SIZE;
+			continue;
+		}
+
+		if (tdx_accept_page(start, false))
+			return -EIO;
+		start += PAGE_SIZE;
+	}
+
+	return 0;
 }
 
 static __cpuidle void _tdx_halt(const bool irq_disabled, const bool do_sti)

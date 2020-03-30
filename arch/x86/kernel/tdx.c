@@ -19,6 +19,8 @@
 #include "tdx-kvm.c"
 #endif
 
+#define TDVMCALL_MAP_GPA	0x10001
+
 static struct {
 	unsigned int gpa_width;
 	unsigned long attributes;
@@ -63,6 +65,33 @@ static void tdx_get_info(void)
 
 	/* Exclude Shared bit from the __PHYSICAL_MASK */
 	physical_mask &= ~tdx_shared_mask();
+}
+
+int tdx_map_gpa(phys_addr_t gpa, int numpages, bool private)
+{
+	register long r10 asm("r10") = TDVMCALL_STANDARD;
+	register long r11 asm("r11") = TDVMCALL_MAP_GPA;
+	register long r12 asm("r12") = 0;
+	register long r13 asm("r13") = gpa;
+	register long r14 asm("r14") = PAGE_SIZE * numpages;
+	register long rcx asm("rcx");
+	long ret;
+
+	if (!private)
+		r13 |= tdx_shared_mask();
+
+	/* Allow to pass R10, R11, R12, R13 and R14 down to the VMM */
+	rcx = BIT(10) | BIT(11) | BIT(12) | BIT(13) | BIT(14);
+
+	asm volatile(TDCALL
+			: "=a"(ret), "=r"(r10)
+			: "a"(TDVMCALL), "r"(rcx), "r"(r10), "r"(r11), "r"(r12),
+			  "r"(r13), "r"(r14)
+			: );
+
+	// Host kernel doesn't implement it yet.
+	// WARN_ON(ret || r10);
+	return ret || r10 ? -EIO : 0;
 }
 
 static __cpuidle void tdx_halt(void)

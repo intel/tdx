@@ -41,6 +41,11 @@ bool is_tdx_guest(void)
 }
 EXPORT_SYMBOL_GPL(is_tdx_guest);
 
+phys_addr_t tdx_shared_mask(void)
+{
+	return 1ULL << (td_info.gpa_width - 1);
+}
+
 static void tdx_get_info(void)
 {
 	register long rcx asm("rcx");
@@ -56,6 +61,9 @@ static void tdx_get_info(void)
 
 	td_info.gpa_width = rcx & GENMASK(5, 0);
 	td_info.attributes = rdx;
+
+	/* Exclude Shared bit from the __PHYSICAL_MASK */
+	physical_mask &= ~tdx_shared_mask();
 }
 
 static __cpuidle void tdx_halt(void)

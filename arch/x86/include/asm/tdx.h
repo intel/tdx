@@ -104,5 +104,6 @@ long tdx_kvm_hypercall3(unsigned int nr, unsigned long p1, unsigned long p2,
 long tdx_kvm_hypercall4(unsigned int nr, unsigned long p1, unsigned long p2,
 		unsigned long p3, unsigned long p4);
 
+phys_addr_t tdx_shared_mask(void);
 #endif
 #endif /* _ASM_X86_TDX_H */

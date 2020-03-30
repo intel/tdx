@@ -81,6 +81,19 @@ enum cc_attr {
 	 * Examples include TDX Guest.
 	 */
 	CC_ATTR_GUEST_UNROLL_STRING_IO,
+
+	/**
+	 * @CC_ATTR_GUEST_SHARED_MAPPING_INIT: IO Remapped memory is marked
+	 *				       as shared.
+	 *
+	 * The platform/OS is running as a guest/virtual machine and
+	 * initializes all IO remapped memory as shared.
+	 *
+	 * Examples include TDX Guest (SEV marks all pages as shared by default
+	 * so this feature cannot be enabled for it).
+	 */
+	CC_ATTR_GUEST_SHARED_MAPPING_INIT,
+
 };
 
 #ifdef CONFIG_ARCH_HAS_CC_PLATFORM

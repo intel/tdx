@@ -256,7 +256,8 @@ static unsigned long pg_level_to_pfn(int level, pte_t *kpte, pgprot_t *ret_prot)
 	return pfn;
 }
 
-void notify_range_enc_status_changed(unsigned long vaddr, int npages, bool enc)
+int amd_notify_range_enc_status_changed(unsigned long vaddr, int npages,
+					 bool enc)
 {
 #ifdef CONFIG_PARAVIRT
 	unsigned long sz = npages << PAGE_SHIFT;
@@ -270,7 +271,7 @@ void notify_range_enc_status_changed(unsigned long vaddr, int npages, bool enc)
 		kpte = lookup_address(vaddr, &level);
 		if (!kpte || pte_none(*kpte)) {
 			WARN_ONCE(1, "kpte lookup for vaddr\n");
-			return;
+			return 0;
 		}
 
 		pfn = pg_level_to_pfn(level, kpte, NULL);
@@ -285,6 +286,7 @@ void notify_range_enc_status_changed(unsigned long vaddr, int npages, bool enc)
 		vaddr = (vaddr & pmask) + psize;
 	}
 #endif
+	return 0;
 }
 
 static void __init __set_clr_pte_enc(pte_t *kpte, int level, bool enc)
@@ -392,7 +394,7 @@ static int __init early_set_memory_enc_dec(unsigned long vaddr,
 
 	ret = 0;
 
-	notify_range_enc_status_changed(start, PAGE_ALIGN(size) >> PAGE_SHIFT, enc);
+	amd_notify_range_enc_status_changed(start, PAGE_ALIGN(size) >> PAGE_SHIFT, enc);
 out:
 	__flush_tlb_all();
 	return ret;
@@ -410,7 +412,7 @@ int __init early_set_memory_encrypted(unsigned long vaddr, unsigned long size)
 
 void __init early_set_mem_enc_dec_hypercall(unsigned long vaddr, int npages, bool enc)
 {
-	notify_range_enc_status_changed(vaddr, npages, enc);
+	amd_notify_range_enc_status_changed(vaddr, npages, enc);
 }
 
 void __init mem_encrypt_free_decrypted_mem(void)

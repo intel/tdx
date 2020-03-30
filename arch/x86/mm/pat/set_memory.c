@@ -32,6 +32,7 @@
 #include <asm/set_memory.h>
 #include <asm/hyperv-tlfs.h>
 #include <asm/mshyperv.h>
+#include <asm/tdx.h>
 
 #include "../mm_internal.h"
 
@@ -1983,6 +1984,27 @@ int set_memory_global(unsigned long addr, int numpages)
 				    __pgprot(_PAGE_GLOBAL), 0);
 }
 
+static pgprot_t pgprot_cc_mask(bool enc)
+{
+	if (enc)
+		return pgprot_encrypted(__pgprot(0));
+	else
+		return pgprot_decrypted(__pgprot(0));
+}
+
+static int notify_range_enc_status_changed(unsigned long vaddr, int npages,
+					   bool enc)
+{
+	if (cc_platform_has(CC_ATTR_GUEST_TDX)) {
+		phys_addr_t start = __pa(vaddr);
+		phys_addr_t end = __pa(vaddr + npages * PAGE_SIZE);
+
+		return tdx_hcall_request_gpa_type(start, end, enc);
+	} else {
+		return amd_notify_range_enc_status_changed(vaddr, npages, enc);
+	}
+}
+
 /*
  * __set_memory_enc_pgtable() is used for the hypervisors that get
  * informed about "encryption" status via page tables.
@@ -1999,8 +2021,10 @@ static int __set_memory_enc_pgtable(unsigned long addr, int numpages, bool enc)
 	memset(&cpa, 0, sizeof(cpa));
 	cpa.vaddr = &addr;
 	cpa.numpages = numpages;
-	cpa.mask_set = enc ? __pgprot(_PAGE_ENC) : __pgprot(0);
-	cpa.mask_clr = enc ? __pgprot(0) : __pgprot(_PAGE_ENC);
+
+	cpa.mask_set = pgprot_cc_mask(enc);
+	cpa.mask_clr = pgprot_cc_mask(!enc);
+
 	cpa.pgd = init_mm.pgd;
 
 	/* Must avoid aliasing mappings in the highmem code */
@@ -2008,9 +2032,17 @@ static int __set_memory_enc_pgtable(unsigned long addr, int numpages, bool enc)
 	vm_unmap_aliases();
 
 	/*
-	 * Before changing the encryption attribute, we need to flush caches.
+	 * Before changing the encryption attribute, flush caches.
+	 *
+	 * For TDX, guest is responsible for flushing caches on private->shared
+	 * transition. VMM is responsible for flushing on shared->private.
 	 */
-	cpa_flush(&cpa, !this_cpu_has(X86_FEATURE_SME_COHERENT));
+	if (cc_platform_has(CC_ATTR_GUEST_TDX)) {
+		if (!enc)
+			cpa_flush(&cpa, 1);
+	} else {
+		cpa_flush(&cpa, !this_cpu_has(X86_FEATURE_SME_COHERENT));
+	}
 
 	ret = __change_page_attr_set_clr(&cpa, 1);
 
@@ -2027,8 +2059,8 @@ static int __set_memory_enc_pgtable(unsigned long addr, int numpages, bool enc)
 	 * Notify hypervisor that a given memory range is mapped encrypted
 	 * or decrypted.
 	 */
-	notify_range_enc_status_changed(addr, numpages, enc);
-
+	if (!ret)
+		ret =  notify_range_enc_status_changed(addr, numpages, enc);
 	return ret;
 }
 

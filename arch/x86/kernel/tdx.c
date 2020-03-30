@@ -100,7 +100,8 @@ static void tdg_get_info(void)
 	physical_mask &= ~tdg_shared_mask();
 }
 
-int tdg_map_gpa(phys_addr_t gpa, int numpages, enum tdx_map_type map_type)
+static int __tdg_map_gpa(phys_addr_t gpa, int numpages,
+			 enum tdx_map_type map_type)
 {
 	u64 ret;
 
@@ -109,6 +110,29 @@ int tdg_map_gpa(phys_addr_t gpa, int numpages, enum tdx_map_type map_type)
 
 	ret = tdvmcall(TDVMCALL_MAP_GPA, gpa, PAGE_SIZE * numpages, 0, 0);
 	return ret ? -EIO : 0;
+}
+
+static void tdg_accept_page(phys_addr_t gpa)
+{
+	u64 ret;
+
+	ret = __tdcall(TDACCEPTPAGE, gpa, 0, 0, 0, NULL);
+
+	BUG_ON(ret && ret != TDX_PAGE_ALREADY_ACCEPTED);
+}
+
+int tdg_map_gpa(phys_addr_t gpa, int numpages, enum tdx_map_type map_type)
+{
+	int ret, i;
+
+	ret = __tdg_map_gpa(gpa, numpages, map_type);
+	if (ret || map_type == TDX_MAP_SHARED)
+		return ret;
+
+	for (i = 0; i < numpages; i++)
+		tdg_accept_page(gpa + i*PAGE_SIZE);
+
+	return 0;
 }
 
 static __cpuidle void tdg_halt(void)

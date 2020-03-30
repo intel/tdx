@@ -55,6 +55,8 @@ void tdx_safe_halt(void);
 
 bool tdx_early_handle_ve(struct pt_regs *regs);
 
+phys_addr_t tdx_shared_mask(void);
+
 #else
 
 static inline void tdx_early_init(void) { };
@@ -62,6 +64,8 @@ static inline bool is_tdx_guest(void) { return false; }
 static inline void tdx_safe_halt(void) { };
 
 static inline bool tdx_early_handle_ve(struct pt_regs *regs) { return false; }
+
+static inline phys_addr_t tdx_shared_mask(void) { return 0; }
 
 #endif /* CONFIG_INTEL_TDX_GUEST */
 

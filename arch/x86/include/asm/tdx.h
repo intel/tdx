@@ -14,6 +14,9 @@
 
 #define TDINFO			1
 #define TDGETVEINFO		3
+#define TDACCEPTPAGE		6
+
+#define TDX_PAGE_ALREADY_ACCEPTED       0x00000B0A00000000
 
 struct tdcall_output {
 	u64 rcx;

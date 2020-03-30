@@ -111,6 +111,8 @@ unsigned char tdg_inb(unsigned short port);
 unsigned short tdg_inw(unsigned short port);
 unsigned int tdg_inl(unsigned short port);
 
+extern phys_addr_t tdg_shared_mask(void);
+
 #else // !CONFIG_INTEL_TDX_GUEST
 
 static inline bool is_tdx_guest(void)
@@ -149,6 +151,10 @@ static inline long tdx_kvm_hypercall4(unsigned int nr, unsigned long p1,
 	return -ENODEV;
 }
 
+static inline phys_addr_t tdg_shared_mask(void)
+{
+	return 0;
+}
 #endif /* CONFIG_INTEL_TDX_GUEST */
 #endif /* __ASSEMBLY__ */
 #endif /* _ASM_X86_TDX_H */

@@ -833,6 +833,7 @@ struct kvm_ppc_resize_hpt {
 
 #define KVM_SEAMCALL              _IOWR(KVMIO, 0x31, struct kvm_seamcall)
 #define KVM_TDENTER		  _IOWR(KVMIO, 0x32, struct kvm_tdenter)
+#define KVM_TRANSLATE_VA_TO_PA	  _IOWR(KVMIO, 0x33, struct kvm_va_to_pa)
 
 /*
  * Check if a kvm extension is available.  Argument is extension number,

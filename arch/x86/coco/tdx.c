@@ -10,10 +10,15 @@
 #include <asm/vmx.h>
 #include <asm/insn.h>
 #include <asm/insn-eval.h>
+#include <asm/x86_init.h>
 
 /* TDX module Call Leaf IDs */
 #define TDX_GET_INFO			1
 #define TDX_GET_VEINFO			3
+#define TDX_ACCEPT_PAGE			6
+
+/* TDX hypercall Leaf IDs */
+#define TDVMCALL_MAP_GPA		0x10001
 
 /* MMIO direction */
 #define EPT_READ	0
@@ -456,6 +461,107 @@ bool tdx_handle_virt_exception(struct pt_regs *regs, struct ve_info *ve)
 	return ret;
 }
 
+static bool tdx_tlb_flush_required(bool enc)
+{
+	/*
+	 * TDX guest is responsible for flushing caches on private->shared
+	 * transition. VMM is responsible for flushing on shared->private.
+	 */
+	return !enc;
+}
+
+static bool tdx_cache_flush_required(void)
+{
+	return true;
+}
+
+static bool accept_page(phys_addr_t gpa, enum pg_level pg_level)
+{
+	/*
+	 * Pass the page physical address to the TDX module to accept the
+	 * pending, private page.
+	 *
+	 * Bits 2:0 of GPA encode page size: 0 - 4K, 1 - 2M, 2 - 1G.
+	 */
+	switch (pg_level) {
+	case PG_LEVEL_4K:
+		break;
+	case PG_LEVEL_2M:
+		gpa |= 1;
+		break;
+	case PG_LEVEL_1G:
+		gpa |= 2;
+		break;
+	default:
+		return false;
+	}
+
+	return !__tdx_module_call(TDX_ACCEPT_PAGE, gpa, 0, 0, 0, NULL);
+}
+
+/*
+ * Inform the VMM of the guest's intent for this physical page: shared with
+ * the VMM or private to the guest.  The VMM is expected to change its mapping
+ * of the page in response.
+ */
+static int tdx_enc_status_changed(unsigned long vaddr, int numpages, bool enc)
+{
+	phys_addr_t start = __pa(vaddr);
+	phys_addr_t end = __pa(vaddr + numpages * PAGE_SIZE);
+
+	if (end <= start)
+		return -EINVAL;
+
+	if (!enc) {
+		start = cc_mkenc(start);
+		end = cc_mkenc(end);
+	}
+
+	/*
+	 * Notify the VMM about page mapping conversion. More info about ABI
+	 * can be found in TDX Guest-Host-Communication Interface (GHCI),
+	 * section "TDG.VP.VMCALL<MapGPA>"
+	 */
+	if (_tdx_hypercall(TDVMCALL_MAP_GPA, start, end - start, 0, 0))
+		return -EIO;
+
+	/* private->shared conversion  requires only MapGPA call */
+	if (!enc)
+		return 0;
+
+	/*
+	 * For shared->private conversion, accept the page using
+	 * TDX_ACCEPT_PAGE TDX module call.
+	 */
+	while (start < end) {
+		/* Try if 1G page accept is possible */
+		if (!(start & ~PUD_MASK) && end - start >= PUD_SIZE &&
+		    accept_page(start, PG_LEVEL_1G)) {
+			start += PUD_SIZE;
+			continue;
+		}
+
+		/* Try if 2M page accept is possible */
+		if (!(start & ~PMD_MASK) && end - start >= PMD_SIZE &&
+		    accept_page(start, PG_LEVEL_2M)) {
+			start += PMD_SIZE;
+			continue;
+		}
+
+		if (!accept_page(start, PG_LEVEL_4K))
+			return -EIO;
+		start += PAGE_SIZE;
+	}
+
+	return 0;
+}
+
+static const struct x86_cc_runtime tdx_cc_runtime = {
+	.enc_status_changed = tdx_enc_status_changed,
+	.enc_tlb_flush_required = tdx_tlb_flush_required,
+	.enc_cache_flush_required = tdx_cache_flush_required,
+};
+
 void __init tdx_early_init(void)
 {
 	u32 eax, sig[3];
@@ -485,6 +591,8 @@ void __init tdx_early_init(void)
 	mask = BIT_ULL(td_info.gpa_width - 1);
 
 	cc_init(CC_VENDOR_INTEL, mask);
+
+	x86_platform.cc = &tdx_cc_runtime;
 
 	pr_info("Guest detected\n");
 }

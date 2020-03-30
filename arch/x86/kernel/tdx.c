@@ -486,5 +486,13 @@ void __init tdx_early_init(void)
 
 	tdx_get_info();
 
+	/*
+	 * All bits above GPA width are reserved and kernel treats shared bit
+	 * as flag, not as part of physical address.
+	 *
+	 * Adjust physical mask to only cover valid GPA bits.
+	 */
+	physical_mask &= GENMASK_ULL(td_info.gpa_width - 2, 0);
+
 	pr_info("Guest detected\n");
 }

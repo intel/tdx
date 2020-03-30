@@ -9,6 +9,11 @@
 
 #ifdef CONFIG_INTEL_TDX_GUEST
 
+enum tdx_map_type {
+	TDX_MAP_PRIVATE,
+	TDX_MAP_SHARED,
+};
+
 #include <asm/cpufeature.h>
 #include <linux/types.h>
 
@@ -109,6 +114,7 @@ unsigned short tdg_inw(unsigned short port);
 unsigned int tdg_inl(unsigned short port);
 
 phys_addr_t tdg_shared_mask(void);
+int tdg_map_gpa(phys_addr_t gpa, int numpages, enum tdx_map_type map_type);
 
 #else // !CONFIG_INTEL_TDX_GUEST
 
@@ -151,6 +157,12 @@ static inline long tdx_kvm_hypercall4(unsigned int nr, unsigned long p1,
 static inline phys_addr_t tdg_shared_mask(void)
 {
 	return 0;
+}
+
+static inline int tdg_map_gpa(phys_addr_t gpa, int numpages,
+			      enum tdx_map_type map_type)
+{
+	return -ENODEV;
 }
 #endif /* CONFIG_INTEL_TDX_GUEST */
 #endif /* __ASSEMBLY__ */

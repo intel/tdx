@@ -11,7 +11,6 @@
 
 #ifdef CONFIG_INTEL_TDX_HOST
 int tdx_module_setup(void);
-int tdx_enable(void);
 
 struct tdx_td_page {
 	unsigned long va;
@@ -24,6 +23,8 @@ struct kvm_tdx {
 
 	struct tdx_td_page tdr;
 	struct tdx_td_page *tdcs;
+
+	int hkid;
 };
 
 struct vcpu_tdx {

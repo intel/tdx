@@ -9,8 +9,6 @@
 #include "tdx_arch.h"
 #include "tdx_ops.h"
 
-int tdx_enable(void);
-
 #ifdef CONFIG_INTEL_TDX_HOST
 int tdx_module_setup(void);
 
@@ -43,6 +41,8 @@ struct kvm_tdx {
 
 	struct tdx_td_page tdr;
 	struct tdx_td_page *tdcs;
+
+	int hkid;
 };
 
 struct vcpu_tdx {

@@ -39,7 +39,7 @@ static void vt_hardware_unsetup(void)
 	vmx_hardware_unsetup();
 }
 
-int tdx_enable(void)
+static int tdx_enable(void)
 {
 	static DEFINE_MUTEX(tdx_init_lock);
 	static bool __read_mostly tdx_module_initialized;
@@ -64,6 +64,34 @@ out:
 	return ret;
 }
 
+static int vt_vm_init(struct kvm *kvm)
+{
+	int ret;
+
+	if (is_td(kvm)) {
+		ret = tdx_enable();
+		if (ret)
+			return ret;
+		return tdx_vm_init(kvm);
+	}
+
+	return vmx_vm_init(kvm);
+}
+
+static void vt_mmu_prezap(struct kvm *kvm)
+{
+	if (is_td(kvm))
+		return tdx_mmu_prezap(kvm);
+}
+
+static void vt_vm_free(struct kvm *kvm)
+{
+	if (is_td(kvm)) {
+		tdx_vm_free(kvm);
+		return;
+	}
+}
+
 static bool vt_is_vm_type_supported(unsigned long type)
 {
 	return type == KVM_X86_DEFAULT_VM ||
@@ -82,7 +110,9 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 
 	.is_vm_type_supported = vt_is_vm_type_supported,
 	.vm_size = sizeof(struct kvm_vmx),
-	.vm_init = vmx_vm_init,
+	.vm_init = vt_vm_init,
+	.mmu_prezap = vt_mmu_prezap,
+	.vm_free = vt_vm_free,
 
 	.vcpu_create = vmx_create_vcpu,
 	.vcpu_free = vmx_free_vcpu,

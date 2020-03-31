@@ -4520,10 +4520,15 @@ static void svm_vcpu_deliver_sipi_vector(struct kvm_vcpu *vcpu, u8 vector)
 	sev_vcpu_deliver_sipi_vector(vcpu, vector);
 }
 
-static void svm_vm_destroy(struct kvm *kvm)
+static void svm_vm_teardown(struct kvm *kvm)
 {
 	avic_vm_destroy(kvm);
 	sev_vm_destroy(kvm);
+}
+
+static void svm_vm_destroy(struct kvm *kvm)
+{
+
 }
 
 static bool svm_is_vm_type_supported(unsigned long type)
@@ -4559,6 +4564,7 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 	.is_vm_type_supported = svm_is_vm_type_supported,
 	.vm_size = sizeof(struct kvm_svm),
 	.vm_init = svm_vm_init,
+	.vm_teardown = svm_vm_teardown,
 	.vm_destroy = svm_vm_destroy,
 
 	.prepare_guest_switch = svm_prepare_guest_switch,

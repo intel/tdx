@@ -22,6 +22,8 @@ struct kvm_tdx {
 
 	struct tdx_td_page tdr;
 	struct tdx_td_page *tdcs;
+
+	int hkid;
 };
 
 struct vcpu_tdx {

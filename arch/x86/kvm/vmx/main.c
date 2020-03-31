@@ -3,6 +3,7 @@
 
 #include "x86_ops.h"
 #include "vmx.h"
+#include "tdx.h"
 #include "nested.h"
 #include "pmu.h"
 
@@ -26,6 +27,28 @@ static __init int vt_hardware_setup(void)
 		enable_tdx = false;
 #endif
 	return 0;
+}
+
+static int vt_vm_init(struct kvm *kvm)
+{
+	if (kvm->arch.vm_type == KVM_X86_TDX_VM)
+		return tdx_vm_init(kvm);
+
+	return vmx_vm_init(kvm);
+}
+
+static void vt_vm_destroy(struct kvm *kvm)
+{
+	if (is_td(kvm))
+		return tdx_vm_teardown(kvm);
+}
+
+static void vt_vm_free(struct kvm *kvm)
+{
+	if (is_td(kvm)) {
+		tdx_vm_free(kvm);
+		return;
+	}
 }
 
 static int vt_mem_enc_op_dev(void __user *argp)
@@ -54,7 +77,9 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 
 	.is_vm_type_supported = vt_is_vm_type_supported,
 	.vm_size = sizeof(struct kvm_vmx),
-	.vm_init = vmx_vm_init,
+	.vm_init = vt_vm_init,
+	.vm_destroy = vt_vm_destroy,
+	.vm_free = vt_vm_free,
 
 	.vcpu_create = vmx_create_vcpu,
 	.vcpu_free = vmx_free_vcpu,

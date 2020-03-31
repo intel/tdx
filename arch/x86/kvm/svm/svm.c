@@ -4018,10 +4018,15 @@ static bool svm_apic_init_signal_blocked(struct kvm_vcpu *vcpu)
 		   (svm->vmcb->control.intercept & (1ULL << INTERCEPT_INIT));
 }
 
-static void svm_vm_destroy(struct kvm *kvm)
+static void svm_vm_teardown(struct kvm *kvm)
 {
 	avic_vm_destroy(kvm);
 	sev_vm_destroy(kvm);
+}
+
+static void svm_vm_destroy(struct kvm *kvm)
+{
+
 }
 
 static bool svm_is_vm_type_supported(unsigned long type)
@@ -4058,6 +4063,7 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 	.is_vm_type_supported = svm_is_vm_type_supported,
 	.vm_size = sizeof(struct kvm_svm),
 	.vm_init = svm_vm_init,
+	.vm_teardown = svm_vm_teardown,
 	.vm_destroy = svm_vm_destroy,
 
 	.prepare_guest_switch = svm_prepare_guest_switch,

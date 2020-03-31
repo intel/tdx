@@ -64,6 +64,18 @@ static int vt_vm_init(struct kvm *kvm)
 	return vmx_vm_init(kvm);
 }
 
+static void vt_mmu_prezap(struct kvm *kvm)
+{
+	if (is_td(kvm))
+		return tdx_mmu_prezap(kvm);
+}
+
+static void vt_vm_free(struct kvm *kvm)
+{
+	if (is_td(kvm))
+		return tdx_vm_free(kvm);
+}
+
 static int vt_vcpu_create(struct kvm_vcpu *vcpu)
 {
 	if (is_td_vcpu(vcpu))
@@ -125,6 +137,8 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.is_vm_type_supported = vt_is_vm_type_supported,
 	.vm_size = sizeof(struct kvm_vmx),
 	.vm_init = vt_vm_init,
+	.mmu_prezap = vt_mmu_prezap,
+	.vm_free = vt_vm_free,
 
 	.vcpu_create = vt_vcpu_create,
 	.vcpu_free = vt_vcpu_free,

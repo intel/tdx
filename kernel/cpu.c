@@ -447,6 +447,10 @@ static inline bool cpu_smt_allowed(unsigned int cpu)
 	 * that the init code can get a chance to set CR4.MCE on each
 	 * CPU. Otherwise, a broadcasted MCE observing CR4.MCE=0b on any
 	 * core will shutdown the machine.
+	 *
+	 * Intel TDX also requires running TDH_SYS_LP_INIT on all logical CPUs
+	 * during boot, booting all CPUs once allows TDX to play nice with
+	 * 'nosmt'.
 	 */
 	return !cpumask_test_cpu(cpu, &cpus_booted_once_mask);
 }

@@ -133,6 +133,9 @@
 #define HV_X64_NESTED_GUEST_MAPPING_FLUSH		BIT(18)
 #define HV_X64_NESTED_MSR_BITMAP			BIT(19)
 
+/* Isolation VM flag */
+#define HV_X64_PARTITION_ISOLATION			BIT(22)
+
 /* HYPERV_CPUID_ISOLATION_CONFIG.EAX bits. */
 #define HV_PARAVISOR_PRESENT				BIT(0)
 
@@ -570,6 +573,19 @@ enum hv_interrupt_type {
 	HV_X64_INTERRUPT_TYPE_LOCALINT1         = 0x0009,
 	HV_X64_INTERRUPT_TYPE_MAXIMUM           = 0x000A,
 };
+
+/* All input parameters should be in single page. */
+#define HV_MAX_MODIFY_GPA_REP_COUNT		\
+	((PAGE_SIZE - 2 * sizeof(u64)) / (sizeof(u64)))
+
+/* HvCallModifySparseGpaPageHostVisibility hypercall */
+struct hv_input_modify_sparse_gpa_page_host_visibility {
+	u64 partition_id;
+	u32 host_visibility:2;
+	u32 reserved0:30;
+	u32 reserved1;
+	u64 gpa_page_list[HV_MAX_MODIFY_GPA_REP_COUNT];
+} __packed;
 
 #include <asm-generic/hyperv-tlfs.h>
 

@@ -236,6 +236,15 @@ enum hv_isolation_type {
 /* TSC invariant control */
 #define HV_X64_MSR_TSC_INVARIANT_CONTROL	0x40000118
 
+/* Hyper-V GPA map flags */
+#define HV_MAP_GPA_PERMISSIONS_NONE		0x0
+#define HV_MAP_GPA_READABLE			0x1
+#define HV_MAP_GPA_WRITABLE			0x2
+
+#define VMBUS_PAGE_VISIBLE_READ_ONLY HV_MAP_GPA_READABLE
+#define VMBUS_PAGE_VISIBLE_READ_WRITE (HV_MAP_GPA_READABLE|HV_MAP_GPA_WRITABLE)
+#define VMBUS_PAGE_NOT_VISIBLE HV_MAP_GPA_PERMISSIONS_NONE
+
 /*
  * Declare the MSR used to setup pages used to communicate with the hypervisor.
  */

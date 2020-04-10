@@ -29,6 +29,7 @@
 #include <linux/hyperv.h>
 #include <linux/vmalloc.h>
 #include <linux/slab.h>
+#include <asm/mshyperv.h>
 
 #include "../hv/hyperv_vmbus.h"
 
@@ -295,7 +296,8 @@ hv_uio_probe(struct hv_device *dev,
 	}
 
 	ret = vmbus_establish_gpadl(channel, pdata->recv_buf,
-				    RECV_BUFFER_SIZE, &pdata->recv_gpadl);
+				    RECV_BUFFER_SIZE, &pdata->recv_gpadl,
+				    VMBUS_PAGE_VISIBLE_READ_WRITE);
 	if (ret)
 		goto fail_close;
 
@@ -315,7 +317,8 @@ hv_uio_probe(struct hv_device *dev,
 	}
 
 	ret = vmbus_establish_gpadl(channel, pdata->send_buf,
-				    SEND_BUFFER_SIZE, &pdata->send_gpadl);
+				    SEND_BUFFER_SIZE, &pdata->send_gpadl,
+				    VMBUS_PAGE_VISIBLE_READ_ONLY);
 	if (ret)
 		goto fail_close;
 

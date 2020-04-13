@@ -31,6 +31,7 @@
 #include <scsi/scsi_dbg.h>
 #include <scsi/scsi_transport_fc.h>
 #include <scsi/scsi_transport.h>
+#include <asm/mshyperv.h>
 
 /*
  * All wire protocol details (storage protocol between the guest and the host)
@@ -415,6 +416,7 @@ struct storvsc_cmd_request {
 	u32 payload_sz;
 
 	struct vstor_packet vstor_packet;
+	struct hv_bounce_pkt *bounce_pkt;
 };
 
 
@@ -1400,7 +1402,8 @@ static struct vmbus_channel *get_og_chn(struct storvsc_device *stor_device,
 
 
 static int storvsc_do_io(struct hv_device *device,
-			 struct storvsc_cmd_request *request, u16 q_num)
+			 struct storvsc_cmd_request *request, u16 q_num,
+			 u32 pfn_count)
 {
 	struct storvsc_device *stor_device;
 	struct vstor_packet *vstor_packet;
@@ -1503,14 +1506,18 @@ found_channel:
 
 	vstor_packet->operation = VSTOR_OPERATION_EXECUTE_SRB;
 
+	request->bounce_pkt = NULL;
 	if (request->payload->range.len) {
+		struct vmscsi_request *vm_srb = &request->vstor_packet.vm_srb;
 
 		ret = vmbus_sendpacket_mpb_desc(outgoing_channel,
 				request->payload, request->payload_sz,
 				vstor_packet,
 				(sizeof(struct vstor_packet) -
 				stor_device->vmscsi_size_delta),
-				(unsigned long)request);
+				(unsigned long)request,
+				pfn_count,
+				vm_srb->data_in, &request->bounce_pkt);
 	} else {
 		ret = vmbus_sendpacket(outgoing_channel, vstor_packet,
 			       (sizeof(struct vstor_packet) -
@@ -1520,8 +1527,10 @@ found_channel:
 			       VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED);
 	}
 
-	if (ret != 0)
+	if (ret != 0) {
+		request->bounce_pkt = NULL;
 		return ret;
+	}
 
 	atomic_inc(&stor_device->num_outstanding_req);
 
@@ -1835,14 +1844,16 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 	cmd_request->payload_sz = payload_sz;
 
 	/* Invokes the vsc to start an IO */
-	ret = storvsc_do_io(dev, cmd_request, get_cpu());
+	ret = storvsc_do_io(dev, cmd_request, get_cpu(), sg_count);
 	put_cpu();
 
-	if (ret == -EAGAIN) {
+	if (ret) {
 		if (payload_sz > sizeof(cmd_request->mpb))
 			kfree(payload);
 		/* no more space */
-		return SCSI_MLQUEUE_DEVICE_BUSY;
+		if (ret == -EAGAIN || ret == -ENOSPC)
+			return SCSI_MLQUEUE_DEVICE_BUSY;
+		return ret;
 	}
 
 	return 0;

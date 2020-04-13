@@ -164,6 +164,7 @@ struct hv_netvsc_packet {
 	u32 total_bytes;
 	u32 send_buf_index;
 	u32 total_data_buflen;
+	struct hv_bounce_pkt *bounce_pkt;
 };
 
 #define NETVSC_HASH_KEYLEN 40

@@ -1184,19 +1184,31 @@ extern int vmbus_sendpacket(struct vmbus_channel *channel,
 				  enum vmbus_packet_type type,
 				  u32 flags);
 
+#define IO_TYPE_WRITE	0
+#define IO_TYPE_READ	1
+#define IO_TYPE_UNKNOWN 2
+
+struct hv_bounce_pkt;
+
 extern int vmbus_sendpacket_pagebuffer(struct vmbus_channel *channel,
 					    struct hv_page_buffer pagebuffers[],
 					    u32 pagecount,
 					    void *buffer,
 					    u32 bufferlen,
-					    u64 requestid);
+					    u64 requestid,
+					    u8 io_type,
+					    struct hv_bounce_pkt **bounce_pkt);
 
 extern int vmbus_sendpacket_mpb_desc(struct vmbus_channel *channel,
 				     struct vmbus_packet_mpb_array *mpb,
 				     u32 desc_size,
 				     void *buffer,
 				     u32 bufferlen,
-				     u64 requestid);
+				     u64 requestid,
+				     u32 pfn_count,
+				     u8 io_type,
+				     struct hv_bounce_pkt **bounce_pkt);
+
 
 extern int vmbus_establish_gpadl(struct vmbus_channel *channel,
 				      void *kbuffer,

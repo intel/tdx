@@ -1032,7 +1032,8 @@ EXPORT_SYMBOL(vmbus_sendpacket);
 int vmbus_sendpacket_pagebuffer(struct vmbus_channel *channel,
 				struct hv_page_buffer pagebuffers[],
 				u32 pagecount, void *buffer, u32 bufferlen,
-				u64 requestid)
+				u64 requestid, u8 io_type,
+				struct hv_bounce_pkt **bounce_pkt)
 {
 	int i;
 	struct vmbus_channel_packet_page_buffer desc;
@@ -1089,7 +1090,9 @@ EXPORT_SYMBOL_GPL(vmbus_sendpacket_pagebuffer);
 int vmbus_sendpacket_mpb_desc(struct vmbus_channel *channel,
 			      struct vmbus_packet_mpb_array *desc,
 			      u32 desc_size,
-			      void *buffer, u32 bufferlen, u64 requestid)
+			      void *buffer, u32 bufferlen, u64 requestid,
+			      u32 pfn_count, u8 io_type,
+			      struct hv_bounce_pkt **bounce_pkt)
 {
 	u32 packetlen;
 	u32 packetlen_aligned;

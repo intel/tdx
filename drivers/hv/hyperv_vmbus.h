@@ -82,6 +82,23 @@ extern int hv_init_channel_ivm(struct vmbus_channel *channel);
 
 extern void hv_free_channel_ivm(struct vmbus_channel *channel);
 
+extern int vmbus_sendpacket_pagebuffer_bounce(struct vmbus_channel *channel,
+	struct vmbus_channel_packet_page_buffer *desc,
+	u32 desc_size,
+	struct kvec *bufferlist,
+	u64 requestid,
+        u8 io_type, struct hv_bounce_pkt **bounce_pkt);
+
+extern int vmbus_sendpacket_mpb_desc_bounce(struct vmbus_channel *channel,
+	struct vmbus_packet_mpb_array *desc,
+	u32 desc_size,
+	struct kvec *bufferlist,
+	u64 requestid,
+	u8 io_type, struct hv_bounce_pkt **bounce_pkt);
+
+extern void hv_pkt_bounce(struct vmbus_channel *channel,
+			  struct hv_bounce_pkt *bounce_pkt);
+
 /* struct hv_monitor_page Layout */
 /* ------------------------------------------------------ */
 /* | 0   | TriggerState (4 bytes) | Rsvd1 (4 bytes)     | */
@@ -401,6 +418,7 @@ int hv_fcopy_pre_suspend(void);
 int hv_fcopy_pre_resume(void);
 void hv_fcopy_onchannelcallback(void *context);
 void vmbus_initiate_unload(bool crash);
+unsigned long virt_to_hvpfn(void *addr);
 
 static inline void hv_poll_channel(struct vmbus_channel *channel,
 				   void (*cb)(void *))

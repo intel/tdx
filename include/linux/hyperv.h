@@ -25,6 +25,9 @@
 #include <linux/interrupt.h>
 #include <linux/reciprocal_div.h>
 #include <asm/hyperv-tlfs.h>
+#include <linux/slab.h>
+#include <linux/mempool.h>
+#include <linux/mempool.h>
 
 #define MAX_PAGE_BUFFER_COUNT				32
 #define MAX_MULTIPAGE_BUFFER_COUNT			32 /* 128K */
@@ -1010,6 +1013,25 @@ struct vmbus_channel {
 	/* request/transaction ids for VMBus */
 	struct vmbus_requestor requestor;
 	u32 rqstor_size;
+
+	/*
+	 * Minimum number of bounce resources (i.e bounce packets & pages) that
+	 * should be allocated and reserved for this channel. Allocation is
+	 * permitted to go beyond this limit, and the maintenance task takes
+	 * care of releasing the extra allocated resources.
+	 */
+	u32 min_bounce_resource_count;
+
+	/* The free list of bounce pages is LRU sorted based on last used */
+	struct list_head bounce_page_free_head;
+	u32 bounce_page_alloc_count;
+	struct delayed_work bounce_page_list_maintain;
+
+	struct kmem_cache *bounce_page_cache;
+	struct kmem_cache *bounce_pkt_cache;
+	struct list_head bounce_pkt_free_list_head;
+	u32 bounce_pkt_free_count;
+	spinlock_t bp_lock;
 };
 
 u64 vmbus_next_request_id(struct vmbus_requestor *rqstor, u64 rqst_addr);

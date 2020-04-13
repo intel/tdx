@@ -369,6 +369,7 @@ static void free_channel(struct vmbus_channel *channel)
 	vmbus_remove_channel_attr_group(channel);
 
 	kobject_put(&channel->kobj);
+	hv_free_channel_ivm(channel);
 }
 
 void vmbus_channel_map_relid(struct vmbus_channel *channel)
@@ -543,6 +544,8 @@ static void vmbus_add_channel_work(struct work_struct *work)
 	}
 
 	newchannel->probe_done = true;
+
+	hv_init_channel_ivm(newchannel);
 	return;
 
 err_deq_chan:

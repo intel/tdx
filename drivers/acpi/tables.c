@@ -207,6 +207,15 @@ void acpi_table_print_madt_entry(struct acpi_subtable_header *header)
 		}
 		break;
 
+	case ACPI_MADT_TYPE_MP_WAKE:
+		{
+			struct acpi_madt_mp_wake *p =
+				(struct acpi_madt_mp_wake *)header;
+			pr_debug("MP Wake (version[%d] mailbox_address[%llx])\n",
+				 p->version, p->mailbox_address);
+		}
+		break;
+
 	default:
 		pr_warn("Found unsupported MADT entry (type = 0x%x)\n",
 			header->type);

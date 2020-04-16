@@ -517,7 +517,8 @@ enum acpi_madt_type {
 	ACPI_MADT_TYPE_GENERIC_MSI_FRAME = 13,
 	ACPI_MADT_TYPE_GENERIC_REDISTRIBUTOR = 14,
 	ACPI_MADT_TYPE_GENERIC_TRANSLATOR = 15,
-	ACPI_MADT_TYPE_RESERVED = 16	/* 16 and greater are reserved */
+	ACPI_MADT_TYPE_MP_WAKE = 16,
+	ACPI_MADT_TYPE_RESERVED = 17	/* 17 and greater are reserved */
 };
 
 /*
@@ -723,6 +724,24 @@ struct acpi_madt_generic_translator {
 	u64 base_address;
 	u32 reserved2;
 };
+
+/* 16: MP Wake (ACPI 6.?) */
+
+struct acpi_madt_mp_wake {
+	struct acpi_subtable_header header;
+	u16 version;
+	u32 reserved2;
+	u64 mailbox_address;
+};
+
+struct acpi_madt_mp_wake_mailbox {
+	u16 command;
+	u16 flags;
+	u32 apic_id;
+	u64 wakeup_vector;
+};
+
+#define ACPI_MP_WAKE_COMMAND_WAKEUP	1
 
 /*
  * Common flags fields for MADT subtables

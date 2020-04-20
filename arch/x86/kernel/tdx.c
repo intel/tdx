@@ -5,6 +5,7 @@
 #define pr_fmt(fmt)     "tdx: " fmt
 
 #include <linux/cpufeature.h>
+#include <linux/swiotlb.h>
 #include <asm/tdx.h>
 #include <asm/vmx.h>
 #include <asm/insn.h>
@@ -580,6 +581,8 @@ void __init tdx_early_init(void)
 	 * Adjust physical mask to only cover valid GPA bits.
 	 */
 	physical_mask &= GENMASK_ULL(td_info.gpa_width - 2, 0);
+
+	swiotlb_force = SWIOTLB_FORCE;
 
 	pr_info("Guest detected\n");
 }

@@ -36,3 +36,25 @@ bool force_dma_unencrypted(struct device *dev)
 
 	return false;
 }
+
+/* Architecture __weak replacement functions */
+void __init mem_encrypt_init(void)
+{
+	if (!sme_me_mask && !is_tdx_guest())
+		return;
+
+	/* Call into SWIOTLB to update the SWIOTLB DMA buffers */
+	swiotlb_update_mem_attributes();
+
+	/*
+	 * With SEV, we need to unroll the rep string I/O instructions.
+	 */
+	if (sev_active())
+		static_branch_enable(&sev_enable_key);
+
+	if (sme_me_mask) {
+		pr_info("AMD %s active\n",
+			sev_active() ? "Secure Encrypted Virtualization (SEV)"
+			: "Secure Memory Encryption (SME)");
+	}
+}

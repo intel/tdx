@@ -11,6 +11,7 @@
 #include <asm/cmdline.h>
 #include <linux/sched/signal.h> /* force_sig_fault() */
 #include <linux/security.h>
+#include <linux/swiotlb.h>
 
 #define CREATE_TRACE_POINTS
 #include <asm/trace/tdx.h>
@@ -455,6 +456,8 @@ void __init tdx_early_init(void)
 	pv_ops.irq.halt = tdx_halt;
 
 	legacy_pic = &null_legacy_pic;
+
+	swiotlb_force = SWIOTLB_FORCE;
 
 	acpi_tbl_allow_setup("RDSP,XSDT,FACP,DSDT,FACS,APIC,MCFG");
 

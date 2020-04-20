@@ -9,6 +9,7 @@
 #include <asm/vmx.h>
 #include <asm/insn.h>
 #include <linux/sched/signal.h> /* force_sig_fault() */
+#include <linux/swiotlb.h>
 
 #ifdef CONFIG_KVM_GUEST
 #include "tdx-kvm.c"
@@ -474,6 +475,8 @@ void __init tdx_early_init(void)
 	pv_ops.irq.halt = tdx_halt;
 
 	legacy_pic = &null_legacy_pic;
+
+	swiotlb_force = SWIOTLB_FORCE;
 
 	cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "tdx:cpu_hotplug",
 			  NULL, tdx_cpu_offline_prepare);

@@ -49,7 +49,7 @@ int __init pci_swiotlb_detect_4gb(void)
 	 * buffers are allocated and used for devices that do not support
 	 * the addressing range required for the encryption mask.
 	 */
-	if (sme_active())
+	if (sme_active() || is_tdx_guest())
 		swiotlb = 1;
 
 	return swiotlb;

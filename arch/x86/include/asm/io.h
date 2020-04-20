@@ -257,10 +257,11 @@ static inline void slow_down_io(void)
 
 #endif
 
+extern struct static_key_false sev_enable_key;
+
 #ifdef CONFIG_AMD_MEM_ENCRYPT
 #include <linux/jump_label.h>
 
-extern struct static_key_false sev_enable_key;
 static inline bool sev_key_active(void)
 {
 	return static_branch_unlikely(&sev_enable_key);

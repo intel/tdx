@@ -13,6 +13,7 @@
 #include <asm/insn.h>
 #include <asm/insn-eval.h>
 #include <linux/sched/signal.h> /* force_sig_fault() */
+#include <linux/swiotlb.h>
 
 /* TDX Module call Leaf IDs */
 #define TDINFO				1
@@ -517,6 +518,8 @@ void __init tdx_early_init(void)
 	pv_ops.irq.halt = tdg_halt;
 
 	legacy_pic = &null_legacy_pic;
+
+	swiotlb_force = SWIOTLB_FORCE;
 
 	cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "tdg:cpu_hotplug",
 			  NULL, tdg_cpu_offline_prepare);

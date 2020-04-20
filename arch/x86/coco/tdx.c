@@ -5,6 +5,7 @@
 #define pr_fmt(fmt)     "tdx: " fmt
 
 #include <linux/cpufeature.h>
+#include <linux/swiotlb.h>
 #include <asm/coco.h>
 #include <asm/tdx.h>
 #include <asm/vmx.h>
@@ -593,6 +594,8 @@ void __init tdx_early_init(void)
 	cc_init(CC_VENDOR_INTEL, mask);
 
 	x86_platform.cc = &tdx_cc_runtime;
+
+	swiotlb_force = SWIOTLB_FORCE;
 
 	pr_info("Guest detected\n");
 }

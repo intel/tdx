@@ -5,6 +5,7 @@
 #define pr_fmt(fmt)     "tdx: " fmt
 
 #include <linux/export.h>
+#include <linux/swiotlb.h>
 #include <linux/sched/signal.h>
 
 #include <asm/tdx.h>
@@ -574,6 +575,8 @@ void __init tdx_early_init(void)
 
 	pv_ops.irq.safe_halt = tdx_safe_halt;
 	pv_ops.irq.halt = tdx_halt;
+
+	swiotlb_force = SWIOTLB_FORCE;
 
 	pr_info("Guest detected\n");
 }

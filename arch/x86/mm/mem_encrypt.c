@@ -95,13 +95,14 @@ static void print_amd_mem_encrypt_feature_info(void)
 /* Architecture __weak replacement functions */
 void __init mem_encrypt_init(void)
 {
-	if (!sme_me_mask)
+	if (!cc_platform_has(CC_ATTR_MEM_ENCRYPT))
 		return;
 
 	/* Call into SWIOTLB to update the SWIOTLB DMA buffers */
 	swiotlb_update_mem_attributes();
 
-	print_amd_mem_encrypt_feature_info();
+	if (sme_me_mask)
+		print_amd_mem_encrypt_feature_info();
 }
 
 int arch_has_restricted_virtio_memory_access(void)

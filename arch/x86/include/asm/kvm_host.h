@@ -463,9 +463,10 @@ struct kvm_pmu {
 struct kvm_pmu_ops;
 
 enum {
-	KVM_DEBUGREG_BP_ENABLED = 1,
-	KVM_DEBUGREG_WONT_EXIT = 2,
-	KVM_DEBUGREG_RELOAD = 4,
+	KVM_DEBUGREG_BP_ENABLED 	= BIT(0),
+	KVM_DEBUGREG_WONT_EXIT		= BIT(1),
+	KVM_DEBUGREG_RELOAD		= BIT(2),
+	KVM_DEBUGREG_AUTO_SWITCHED	= BIT(3),
 };
 
 struct kvm_mtrr_range {

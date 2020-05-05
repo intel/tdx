@@ -86,6 +86,19 @@ struct vcpu_tdx {
 	/* Posted interrupt descriptor */
 	struct pi_desc pi_desc;
 
+	union {
+		struct {
+			union {
+				struct {
+					u16 gpr_mask;
+					u16 xmm_mask;
+				};
+				u32 regs_mask;
+			};
+			u32 reserved;
+		};
+		u64 rcx;
+	} tdvmcall;
 	union tdx_exit_reason exit_reason;
 
 	bool initialized;

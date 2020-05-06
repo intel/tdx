@@ -4237,6 +4237,26 @@ long kvm_arch_dev_ioctl(struct file *filp,
 			goto out;
 		r = kvm_x86_ops.mem_enc_op_dev(argp);
 		break;
+	case KVM_SEAMCALL: {
+		struct kvm_seamcall __user *user_seamcall = argp;
+		struct kvm_seamcall seamcall;
+
+		r = -EINVAL;
+		if (!kvm_x86_ops.do_seamcall)
+			goto out;
+
+		r = -EFAULT;
+		if (copy_from_user(&seamcall, user_seamcall, sizeof(seamcall)))
+			goto out;
+
+		kvm_x86_ops.do_seamcall(&seamcall);
+
+		if (copy_to_user(user_seamcall, &seamcall, sizeof(seamcall)))
+			goto out;
+
+		r = 0;
+		break;
+	}
 	default:
 		r = -EINVAL;
 		break;

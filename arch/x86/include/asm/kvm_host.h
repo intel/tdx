@@ -1499,6 +1499,8 @@ struct kvm_x86_ops {
 	int (*complete_emulated_msr)(struct kvm_vcpu *vcpu, int err);
 
 	void (*vcpu_deliver_sipi_vector)(struct kvm_vcpu *vcpu, u8 vector);
+
+	void (*do_seamcall)(struct kvm_seamcall *call);
 };
 
 struct kvm_x86_nested_ops {

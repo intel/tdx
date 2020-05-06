@@ -2158,3 +2158,18 @@ static int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	return 0;
 }
 
+static void tdx_do_seamcall(struct kvm_seamcall *call)
+{
+	struct kvm_seamcall_regs *out = &call->out;
+	struct kvm_seamcall_regs *in = &call->in;
+	struct tdx_ex_ret ex;
+
+	memset(&ex, 0, sizeof(ex));
+	out->rax = __seamcall(in->rax, in->rcx, in->rdx, in->r8, in->r9, in->r10,
+			      &ex);
+	out->rcx = ex.rcx;
+	out->rdx = ex.rdx;
+	out->r8 = ex.r8;
+	out->r9 = ex.r9;
+	out->r10 = ex.r10;
+}

@@ -1564,6 +1564,8 @@ struct kvm_x86_ops {
 				     struct kvm_memory_slot *memslot,
 				     const struct kvm_userspace_memory_region *mem,
 				     enum kvm_mr_change change);
+
+	void (*do_seamcall)(struct kvm_seamcall *call);
 };
 
 struct kvm_x86_nested_ops {

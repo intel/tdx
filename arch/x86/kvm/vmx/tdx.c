@@ -3769,3 +3769,20 @@ static void __exit tdx_debugfs_exit(void)
  *   # after tdx seam module panics
  *   cat /sys/kernel/debug/tdx_seam/buffer_emergency
  */
+
+/* backdoor ioctl for testing */
+void tdx_do_seamcall(struct kvm_seamcall *call)
+{
+	struct kvm_seamcall_regs *out = &call->out;
+	struct kvm_seamcall_regs *in = &call->in;
+	struct tdx_ex_ret ex;
+
+	memset(&ex, 0, sizeof(ex));
+	out->rax = seamcall(in->rax, in->rcx, in->rdx, in->r8, in->r9, in->r10,
+			&ex);
+	out->rcx = ex.regs.rcx;
+	out->rdx = ex.regs.rdx;
+	out->r8 = ex.regs.r8;
+	out->r9 = ex.regs.r9;
+	out->r10 = ex.regs.r10;
+}

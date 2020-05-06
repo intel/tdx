@@ -1977,3 +1977,22 @@ static int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	return 0;
 }
 
+static void tdx_do_seamcall(struct kvm_seamcall *call)
+{
+	struct kvm_seamcall_regs *out = &call->out;
+	struct kvm_seamcall_regs *in = &call->in;
+	register long r8 asm("r8") = in->r8;
+	register long r9 asm("r9") = in->r9;
+	register long r10 asm("r10") = in->r10;
+
+	asm volatile(__seamcall
+		     : ASM_CALL_CONSTRAINT, "=a"(out->rax), "=c"(out->rcx),
+		       "=d"(out->rdx), "=r"(r8), "=r"(r9), "=r"(r10)
+		     : "a"(in->rax), "c"(in->rcx), "d"(in->rdx), "r"(r8),
+		       "r"(r9), "r"(r10)
+		     : );
+
+	call->out.r8  = r8;
+	call->out.r9  = r9;
+	call->out.r10 = r10;
+}

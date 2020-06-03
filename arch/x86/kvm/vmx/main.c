@@ -5,6 +5,7 @@
 #include "vmx.h"
 #include "tdx.h"
 #include "nested.h"
+#include "mmu.h"
 #include "pmu.h"
 #include "tdx.h"
 
@@ -30,6 +31,10 @@ static __init int vt_hardware_setup(void)
 
 	if (enable_tdx && tdx_hardware_setup(&vt_x86_ops))
 		disable_tdx();
+
+	if (enable_ept)
+		kvm_mmu_set_ept_masks(enable_ept_ad_bits,
+				      cpu_has_vmx_ept_execute_only());
 
 	return 0;
 }

@@ -4,6 +4,7 @@
 #include "x86_ops.h"
 #include "vmx.h"
 #include "nested.h"
+#include "mmu.h"
 #include "pmu.h"
 
 static int __init vt_cpu_has_kvm_support(void)
@@ -34,6 +35,10 @@ static __init int vt_hardware_setup(void)
 	ret = hardware_setup();
 	if (ret)
 		return ret;
+
+	if (enable_ept)
+		kvm_mmu_set_ept_masks(enable_ept_ad_bits,
+				      cpu_has_vmx_ept_execute_only());
 
 	return 0;
 }

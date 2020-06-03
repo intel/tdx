@@ -26,6 +26,20 @@ static int __init vt_check_processor_compatibility(void)
 	return 0;
 }
 
+static __init void vt_set_ept_masks(void)
+{
+	const u64 u_mask = VMX_EPT_READABLE_MASK;
+	const u64 a_mask = enable_ept_ad_bits ? VMX_EPT_ACCESS_BIT : 0ull;
+	const u64 d_mask = enable_ept_ad_bits ? VMX_EPT_DIRTY_BIT : 0ull;
+	const u64 p_mask = cpu_has_vmx_ept_execute_only() ? 0ull :
+							    VMX_EPT_READABLE_MASK;
+	const u64 x_mask = VMX_EPT_EXECUTABLE_MASK;
+	const u64 nx_mask = 0ull;
+
+	kvm_mmu_set_mask_ptes(u_mask, a_mask, d_mask, nx_mask, x_mask, p_mask,
+			      VMX_EPT_RWX_MASK, 0ull);
+}
+
 static __init int vt_hardware_setup(void)
 {
 	int ret;
@@ -33,6 +47,9 @@ static __init int vt_hardware_setup(void)
 	ret = hardware_setup(&vt_x86_ops);
 	if (ret)
 		return ret;
+
+	if (enable_ept)
+		vt_set_ept_masks();
 
 	return 0;
 }

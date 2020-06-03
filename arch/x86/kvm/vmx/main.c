@@ -4,6 +4,7 @@
 #include "x86_ops.h"
 #include "vmx.h"
 #include "nested.h"
+#include "mmu.h"
 #include "pmu.h"
 #include "tdx.h"
 #include "tdx_arch.h"
@@ -49,6 +50,14 @@ static __init int vt_hardware_setup(void)
 	ret = vmx_hardware_setup();
 	if (ret)
 		return ret;
+
+	/*
+	 * As kvm_mmu_set_ept_masks() updates enable_mmio_caching, call it
+	 * before checking enable_mmio_caching.
+	 */
+	if (enable_ept)
+		kvm_mmu_set_ept_masks(enable_ept_ad_bits,
+				      cpu_has_vmx_ept_execute_only());
 
 	enable_tdx = enable_tdx && !tdx_hardware_setup(&vt_x86_ops);
 

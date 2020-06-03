@@ -7570,10 +7570,6 @@ static __init int hardware_setup(void)
 
 	set_bit(0, vmx_vpid_bitmap); /* 0 is reserved for host */
 
-	if (enable_ept)
-		kvm_mmu_set_ept_masks(enable_ept_ad_bits,
-				      cpu_has_vmx_ept_execute_only());
-
 	if (!enable_ept)
 		ept_lpage_level = 0;
 	else if (cpu_has_vmx_ept_1g_page())

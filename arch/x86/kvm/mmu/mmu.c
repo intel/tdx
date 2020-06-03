@@ -3083,13 +3083,11 @@ static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 		if (is_shadow_present_pte(*it.sptep))
 			continue;
 
-		sp = __kvm_mmu_get_page(vcpu, base_gfn,
-					gfn_stolen_bits, it.addr,
-					it.level - 1, true, ACC_ALL);
+		sp = __kvm_mmu_get_page(vcpu, base_gfn, gfn_stolen_bits,
+					it.addr, it.level - 1, true, ACC_ALL);
 
 		link_shadow_page(vcpu, it.sptep, sp);
-		if (is_tdp && huge_page_disallowed &&
-		    req_level >= it.level)
+		if (is_tdp && huge_page_disallowed && req_level >= it.level)
 			account_huge_nx_page(vcpu->kvm, sp);
 	}
 

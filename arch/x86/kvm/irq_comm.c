@@ -123,7 +123,12 @@ EXPORT_SYMBOL_GPL(kvm_set_msi_irq);
 static inline bool kvm_msi_route_invalid(struct kvm *kvm,
 		struct kvm_kernel_irq_routing_entry *e)
 {
-	return kvm->arch.x2apic_format && (e->msi.address_hi & 0xff);
+	struct msi_msg msg = { .address_lo = e->msi.address_lo,
+			       .address_hi = e->msi.address_hi,
+			       .data = e->msi.data };
+	return  (kvm->arch.eoi_intercept_unsupported &&
+		 msg.arch_data.is_level) ||
+		(kvm->arch.x2apic_format && (msg.address_hi & 0xff));
 }
 
 int kvm_set_msi(struct kvm_kernel_irq_routing_entry *e,
@@ -385,7 +390,7 @@ int kvm_setup_empty_irq_routing(struct kvm *kvm)
 
 void kvm_arch_post_irq_routing_update(struct kvm *kvm)
 {
-	if (!irqchip_split(kvm))
+	if (!irqchip_split(kvm) || kvm->arch.eoi_intercept_unsupported)
 		return;
 	kvm_make_scan_ioapic_request(kvm);
 }

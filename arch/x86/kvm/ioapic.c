@@ -311,6 +311,10 @@ void kvm_arch_post_irq_ack_notifier_list_update(struct kvm *kvm)
 {
 	if (!ioapic_in_kernel(kvm))
 		return;
+
+	if (WARN_ON_ONCE(kvm->arch.eoi_intercept_unsupported))
+		return;
+
 	kvm_make_scan_ioapic_request(kvm);
 }
 

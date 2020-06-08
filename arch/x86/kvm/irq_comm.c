@@ -307,6 +307,10 @@ int kvm_set_routing_entry(struct kvm *kvm,
 		e->msi.address_hi = ue->u.msi.address_hi;
 		e->msi.data = ue->u.msi.data;
 
+		if (kvm->arch.eoi_intercept_unsupported &&
+		    e->msi.data & (1 << MSI_DATA_TRIGGER_SHIFT))
+			return -EINVAL;
+
 		if (kvm_msi_route_invalid(kvm, e))
 			return -EINVAL;
 		break;
@@ -390,7 +394,7 @@ int kvm_setup_empty_irq_routing(struct kvm *kvm)
 
 void kvm_arch_post_irq_routing_update(struct kvm *kvm)
 {
-	if (!irqchip_split(kvm))
+	if (!irqchip_split(kvm) || kvm->arch.eoi_intercept_unsupported)
 		return;
 	kvm_make_scan_ioapic_request(kvm);
 }

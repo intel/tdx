@@ -1113,6 +1113,7 @@ struct kvm_arch {
 
 	enum kvm_irqchip_mode irqchip_mode;
 	u8 nr_reserved_ioapic_pins;
+	bool eoi_intercept_unsupported;
 
 	bool disabled_lapic_found;
 

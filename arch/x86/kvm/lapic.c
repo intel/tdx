@@ -278,7 +278,8 @@ out:
 	if (old)
 		call_rcu(&old->rcu, kvm_apic_map_free);
 
-	kvm_make_scan_ioapic_request(kvm);
+	if (!kvm->arch.eoi_intercept_unsupported)
+		kvm_make_scan_ioapic_request(kvm);
 }
 
 static inline void apic_set_spiv(struct kvm_lapic *apic, u32 val)

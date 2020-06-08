@@ -5933,6 +5933,9 @@ set_identity_unlock:
 			goto create_irqchip_unlock;
 
 		r = -EINVAL;
+		if (kvm->arch.eoi_intercept_unsupported)
+			goto create_irqchip_unlock;
+
 		if (kvm->created_vcpus)
 			goto create_irqchip_unlock;
 
@@ -5963,6 +5966,9 @@ set_identity_unlock:
 		u.pit_config.flags = KVM_PIT_SPEAKER_DUMMY;
 		goto create_pit;
 	case KVM_CREATE_PIT2:
+		r = -EINVAL;
+		if (kvm->arch.eoi_intercept_unsupported)
+			goto out;
 		r = -EFAULT;
 		if (copy_from_user(&u.pit_config, argp,
 				   sizeof(struct kvm_pit_config)))

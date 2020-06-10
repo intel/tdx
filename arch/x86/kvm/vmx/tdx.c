@@ -395,6 +395,11 @@ static int tdx_vm_init(struct kvm *kvm)
 	kvm->arch.init_sipi_unsupported = true;
 	kvm->arch.irq_injection_disallowed = true;
 	kvm->arch.mce_injection_disallowed = true;
+	/*
+	 * To generate EPT violation to inject #VE instead of EPT MISCONFIG,
+	 * set RWX=0.
+	 */
+	kvm_mmu_set_mmio_spte_mask(kvm, 0, VMX_EPT_RWX_MASK, 0);
 
 	/* TODO: Enable 2mb and 1gb large page support. */
 	kvm->arch.tdp_max_page_level = PG_LEVEL_4K;

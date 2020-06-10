@@ -174,6 +174,8 @@ static inline void kvm_mmu_refresh_passthrough_bits(struct kvm_vcpu *vcpu,
 	__kvm_mmu_refresh_passthrough_bits(vcpu, mmu);
 }
 
+int kvm_mmu_map_tdp_page(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
+			 int max_level);
 /* For set_memory_attributes() callback. */
 bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range);
 

@@ -27,9 +27,12 @@ static __init int vt_hardware_setup(void)
 	if (enable_tdx && tdx_hardware_setup(&vt_x86_ops))
 		enable_tdx = false;
 #endif
-	if (enable_ept)
+	if (enable_ept) {
+		const u64 init_value = enable_tdx ? VMX_EPT_SUPPRESS_VE_BIT : 0ull;
 		kvm_mmu_set_ept_masks(enable_ept_ad_bits,
-				      cpu_has_vmx_ept_execute_only());
+				      cpu_has_vmx_ept_execute_only(), init_value);
+		kvm_mmu_set_spte_init_value(init_value);
+	}
 	return 0;
 }
 

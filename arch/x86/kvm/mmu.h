@@ -355,13 +355,7 @@ static inline void kvm_update_page_stats(struct kvm *kvm, int level, int count)
 
 static inline gfn_t kvm_gfn_stolen_mask(struct kvm *kvm)
 {
-	/* Currently there are no stolen bits in KVM */
-	return 0;
-}
-
-static inline gfn_t vcpu_gfn_stolen_mask(struct kvm_vcpu *vcpu)
-{
-	return kvm_gfn_stolen_mask(vcpu->kvm);
+	return kvm->arch.gfn_shared_mask;
 }
 
 static inline gpa_t kvm_gpa_stolen_mask(struct kvm *kvm)
@@ -369,14 +363,14 @@ static inline gpa_t kvm_gpa_stolen_mask(struct kvm *kvm)
 	return kvm_gfn_stolen_mask(kvm) << PAGE_SHIFT;
 }
 
-static inline gpa_t vcpu_gpa_stolen_mask(struct kvm_vcpu *vcpu)
+static inline gpa_t kvm_gpa_unalias(struct kvm *kvm, gpa_t gpa)
 {
-	return kvm_gpa_stolen_mask(vcpu->kvm);
+	return gpa & ~kvm_gpa_stolen_mask(kvm);
 }
 
-static inline gfn_t vcpu_gpa_to_gfn_unalias(struct kvm_vcpu *vcpu, gpa_t gpa)
+static inline gfn_t kvm_gfn_unalias(struct kvm *kvm, gpa_t gpa)
 {
-	return (gpa >> PAGE_SHIFT) & ~vcpu_gfn_stolen_mask(vcpu);
+	return kvm_gpa_unalias(kvm, gpa) >> PAGE_SHIFT;
 }
 
 #endif

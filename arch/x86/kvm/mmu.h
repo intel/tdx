@@ -235,8 +235,7 @@ void kvm_mmu_pre_destroy_vm(struct kvm *kvm);
 
 static inline gfn_t kvm_gfn_stolen_mask(struct kvm *kvm)
 {
-	/* Currently there are no stolen bits in KVM */
-	return 0;
+	return kvm->arch.gfn_shared_mask;
 }
 
 static inline gfn_t vcpu_gfn_stolen_mask(struct kvm_vcpu *vcpu)

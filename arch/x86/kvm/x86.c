@@ -12471,6 +12471,7 @@ EXPORT_SYMBOL_GPL(kvm_arch_has_assigned_device);
 
 void kvm_arch_register_noncoherent_dma(struct kvm *kvm)
 {
+	KVM_BUG_ON(kvm->arch.vm_type == KVM_X86_TDX_VM, kvm);
 	atomic_inc(&kvm->arch.noncoherent_dma_count);
 }
 EXPORT_SYMBOL_GPL(kvm_arch_register_noncoherent_dma);

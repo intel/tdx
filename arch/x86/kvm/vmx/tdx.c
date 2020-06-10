@@ -80,7 +80,7 @@ static inline int tdx_keyid_alloc(void) { return -EOPNOTSUPP; }
 static inline void tdx_keyid_free(int keyid) { }
 #endif
 
-static bool __read_mostly enable_tdx = true;
+bool __read_mostly enable_tdx = true;
 module_param_named(tdx, enable_tdx, bool, 0644);
 
 #define TDX_MAX_NR_CPUID_CONFIGS					\

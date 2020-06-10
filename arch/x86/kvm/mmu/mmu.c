@@ -5865,6 +5865,7 @@ int kvm_mmu_init_vm(struct kvm *kvm)
 	node->track_write = kvm_mmu_pte_write;
 	node->track_flush_slot = kvm_mmu_invalidate_zap_pages_in_memslot;
 	kvm_page_track_register_notifier(kvm, node);
+	kvm->arch.tdp_max_page_level = KVM_MAX_HUGEPAGE_LEVEL;
 	kvm_mmu_set_mmio_spte_mask(kvm, shadow_default_mmio_mask,
 				   shadow_default_mmio_mask,
 				   ACC_WRITE_MASK | ACC_USER_MASK);

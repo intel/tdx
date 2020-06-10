@@ -41,6 +41,8 @@ struct kvm_mmu_page {
 	u64 *spt;
 	/* hold the gfn of each spte inside spt */
 	gfn_t *gfns;
+	/* associated private shadow page, e.g. SEPT page */
+	void *private_sp;
 	int root_count;          /* Currently serving as active root */
 	unsigned int unsync_children;
 	struct kvm_rmap_head parent_ptes; /* rmap pointers to parent sptes */
@@ -128,6 +130,7 @@ static inline bool kvm_mmu_put_root(struct kvm *kvm, struct kvm_mmu_page *sp)
  * RET_PF_INVALID: the spte is invalid, let the real page fault path update it.
  * RET_PF_FIXED: The faulting entry has been fixed.
  * RET_PF_SPURIOUS: The faulting entry was already fixed, e.g. by another vCPU.
+ * RET_PF_UNZAPPED: A private SPTE was unzapped.
  */
 enum {
 	RET_PF_RETRY = 0,
@@ -135,6 +138,7 @@ enum {
 	RET_PF_INVALID,
 	RET_PF_FIXED,
 	RET_PF_SPURIOUS,
+	RET_PF_UNZAPPED,
 };
 
 /* Bits which may be returned by set_spte() */

@@ -8,6 +8,9 @@
 #define PT_FIRST_AVAIL_BITS_SHIFT 10
 #define PT64_SECOND_AVAIL_BITS_SHIFT 54
 
+/* Masks that used to track metadata for not-present SPTEs. */
+#define SPTE_PRIVATE_ZAPPED	BIT_ULL(62)
+
 /*
  * The mask used to denote special SPTEs, which can be either MMIO SPTEs or
  * Access Tracking SPTEs.
@@ -56,11 +59,11 @@
 #define SPTE_MMU_WRITEABLE	(1ULL << (PT_FIRST_AVAIL_BITS_SHIFT + 1))
 
 /*
- * Due to limited space in PTEs, the MMIO generation is a 18 bit subset of
+ * Due to limited space in PTEs, the MMIO generation is a 17 bit subset of
  * the memslots generation and is derived as follows:
  *
  * Bits 0-8 of the MMIO generation are propagated to spte bits 3-11
- * Bits 9-17 of the MMIO generation are propagated to spte bits 54-62
+ * Bits 9-16 of the MMIO generation are propagated to spte bits 54-61
  *
  * The KVM_MEMSLOT_GEN_UPDATE_IN_PROGRESS flag is intentionally not included in
  * the MMIO generation number, as doing so would require stealing a bit from
@@ -74,7 +77,7 @@
 #define MMIO_SPTE_GEN_LOW_END		11
 
 #define MMIO_SPTE_GEN_HIGH_START	PT64_SECOND_AVAIL_BITS_SHIFT
-#define MMIO_SPTE_GEN_HIGH_END		62
+#define MMIO_SPTE_GEN_HIGH_END		61
 
 #define MMIO_SPTE_GEN_LOW_MASK		GENMASK_ULL(MMIO_SPTE_GEN_LOW_END, \
 						    MMIO_SPTE_GEN_LOW_START)
@@ -85,7 +88,7 @@
 #define MMIO_SPTE_GEN_HIGH_BITS		(MMIO_SPTE_GEN_HIGH_END - MMIO_SPTE_GEN_HIGH_START + 1)
 
 /* remember to adjust the comment above as well if you change these */
-static_assert(MMIO_SPTE_GEN_LOW_BITS == 9 && MMIO_SPTE_GEN_HIGH_BITS == 9);
+static_assert(MMIO_SPTE_GEN_LOW_BITS == 9 && MMIO_SPTE_GEN_HIGH_BITS == 8);
 
 #define MMIO_SPTE_GEN_LOW_SHIFT		(MMIO_SPTE_GEN_LOW_START - 0)
 #define MMIO_SPTE_GEN_HIGH_SHIFT	(MMIO_SPTE_GEN_HIGH_START - MMIO_SPTE_GEN_LOW_BITS)
@@ -206,6 +209,11 @@ static inline bool is_access_track_spte(u64 spte)
 	return !spte_ad_enabled(spte) && (spte & shadow_acc_track_mask) == 0;
 }
 
+static inline bool is_zapped_private_pte(u64 pte)
+{
+	return !!(pte & SPTE_PRIVATE_ZAPPED);
+}
+
 static inline bool __is_shadow_present_pte(u64 pte)
 {
 	/*
@@ -222,7 +230,7 @@ static inline bool __is_shadow_present_pte(u64 pte)
 static inline bool is_shadow_present_pte(u64 pte)
 {
 	return __is_shadow_present_pte(pte) && !is_mmio_spte(pte) &&
-		!is_removed_spte(pte);
+		!is_removed_spte(pte) && !is_zapped_private_pte(pte);
 }
 
 static inline bool is_large_pte(u64 pte)

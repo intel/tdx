@@ -6,6 +6,7 @@
 
 #include "tdx_ops.h"
 
+extern bool __read_mostly enable_tdx;
 int tdx_module_setup(void);
 
 struct tdx_td_page {
@@ -166,6 +167,7 @@ static __always_inline u64 td_tdcs_exec_read64(struct kvm_tdx *kvm_tdx, u32 fiel
 }
 
 #else
+#define enable_tdx false
 static inline int tdx_module_setup(void) { return -ENODEV; };
 
 struct kvm_tdx;

@@ -57,6 +57,11 @@ static u32 xstate_required_size(u64 xstate_bv, bool compacted)
 static int kvm_check_cpuid(struct kvm_vcpu *vcpu)
 {
 	struct kvm_cpuid_entry2 *best;
+	int maxphyaddr;
+
+	maxphyaddr = cpuid_query_maxphyaddr(vcpu);
+	if (vcpu->kvm->arch.gfn_shared_mask > BIT_ULL(maxphyaddr))
+		return -EINVAL;
 
 	/*
 	 * The existing code assumes virtual address is 48-bit or 57-bit in the

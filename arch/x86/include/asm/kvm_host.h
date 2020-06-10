@@ -360,6 +360,7 @@ struct kvm_mmu {
 	void (*update_pte)(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 			   u64 *spte, const void *pte);
 	hpa_t root_hpa;
+	hpa_t private_root_hpa;
 	gpa_t root_pgd;
 	union kvm_mmu_role mmu_role;
 	u8 root_level;
@@ -594,6 +595,7 @@ struct kvm_vcpu_arch {
 	struct kvm_mmu_memory_cache mmu_shadow_page_cache;
 	struct kvm_mmu_memory_cache mmu_gfn_array_cache;
 	struct kvm_mmu_memory_cache mmu_page_header_cache;
+	struct kvm_mmu_memory_cache mmu_private_sp_cache;
 
 	/*
 	 * QEMU userspace and the guest each have their own FPU state.
@@ -887,6 +889,7 @@ struct kvm_arch {
 	 * Hash table of struct kvm_mmu_page.
 	 */
 	struct list_head active_mmu_pages;
+	struct list_head private_mmu_pages;
 	struct list_head zapped_obsolete_pages;
 	struct list_head lpage_disallowed_mmu_pages;
 	struct kvm_page_track_notifier_node mmu_sp_tracker;
@@ -974,6 +977,8 @@ struct kvm_arch {
 
 	struct kvm_pmu_event_filter *pmu_event_filter;
 	struct task_struct *nx_lpage_recovery_thread;
+
+	gfn_t gfn_shared_mask;
 };
 
 struct kvm_vm_stat {
@@ -1153,6 +1158,17 @@ struct kvm_x86_ops {
 	void (*load_mmu_pgd)(struct kvm_vcpu *vcpu, unsigned long pgd,
 			     int pgd_level);
 
+	void (*set_private_spte)(struct kvm_vcpu *vcpu, gfn_t gfn, int level,
+				 kvm_pfn_t pfn);
+	void (*drop_private_spte)(struct kvm *kvm, gfn_t gfn, int level,
+				  kvm_pfn_t pfn);
+	void (*zap_private_spte)(struct kvm *kvm, gfn_t gfn, int level);
+	void (*unzap_private_spte)(struct kvm *kvm, gfn_t gfn, int level);
+	int (*link_private_sp)(struct kvm_vcpu *vcpu, gfn_t gfn, int level,
+			       void *private_sp);
+	int (*free_private_sp)(struct kvm *kvm, gfn_t gfn, int level,
+			       void *private_sp);
+
 	bool (*has_wbinvd_exit)(void);
 
 	/* Returns actual tsc_offset set in active VMCS */
@@ -1326,7 +1342,8 @@ void kvm_mmu_slot_set_dirty(struct kvm *kvm,
 void kvm_mmu_clear_dirty_pt_masked(struct kvm *kvm,
 				   struct kvm_memory_slot *slot,
 				   gfn_t gfn_offset, unsigned long mask);
-void kvm_mmu_zap_all(struct kvm *kvm);
+void kvm_mmu_zap_all_active(struct kvm *kvm);
+void kvm_mmu_zap_all_private(struct kvm *kvm);
 void kvm_mmu_invalidate_mmio_sptes(struct kvm *kvm, u64 gen);
 unsigned long kvm_mmu_calculate_default_mmu_pages(struct kvm *kvm);
 void kvm_mmu_change_mmu_pages(struct kvm *kvm, unsigned long kvm_nr_mmu_pages);
@@ -1480,7 +1497,9 @@ static inline int __kvm_irq_line_state(unsigned long *irq_state,
 
 #define KVM_MMU_ROOT_CURRENT		BIT(0)
 #define KVM_MMU_ROOT_PREVIOUS(i)	BIT(1+i)
-#define KVM_MMU_ROOTS_ALL		(~0UL)
+#define KVM_MMU_ROOT_PRIVATE		BIT(1+KVM_MMU_NUM_PREV_ROOTS)
+#define KVM_MMU_ROOTS_ALL		((u32)(~KVM_MMU_ROOT_PRIVATE))
+#define KVM_MMU_ROOTS_ALL_INC_PRIVATE	(KVM_MMU_ROOTS_ALL | KVM_MMU_ROOT_PRIVATE)
 
 int kvm_pic_set_irq(struct kvm_pic *pic, int irq, int irq_source_id, int level);
 void kvm_pic_clear_all(struct kvm_pic *pic, int irq_source_id);

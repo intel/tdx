@@ -2421,7 +2421,7 @@ static int mmu_page_zap_pte(struct kvm *kvm, struct kvm_mmu_page *sp,
 				return kvm_mmu_prepare_zap_page(kvm, child,
 								invalid_list);
 		}
-	} else if (is_mmio_spte(pte)) {
+	} else if (is_mmio_spte(kvm, pte)) {
 		mmu_spte_clear_no_track(spte);
 	}
 	return 0;
@@ -3304,7 +3304,7 @@ static bool handle_abnormal_pfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t gfn,
 		 * touching the shadow page tables as attempting to install an
 		 * MMIO SPTE will just be an expensive nop.
 		 */
-		if (unlikely(!shadow_mmio_value)) {
+		if (unlikely(!vcpu->kvm->arch.shadow_mmio_value)) {
 			*ret_val = RET_PF_EMULATE;
 			return true;
 		}
@@ -3425,7 +3425,8 @@ static int fast_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 			break;
 
 		sp = sptep_to_sp(iterator.sptep);
-		if (!is_last_spte(spte, sp->role.level) || is_mmio_spte(spte))
+		if (!is_last_spte(spte, sp->role.level) ||
+		    is_mmio_spte(vcpu->kvm, spte))
 			break;
 
 		/*
@@ -4015,7 +4016,7 @@ static int handle_mmio_page_fault(struct kvm_vcpu *vcpu, u64 addr, bool direct)
 	if (WARN_ON(reserved))
 		return -EINVAL;
 
-	if (is_mmio_spte(spte)) {
+	if (is_mmio_spte(vcpu->kvm, spte)) {
 		gfn_t gfn = get_mmio_spte_gfn(spte);
 		unsigned int access = get_mmio_spte_access(spte);
 
@@ -4411,7 +4412,7 @@ static unsigned long get_cr3(struct kvm_vcpu *vcpu)
 static bool sync_mmio_spte(struct kvm_vcpu *vcpu, u64 *sptep, gfn_t gfn,
 			   unsigned int access, int *nr_present)
 {
-	if (unlikely(is_mmio_spte(*sptep))) {
+	if (unlikely(is_mmio_spte(vcpu->kvm, *sptep))) {
 		if (gfn != get_mmio_spte_gfn(*sptep)) {
 			mmu_spte_clear_no_track(sptep);
 			return true;
@@ -5935,6 +5936,9 @@ void kvm_mmu_init_vm(struct kvm *kvm)
 	kvm_page_track_register_notifier(kvm, node);
 
 	kvm->arch.tdp_max_page_level = KVM_MAX_HUGEPAGE_LEVEL;
+	kvm_mmu_set_mmio_spte_mask(kvm, shadow_default_mmio_mask,
+				   shadow_default_mmio_mask,
+				   ACC_WRITE_MASK | ACC_USER_MASK);
 }
 
 void kvm_mmu_uninit_vm(struct kvm *kvm)

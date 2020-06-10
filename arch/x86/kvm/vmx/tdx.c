@@ -7,14 +7,13 @@
 #include "x86.h"
 
 #ifdef CONFIG_INTEL_TDX_HOST
-static bool __read_mostly enable_tdx = true;
+bool __read_mostly enable_tdx = true;
 module_param_named(tdx, enable_tdx, bool, 0644);
 static inline void disable_tdx(void)
 {
 	enable_tdx = false;
 }
 #else
-#define enable_tdx false
 static inline void disable_tdx(void) {}
 #endif
 

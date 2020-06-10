@@ -13,6 +13,7 @@ void hv_vp_assist_page_exit(void);
 void __init vmx_init_early(void);
 int __init vmx_init(void);
 void vmx_exit(void);
+extern u64 __ro_after_init vmx_shadow_mmio_mask;
 
 __init int vmx_cpu_has_kvm_support(void);
 __init int vmx_disabled_by_bios(void);

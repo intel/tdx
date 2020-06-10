@@ -229,6 +229,7 @@ module_param(dump_invalid_vmcb, bool, 0644);
 bool intercept_smi = true;
 module_param(intercept_smi, bool, 0444);
 
+static u64 __read_mostly svm_shadow_mmio_mask;
 
 static bool svm_gp_erratum_intercept = true;
 
@@ -4729,6 +4730,9 @@ static bool svm_is_vm_type_supported(unsigned long type)
 
 static int svm_vm_init(struct kvm *kvm)
 {
+	kvm_mmu_set_mmio_spte_mask(kvm, svm_shadow_mmio_mask,
+				   svm_shadow_mmio_mask);
+
 	if (!pause_filter_count || !pause_filter_thresh)
 		kvm->arch.pause_in_guest = true;
 
@@ -4878,7 +4882,7 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
 static __init void svm_adjust_mmio_mask(void)
 {
 	unsigned int enc_bit, mask_bit;
-	u64 msr, mask;
+	u64 msr;
 
 	/* If there is no memory encryption support, use existing mask */
 	if (cpuid_eax(0x80000000) < 0x8000001f)
@@ -4905,9 +4909,8 @@ static __init void svm_adjust_mmio_mask(void)
 	 *
 	 * If the mask bit location is 52 (or above), then clear the mask.
 	 */
-	mask = (mask_bit < 52) ? rsvd_bits(mask_bit, 51) | PT_PRESENT_MASK : 0;
-
-	kvm_mmu_set_mmio_spte_mask(mask, mask, PT_WRITABLE_MASK | PT_USER_MASK);
+	svm_shadow_mmio_mask = (mask_bit < 52) ? rsvd_bits(mask_bit, 51) | PT_PRESENT_MASK : 0;
+	kvm_mmu_set_mmio_access_mask(PT_WRITABLE_MASK | PT_USER_MASK);
 }
 
 static __init void svm_set_cpu_caps(void)

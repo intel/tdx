@@ -120,6 +120,20 @@ static inline int __vmx_handle_ept_violation(struct kvm_vcpu *vcpu, gpa_t gpa,
 	return kvm_mmu_page_fault(vcpu, gpa, error_code, NULL, 0);
 }
 
+static inline u32 __vmx_get_interrupt_shadow(struct kvm_vcpu *vcpu)
+{
+	u32 interruptibility;
+	int ret = 0;
+
+	interruptibility = vmread32(vcpu, GUEST_INTERRUPTIBILITY_INFO);
+	if (interruptibility & GUEST_INTR_STATE_STI)
+		ret |= KVM_X86_SHADOW_INT_STI;
+	if (interruptibility & GUEST_INTR_STATE_MOV_SS)
+		ret |= KVM_X86_SHADOW_INT_MOV_SS;
+
+	return ret;
+}
+
 static inline u32 vmx_encode_ar_bytes(struct kvm_segment *var)
 {
 	u32 ar;

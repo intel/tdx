@@ -1872,7 +1872,9 @@ static int set_tsc_khz(struct kvm_vcpu *vcpu, u32 user_tsc_khz, bool scale)
 	u64 ratio;
 
 	/* Guest TSC same frequency as host TSC? */
-	if (!scale) {
+	if (!scale || vcpu->kvm->arch.tsc_immutable) {
+		if (scale)
+			pr_warn_ratelimited("Guest TSC immutable, scaling not supported\n");
 		vcpu->arch.tsc_scaling_ratio = kvm_default_tsc_scaling_ratio;
 		return 0;
 	}
@@ -2054,6 +2056,9 @@ void kvm_write_tsc(struct kvm_vcpu *vcpu, struct msr_data *msr)
 	bool already_matched;
 	u64 data = msr->data;
 	bool synchronizing = false;
+
+	if (WARN_ON_ONCE(vcpu->kvm->arch.tsc_immutable))
+		return;
 
 	raw_spin_lock_irqsave(&kvm->arch.tsc_write_lock, flags);
 	offset = kvm_compute_tsc_offset(vcpu, data);
@@ -2484,6 +2489,10 @@ static int kvm_guest_time_update(struct kvm_vcpu *v)
 	u64 tsc_timestamp, host_tsc;
 	u8 pvclock_flags;
 	bool use_master_clock;
+
+	/* Unable to update guest time if the TSC is immutable. */
+	if (ka->tsc_immutable)
+		return 0;
 
 	kernel_ns = 0;
 	host_tsc = 0;
@@ -3722,7 +3731,8 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 		if (tsc_delta < 0)
 			mark_tsc_unstable("KVM discovered backwards TSC");
 
-		if (kvm_check_tsc_unstable()) {
+		if (kvm_check_tsc_unstable() &&
+		    !vcpu->kvm->arch.tsc_immutable) {
 			u64 offset = kvm_compute_tsc_offset(vcpu,
 						vcpu->arch.last_guest_tsc);
 			kvm_vcpu_write_tsc_offset(vcpu, offset);
@@ -3736,7 +3746,8 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 		 * On a host with synchronized TSC, there is no need to update
 		 * kvmclock on vcpu->cpu migration
 		 */
-		if (!vcpu->kvm->arch.use_master_clock || vcpu->cpu == -1)
+		if ((!vcpu->kvm->arch.use_master_clock || vcpu->cpu == -1) &&
+		    !vcpu->kvm->arch.tsc_immutable)
 			kvm_make_request(KVM_REQ_GLOBAL_CLOCK_UPDATE, vcpu);
 		if (vcpu->cpu != cpu)
 			kvm_make_request(KVM_REQ_MIGRATE_TIMER, vcpu);
@@ -4690,10 +4701,11 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		break;
 	}
 	case KVM_SET_TSC_KHZ: {
-		u32 user_tsc_khz;
+		u32 user_tsc_khz = (u32)arg;
 
 		r = -EINVAL;
-		user_tsc_khz = (u32)arg;
+		if (vcpu->kvm->arch.tsc_immutable)
+			goto out;
 
 		if (kvm_has_tsc_control &&
 		    user_tsc_khz >= kvm_max_guest_tsc_khz)
@@ -9672,12 +9684,15 @@ void kvm_arch_vcpu_postcreate(struct kvm_vcpu *vcpu)
 
 	if (mutex_lock_killable(&vcpu->mutex))
 		return;
-	vcpu_load(vcpu);
-	msr.data = 0x0;
-	msr.index = MSR_IA32_TSC;
-	msr.host_initiated = true;
-	kvm_write_tsc(vcpu, &msr);
-	vcpu_put(vcpu);
+
+	if (!kvm->arch.tsc_immutable) {
+		vcpu_load(vcpu);
+		msr.data = 0x0;
+		msr.index = MSR_IA32_TSC;
+		msr.host_initiated = true;
+		kvm_write_tsc(vcpu, &msr);
+		vcpu_put(vcpu);
+	}
 
 	/* poll control enabled by default */
 	vcpu->arch.msr_kvm_poll_control = 1;
@@ -9870,6 +9885,10 @@ int kvm_arch_hardware_enable(void)
 	if (backwards_tsc) {
 		u64 delta_cyc = max_tsc - local_tsc;
 		list_for_each_entry(kvm, &vm_list, vm_list) {
+			if (vcpu->kvm->arch.tsc_immutable) {
+				pr_warn_ratelimited("Backwards TSC observed and guest with immutable TSC active\n");
+				continue;
+			}
 			kvm->arch.backwards_tsc_observed = true;
 			kvm_for_each_vcpu(i, vcpu, kvm) {
 				vcpu->arch.tsc_offset_adjustment += delta_cyc;

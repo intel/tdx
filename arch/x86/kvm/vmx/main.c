@@ -311,7 +311,8 @@ static int vt_set_efer(struct kvm_vcpu *vcpu, u64 efer)
 
 static void vt_get_idt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
 {
-	vmx_get_idt(vcpu, dt);
+	dt->size = vmread32(vcpu, GUEST_IDTR_LIMIT);
+	dt->address = vmreadl(vcpu, GUEST_IDTR_BASE);
 }
 
 static void vt_set_idt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
@@ -321,7 +322,8 @@ static void vt_set_idt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
 
 static void vt_get_gdt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
 {
-	vmx_get_gdt(vcpu, dt);
+	dt->size = vmread32(vcpu, GUEST_GDTR_LIMIT);
+	dt->address = vmreadl(vcpu, GUEST_GDTR_BASE);
 }
 
 static void vt_set_gdt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)

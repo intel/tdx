@@ -807,6 +807,9 @@ struct kvm {
 #ifdef __KVM_HAVE_ARCH_UPDATE_MEM_ATTR
 	struct xarray mem_attr_array;
 #endif
+#ifdef __KVM_HAVE_READONLY_MEM
+	bool readonly_mem_unsupported;
+#endif
 };
 
 #define kvm_err(fmt, ...) \

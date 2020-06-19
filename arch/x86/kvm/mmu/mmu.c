@@ -91,6 +91,9 @@ __MODULE_PARM_TYPE(nx_huge_pages_recovery_period_ms, "uint");
 static bool __read_mostly force_flush_and_sync_on_reuse;
 module_param_named(flush_on_reuse, force_flush_and_sync_on_reuse, bool, 0644);
 
+static bool __read_mostly memslot_update_zap_all;
+module_param(memslot_update_zap_all, bool, 0444);
+
 /*
  * When setting this variable to true it enables Two-Dimensional-Paging
  * where the hardware walks 2 page tables:
@@ -5847,11 +5850,27 @@ static bool kvm_has_zapped_obsolete_pages(struct kvm *kvm)
 	return unlikely(!list_empty_careful(&kvm->arch.zapped_obsolete_pages));
 }
 
+static void kvm_mmu_zap_memslot(struct kvm *kvm, struct kvm_memory_slot *slot)
+{
+	/*
+	 * Zapping non-leaf SPTEs, a.k.a. not-last SPTEs, isn't required, worst
+	 * case scenario we'll have unused shadow pages lying around until they
+	 * are recycled due to age or when the VM is destroyed.
+	 */
+	write_lock(&kvm->mmu_lock);
+	slot_handle_level(kvm, slot, kvm_zap_rmapp, PG_LEVEL_4K,
+			  KVM_MAX_HUGEPAGE_LEVEL, true);
+	write_unlock(&kvm->mmu_lock);
+}
+
 static void kvm_mmu_invalidate_zap_pages_in_memslot(struct kvm *kvm,
 			struct kvm_memory_slot *slot,
 			struct kvm_page_track_notifier_node *node)
 {
-	kvm_mmu_zap_all_fast(kvm);
+	if (memslot_update_zap_all)
+		kvm_mmu_zap_all_fast(kvm);
+	else
+		kvm_mmu_zap_memslot(kvm, slot);
 }
 
 void kvm_mmu_init_vm(struct kvm *kvm)

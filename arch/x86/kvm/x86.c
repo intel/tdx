@@ -3998,7 +3998,6 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 	case KVM_CAP_ASYNC_PF_INT:
 	case KVM_CAP_GET_TSC_KHZ:
 	case KVM_CAP_KVMCLOCK_CTRL:
-	case KVM_CAP_READONLY_MEM:
 	case KVM_CAP_HYPERV_TIME:
 	case KVM_CAP_IOAPIC_POLARITY_IGNORED:
 	case KVM_CAP_TSC_DEADLINE_TIMER:
@@ -4114,6 +4113,9 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		r = BIT(KVM_X86_LEGACY_VM);
 		if (static_call(kvm_x86_is_vm_type_supported)(KVM_X86_TDX_VM))
 			r |= BIT(KVM_X86_TDX_VM);
+		break;
+	case KVM_CAP_READONLY_MEM:
+		r = kvm && kvm->readonly_mem_unsupported ? 0 : 1;
 		break;
 	default:
 		break;

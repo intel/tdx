@@ -155,7 +155,7 @@ static inline int kvm_mmu_page_as_id(struct kvm_mmu_page *sp)
 	return kvm_mmu_role_as_id(sp->role);
 }
 
-static inline bool is_private_spt(const struct kvm_mmu_page *sp)
+static inline bool is_private_sp(const struct kvm_mmu_page *sp)
 {
 	return kvm_mmu_page_role_is_private(sp->role);
 }
@@ -163,7 +163,7 @@ static inline bool is_private_spt(const struct kvm_mmu_page *sp)
 static inline bool is_private_sptep(u64 *sptep)
 {
 	WARN_ON(!sptep);
-	return is_private_spt(sptep_to_sp(sptep));
+	return is_private_sp(sptep_to_sp(sptep));
 }
 
 #ifdef CONFIG_KVM_MMU_PRIVATE

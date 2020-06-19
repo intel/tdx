@@ -809,6 +809,9 @@ struct kvm {
 #ifdef CONFIG_KVM_GENERIC_PRIVATE_MEM
 	struct xarray mem_attr_array;
 #endif
+#ifdef __KVM_HAVE_READONLY_MEM
+	bool readonly_mem_unsupported;
+#endif
 };
 
 #define kvm_err(fmt, ...) \

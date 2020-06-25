@@ -453,6 +453,12 @@ void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	 */
 }
 
+void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int pgd_level)
+{
+	WARN_ON_ONCE(root_hpa & ~PAGE_MASK);
+	td_vmcs_write64(to_tdx(vcpu), SHARED_EPT_POINTER, root_hpa);
+}
+
 static int tdx_get_capabilities(struct kvm_tdx_cmd *cmd)
 {
 	struct kvm_tdx_capabilities __user *user_caps;

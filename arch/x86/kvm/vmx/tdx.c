@@ -149,7 +149,7 @@ static int __tdx_reclaim_page(unsigned long va, hpa_t pa, bool do_wb, u16 hkid)
 	if (TDX_ERR(err, TDRECLAIMPAGE))
 		return -EIO;
 
-	if (do_wb) {
+	if (do_wb && boot_cpu_has(X86_FEATURE_CLFLUSHOPT)) {
 		err = tdwbinvdpage(set_hkid_to_hpa(pa, hkid));
 		if (TDX_ERR(err, TDWBINVDPAGE))
 			return -EIO;

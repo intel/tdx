@@ -560,7 +560,8 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 
-	if (unlikely(vcpu->kvm->vm_bugged)) {
+	if (unlikely(vcpu->kvm->vm_bugged) ||
+	    !static_cpu_has(X86_FEATURE_XSAVES)) {
 		tdx->exit_reason.full = TDX_NON_RECOVERABLE_VCPU;
 		return EXIT_FASTPATH_NONE;
 	}

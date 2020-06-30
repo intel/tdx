@@ -516,6 +516,7 @@ struct kvm {
 	pid_t userspace_pid;
 	unsigned int max_halt_poll_ns;
 
+	bool dirty_log_unsupported;
 #ifdef __KVM_HAVE_READONLY_MEM
 	bool readonly_mem_unsupported;
 #endif

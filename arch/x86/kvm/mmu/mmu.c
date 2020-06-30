@@ -657,9 +657,22 @@ static int is_nx(struct kvm_vcpu *vcpu)
 	return vcpu->arch.efer & EFER_NX;
 }
 
-static int is_shadow_present_pte(u64 pte)
+static inline bool __is_shadow_present_pte(u64 pte)
 {
-	return (pte != 0) && !is_mmio_spte(pte);
+	/*
+	 * Ignore bits 63 and 62 so that they can be set in SPTEs that are well
+	 * and truly not present.  We can't use the sane/obvious approach of
+	 * querying bits 2:0 (RWX or P) because EPT without A/D bits will clear
+	 * RWX of a "present" SPTE to do access tracking.  Tracking updates can
+	 * be done out of mmu_lock, so even the flushing logic needs to treat
+	 * such SPTEs as present.
+	 */
+	return !!(pte << 2);
+}
+
+static bool is_shadow_present_pte(u64 pte)
+{
+	return __is_shadow_present_pte(pte) && !is_mmio_spte(pte);
 }
 
 static int is_large_pte(u64 pte)

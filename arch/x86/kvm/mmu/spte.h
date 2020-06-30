@@ -204,9 +204,23 @@ static inline bool is_access_track_spte(u64 spte)
 	return !spte_ad_enabled(spte) && (spte & shadow_acc_track_mask) == 0;
 }
 
+static inline bool __is_shadow_present_pte(u64 pte)
+{
+	/*
+	 * Ignore bits 63 and 62 so that they can be set in SPTEs that are well
+	 * and truly not present.  We can't use the sane/obvious approach of
+	 * querying bits 2:0 (RWX or P) because EPT without A/D bits will clear
+	 * RWX of a "present" SPTE to do access tracking.  Tracking updates can
+	 * be done out of mmu_lock, so even the flushing logic needs to treat
+	 * such SPTEs as present.
+	 */
+	return !!(pte << 2);
+}
+
 static inline bool is_shadow_present_pte(u64 pte)
 {
-	return (pte != 0) && !is_mmio_spte(pte) && !is_removed_spte(pte);
+	return __is_shadow_present_pte(pte) && !is_mmio_spte(pte) &&
+		!is_removed_spte(pte);
 }
 
 static inline bool is_large_pte(u64 pte)

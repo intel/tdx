@@ -208,6 +208,19 @@ static inline bool is_mmio_spte(u64 spte)
 	       likely(shadow_mmio_value);
 }
 
+static inline bool __is_shadow_present_pte(u64 pte)
+{
+	/*
+	 * Ignore bits 63 and 62 so that they can be set in SPTEs that are well
+	 * and truly not present.  We can't use the sane/obvious approach of
+	 * querying bits 2:0 (RWX or P) because EPT without A/D bits will clear
+	 * RWX of a "present" SPTE to do access tracking.  Tracking updates can
+	 * be done out of mmu_lock, so even the flushing logic needs to treat
+	 * such SPTEs as present.
+	 */
+	return !!(pte << 2);
+}
+
 static inline bool is_shadow_present_pte(u64 pte)
 {
 	return !!(pte & SPTE_MMU_PRESENT_MASK);

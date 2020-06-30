@@ -1659,6 +1659,8 @@ static int tdx_td_finalizemr(struct kvm *kvm)
 	if (TDX_ERR(err, TDFINALIZEMR))
 		return -EIO;
 
+	(void)tdtrack(to_kvm_tdx(kvm)->tdr.pa);
+
 	kvm_tdx->finalized = true;
 	return 0;
 }

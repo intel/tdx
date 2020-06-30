@@ -2544,6 +2544,8 @@ static int tdx_td_finalizemr(struct kvm *kvm)
 		return -EIO;
 	}
 
+	(void)tdh_mem_track(to_kvm_tdx(kvm)->tdr.pa);
+
 	kvm_tdx->finalized = true;
 	return 0;
 }

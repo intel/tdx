@@ -5,6 +5,7 @@
 #include <asm/vmx.h>
 #include <asm/insn.h>
 #include <linux/sched/signal.h> /* force_sig_fault() */
+#include <linux/security.h>
 
 #define CREATE_TRACE_POINTS
 #include <asm/trace/tdx.h>
@@ -21,6 +22,11 @@ static struct {
 bool tdx_debug_enabled(void)
 {
 	return td_info.attributes & BIT(0);
+}
+
+static bool tdx_perfmon_enabled(void)
+{
+	return td_info.attributes & BIT(63);
 }
 
 static void tdx_get_info(void)
@@ -382,6 +388,8 @@ static int tdx_cpu_offline_prepare(unsigned int cpu)
 
 void __init tdx_early_init(void)
 {
+	enum lockdown_reason lockdown_reason;
+
 	if (!__is_tdx_guest())
 		return;
 
@@ -392,6 +400,16 @@ void __init tdx_early_init(void)
 
 	cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "tdx:cpu_hotplug",
 			  NULL, tdx_cpu_offline_prepare);
+
+	/*
+	 * Do not lockdown perf/bpf/kprobe/... if performance
+	 * monitoring is enabled.
+	 */
+	if (tdx_perfmon_enabled())
+		lockdown_reason = LOCKDOWN_INTEGRITY_MAX;
+	else
+		lockdown_reason = LOCKDOWN_CONFIDENTIALITY_MAX;
+	lock_kernel_down("TDX guest init", lockdown_reason);
 }
 
 unsigned long tdx_get_ve_info(struct ve_info *ve)

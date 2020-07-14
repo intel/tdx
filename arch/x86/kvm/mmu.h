@@ -240,4 +240,30 @@ static inline bool kvm_memslots_have_rmaps(struct kvm *kvm)
 	return smp_load_acquire(&kvm->arch.memslots_have_rmaps);
 }
 
+static inline gfn_t kvm_gfn_stolen_mask(struct kvm *kvm)
+{
+	/* Currently there are no stolen bits in KVM */
+	return 0;
+}
+
+static inline gfn_t vcpu_gfn_stolen_mask(struct kvm_vcpu *vcpu)
+{
+	return kvm_gfn_stolen_mask(vcpu->kvm);
+}
+
+static inline gpa_t kvm_gpa_stolen_mask(struct kvm *kvm)
+{
+	return kvm_gfn_stolen_mask(kvm) << PAGE_SHIFT;
+}
+
+static inline gpa_t vcpu_gpa_stolen_mask(struct kvm_vcpu *vcpu)
+{
+	return kvm_gpa_stolen_mask(vcpu->kvm);
+}
+
+static inline gfn_t vcpu_gpa_to_gfn_unalias(struct kvm_vcpu *vcpu, gpa_t gpa)
+{
+	return (gpa >> PAGE_SHIFT) & ~vcpu_gfn_stolen_mask(vcpu);
+}
+
 #endif

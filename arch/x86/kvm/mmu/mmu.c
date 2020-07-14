@@ -261,27 +261,37 @@ static inline bool kvm_available_flush_tlb_with_range(void)
 	return kvm_x86_ops.tlb_remote_flush_with_range;
 }
 
-static void kvm_flush_remote_tlbs_with_range(struct kvm *kvm,
-		struct kvm_tlb_range *range)
-{
-	int ret = -ENOTSUPP;
-
-	if (range && kvm_x86_ops.tlb_remote_flush_with_range)
-		ret = static_call(kvm_x86_tlb_remote_flush_with_range)(kvm, range);
-
-	if (ret)
-		kvm_flush_remote_tlbs(kvm);
-}
-
 void kvm_flush_remote_tlbs_with_address(struct kvm *kvm,
 		u64 start_gfn, u64 pages)
 {
 	struct kvm_tlb_range range;
+	u64 gfn_stolen_mask;
+
+	if (!kvm_available_flush_tlb_with_range())
+		goto generic_flush;
+
+	/*
+	 * Fall back to the big hammer flush if there is more than one
+	 * GPA alias that needs to be flushed.
+	 */
+	gfn_stolen_mask = kvm_gfn_stolen_mask(kvm);
+	if (hweight64(gfn_stolen_mask) > 1)
+		goto generic_flush;
 
 	range.start_gfn = start_gfn;
 	range.pages = pages;
+	if (static_call(kvm_x86_tlb_remote_flush_with_range)(kvm, &range))
+		goto generic_flush;
 
-	kvm_flush_remote_tlbs_with_range(kvm, &range);
+	if (!gfn_stolen_mask)
+		return;
+
+	range.start_gfn |= gfn_stolen_mask;
+	static_call(kvm_x86_tlb_remote_flush_with_range)(kvm, &range);
+	return;
+
+generic_flush:
+	kvm_flush_remote_tlbs(kvm);
 }
 
 static void mark_mmio_spte(struct kvm_vcpu *vcpu, u64 *sptep, u64 gfn,
@@ -2018,14 +2028,16 @@ static void clear_sp_write_flooding_count(u64 *spte)
 	__clear_sp_write_flooding_count(sptep_to_sp(spte));
 }
 
-static struct kvm_mmu_page *kvm_mmu_get_page(struct kvm_vcpu *vcpu,
-					     gfn_t gfn,
-					     gva_t gaddr,
-					     unsigned level,
-					     int direct,
-					     unsigned int access)
+static struct kvm_mmu_page *__kvm_mmu_get_page(struct kvm_vcpu *vcpu,
+					       gfn_t gfn,
+					       gfn_t gfn_stolen_bits,
+					       gva_t gaddr,
+					       unsigned int level,
+					       int direct,
+					       unsigned int access)
 {
 	bool direct_mmu = vcpu->arch.mmu->direct_map;
+	gpa_t gfn_and_stolen = gfn | gfn_stolen_bits;
 	union kvm_mmu_page_role role;
 	struct hlist_head *sp_list;
 	unsigned quadrant;
@@ -2045,9 +2057,9 @@ static struct kvm_mmu_page *kvm_mmu_get_page(struct kvm_vcpu *vcpu,
 		role.quadrant = quadrant;
 	}
 
-	sp_list = &vcpu->kvm->arch.mmu_page_hash[kvm_page_table_hashfn(gfn)];
+	sp_list = &vcpu->kvm->arch.mmu_page_hash[kvm_page_table_hashfn(gfn_and_stolen)];
 	for_each_valid_sp(vcpu->kvm, sp, sp_list) {
-		if (sp->gfn != gfn) {
+		if ((sp->gfn | sp->gfn_stolen_bits) != gfn_and_stolen) {
 			collisions++;
 			continue;
 		}
@@ -2106,6 +2118,7 @@ trace_get_page:
 	sp = kvm_mmu_alloc_page(vcpu, direct);
 
 	sp->gfn = gfn;
+	sp->gfn_stolen_bits = gfn_stolen_bits;
 	sp->role = role;
 	hlist_add_head(&sp->hash_link, sp_list);
 	if (!direct) {
@@ -2120,6 +2133,13 @@ out:
 	if (collisions > vcpu->kvm->stat.max_mmu_page_hash_collisions)
 		vcpu->kvm->stat.max_mmu_page_hash_collisions = collisions;
 	return sp;
+}
+
+static struct kvm_mmu_page *kvm_mmu_get_page(struct kvm_vcpu *vcpu, gfn_t gfn,
+					     gva_t gaddr, unsigned int level,
+					     int direct, unsigned int access)
+{
+	return __kvm_mmu_get_page(vcpu, gfn, 0, gaddr, level, direct, access);
 }
 
 static void shadow_walk_init_using_root(struct kvm_shadow_walk_iterator *iterator,
@@ -2757,7 +2777,9 @@ static int direct_pte_prefetch_many(struct kvm_vcpu *vcpu,
 
 	gfn = kvm_mmu_page_get_gfn(sp, start - sp->spt);
 	slot = gfn_to_memslot_dirty_bitmap(vcpu, gfn, access & ACC_WRITE_MASK);
-	if (!slot)
+
+	/* Don't map private memslots for stolen bits */
+	if (!slot || (sp->gfn_stolen_bits && slot->id >= KVM_USER_MEM_SLOTS))
 		return -1;
 
 	ret = gfn_to_page_many_atomic(slot, gfn, pages, end - start);
@@ -2947,7 +2969,9 @@ static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 	struct kvm_shadow_walk_iterator it;
 	struct kvm_mmu_page *sp;
 	int level, req_level, ret;
-	gfn_t gfn = gpa >> PAGE_SHIFT;
+	gpa_t gpa_stolen_mask = vcpu_gpa_stolen_mask(vcpu);
+	gfn_t gfn = (gpa & ~gpa_stolen_mask) >> PAGE_SHIFT;
+	gfn_t gfn_stolen_bits = (gpa & gpa_stolen_mask) >> PAGE_SHIFT;
 	gfn_t base_gfn = gfn;
 
 	level = kvm_mmu_hugepage_adjust(vcpu, gfn, max_level, &pfn,
@@ -2969,8 +2993,9 @@ static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 
 		drop_large_spte(vcpu, it.sptep);
 		if (!is_shadow_present_pte(*it.sptep)) {
-			sp = kvm_mmu_get_page(vcpu, base_gfn, it.addr,
-					      it.level - 1, true, ACC_ALL);
+			sp = __kvm_mmu_get_page(vcpu, base_gfn,
+						gfn_stolen_bits, it.addr,
+						it.level - 1, true, ACC_ALL);
 
 			link_shadow_page(vcpu, it.sptep, sp);
 			if (is_tdp && huge_page_disallowed &&
@@ -3813,6 +3838,13 @@ static bool try_async_pf(struct kvm_vcpu *vcpu, bool prefault, gfn_t gfn,
 	if (slot && (slot->flags & KVM_MEMSLOT_INVALID))
 		return true;
 
+	/* Don't expose aliases for no slot GFNs or private memslots */
+	if ((cr2_or_gpa & vcpu_gpa_stolen_mask(vcpu)) &&
+	    !kvm_is_visible_memslot(slot)) {
+		*pfn = KVM_PFN_NOSLOT;
+		return false;
+	}
+
 	/* Don't expose private memslots to L2. */
 	if (is_guest_mode(vcpu) && !kvm_is_visible_memslot(slot)) {
 		*pfn = KVM_PFN_NOSLOT;
@@ -3848,7 +3880,7 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 	bool write = error_code & PFERR_WRITE_MASK;
 	bool map_writable;
 
-	gfn_t gfn = gpa >> PAGE_SHIFT;
+	gfn_t gfn = vcpu_gpa_to_gfn_unalias(vcpu, gpa);
 	unsigned long mmu_seq;
 	kvm_pfn_t pfn;
 	hva_t hva;
@@ -3958,7 +3990,7 @@ int kvm_tdp_page_fault(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 	     max_level > PG_LEVEL_4K;
 	     max_level--) {
 		int page_num = KVM_PAGES_PER_HPAGE(max_level);
-		gfn_t base = (gpa >> PAGE_SHIFT) & ~(page_num - 1);
+		gfn_t base = vcpu_gpa_to_gfn_unalias(vcpu, gpa) & ~(page_num - 1);
 
 		if (kvm_mtrr_check_gfn_range_consistency(vcpu, base, page_num))
 			break;

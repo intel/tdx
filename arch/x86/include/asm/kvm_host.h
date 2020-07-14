@@ -1251,7 +1251,9 @@ struct kvm_arch {
 	 */
 	u32 max_vcpu_ids;
 
+#ifdef CONFIG_KVM_MMU_PRIVATE
 	gfn_t gfn_shared_mask;
+#endif
 };
 
 struct kvm_vm_stat {

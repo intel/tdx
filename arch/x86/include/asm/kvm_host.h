@@ -1235,7 +1235,9 @@ struct kvm_arch {
 	spinlock_t hv_root_tdp_lock;
 #endif
 
+#ifdef CONFIG_KVM_MMU_PRIVATE
 	gfn_t gfn_shared_mask;
+#endif
 };
 
 struct kvm_vm_stat {

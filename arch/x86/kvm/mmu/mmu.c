@@ -276,11 +276,24 @@ static inline bool kvm_available_flush_tlb_with_range(void)
 static void kvm_flush_remote_tlbs_with_range(struct kvm *kvm,
 		struct kvm_tlb_range *range)
 {
-	int ret = -ENOTSUPP;
+	int ret = -EOPNOTSUPP;
+	u64 gfn_stolen_mask;
 
-	if (range && kvm_x86_ops.tlb_remote_flush_with_range)
+	/*
+	 * Fall back to the big hammer flush if there is more than one
+	 * GPA alias that needs to be flushed.
+	 */
+	gfn_stolen_mask = kvm_gfn_stolen_mask(kvm);
+	if (hweight64(gfn_stolen_mask) > 1)
+		goto generic_flush;
+
+	if (range && kvm_available_flush_tlb_with_range()) {
+		/* Callback should flush both private GFN and shared GFN. */
+		range->start_gfn = kvm_gfn_unalias(kvm, range->start_gfn);
 		ret = static_call(kvm_x86_tlb_remote_flush_with_range)(kvm, range);
+	}
 
+generic_flush:
 	if (ret)
 		kvm_flush_remote_tlbs(kvm);
 }
@@ -4010,7 +4023,7 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 	unsigned long mmu_seq;
 	int r;
 
-	fault->gfn = fault->addr >> PAGE_SHIFT;
+	fault->gfn = kvm_gfn_unalias(vcpu->kvm, gpa_to_gfn(fault->addr));
 	fault->slot = kvm_vcpu_gfn_to_memslot(vcpu, fault->gfn);
 
 	if (page_fault_handle_page_track(vcpu, fault))

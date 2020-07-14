@@ -225,4 +225,30 @@ int kvm_arch_write_log_dirty(struct kvm_vcpu *vcpu);
 int kvm_mmu_post_init_vm(struct kvm *kvm);
 void kvm_mmu_pre_destroy_vm(struct kvm *kvm);
 
+static inline gfn_t kvm_gfn_stolen_mask(struct kvm *kvm)
+{
+	/* Currently there are no stolen bits in KVM */
+	return 0;
+}
+
+static inline gfn_t vcpu_gfn_stolen_mask(struct kvm_vcpu *vcpu)
+{
+	return kvm_gfn_stolen_mask(vcpu->kvm);
+}
+
+static inline gpa_t kvm_gpa_stolen_mask(struct kvm *kvm)
+{
+	return kvm_gfn_stolen_mask(kvm) << PAGE_SHIFT;
+}
+
+static inline gpa_t vcpu_gpa_stolen_mask(struct kvm_vcpu *vcpu)
+{
+	return kvm_gpa_stolen_mask(vcpu->kvm);
+}
+
+static inline gfn_t vcpu_gpa_to_gfn_unalias(struct kvm_vcpu *vcpu, gpa_t gpa)
+{
+	return (gpa >> PAGE_SHIFT) & ~vcpu_gfn_stolen_mask(vcpu);
+}
+
 #endif

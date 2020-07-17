@@ -636,6 +636,14 @@ static bool tdx_handle_io(struct pt_regs *regs, u32 exit_qual)
 	port = VE_GET_PORT_NUM(exit_qual);
 	mask = GENMASK(BITS_PER_BYTE * size, 0);
 
+	if (!tdx_allowed_port(port)) {
+		if (in) {
+			regs->ax &= ~mask;
+			regs->ax |= (UINT_MAX & mask);
+		}
+		return true;
+	}
+
 	/*
 	 * Emulate the I/O read/write via hypercall. More info about
 	 * ABI can be found in TDX Guest-Host-Communication Interface

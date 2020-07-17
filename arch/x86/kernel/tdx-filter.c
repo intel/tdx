@@ -290,3 +290,22 @@ void __init tdx_filter_init(void)
 	pr_info("Enabled device filter\n");
 }
 early_initcall(tdx_filter_init);
+
+bool tdx_allowed_port(short int port)
+{
+	switch (port) {
+	/* MC146818 RTC */
+	case 0x70 ... 0x71:
+	/* PCI */
+	case 0xcf8 ... 0xcff:
+		return true;
+	/* COM1 */
+	case 0x3f8:
+	case 0x3f9:
+	case 0x3fa:
+	case 0x3fd:
+		return tdx_debug_enabled();
+	default:
+		return tdx_debug_enabled() && tdx_disable_filter;
+	}
+}

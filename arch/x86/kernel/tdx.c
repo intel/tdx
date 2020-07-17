@@ -340,6 +340,9 @@ static void tdx_handle_io(struct pt_regs *regs, u32 exit_qual)
 	size = (exit_qual & 7) + 1;
 	port = exit_qual >> 16;
 
+	if (!tdx_allowed_port(port))
+		return;
+
 	if (out) {
 		tdx_out(size, regs->ax, port);
 	} else {

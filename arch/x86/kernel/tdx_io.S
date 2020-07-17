@@ -42,6 +42,15 @@ SYM_FUNC_START(tdx_outl)
 	push	%r13
 	push	%r14
 
+#ifndef TDX_SKIP_IO_FILTERING
+	push	%rdx
+	mov	%dx, %di
+	call	tdx_allowed_port
+	pop	%rdx
+	test	%al, %al
+	jz	out_tdx_out
+#endif
+
 	mov	$TDVMCALL, %rax
 	mov	$TDVMCALL_STANDARD, %r10
 	mov	$EXIT_REASON_IO_INSTRUCTION, %r11
@@ -60,7 +69,7 @@ SYM_FUNC_START(tdx_outl)
 	/* Panic if TDVMCALL reports failure */
 	test	%r10, %r10
 	jnz	1f
-
+out_tdx_out:
 	pop	%r14
 	pop	%r13
 	pop	%r11
@@ -102,6 +111,15 @@ SYM_FUNC_START(tdx_inl)
 	push	%r13
 	push	%r14
 
+#ifndef TDX_SKIP_IO_FILTERING
+	push	%rdx
+	mov	%dx, %di
+	call	tdx_allowed_port
+	pop	%rdx
+	test	%al, %al
+	jz	out_tdx_in
+#endif
+
 	mov	$TDVMCALL, %rax
 	mov	$TDVMCALL_STANDARD, %r10
 	mov	$EXIT_REASON_IO_INSTRUCTION, %r11
@@ -121,7 +139,7 @@ SYM_FUNC_START(tdx_inl)
 	/* Panic if TDVMCALL reports failure */
 	test	%r10, %r10
 	jnz	1f
-
+out_tdx_in:
 	pop	%r14
 	pop	%r13
 	pop	%r10

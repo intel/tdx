@@ -6,4 +6,6 @@
 #undef EXPORT_SYMBOL
 #define EXPORT_SYMBOL(sym)
 
+#define TDX_SKIP_IO_FILTERING
+
 #include "../../kernel/tdx_io.S"

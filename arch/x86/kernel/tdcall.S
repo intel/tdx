@@ -436,6 +436,17 @@ SYM_FUNC_START(tdg_outl)
 	 */
 	push %rax
 
+#ifndef TDG_SKIP_IO_FILTERING
+	push %rdx
+	mov %dx, %di
+	/* Check whether given port is allowed */
+	call tdg_allowed_port
+	pop %rdx
+	/* Check for status of tdg_allowed_port() */
+	test %al, %al
+	jz out_tdg_out
+#endif
+
 	mov %rdx, %rcx
 	/* Set 1 in RDX to select out operation */
 	mov $1, %rdx
@@ -448,6 +459,7 @@ SYM_FUNC_START(tdg_outl)
 
 	call do_tdx_hypercall
 
+out_tdg_out:
 	pop %rax
 	io_restore_registers
 	ret
@@ -486,6 +498,17 @@ SYM_FUNC_START(tdg_inl)
 	subq $TDVMCALL_OUTPUT_SIZE, %rsp
 	/* R9 is not clobbered by VMM, So use it as temporary storage */
 	movq %rsp, %r9
+
+#ifndef TDG_SKIP_IO_FILTERING
+	push %rdx
+	mov %dx, %di
+	/* Check whether given port is allowed */
+	call tdg_allowed_port
+	pop %rdx
+	/* Check for status of tdg_allowed_port() */
+	test %al, %al
+	jz tdg_in_failed
+#endif
 
 	mov %rdx, %rcx
 	/* Set 0 in RDX to select IN operation */

@@ -290,3 +290,22 @@ void __init tdx_filter_init(void)
 	pr_info("Enabled TDX guest device filter\n");
 }
 early_initcall(tdx_filter_init);
+
+bool tdg_allowed_port(short int port)
+{
+	switch (port) {
+	/* MC146818 RTC */
+	case 0x70 ... 0x71:
+	/* PCI */
+	case 0xcf8 ... 0xcff:
+		return true;
+	/* COM1 */
+	case 0x3f8:
+	case 0x3f9:
+	case 0x3fa:
+	case 0x3fd:
+		return tdg_debug_enabled();
+	default:
+		return tdg_debug_enabled() && tdg_disable_filter;
+	}
+}

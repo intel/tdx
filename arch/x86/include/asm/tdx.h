@@ -79,6 +79,8 @@ long tdx_kvm_hypercall3(unsigned int nr, unsigned long p1, unsigned long p2,
 long tdx_kvm_hypercall4(unsigned int nr, unsigned long p1, unsigned long p2,
 		unsigned long p3, unsigned long p4);
 
+bool tdg_allowed_port(short int port);
+
 /* Decompression code doesn't know how to handle alternatives */
 #ifdef BOOT_COMPRESSED_MISC_H
 #define __out(bwl, bw)							\

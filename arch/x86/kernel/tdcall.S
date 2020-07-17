@@ -286,6 +286,17 @@ SYM_FUNC_START(tdg_outl)
 	 */
 	push %rax
 
+#ifndef TDG_SKIP_IO_FILTERING
+	push %rdx
+	mov %dx, %di
+	/* Check whether given port is allowed */
+	call tdg_allowed_port
+	pop %rdx
+	/* Check for status of tdg_allowed_port() */
+	test %al, %al
+	jz out_tdg_out
+#endif
+
 	mov %rdx, %rcx
 	/* Set 1 in RDX to select out operation */
 	mov $1, %rdx
@@ -298,6 +309,7 @@ SYM_FUNC_START(tdg_outl)
 
 	call do_tdvmcall
 
+out_tdg_out:
 	pop %rax
 	io_restore_registers
 	ret
@@ -333,6 +345,17 @@ SYM_FUNC_START(tdg_inl)
 	/* Set data width to 4 bytes */
 	mov $4, %rsi
 1:
+#ifndef TDG_SKIP_IO_FILTERING
+	push %rdx
+	mov %dx, %di
+	/* Check whether given port is allowed */
+	call tdg_allowed_port
+	pop %rdx
+	/* Check for status of tdg_allowed_port() */
+	test %al, %al
+	jz out_tdg_in
+#endif
+
 	mov %rdx, %rcx
 	/* Set 0 in RDX to select in operation */
 	mov $0, %rdx
@@ -347,6 +370,7 @@ SYM_FUNC_START(tdg_inl)
 
 	call do_tdvmcall
 
+out_tdg_in:
 	/* Move data read from port to RAX */
 	mov TDVMCALL_r11(%r9), %eax
 	/* Free allocated memory */

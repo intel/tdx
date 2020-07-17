@@ -543,6 +543,12 @@ static bool handle_in(struct pt_regs *regs, int size, int port)
 	u64 mask = GENMASK(BITS_PER_BYTE * size, 0);
 	bool success;
 
+	if (!tdx_allowed_port(port)) {
+		regs->ax &= ~mask;
+		regs->ax |= (UINT_MAX & mask);
+		return true;
+	}
+
 	/*
 	 * Emulate the I/O read via hypercall. More info about ABI can be found
 	 * in TDX Guest-Host-Communication Interface (GHCI) section titled
@@ -561,6 +567,9 @@ static bool handle_in(struct pt_regs *regs, int size, int port)
 static bool handle_out(struct pt_regs *regs, int size, int port)
 {
 	u64 mask = GENMASK(BITS_PER_BYTE * size, 0);
+
+	if (!tdx_allowed_port(port))
+		return true;
 
 	/*
 	 * Emulate the I/O write via hypercall. More info about ABI can be found
@@ -591,7 +600,6 @@ static int handle_io(struct pt_regs *regs, struct ve_info *ve)
 	in   = VE_IS_IO_IN(exit_qual);
 	size = VE_GET_IO_SIZE(exit_qual);
 	port = VE_GET_PORT_NUM(exit_qual);
-
 
 	if (in)
 		ret = handle_in(regs, size, port);

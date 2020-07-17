@@ -55,6 +55,36 @@ bool tdg_filter_enabled(void)
 	return tdg_filter_status;
 }
 
+bool tdg_allowed_port(short int port)
+{
+	if (tdg_debug_enabled() && tdg_filter_enabled())
+		return true;
+
+	switch (port) {
+	/* MC146818 RTC */
+	case 0x70 ... 0x71:
+	/* PCI */
+	case 0xcf8 ... 0xcff:
+		return true;
+	/* ACPI ports list:
+	 * 0600-0603 : ACPI PM1a_EVT_BLK
+	 * 0604-0605 : ACPI PM1a_CNT_BLK
+	 * 0608-060b : ACPI PM_TMR
+	 * 0620-062f : ACPI GPE0_BLK
+	 */
+	case 0x600 ... 0x62f:
+		return true;
+	/* COM1 */
+	case 0x3f8:
+	case 0x3f9:
+	case 0x3fa:
+	case 0x3fd:
+		return tdg_debug_enabled();
+	default:
+		return false;
+	}
+}
+
 void __init tdg_filter_init(void)
 {
 	int i;

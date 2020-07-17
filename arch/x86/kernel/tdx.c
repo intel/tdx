@@ -308,6 +308,14 @@ static void tdg_handle_io(struct pt_regs *regs, u32 exit_qual)
 	/* I/O strings ops are unrolled at build time. */
 	BUG_ON(string);
 
+	if (!tdg_allowed_port(port)) {
+		if (!out) {
+			regs->ax &= ~mask;
+			regs->ax |= (UINT_MAX & mask);
+		}
+		return;
+	}
+
 	if (!out) {
 		ret = _trace_tdx_hypercall(EXIT_REASON_IO_INSTRUCTION,
 					   size, out, port, regs->ax,

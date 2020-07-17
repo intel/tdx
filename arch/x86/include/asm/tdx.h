@@ -87,6 +87,7 @@ int tdg_handle_virtualization_exception(struct pt_regs *regs,
 					struct ve_info *ve);
 
 bool tdg_early_handle_ve(struct pt_regs *regs);
+bool tdg_allowed_port(short int port);
 
 extern phys_addr_t tdg_shared_mask(void);
 

@@ -88,6 +88,8 @@ bool tdx_handle_virtualization_exception(struct pt_regs *regs,
 
 bool tdx_early_handle_ve(struct pt_regs *regs);
 
+bool tdx_allowed_port(short int port);
+
 extern phys_addr_t tdx_shared_mask(void);
 
 extern int tdx_hcall_gpa_intent(phys_addr_t gpa, int numpages,

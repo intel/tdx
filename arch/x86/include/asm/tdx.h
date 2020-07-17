@@ -34,6 +34,8 @@ bool is_tdx_guest(void);
 bool tdx_debug_enabled(void);
 void __init tdx_early_init(void);
 
+bool tdx_allowed_port(short int port);
+
 /* Decompression code doesn't know how to handle alternatives */
 #ifdef BOOT_COMPRESSED_MISC_H
 #define __out(bwl, bw)							\

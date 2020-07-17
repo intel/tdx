@@ -237,6 +237,15 @@ SYM_FUNC_START(tdg_outl)
 	 */
 	push %rax
 
+#ifndef TDG_SKIP_IO_FILTERING
+	push %rdx
+	mov %dx, %di
+	call tdg_allowed_port
+	pop %rdx
+	test %al, %al
+	jz out_tdg_out
+#endif
+
 	/*
 	 * 0             => RAX = TDCALL Standard leaf
 	 * TDVMCALL FN   => RDI = TDVMCALL function, e.g. exit reason
@@ -254,6 +263,7 @@ SYM_FUNC_START(tdg_outl)
 	xor %r9, %r9
 	call do_tdvmcall
 
+out_tdg_out:
 	pop %rax
 	io_restore_registers
 	ret
@@ -278,6 +288,15 @@ SYM_FUNC_START(tdg_inl)
 	io_save_registers
 	mov $4, %rsi
 1:
+#ifndef TDG_SKIP_IO_FILTERING
+	push %rdx
+	mov %dx, %di
+	call tdg_allowed_port
+	pop %rdx
+	test %al, %al
+	jz out_tdg_in
+#endif
+
 	/*
 	 * 0            => RAX = TDCALL Standard leaf
 	 * TDVMCALL FN  => RDI = TDVMCALL function, e.g. exit reason
@@ -296,6 +315,7 @@ SYM_FUNC_START(tdg_inl)
 	movq %rsp, %r9
 	call do_tdvmcall
 
+out_tdg_in:
 	mov TDVMCALL_r11(%r9), %eax
 	/* Free allocated memory */
 	addq $TDVMCALL_OUTPUT_SIZE, %rsp

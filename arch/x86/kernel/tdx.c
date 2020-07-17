@@ -261,6 +261,9 @@ static void tdg_handle_io(struct pt_regs *regs, u32 exit_qual)
 	size = (exit_qual & 7) + 1;
 	port = exit_qual >> 16;
 
+	if (!tdg_allowed_port(port))
+		return;
+
 	if (out) {
 		tdg_out(size, port, regs->ax);
 	} else {

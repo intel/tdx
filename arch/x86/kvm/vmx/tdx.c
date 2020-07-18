@@ -40,6 +40,9 @@ static inline const struct tdsysinfo_struct *tdx_get_sysinfo(void)
 }
 #endif
 
+static int trace_seamcalls __read_mostly = DEBUGCONFIG_TRACE_CUSTOM;
+module_param(trace_seamcalls, int, 0444);
+
 /* KeyID range reserved to TDX by BIOS */
 static u32 tdx_keyids_start __read_mostly;
 static u32 tdx_nr_keyids __read_mostly;

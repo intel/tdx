@@ -36,6 +36,15 @@ static int __init tdx_host_setup(char *s)
 }
 __setup("tdx_host=", tdx_host_setup);
 
+static bool trace_boot_seamcalls;
+
+static int __init trace_seamcalls(char *s)
+{
+	trace_boot_seamcalls = true;
+	return 1;
+}
+__setup("trace_boot_seamcalls", trace_seamcalls);
+
 enum TDX_MODULE_STATE {
 	/* The TDX firmware module is not found. */
 	TDX_MODULE_NOT_FOUND = 0,
@@ -626,6 +635,16 @@ static int __init __tdx_init_module(void)
 	ret = tdx_sys_key_config();
 	if (ret)
 		goto out;
+
+	/*
+	 * Tracing is on by default, disable it before INITTDMR which causes
+	 * too many debug messages to take long time.
+	 */
+	if (!trace_boot_seamcalls) {
+		ret = tdh_trace_seamcalls(DEBUGCONFIG_TRACE_CUSTOM);
+		if (ret)
+			pr_err("failed to set trace level to DEBUGCONFIG_TRACE_CUSTOM.\n");
+	}
 
 	ret = tdx_init_tdmrs();
 out:

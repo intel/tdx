@@ -10344,6 +10344,8 @@ out:
 
 static void __get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 {
+	static_call_cond(kvm_x86_cache_gprs)(vcpu);
+
 	if (vcpu->arch.emulate_regs_need_sync_to_vcpu) {
 		/*
 		 * We are here if userspace calls get_regs() in the middle of
@@ -10417,6 +10419,8 @@ static void __set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 	kvm_set_rflags(vcpu, regs->rflags | X86_EFLAGS_FIXED);
 
 	vcpu->arch.exception.pending = false;
+
+	static_call_cond(kvm_x86_flush_gprs);
 
 	kvm_make_request(KVM_REQ_EVENT, vcpu);
 }

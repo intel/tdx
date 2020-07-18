@@ -215,4 +215,18 @@ static inline u64 tdh_vp_wr(hpa_t tdvpr, u64 field, u64 val, u64 mask,
 	return seamcall(TDH_VP_WR, tdvpr, field, val, mask, 0, ex);
 }
 
+static inline u64 tddebugconfig(u64 subleaf, u64 param1, u64 param2)
+{
+	return seamcall(TDDEBUGCONFIG, subleaf, param1, param2, 0, 0, NULL);
+}
+
+static inline void tdh_trace_seamcalls(u64 level)
+{
+	u64 err;
+
+	err = tddebugconfig(DEBUGCONFIG_SET_TRACE_LEVEL, level, 0);
+	if (err)
+		pr_seamcall_error(TDDEBUGCONFIG, err, NULL);
+}
+
 #endif /* __KVM_X86_TDX_OPS_H */

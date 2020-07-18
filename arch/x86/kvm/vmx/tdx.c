@@ -22,6 +22,9 @@
 #undef pr_fmt
 #define pr_fmt(fmt) "tdx: " fmt
 
+static int trace_seamcalls __read_mostly = DEBUGCONFIG_TRACE_CUSTOM;
+module_param(trace_seamcalls, int, 0444);
+
 /* TDX KeyID pool */
 static DEFINE_IDA(tdx_keyid_pool);
 

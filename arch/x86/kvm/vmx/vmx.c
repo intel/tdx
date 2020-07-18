@@ -365,8 +365,6 @@ static const struct kernel_param_ops vmentry_l1d_flush_ops = {
 };
 module_param_cb(vmentry_l1d_flush, &vmentry_l1d_flush_ops, NULL, 0644);
 
-static u32 vmx_segment_access_rights(struct kvm_segment *var);
-
 void vmx_vmexit(void);
 
 #define vmx_insn_failed(fmt...)		\
@@ -2740,7 +2738,7 @@ static void fix_rmode_seg(int seg, struct kvm_segment *save)
 	vmcs_write16(sf->selector, var.selector);
 	vmcs_writel(sf->base, var.base);
 	vmcs_write32(sf->limit, var.limit);
-	vmcs_write32(sf->ar_bytes, vmx_segment_access_rights(&var));
+	vmcs_write32(sf->ar_bytes, vmx_encode_ar_bytes(&var));
 }
 
 static void enter_rmode(struct kvm_vcpu *vcpu)
@@ -3131,7 +3129,6 @@ void vmx_set_cr4(struct kvm_vcpu *vcpu, unsigned long cr4)
 void vmx_get_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var, int seg)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
-	u32 ar;
 
 	if (vmx->rmode.vm86_active && seg != VCPU_SREG_LDTR) {
 		*var = vmx->rmode.segs[seg];
@@ -3145,23 +3142,7 @@ void vmx_get_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var, int seg)
 	var->base = vmx_read_guest_seg_base(vmx, seg);
 	var->limit = vmx_read_guest_seg_limit(vmx, seg);
 	var->selector = vmx_read_guest_seg_selector(vmx, seg);
-	ar = vmx_read_guest_seg_ar(vmx, seg);
-	var->unusable = (ar >> 16) & 1;
-	var->type = ar & 15;
-	var->s = (ar >> 4) & 1;
-	var->dpl = (ar >> 5) & 3;
-	/*
-	 * Some userspaces do not preserve unusable property. Since usable
-	 * segment has to be present according to VMX spec we can use present
-	 * property to amend userspace bug by making unusable segment always
-	 * nonpresent. vmx_segment_access_rights() already marks nonpresent
-	 * segment as unusable.
-	 */
-	var->present = !var->unusable;
-	var->avl = (ar >> 12) & 1;
-	var->l = (ar >> 13) & 1;
-	var->db = (ar >> 14) & 1;
-	var->g = (ar >> 15) & 1;
+	vmx_decode_ar_bytes(vmx_read_guest_seg_ar(vmx, seg), var);
 }
 
 static u64 vmx_get_segment_base(struct kvm_vcpu *vcpu, int seg)
@@ -3185,26 +3166,6 @@ int vmx_get_cpl(struct kvm_vcpu *vcpu)
 		int ar = vmx_read_guest_seg_ar(vmx, VCPU_SREG_SS);
 		return VMX_AR_DPL(ar);
 	}
-}
-
-static u32 vmx_segment_access_rights(struct kvm_segment *var)
-{
-	u32 ar;
-
-	if (var->unusable || !var->present)
-		ar = 1 << 16;
-	else {
-		ar = var->type & 15;
-		ar |= (var->s & 1) << 4;
-		ar |= (var->dpl & 3) << 5;
-		ar |= (var->present & 1) << 7;
-		ar |= (var->avl & 1) << 12;
-		ar |= (var->l & 1) << 13;
-		ar |= (var->db & 1) << 14;
-		ar |= (var->g & 1) << 15;
-	}
-
-	return ar;
 }
 
 void vmx_set_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var, int seg)
@@ -3241,7 +3202,7 @@ void vmx_set_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var, int seg)
 	if (is_unrestricted_guest(vcpu) && (seg != VCPU_SREG_LDTR))
 		var->type |= 0x1; /* Accessed */
 
-	vmcs_write32(sf->ar_bytes, vmx_segment_access_rights(var));
+	vmcs_write32(sf->ar_bytes, vmx_encode_ar_bytes(var));
 
 out:
 	vmx->emulation_required = emulation_required(vcpu);
@@ -3288,7 +3249,7 @@ static bool rmode_segment_valid(struct kvm_vcpu *vcpu, int seg)
 	var.dpl = 0x3;
 	if (seg == VCPU_SREG_CS)
 		var.type = 0x3;
-	ar = vmx_segment_access_rights(&var);
+	ar = vmx_encode_ar_bytes(&var);
 
 	if (var.base != (var.selector << 4))
 		return false;

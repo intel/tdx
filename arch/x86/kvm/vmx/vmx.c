@@ -2238,49 +2238,6 @@ static int vmx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 	return ret;
 }
 
-static void vmx_cache_reg(struct kvm_vcpu *vcpu, enum kvm_reg reg)
-{
-	unsigned long guest_owned_bits;
-
-	kvm_register_mark_available(vcpu, reg);
-
-	switch (reg) {
-	case VCPU_REGS_RSP:
-		vcpu->arch.regs[VCPU_REGS_RSP] = vmcs_readl(GUEST_RSP);
-		break;
-	case VCPU_REGS_RIP:
-		vcpu->arch.regs[VCPU_REGS_RIP] = vmcs_readl(GUEST_RIP);
-		break;
-	case VCPU_EXREG_PDPTR:
-		if (enable_ept)
-			ept_save_pdptrs(vcpu);
-		break;
-	case VCPU_EXREG_CR0:
-		guest_owned_bits = vcpu->arch.cr0_guest_owned_bits;
-
-		vcpu->arch.cr0 &= ~guest_owned_bits;
-		vcpu->arch.cr0 |= vmcs_readl(GUEST_CR0) & guest_owned_bits;
-		break;
-	case VCPU_EXREG_CR3:
-		/*
-		 * When intercepting CR3 loads, e.g. for shadowing paging, KVM's
-		 * CR3 is loaded into hardware, not the guest's CR3.
-		 */
-		if (!(exec_controls_get(to_vmx(vcpu)) & CPU_BASED_CR3_LOAD_EXITING))
-			vcpu->arch.cr3 = vmcs_readl(GUEST_CR3);
-		break;
-	case VCPU_EXREG_CR4:
-		guest_owned_bits = vcpu->arch.cr4_guest_owned_bits;
-
-		vcpu->arch.cr4 &= ~guest_owned_bits;
-		vcpu->arch.cr4 |= vmcs_readl(GUEST_CR4) & guest_owned_bits;
-		break;
-	default:
-		KVM_BUG_ON(1, vcpu->kvm);
-		break;
-	}
-}
-
 static __init int vmx_disabled_by_bios(void)
 {
 	return !boot_cpu_has(X86_FEATURE_MSR_IA32_FEAT_CTL) ||
@@ -2975,6 +2932,8 @@ void ept_save_pdptrs(struct kvm_vcpu *vcpu)
 #define CR3_EXITING_BITS (CPU_BASED_CR3_LOAD_EXITING | \
 			  CPU_BASED_CR3_STORE_EXITING)
 
+static void vt_cache_reg(struct kvm_vcpu *vcpu, enum kvm_reg reg);
+
 void vmx_set_cr0(struct kvm_vcpu *vcpu, unsigned long cr0)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
@@ -3020,7 +2979,7 @@ void vmx_set_cr0(struct kvm_vcpu *vcpu, unsigned long cr0)
 		 * KVM's CR3 is installed.
 		 */
 		if (!kvm_register_is_available(vcpu, VCPU_EXREG_CR3))
-			vmx_cache_reg(vcpu, VCPU_EXREG_CR3);
+			vt_cache_reg(vcpu, VCPU_EXREG_CR3);
 
 		/*
 		 * When running with EPT but not unrestricted guest, KVM must

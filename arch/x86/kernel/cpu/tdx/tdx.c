@@ -66,6 +66,15 @@ static int __init setup_tdx_sigstruct(char *str)
 }
 __setup("tdx_sigstruct", setup_tdx_sigstruct);
 
+static bool trace_boot_seamcalls;
+
+static int __init trace_seamcalls(char *s)
+{
+	trace_boot_seamcalls = true;
+	return 1;
+}
+__setup("trace_boot_seamcalls", trace_seamcalls);
+
 /*
  * runtime update of TDX module is future task.  Track state of TDX module as
  * preliminary and export the state via sysfs for admin.
@@ -853,6 +862,16 @@ static int __init __tdx_init_module(void)
 	ret = tdx_seamcall_on_each_pkg(do_tdh_sys_key_config, NULL);
 	if (ret)
 		goto out;
+
+	/*
+	 * Tracing is on by default, disable it before INITTDMR which causes
+	 * too many debug messages to take long time.
+	 */
+	if (!trace_boot_seamcalls) {
+		ret = tdh_trace_seamcalls_boot(DEBUGCONFIG_TRACE_CUSTOM);
+		if (ret)
+			pr_err("failed to set trace level to DEBUGCONFIG_TRACE_CUSTOM.\n");
+	}
 
 	ret = tdx_init_tdmrs();
 out:

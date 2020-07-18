@@ -41,4 +41,10 @@ static inline u64 tdh_sys_tdmr_config(hpa_t tdmr, int nr_entries, int hkid)
 			     NULL);
 }
 
+static inline u64 tdh_trace_seamcalls_boot(u64 level)
+{
+	return seamcall_boot(SEAMCALL_TDDEBUGCONFIG,
+			     DEBUGCONFIG_SET_TRACE_LEVEL, level, 0, 0, NULL);
+}
+
 #endif /* __TDX_OPS_BOOT_H */

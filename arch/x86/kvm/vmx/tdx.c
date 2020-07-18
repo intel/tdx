@@ -21,6 +21,10 @@
 #undef pr_fmt
 #define pr_fmt(fmt) "tdx: " fmt
 
+static int trace_seamcalls __read_mostly = DEBUGCONFIG_TRACE_CUSTOM;
+module_param(trace_seamcalls, int, 0444);
+static int trace_seamcalls_initialized;
+
 /* Capabilities of KVM + TDX-SEAM. */
 struct tdx_capabilities tdx_caps;
 
@@ -588,6 +592,9 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 static void tdx_hardware_enable(void)
 {
 	INIT_LIST_HEAD(&per_cpu(associated_tdvcpus, raw_smp_processor_id()));
+
+	if (!cmpxchg(&trace_seamcalls_initialized, 0, 1))
+		tdx_trace_seamcalls(trace_seamcalls);
 }
 
 static void tdx_hardware_disable(void)

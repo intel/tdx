@@ -66,7 +66,13 @@ static inline u64 tdh_sys_tdmr_init(u64 tdmr, struct tdx_ex_ret *ex)
 static inline u64 tdh_sys_tdmr_config(u64 tdmr, int nr_entries, int hkid)
 {
 	return seamcall(SEAMCALL_TDH_SYS_CONFIG, tdmr, nr_entries, hkid, 0,
-			     NULL);
+			NULL);
+}
+
+static inline u64 tdh_trace_seamcalls(u64 level)
+{
+	return seamcall(SEAMCALL_TDDEBUGCONFIG,
+			DEBUGCONFIG_SET_TRACE_LEVEL, level, 0, 0, NULL);
 }
 
 #endif /* __TDX_OPS_H */

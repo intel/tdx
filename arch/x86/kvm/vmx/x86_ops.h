@@ -9,6 +9,7 @@
 #include "x86.h"
 
 extern struct kvm_x86_ops vt_x86_ops __initdata;
+void vt_cache_reg(struct kvm_vcpu *vcpu, enum kvm_reg reg);
 
 __init int vmx_disabled_by_bios(void);
 int __init vmx_check_processor_compat(void);

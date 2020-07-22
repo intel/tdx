@@ -526,6 +526,8 @@ asmlinkage __visible void __init __noreturn x86_64_start_kernel(char * real_mode
 
 	copy_bootdata(__va(real_mode_data));
 
+	tdx_filter_init();
+
 	/*
 	 * Load microcode early on BSP.
 	 */

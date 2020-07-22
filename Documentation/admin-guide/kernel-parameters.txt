@@ -3697,6 +3697,10 @@
 
 	nocache		[ARM]
 
+	noccfilter	[x86]
+			Disable Confidential computing (CC) guest filter
+			support.
+
 	no_console_suspend
 			[HW] Never suspend the console
 			Disable suspending of consoles during suspend and

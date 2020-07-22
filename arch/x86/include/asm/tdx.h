@@ -72,6 +72,7 @@ extern unsigned int tdg_disable_prot;
 bool tdg_debug_enabled(void);
 
 void __init tdx_early_init(void);
+void __init tdg_filter_init(void);
 
 bool tdx_prot_guest_has(unsigned long flag);
 
@@ -100,6 +101,8 @@ int tdx_mcall_tdreport(u64 data, u64 reportdata);
 int tdx_hcall_get_quote(u64 data);
 
 extern void (*tdg_event_notify_handler)(void);
+
+bool tdx_guest_authorized(struct device *dev, char *dev_str);
 
 /*
  * To support I/O port access in decompressor or early kernel init
@@ -175,6 +178,11 @@ static inline int tdx_hcall_gpa_intent(phys_addr_t gpa, int numpages,
 				       enum tdx_map_type map_type)
 {
 	return -ENODEV;
+}
+
+static inline bool tdx_guest_authorized(struct device *dev, char *dev_str)
+{
+	return dev->authorized;
 }
 
 #endif /* CONFIG_INTEL_TDX_GUEST */

@@ -36,6 +36,7 @@ static struct authorize_node cmd_allowed_nodes[CMDLINE_MAX_NODES];
 static struct authorize_node cmd_denied_nodes[CMDLINE_MAX_NODES];
 static int cmd_allowed_nodes_len;
 static int cmd_denied_nodes_len;
+static bool tdx_filter_status = 1;
 
 /* Set true if authorize_allow_devs/authorize_deny_devs is used */
 static bool filter_overridden;
@@ -194,10 +195,25 @@ bool tdx_guest_authorized(struct device *dev, char *dev_str)
 	return dev->authorized;
 }
 
+bool tdx_filter_enabled(void)
+{
+	return tdx_filter_status;
+}
+
 void __init tdg_filter_init(void)
 {
 	if (!prot_guest_has(PATTR_GUEST_DEVICE_FILTER))
 		return;
+
+	if (cmdline_find_option_bool(boot_command_line, "tdx_disable_filter"))
+		tdx_filter_status = 0;
+
+	if (!tdx_filter_enabled()) {
+		pr_info("Disabled TDX guest filter support\n");
+		ioremap_force_shared = true;
+		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);
+		return;
+	}
 
 	/* Set default authorization as disabled */
 	dev_default_authorization = false;

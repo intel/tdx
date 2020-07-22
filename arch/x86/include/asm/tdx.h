@@ -98,6 +98,8 @@ extern void (*tdg_event_notify_handler)(void);
 
 bool tdx_guest_authorized(struct device *dev, char *dev_str);
 
+bool tdx_filter_enabled(void);
+
 /*
  * To support I/O port access in decompressor or early kernel init
  * code, since #VE exception handler cannot be used, use paravirt
@@ -176,6 +178,8 @@ static inline bool tdx_guest_authorized(struct device *dev, char *dev_str)
 {
 	return dev->authorized;
 }
+
+static inline bool tdx_filter_enabled(void) { return true; }
 
 #endif /* CONFIG_INTEL_TDX_GUEST */
 

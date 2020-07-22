@@ -147,6 +147,7 @@ bool tdx_prot_guest_has(unsigned long flag)
 	case PATTR_GUEST_MEM_ENCRYPT:
 	case PATTR_GUEST_SHARED_MAPPING_INIT:
 	case PATTR_MEM_ENCRYPT:
+	case PATTR_GUEST_DRIVER_FILTER:
 		return cpu_feature_enabled(X86_FEATURE_TDX_GUEST);
 	}
 
@@ -698,6 +699,8 @@ void __init tdx_early_init(void)
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
 
 	tdg_get_info();
+
+	tdg_filter_init();
 
 	pv_ops.irq.safe_halt = tdg_safe_halt;
 	pv_ops.irq.halt = tdg_halt;

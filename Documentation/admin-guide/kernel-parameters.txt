@@ -5273,6 +5273,12 @@
 			Disable automatic kernel lockdown for TD guest.
 			Only allowed for debug TD.
 
+	tdx_filter_devids= devid[,devid...] Update TDX device allow-list
+			Format: { pci:vendor:device }
+			Format: { acpi:HID }
+			Update the list of TDX device allow-list entries. Entries
+			are comma seperated.
+
 	test_suspend=	[SUSPEND][,N]
 			Specify "mem" (for Suspend-to-RAM) or "standby" (for
 			standby suspend) or "freeze" (for suspend type freeze)

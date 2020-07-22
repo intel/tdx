@@ -1,0 +1,87 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Copyright (c) 2020 Intel Corporation
+ */
+#define pr_fmt(fmt) "TDX: " fmt
+
+#include <linux/acpi.h>
+#include <linux/pci.h>
+#include <linux/device/filter.h>
+#include <linux/protected_guest.h>
+
+#include <asm/tdx.h>
+#include <asm/cmdline.h>
+
+#define ADD_FILTER_NODE(bname, dlist)			\
+{							\
+	.bus_name = bname,				\
+	.drv_list = dlist,				\
+}
+
+#define FILTER_CMDLINE_LEN 500
+
+/* Allow list for Virtio bus */
+static const char virtio_allow_list[] = "virtio_net,virtio_console,virtio_blk,"
+					"virtio_rproc_serial";
+
+/* Allow list for PCI bus */
+static const char pci_allow_list[] = "virtio-pci";
+
+static struct drv_filter_node allow_list[] = {
+	/* Enable all drivers in "cpu" bus */
+	ADD_FILTER_NODE("cpu", "ALL"),
+	/* Allow drivers in pci_allow_list in "pci" bus */
+	ADD_FILTER_NODE("pci", pci_allow_list),
+	/* Allow drivers in virtio_allow_list in "virtio" bus */
+	ADD_FILTER_NODE("virtio", virtio_allow_list),
+};
+
+/* Block all drivers by default */
+static struct drv_filter_node deny_list[] = {
+	ADD_FILTER_NODE("ALL", "ALL")
+};
+
+static __init bool is_filter_overridden(void)
+{
+	char driver_list[FILTER_CMDLINE_LEN];
+
+	if (cmdline_find_option(boot_command_line, "filter_allow_drivers",
+				driver_list, sizeof(driver_list)) != -1)
+		return true;
+
+	if (cmdline_find_option(boot_command_line, "filter_deny_drivers",
+				driver_list, sizeof(driver_list)) != -1)
+		return true;
+
+	return false;
+}
+
+void __init tdg_filter_init(void)
+{
+	int i;
+
+	if (!prot_guest_has(PATTR_GUEST_DRIVER_FILTER))
+		return;
+
+	if (is_filter_overridden()) {
+		/*
+		 * Since the default allow/deny list is overridden
+		 * to make sure new drivers use ioremap_shared,
+		 * force it on all drivers.
+		 */
+		ioremap_force_shared = true;
+		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);
+	}
+
+	for (i = 0; i < ARRAY_SIZE(allow_list); i++) {
+		if (register_filter_allow_node(&allow_list[i]))
+			pr_err("Filter allow list registration failed\n");
+	}
+
+	for (i = 0; i < ARRAY_SIZE(deny_list); i++) {
+		if (register_filter_deny_node(&deny_list[i]))
+			pr_err("Filter deny list registration failed\n");
+	}
+
+	pr_info("Enabled TDX guest device filter\n");
+}

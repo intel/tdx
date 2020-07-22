@@ -2495,7 +2495,10 @@ void pci_device_add(struct pci_dev *dev, struct pci_bus *bus)
 	/* Notifier could use PCI capabilities */
 	dev->match_driver = false;
 	ret = device_add(&dev->dev);
-	WARN_ON(ret < 0);
+	if (ret == -EACCES)
+		pci_warn(dev, "device add failed\n");
+	else
+		WARN_ON(ret < 0);
 }
 
 struct pci_dev *pci_scan_single_device(struct pci_bus *bus, int devfn)

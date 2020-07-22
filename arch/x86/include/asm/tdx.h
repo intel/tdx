@@ -72,6 +72,7 @@ bool is_tdx_guest(void);
 
 bool tdg_debug_enabled(void);
 void __init tdx_early_init(void);
+void __init tdg_filter_init(void);
 
 /* Helper function used to communicate with the TDX module */
 u64 __tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,

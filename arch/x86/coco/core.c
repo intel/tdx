@@ -16,6 +16,27 @@
 static enum cc_vendor vendor __ro_after_init;
 static u64 cc_mask __ro_after_init;
 
+/* Status of CC filter, enabled by default */
+static bool cc_filter_status = true;
+
+/* Command line parser to disable CC filter */
+static int __init setup_noccfilter(char *str)
+{
+	cc_filter_status = false;
+	return 1;
+}
+__setup("noccfilter", setup_noccfilter);
+
+void cc_set_filter_status(bool status)
+{
+	cc_filter_status = status;
+}
+
+bool cc_filter_enabled(void)
+{
+	return cc_filter_status;
+}
+
 static bool intel_cc_platform_has(enum cc_attr attr)
 {
 	switch (attr) {
@@ -23,8 +44,9 @@ static bool intel_cc_platform_has(enum cc_attr attr)
 	case CC_ATTR_HOTPLUG_DISABLED:
 	case CC_ATTR_GUEST_MEM_ENCRYPT:
 	case CC_ATTR_MEM_ENCRYPT:
-	case CC_ATTR_GUEST_DEVICE_FILTER:
 		return true;
+	case CC_ATTR_GUEST_DEVICE_FILTER:
+		return cc_filter_status;
 	default:
 		return false;
 	}

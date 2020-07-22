@@ -4,11 +4,16 @@
  */
 #define pr_fmt(fmt) "TDX: " fmt
 
+#include <linux/cpu.h>
+#include <linux/cc_platform.h>
+
+#include <asm/coco.h>
 #include <asm/tdx.h>
+#include <asm/cmdline.h>
 
 bool tdx_allowed_port(short int port)
 {
-	if (tdx_debug_enabled())
+	if (tdx_debug_enabled() && !cc_filter_enabled())
 		return true;
 
 	switch (port) {
@@ -43,3 +48,22 @@ bool tdx_allowed_port(short int port)
 	}
 }
 
+void __init tdx_filter_init(void)
+{
+	if (!cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
+		return;
+
+	if (!cc_platform_has(CC_ATTR_GUEST_DEVICE_FILTER))
+		return;
+
+	if (cmdline_find_option_bool(boot_command_line, "noccfilter"))
+		cc_set_filter_status(false);
+
+	if (!cc_filter_enabled()) {
+		pr_info("Disabled TDX guest filter support\n");
+		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);
+		return;
+	}
+
+	pr_info("Enabled TDX guest device filter\n");
+}

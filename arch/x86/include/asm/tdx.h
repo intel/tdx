@@ -104,6 +104,8 @@ extern void (*tdg_event_notify_handler)(void);
 
 bool tdx_guest_authorized(struct device *dev, char *dev_str);
 
+bool tdg_filter_enabled(void);
+
 /*
  * To support I/O port access in decompressor or early kernel init
  * code, since #VE exception handler cannot be used, use paravirt

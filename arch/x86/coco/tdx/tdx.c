@@ -892,5 +892,7 @@ void __init tdx_early_init(void)
 	 */
 	x86_cpuinit.parallel_bringup = false;
 
+	tdx_filter_init();
+
 	pr_info("Guest detected\n");
 }

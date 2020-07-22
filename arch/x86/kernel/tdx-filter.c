@@ -4,6 +4,7 @@
  */
 #define pr_fmt(fmt) "TDX: " fmt
 
+#include <asm/cmdline.h>
 #include <asm/tdx.h>
 #include <linux/device/filter.h>
 #include <linux/acpi.h>
@@ -25,6 +26,7 @@ struct pci_filter_node {
 };
 
 static struct device_filter_node dnode = { .filter = tdg_device_filter };
+static bool tdg_disable_filter;
 
 static struct filter_node fnodes[] = {
 	{
@@ -273,6 +275,15 @@ void __init tdg_filter_init(void)
 {
 	if (!is_tdx_guest())
 		return;
+
+	tdg_disable_filter = cmdline_find_option_bool(boot_command_line,
+						      "tdx_disable_filter");
+
+	/* Consider tdg_disable_filter only in TDX debug mode */
+	if (tdg_debug_enabled() && tdg_disable_filter) {
+		pr_info("Disabled TDX guest filter support\n");
+		return;
+	}
 
 	add_device_filter(&dnode);
 

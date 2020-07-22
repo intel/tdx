@@ -359,6 +359,19 @@
 	autoconf=	[IPV6]
 			See Documentation/networking/ipv6.rst.
 
+	authorize_deny_devs=
+	authorize_allow_devs= [KNL]
+			Format: bus_name:dev_name
+			Override default authorization of given device.
+			Multiple devices can be specified in comma
+			separated list. Multiple bus/devices combinations
+			can be specified separated by semicolon. For example,
+			to allow vritio device and PCI device,
+			use virtio:virtio0;pci:vendor:device;. To allow all
+			devices in PCI bus use pci:ALL or to allow all bus
+			and devices use ALL:ALL. Bus drivers can scan through
+			this list before initializing the authorized attribute.
+
 	show_lapic=	[APIC,X86] Advanced Programmable Interrupt Controller
 			Limit apic dumping. The parameter defines the maximal
 			number of local apics being dumped. Also it is possible

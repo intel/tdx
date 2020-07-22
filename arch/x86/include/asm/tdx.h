@@ -59,6 +59,7 @@ bool is_tdx_guest(void);
 
 bool tdg_debug_enabled(void);
 void __init tdx_early_init(void);
+void __init tdg_filter_init(void);
 
 u64 __tdcall(u64 fn, u64 rcx, u64 rdx, struct tdcall_output *out);
 

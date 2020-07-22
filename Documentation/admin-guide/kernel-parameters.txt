@@ -5110,6 +5110,12 @@
 
 	tdfx=		[HW,DRM]
 
+	tdx_filter_devids= devid[,devid...] Update TDX device allow-list
+			Format: { pci:vendor:device }
+			Format: { acpi:HID }
+			Update the list of TDX device allow-list entries. Entries
+			are comma seperated.
+
 	tdx_guest [x86]
 			Force enable TDX guest mode.
 

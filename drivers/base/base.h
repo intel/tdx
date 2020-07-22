@@ -61,6 +61,8 @@ struct driver_private {
 	struct klist_node knode_bus;
 	struct module_kobject *mkobj;
 	struct device_driver *driver;
+	/* Used by driver filter framework to cache allowed status */
+	bool allowed;
 };
 #define to_driver(obj) container_of(obj, struct driver_private, kobj)
 
@@ -144,6 +146,9 @@ extern void device_set_deferred_probe_reason(const struct device *dev,
 static inline int driver_match_device(struct device_driver *drv,
 				      struct device *dev)
 {
+	if (!drv->p->allowed)
+		return 0;
+
 	return drv->bus->match ? drv->bus->match(dev, drv) : 1;
 }
 extern bool driver_allows_async_probing(struct device_driver *drv);
@@ -202,3 +207,6 @@ int devtmpfs_delete_node(struct device *dev);
 static inline int devtmpfs_create_node(struct device *dev) { return 0; }
 static inline int devtmpfs_delete_node(struct device *dev) { return 0; }
 #endif
+
+bool driver_allowed(struct device_driver *drv);
+bool driver_filter_enabled(void);

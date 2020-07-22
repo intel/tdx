@@ -583,6 +583,28 @@ static ssize_t uevent_store(struct device_driver *drv, const char *buf,
 }
 static DRIVER_ATTR_WO(uevent);
 
+static ssize_t allowed_store(struct device_driver *drv, const char *buf,
+			     size_t count)
+{
+	int ret;
+	bool status;
+
+	ret = kstrtobool(buf, &status);
+	if (ret)
+		return ret;
+
+	drv->p->allowed = status;
+
+	return count;
+}
+
+static ssize_t allowed_show(struct device_driver *drv, char *buf)
+{
+	return sysfs_emit(buf, "%s:%s %d\n", drv->bus ? drv->bus->name : "NULL",
+			  drv->name, drv->p->allowed);
+}
+static DRIVER_ATTR_RW(allowed);
+
 /**
  * bus_add_driver - Add a driver to the bus.
  * @drv: driver.
@@ -607,6 +629,7 @@ int bus_add_driver(struct device_driver *drv)
 	klist_init(&priv->klist_devices, NULL, NULL);
 	priv->driver = drv;
 	drv->p = priv;
+	drv->p->allowed = driver_allowed(drv);
 	priv->kobj.kset = bus->p->drivers_kset;
 	error = kobject_init_and_add(&priv->kobj, &driver_ktype, NULL,
 				     "%s", drv->name);
@@ -626,6 +649,15 @@ int bus_add_driver(struct device_driver *drv)
 		printk(KERN_ERR "%s: uevent attr (%s) failed\n",
 			__func__, drv->name);
 	}
+
+	if (driver_filter_enabled()) {
+		error = driver_create_file(drv, &driver_attr_allowed);
+		if (error) {
+			printk(KERN_ERR "%s: allowed attr (%s) failed\n",
+			       __func__, drv->name);
+		}
+	}
+
 	error = driver_add_groups(drv, bus->drv_groups);
 	if (error) {
 		/* How the hell do we get out of this pickle? Give up */
@@ -670,6 +702,8 @@ void bus_remove_driver(struct device_driver *drv)
 		remove_bind_files(drv);
 	driver_remove_groups(drv, drv->bus->drv_groups);
 	driver_remove_file(drv, &driver_attr_uevent);
+	if (driver_filter_enabled())
+		driver_remove_file(drv, &driver_attr_allowed);
 	klist_remove(&drv->p->knode_bus);
 	pr_debug("bus: '%s': remove driver %s\n", drv->bus->name, drv->name);
 	driver_detach(drv);

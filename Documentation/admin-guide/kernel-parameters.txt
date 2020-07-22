@@ -1399,6 +1399,21 @@
 			See Documentation/admin-guide/sysctl/net.rst for
 			fb_tunnels_only_for_init_ns
 
+	filter_deny_drivers=
+	filter_allow_drivers=[KNL]
+			Format: bus:driver
+			Override the default driver filter allowed or blocked
+			list. Multiple drivers can be specified, separated by
+			comma. Multiple bus/driver combinations can be
+			specified separated by semicolon. For example to allow
+			the e1000 driver use filter_allow_drivers=pci:e1000. To
+			allow all drivers in pci use
+			filter_allow_drivers=pci:ALL. Similarly to deny e1000
+			driver, use filter_deny_drivers=pci:e1000.
+			Also note that, driver allow list is searched first. If
+			an entry exist in allow list, deny list will not be
+			searched.
+
 	floppy=		[HW]
 			See Documentation/admin-guide/blockdev/floppy.rst.
 

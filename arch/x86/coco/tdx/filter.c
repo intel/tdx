@@ -171,7 +171,8 @@ __setup("authorize_allow_devs=", allowed_cmdline_setup);
 
 bool dev_authorized_init(void)
 {
-	if (cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
+	if (cpu_feature_enabled(X86_FEATURE_TDX_GUEST) &&
+			cc_filter_enabled())
 		return false;
 
 	return true;
@@ -182,6 +183,9 @@ bool arch_dev_authorized(struct device *dev)
 	int i;
 
 	if (!cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
+		return true;
+
+	if (!cc_filter_enabled())
 		return true;
 
 	if (!dev->bus)
@@ -204,8 +208,20 @@ bool arch_dev_authorized(struct device *dev)
 
 void __init tdx_filter_init(void)
 {
+	if (!cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
+		return;
+
 	if (!cc_platform_has(CC_ATTR_GUEST_DEVICE_FILTER))
 		return;
+
+	if (cmdline_find_option_bool(boot_command_line, "noccfilter"))
+		cc_set_filter_status(false);
+
+	if (!cc_filter_enabled()) {
+		pr_info("Disabled TDX guest filter support\n");
+		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);
+		return;
+	}
 
 	if (filter_overridden) {
 		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);

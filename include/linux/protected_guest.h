@@ -20,6 +20,8 @@
 #define PR_GUEST_HOST_MEM_ENCRYPT		0x1003
 /* Support for shared mapping initialization (after early init) */
 #define PR_GUEST_SHARED_MAPPING_INIT		0x1004
+/* Support for driver filter */
+#define PR_GUEST_DRIVER_FILTER			0x1005
 
 #ifdef CONFIG_ARCH_HAS_PROTECTED_GUEST
 #include <asm/protected_guest.h>

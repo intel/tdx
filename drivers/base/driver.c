@@ -168,6 +168,9 @@ int driver_register(struct device_driver *drv)
 		return -EBUSY;
 	}
 
+	if (!is_driver_pg_trusted(drv))
+		return -EACCES;
+
 	ret = bus_add_driver(drv);
 	if (ret)
 		return ret;

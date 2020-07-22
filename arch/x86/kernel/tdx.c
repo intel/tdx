@@ -18,6 +18,11 @@ static struct {
 	unsigned long attributes;
 } td_info __ro_after_init;
 
+bool tdx_debug_enabled(void)
+{
+	return td_info.attributes & BIT(0);
+}
+
 static void tdx_get_info(void)
 {
 	register long rcx asm("rcx");

@@ -29,6 +29,7 @@ static inline bool is_tdx_guest(void)
 	return static_cpu_has(X86_FEATURE_TDX_GUEST);
 }
 
+bool tdx_debug_enabled(void);
 void __init tdx_early_init(void);
 
 /* Decompression code doesn't know how to handle alternatives */

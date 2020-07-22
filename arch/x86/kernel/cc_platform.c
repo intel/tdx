@@ -10,6 +10,7 @@
 #include <linux/export.h>
 #include <linux/cc_platform.h>
 #include <linux/mem_encrypt.h>
+#include <linux/device.h>
 
 #include <asm/mshyperv.h>
 #include <asm/pgtable.h>
@@ -41,6 +42,7 @@ static bool intel_cc_platform_has(enum cc_attr attr)
 	case CC_ATTR_GUEST_TDX:
 	case CC_ATTR_GUEST_MEM_ENCRYPT:
 	case CC_ATTR_MEM_ENCRYPT:
+	case CC_ATTR_GUEST_DEVICE_FILTER:
 		return true;
 	default:
 		return false;
@@ -133,3 +135,20 @@ pgprot_t pgprot_decrypted(pgprot_t prot)
 	return prot;
 }
 EXPORT_SYMBOL_GPL(pgprot_decrypted);
+
+/*
+ * cc_guest_dev_authorized() - Used to get ARCH specific authorized status
+ *			       of the given device.
+ * @dev			     - device structure
+ *
+ * Return True to allow the device or False to deny it.
+ *
+ */
+bool cc_guest_dev_authorized(struct device *dev)
+{
+	if (cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
+		return tdx_guest_dev_authorized(dev);
+
+	return dev->authorized;
+}
+EXPORT_SYMBOL_GPL(cc_guest_dev_authorized);

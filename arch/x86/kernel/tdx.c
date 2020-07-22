@@ -138,6 +138,8 @@ static inline bool cpuid_has_tdx_guest(void)
 
 bool tdx_prot_guest_has(unsigned long flag)
 {
+	bool tdx_guest_enabled = cpu_feature_enabled(X86_FEATURE_TDX_GUEST);
+
 	if (flag == tdg_disable_prot)
 		return false;
 
@@ -147,8 +149,9 @@ bool tdx_prot_guest_has(unsigned long flag)
 	case PATTR_GUEST_MEM_ENCRYPT:
 	case PATTR_GUEST_SHARED_MAPPING_INIT:
 	case PATTR_MEM_ENCRYPT:
+		return tdx_guest_enabled;
 	case PATTR_GUEST_DRIVER_FILTER:
-		return cpu_feature_enabled(X86_FEATURE_TDX_GUEST);
+		return tdg_filter_enabled() && tdx_guest_enabled;
 	}
 
 	return false;

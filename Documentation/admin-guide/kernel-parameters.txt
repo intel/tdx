@@ -5588,6 +5588,9 @@
 
 	tdfx=		[HW,DRM]
 
+	tdx_disable_filter [x86]
+			Disable TDX guest filter support.
+
 	tdx_prot_clear=val
 			Clear a prot setting for TDX. See
 			include/linux/protected_guest.h for the allowed

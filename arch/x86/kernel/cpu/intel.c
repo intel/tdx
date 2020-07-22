@@ -27,6 +27,7 @@
 #include <asm/resctrl.h>
 #include <asm/numa.h>
 #include <asm/thermal.h>
+#include <asm/tdx.h>
 
 #ifdef CONFIG_X86_64
 #include <linux/topology.h>
@@ -75,6 +76,8 @@ __setup("x86_prot_clear=", x86_prot_clear_setup);
 
 bool intel_prot_guest_has(unsigned int flag)
 {
+	bool tdx_guest_enabled = cpu_feature_enabled(X86_FEATURE_TDX_GUEST);
+
 	if (flag == x86_disable_prot)
 		return false;
 
@@ -84,8 +87,9 @@ bool intel_prot_guest_has(unsigned int flag)
 	case PATTR_GUEST_MEM_ENCRYPT:
 	case PATTR_GUEST_SHARED_MAPPING_INIT:
 	case PATTR_MEM_ENCRYPT:
+		return tdx_guest_enabled;
 	case PATTR_GUEST_DEVICE_FILTER:
-		return cpu_feature_enabled(X86_FEATURE_TDX_GUEST);
+		return tdx_filter_enabled() && tdx_guest_enabled;
 	}
 
 	return false;

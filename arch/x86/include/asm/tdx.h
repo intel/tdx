@@ -5,6 +5,7 @@
 
 #include <linux/cpufeature.h>
 #include <linux/types.h>
+#include <linux/device.h>
 #include <vdso/limits.h>
 #include <asm/vmx.h>
 
@@ -69,6 +70,7 @@ enum tdx_map_type {
 
 bool is_tdx_guest(void);
 void __init tdx_early_init(void);
+void __init tdx_filter_init(void);
 
 /* Helper function used to communicate with the TDX module */
 u64 __tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
@@ -95,6 +97,8 @@ int tdx_mcall_tdreport(u64 data, u64 reportdata);
 int tdx_hcall_get_quote(u64 data);
 
 extern void (*tdx_event_notify_handler)(void);
+
+bool tdx_guest_dev_authorized(struct device *dev);
 
 /*
  * To support I/O port access in decompressor or early kernel init
@@ -167,6 +171,11 @@ static inline int tdx_hcall_gpa_intent(phys_addr_t gpa, int numpages,
 				       enum tdx_map_type map_type)
 {
 	return -ENODEV;
+}
+
+static inline bool tdx_guest_dev_authorized(struct device *dev)
+{
+	return dev->authorized;
 }
 
 #endif /* CONFIG_INTEL_TDX_GUEST */

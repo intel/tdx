@@ -10,6 +10,9 @@
 #include <linux/protected_guest.h>
 
 #include <asm/tdx.h>
+#include <asm/cmdline.h>
+
+static bool tdg_filter_status = 1;
 
 #define ADD_FILTER_NODE(bname, alist, st)		\
 {							\
@@ -47,12 +50,25 @@ static struct drv_filter_node filter_list[] = {
 	ADD_FILTER_NODE(virtio, virtio_allow_list, false),
 };
 
+bool tdg_filter_enabled(void)
+{
+	return tdg_filter_status;
+}
+
 void __init tdg_filter_init(void)
 {
 	int i;
 
 	if (!prot_guest_has(PR_GUEST_TDX))
 		return;
+
+	if (cmdline_find_option_bool(boot_command_line, "tdx_disable_filter"))
+		tdg_filter_status = 0;
+
+	if (!tdg_filter_enabled()) {
+		pr_info("Disabled TDX guest filter support\n");
+		return;
+	}
 
 	for (i = 0; i < ARRAY_SIZE(filter_list); i++)
 		register_drv_filter(&filter_list[i]);

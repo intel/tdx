@@ -5491,6 +5491,9 @@
 			Disable automatic kernel lockdown for TD guest.
 			Only allowed for debug TD.
 
+	tdx_disable_filter [x86]
+			Disable TDX guest filter support.
+
 	test_suspend=	[SUSPEND][,N]
 			Specify "mem" (for Suspend-to-RAM) or "standby" (for
 			standby suspend) or "freeze" (for suspend type freeze)

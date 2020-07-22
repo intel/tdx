@@ -26,6 +26,11 @@ bool is_tdx_guest(void)
 }
 EXPORT_SYMBOL_GPL(is_tdx_guest);
 
+bool tdx_debug_enabled(void)
+{
+	return td_info.attributes & BIT(0);
+}
+
 static void tdx_get_info(void)
 {
 	register long rcx asm("rcx");

@@ -25,6 +25,7 @@ struct pci_filter_node {
 };
 
 static struct device_filter_node dnode = { .filter = tdx_device_filter };
+static bool tdx_disable_filter;
 
 static struct filter_node fnodes[] = {
 	{
@@ -170,6 +171,14 @@ static int __init setup_tdx_filter_devids(char *str)
 }
 early_param("tdx_filter_devids", setup_tdx_filter_devids);
 
+/* Command line parameter setup to disable TDX device filter. */
+static int __init setup_tdx_disable_filter(char *arg)
+{
+	tdx_disable_filter = 1;
+	return 0;
+}
+early_param("tdx_disable_filter", setup_tdx_disable_filter);
+
 /* get the filter node for the give bus name */
 struct filter_node *get_bus_fnode(const char *bus)
 {
@@ -271,7 +280,9 @@ static bool tdx_device_filter(struct device *dev)
 
 void __init tdx_filter_init(void)
 {
-	if (!is_tdx_guest())
+	/* Consider tdx_disable_filter only in TDX debug mode */
+	if (!is_tdx_guest() ||
+	    (tdx_debug_enabled() && tdx_disable_filter))
 		return;
 
 	add_device_filter(&dnode);

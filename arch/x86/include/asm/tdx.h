@@ -39,6 +39,7 @@ static inline bool cpuid_has_tdx_guest(void)
 /* Common API to check TDX support in decompression and common kernel code. */
 bool is_tdx_guest(void);
 
+bool tdx_debug_enabled(void);
 void __init tdx_early_init(void);
 
 /* Decompression code doesn't know how to handle alternatives */

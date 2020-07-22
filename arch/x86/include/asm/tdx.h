@@ -51,6 +51,8 @@ extern void (*tdx_event_notify_handler)(void);
 
 bool tdx_guest_dev_authorized(struct device *dev);
 
+bool tdx_filter_enabled(void);
+
 #else
 
 static inline void tdx_early_init(void) { };
@@ -72,6 +74,8 @@ static inline bool tdx_guest_dev_authorized(struct device *dev)
 {
 	return dev->authorized;
 }
+
+static inline bool tdx_filter_enabled(void) { return true; }
 
 #endif /* CONFIG_INTEL_TDX_GUEST */
 

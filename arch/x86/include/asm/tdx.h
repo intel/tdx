@@ -69,6 +69,7 @@ enum tdx_map_type {
 
 bool tdg_debug_enabled(void);
 void __init tdx_early_init(void);
+void __init tdg_filter_init(void);
 
 bool tdx_prot_guest_has(unsigned long flag);
 

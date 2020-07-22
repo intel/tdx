@@ -1,0 +1,61 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Copyright (c) 2020 Intel Corporation
+ */
+#define pr_fmt(fmt) "TDX: " fmt
+
+#include <linux/acpi.h>
+#include <linux/pci.h>
+#include <linux/device/filter.h>
+#include <linux/protected_guest.h>
+
+#include <asm/tdx.h>
+
+#define ADD_FILTER_NODE(bname, alist, st)		\
+{							\
+	.bus_name = #bname,				\
+	.allow_list = alist,				\
+	.len = ARRAY_SIZE(alist),			\
+	.default_status = st				\
+}
+
+#define ADD_SIMPLE_FILTER_NODE(bname, st)		\
+{							\
+	.bus_name = #bname,				\
+	.default_status = st				\
+}
+
+/* Allow list for Virtio bus */
+static char *virtio_allow_list[] = {
+	"virtio_net",
+	"virtio_console",
+	"virtio_blk",
+	"virtio_rproc_serial",
+};
+
+/* Allow list for PCI bus */
+static char *pci_allow_list[] = {
+	"virtio-pci",
+};
+
+static struct drv_filter_node filter_list[] = {
+	/* Enable all devices in "cpu" bus */
+	ADD_SIMPLE_FILTER_NODE(cpu, true),
+	/* Allow drivers in pci_allow_list in "pci" bus */
+	ADD_FILTER_NODE(pci, pci_allow_list, false),
+	/* Allow drivers in virtio_allow_list in "virtio" bus */
+	ADD_FILTER_NODE(virtio, virtio_allow_list, false),
+};
+
+void __init tdg_filter_init(void)
+{
+	int i;
+
+	if (!prot_guest_has(PR_GUEST_TDX))
+		return;
+
+	for (i = 0; i < ARRAY_SIZE(filter_list); i++)
+		register_drv_filter(&filter_list[i]);
+
+	pr_info("Enabled TDX guest device filter\n");
+}

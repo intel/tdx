@@ -670,6 +670,8 @@ void __init tdx_early_init(void)
 
 	tdx_get_info();
 
+	tdg_filter_init();
+
 	pv_ops.irq.safe_halt = tdg_safe_halt;
 	pv_ops.irq.halt = tdg_halt;
 

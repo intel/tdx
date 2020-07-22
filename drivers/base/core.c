@@ -46,6 +46,12 @@ static int __init sysfs_deprecated_setup(char *arg)
 early_param("sysfs.deprecated", sysfs_deprecated_setup);
 #endif
 
+/*
+ * Default authorization status set as allow all. It can be
+ * overridden by arch code.
+ */
+bool __ro_after_init dev_default_authorization = true;
+
 /* Device links support. */
 static LIST_HEAD(deferred_sync);
 static unsigned int defer_sync_state_count = 1;
@@ -2849,6 +2855,7 @@ void device_initialize(struct device *dev)
     defined(CONFIG_ARCH_HAS_SYNC_DMA_FOR_CPU_ALL)
 	dev->dma_coherent = dma_default_coherent;
 #endif
+	dev->authorized = dev_default_authorization;
 }
 EXPORT_SYMBOL_GPL(device_initialize);
 

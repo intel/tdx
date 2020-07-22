@@ -12,6 +12,9 @@
 
 #include <linux/mem_encrypt.h>
 #include <linux/processor.h>
+#include <linux/device.h>
+
+#include <asm/tdx.h>
 
 #ifndef __ASSEMBLY__
 
@@ -29,6 +32,14 @@ static inline bool prot_guest_has(unsigned int attr)
 		return intel_prot_guest_has(attr);
 
 	return false;
+}
+
+static inline bool prot_guest_authorized(struct device *dev, char *dev_str)
+{
+	if (cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
+		return tdx_guest_authorized(dev, dev_str);
+
+	return dev->authorized;
 }
 
 #endif	/* __ASSEMBLY__ */

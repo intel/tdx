@@ -867,8 +867,6 @@ void __init tdx_early_init(void)
 	 */
 	physical_mask &= cc_mask - 1;
 
-	tdx_filter_init();
-
 	x86_platform.guest.enc_cache_flush_required = tdx_cache_flush_required;
 	x86_platform.guest.enc_tlb_flush_required   = tdx_tlb_flush_required;
 	x86_platform.guest.enc_status_change_finish = tdx_enc_status_changed;

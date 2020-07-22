@@ -3155,6 +3155,11 @@ int device_add(struct device *dev)
 		goto name_error;
 	}
 
+	if (!is_device_allowed(dev)) {
+		error = -EACCES;
+		goto name_error;
+	}
+
 	pr_debug("device: '%s': %s\n", dev_name(dev), __func__);
 
 	parent = get_device(dev->parent);

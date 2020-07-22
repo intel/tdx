@@ -84,6 +84,17 @@ enum cc_attr {
 	CC_ATTR_HOTPLUG_DISABLED,
 
 	/**
+	 * @CC_ATTR_GUEST_DEVICE_FILTER: Filter device enumeration as per
+	 * platform specific allow list.
+	 *
+	 * The platform/OS is running as a guest/virtual machine and allows or
+	 * dis-allows device enumeration as per platform specific allow list.
+	 *
+	 * Examples include TDX guest.
+	 */
+	CC_ATTR_GUEST_DEVICE_FILTER,
+
+	/**
 	 * @CC_ATTR_GUEST_TDX: Trust Domain Extension Support
 	 *
 	 * The platform/OS is running as a TDX guest/virtual machine.

@@ -997,4 +997,15 @@ extern long sysfs_deprecated;
 #define sysfs_deprecated 0
 #endif
 
+#ifndef __ASSEMBLY__
+#ifdef CONFIG_ARCH_HAS_CC_PLATFORM
+bool cc_guest_dev_authorized(struct device *dev);
+#else
+static inline bool cc_guest_dev_authorized(struct device *dev)
+{
+	return dev->authorized;
+}
+#endif /* CONFIG_ARCH_HAS_CC_PLATFORM */
+#endif /* __ASSEMBLY__ */
+
 #endif /* _DEVICE_H_ */

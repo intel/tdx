@@ -817,6 +817,8 @@ void __init tdx_early_init(void)
 	 */
 	physical_mask &= GENMASK_ULL(td_info.gpa_width - 2, 0);
 
+	tdx_filter_init();
+
 	swiotlb_force = SWIOTLB_FORCE;
 
 	legacy_pic = &null_legacy_pic;

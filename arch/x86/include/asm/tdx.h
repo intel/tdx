@@ -4,6 +4,7 @@
 #define _ASM_X86_TDX_H
 
 #include <linux/init.h>
+#include <linux/device.h>
 #include <asm/ptrace.h>
 #include <asm/shared/tdx.h>
 
@@ -28,6 +29,8 @@ struct ve_info {
 void __init tdx_early_init(void);
 bool is_tdx_guest(void);
 
+void __init tdx_filter_init(void);
+
 bool tdx_get_ve_info(struct ve_info *ve);
 
 bool tdx_handle_virt_exception(struct pt_regs *regs, struct ve_info *ve);
@@ -45,6 +48,9 @@ int tdx_mcall_tdreport(void *data, void *reportdata);
 int tdx_hcall_get_quote(void *data, u64 len);
 
 extern void (*tdx_event_notify_handler)(void);
+
+bool tdx_guest_dev_authorized(struct device *dev);
+
 #else
 
 static inline void tdx_early_init(void) { };
@@ -60,6 +66,11 @@ static inline int tdx_hcall_request_gpa_type(phys_addr_t start,
 					     phys_addr_t end, bool enc)
 {
 	return -ENODEV;
+}
+
+static inline bool tdx_guest_dev_authorized(struct device *dev)
+{
+	return dev->authorized;
 }
 
 #endif /* CONFIG_INTEL_TDX_GUEST */

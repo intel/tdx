@@ -20,6 +20,8 @@
 
 #define FILTER_CMDLINE_LEN 500
 
+static bool tdg_filter_status = 1;
+
 /* Allow list for Virtio bus */
 static const char virtio_allow_list[] = "virtio_net,virtio_console,virtio_blk,"
 					"virtio_rproc_serial";
@@ -56,12 +58,27 @@ static __init bool is_filter_overridden(void)
 	return false;
 }
 
+bool tdg_filter_enabled(void)
+{
+	return tdg_filter_status;
+}
+
 void __init tdg_filter_init(void)
 {
 	int i;
 
 	if (!prot_guest_has(PATTR_GUEST_DRIVER_FILTER))
 		return;
+
+	if (cmdline_find_option_bool(boot_command_line, "tdx_disable_filter"))
+		tdg_filter_status = 0;
+
+	if (!tdg_filter_enabled()) {
+		pr_info("Disabled TDX guest filter support\n");
+		ioremap_force_shared = true;
+		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);
+		return;
+	}
 
 	if (is_filter_overridden()) {
 		/*

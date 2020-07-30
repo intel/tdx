@@ -645,7 +645,7 @@ SYM_CODE_START(trampoline_32bit_src)
 	pushl	%eax
 
 	/* Enable paging again */
-	movl	$(X86_CR0_PG | X86_CR0_PE), %eax
+	movl	$(X86_CR0_PG | X86_CR0_NE | X86_CR0_PE), %eax
 	movl	%eax, %cr0
 
 	lret

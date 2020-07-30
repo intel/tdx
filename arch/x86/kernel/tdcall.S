@@ -38,7 +38,11 @@
  * TDX module and hypercalls to the VMM. It is supported in
  * Binutils >= 2.36.
  */
+#ifdef CONFIG_INTEL_TDX_ICL_FIXES
+#define tdcall  vmcall
+#else
 #define tdcall .byte 0x66,0x0f,0x01,0xcc
+#endif
 
 /*
  * Used in __tdx_hypercall() to determine whether to enable interrupts

@@ -25,7 +25,11 @@
  * used by TD for requesting the host VMM to provide
  * (untrusted) services. Supported in Binutils >= 2.36
  */
+#ifdef CONFIG_INTEL_TDX_ICL_FIXES
+#define TDCALL	"vmcall"
+#else
 #define TDCALL	".byte 0x66,0x0f,0x01,0xcc"
+#endif
 
 #ifdef CONFIG_INTEL_TDX_GUEST
 

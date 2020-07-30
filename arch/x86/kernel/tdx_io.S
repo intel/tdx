@@ -5,7 +5,11 @@
 
 #include <asm/tdx.h>
 
+#ifdef CONFIG_INTEL_TDX_ICL_FIXES
+#define TDCALL vmcall
+#else
 #define TDCALL .byte 0x66,0x0f,0x01,0xcc
+#endif
 
 #define EXIT_REASON_IO_INSTRUCTION 30
 

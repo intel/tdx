@@ -879,6 +879,7 @@ config INTEL_TDX_GUEST
 	depends on X86_X2APIC
 	select PARAVIRT_XXL
 	select ARCH_HAS_CC_PLATFORM
+	select X86_MCE
 	help
 	  Support running as a guest under TDX.  Without this support,
 	  the kernel can not boot or run under TDX.

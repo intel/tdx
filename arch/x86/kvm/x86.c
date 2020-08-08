@@ -12112,7 +12112,10 @@ static inline bool kvm_vcpu_has_events(struct kvm_vcpu *vcpu)
 
 	if (kvm_arch_interrupt_allowed(vcpu) &&
 	    (kvm_cpu_has_interrupt(vcpu) ||
-	    kvm_guest_apic_has_interrupt(vcpu)))
+	     kvm_guest_apic_has_interrupt(vcpu) ||
+	     (vcpu->arch.apicv_active &&
+	      kvm_x86_ops.apicv_has_pending_interrupt &&
+	      kvm_x86_ops.apicv_has_pending_interrupt(vcpu))))
 		return true;
 
 	if (kvm_hv_has_stimer_pending(vcpu))

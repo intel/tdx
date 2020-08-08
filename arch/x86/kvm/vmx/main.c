@@ -144,6 +144,14 @@ static void vt_vcpu_put(struct kvm_vcpu *vcpu)
 	return vmx_vcpu_put(vcpu);
 }
 
+static bool vt_apicv_has_pending_interrupt(struct kvm_vcpu *vcpu)
+{
+	if (is_td_vcpu(vcpu))
+		return pi_has_pending_interrupt(vcpu);
+
+	return false;
+}
+
 static void vt_flush_tlb_all(struct kvm_vcpu *vcpu)
 {
 	if (is_td_vcpu(vcpu))
@@ -306,6 +314,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.sync_pir_to_irr = vmx_sync_pir_to_irr,
 	.deliver_posted_interrupt = vmx_deliver_posted_interrupt,
 	.dy_apicv_has_pending_interrupt = pi_has_pending_interrupt,
+	.apicv_has_pending_interrupt = vt_apicv_has_pending_interrupt,
 
 	.set_tss_addr = vmx_set_tss_addr,
 	.set_identity_map_addr = vmx_set_identity_map_addr,

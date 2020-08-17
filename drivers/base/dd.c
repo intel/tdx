@@ -887,6 +887,12 @@ static int __device_attach(struct device *dev, bool allow_async)
 	int ret = 0;
 
 	device_lock(dev);
+
+	if (!dev->p) {
+		ret = -ENODEV;
+		goto out_unlock;
+	}
+
 	if (dev->p->dead) {
 		goto out_unlock;
 	} else if (dev->driver) {

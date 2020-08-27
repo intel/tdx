@@ -545,12 +545,12 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 		return EXIT_FASTPATH_NONE;
 	}
 
-	if (pi_test_on(&tdx->pi_desc))
+	if (pi_test_on(&tdx->pi_desc)) {
 		apic->send_IPI_self(POSTED_INTR_VECTOR);
 
-	if (lapic_in_kernel(vcpu) &&
-	    vcpu->arch.apic->lapic_timer.timer_advance_ns)
-		kvm_wait_lapic_expire(vcpu);
+		if (vcpu->arch.apic->lapic_timer.timer_advance_ns)
+			kvm_wait_lapic_expire(vcpu, true);
+	}
 
 	/*
 	 * TODO:

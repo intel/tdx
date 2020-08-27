@@ -9,6 +9,7 @@
 #include <linux/io.h>
 #include <asm/coco.h>
 #include <asm/tdx.h>
+#include <asm/i8259.h>
 #include <asm/vmx.h>
 #include <asm/insn.h>
 #include <asm/insn-eval.h>
@@ -822,6 +823,8 @@ void __init tdx_early_init(void)
 	 * Until that is in place, disable parallel bringup for TDX.
 	 */
 	x86_cpuinit.parallel_bringup = false;
+
+	legacy_pic = &null_legacy_pic;
 
 	pr_info("Guest detected\n");
 }

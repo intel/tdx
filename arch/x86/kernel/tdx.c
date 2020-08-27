@@ -7,6 +7,7 @@
 #include <linux/cpufeature.h>
 #include <linux/swiotlb.h>
 #include <asm/tdx.h>
+#include <asm/i8259.h>
 #include <asm/vmx.h>
 #include <asm/insn.h>
 #include <asm/insn-eval.h>
@@ -605,6 +606,8 @@ void __init tdx_early_init(void)
 	physical_mask &= GENMASK_ULL(td_info.gpa_width - 2, 0);
 
 	swiotlb_force = SWIOTLB_FORCE;
+
+	legacy_pic = &null_legacy_pic;
 
 	pr_info("Guest detected\n");
 }

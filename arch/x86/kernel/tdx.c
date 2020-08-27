@@ -4,6 +4,7 @@
 #include <asm/tdx.h>
 #include <asm/cpufeature.h>
 #include <linux/cpu.h>
+#include <asm/i8259.h>
 #include <asm/tdx.h>
 #include <asm/vmx.h>
 #include <asm/insn.h>
@@ -412,6 +413,8 @@ void __init tdx_early_init(void)
 
 	pv_ops.irq.safe_halt = tdx_safe_halt;
 	pv_ops.irq.halt = tdx_halt;
+
+	legacy_pic = &null_legacy_pic;
 
 	cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "tdx:cpu_hotplug",
 			  NULL, tdx_cpu_offline_prepare);

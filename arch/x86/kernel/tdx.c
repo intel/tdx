@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /* Copyright (C) 2020 Intel Corporation */
 #include <linux/cpu.h>
+#include <linux/acpi.h>
 #include <asm/i8259.h>
 #include <asm/tdx.h>
 #include <asm/vmx.h>
@@ -400,6 +401,8 @@ void __init tdx_early_init(void)
 	pv_ops.irq.halt = tdx_halt;
 
 	legacy_pic = &null_legacy_pic;
+
+	acpi_tbl_allow_setup("RDSP,XSDT,FACP,DSDT,FACS,APIC,MCFG");
 
 	cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "tdx:cpu_hotplug",
 			  NULL, tdx_cpu_offline_prepare);

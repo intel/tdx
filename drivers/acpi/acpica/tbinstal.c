@@ -14,6 +14,22 @@
 #define _COMPONENT          ACPI_TABLES
 ACPI_MODULE_NAME("tbinstal")
 
+static bool acpi_tb_install_allowed(struct acpi_table_desc *desc)
+{
+	int index;
+
+	/* If filter is not enabled, allow all tables */
+	if (acpi_tbl_allow_len <= 0)
+		return true;
+
+	for (index = 0; index < acpi_tbl_allow_len; index++)
+		if (ACPI_COMPARE_NAMESEG(&desc->signature,
+					 acpi_tbl_allow_list[index]))
+			return true;
+
+	return false;
+}
+
 /*******************************************************************************
  *
  * FUNCTION:    acpi_tb_install_table_with_override
@@ -39,6 +55,13 @@ acpi_tb_install_table_with_override(struct acpi_table_desc *new_table_desc,
 
 	status = acpi_tb_get_next_table_descriptor(&i, NULL);
 	if (ACPI_FAILURE(status)) {
+		return;
+	}
+
+	if (!acpi_tb_install_allowed(new_table_desc)) {
+		ACPI_INFO(("Ignoring installation of %4.4s",
+			   new_table_desc->signature.ascii));
+		*table_index = i;
 		return;
 	}
 

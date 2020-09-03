@@ -424,7 +424,7 @@ void __init tdx_early_init(void)
 
 	swiotlb_force = SWIOTLB_FORCE;
 
-	acpi_tbl_allow_setup("RDSP,XSDT,FACP,DSDT,FACS,APIC,MCFG");
+	acpi_tbl_allow_setup("RDSP,XSDT,FACP,DSDT,FACS,APIC,MCFG,SVKL");
 
 	cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "tdg:cpu_hotplug",
 			  NULL, tdg_cpu_offline_prepare);

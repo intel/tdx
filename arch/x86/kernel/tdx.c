@@ -9,6 +9,7 @@
 #include <linux/sched/signal.h> /* force_sig_fault() */
 #include <linux/swiotlb.h>
 #include <linux/security.h>
+#include <linux/acpi.h>
 
 #include <linux/cpu.h>
 
@@ -422,6 +423,8 @@ void __init tdx_early_init(void)
 	legacy_pic = &null_legacy_pic;
 
 	swiotlb_force = SWIOTLB_FORCE;
+
+	acpi_tbl_allow_setup("RDSP,XSDT,FACP,DSDT,FACS,APIC,MCFG");
 
 	cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "tdg:cpu_hotplug",
 			  NULL, tdg_cpu_offline_prepare);

@@ -1729,6 +1729,17 @@ static int __init acpi_no_static_ssdt_setup(char *s)
 
 early_param("acpi_no_static_ssdt", acpi_no_static_ssdt_setup);
 
+int acpi_tbl_allow_setup(char *s)
+{
+	char *name;
+
+	while ((name = strsep(&s, ",")))
+		acpi_tbl_allow_list[acpi_tbl_allow_len++] = name;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(acpi_tbl_allow_setup);
+
 static int __init acpi_disable_return_repair(char *s)
 {
 	printk(KERN_NOTICE PREFIX

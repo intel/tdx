@@ -131,7 +131,7 @@ void __init tdg_filter_init(void)
 	for (i = 0; i < ARRAY_SIZE(filter_list); i++)
 		register_drv_filter(&filter_list[i]);
 
-	allowed = "RDSP,XSDT,FACP,DSDT,FACS,APIC";
+	allowed = "RDSP,XSDT,FACP,DSDT,FACS,APIC,SVKL";
 	if (cmdline_find_option(boot_command_line, "tdx_allow_acpi",
 				a_allowed, sizeof(a_allowed))) {
 		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);

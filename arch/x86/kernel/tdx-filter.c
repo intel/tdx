@@ -103,7 +103,7 @@ void __init tdg_filter_init(void)
 	for (i = 0; i < ARRAY_SIZE(filter_list); i++)
 		register_drv_filter(&filter_list[i]);
 
-	acpi_tbl_allow_setup("RDSP,XSDT,FACP,DSDT,FACS,APIC");
+	acpi_tbl_allow_setup("RDSP,XSDT,FACP,DSDT,FACS,APIC,SVKL");
 
 	pr_info("Enabled TDX guest device filter\n");
 }

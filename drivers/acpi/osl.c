@@ -1631,6 +1631,26 @@ static int __init acpi_no_static_ssdt_setup(char *s)
 
 early_param("acpi_no_static_ssdt", acpi_no_static_ssdt_setup);
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_tbl_allow_setup
+ *
+ * PARAMETERS:  S           - Comma separated list of ACPI tables
+ *
+ * DESCRIPTION: Update the acpi_tbl_allow_list with list of platform
+ *		specific ACPI tables allow-list. Call it in early init
+ *		code (acpi_tbl_allow_list need to be updated before
+ *		ACPI tables are installed by OS).
+ *
+ ******************************************************************************/
+void acpi_tbl_allow_setup(char *s)
+{
+	char *name;
+
+	while ((name = strsep(&s, ",")))
+		acpi_tbl_allow_list[acpi_tbl_allow_len++] = name;
+}
+
 static int __init acpi_disable_return_repair(char *s)
 {
 	pr_notice("Predefined validation mechanism disabled\n");

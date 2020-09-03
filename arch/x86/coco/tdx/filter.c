@@ -269,7 +269,7 @@ void __init tdx_filter_init(void)
 		pr_debug("Device filter is overridden\n");
 	}
 
-	allowed = "XSDT,FACP,DSDT,FACS,APIC";
+	allowed = "XSDT,FACP,DSDT,FACS,APIC,SVKL";
 	if (cmdline_find_option(boot_command_line, "tdx_allow_acpi",
 				a_allowed, sizeof(a_allowed)) >= 0) {
 		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);

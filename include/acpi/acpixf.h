@@ -266,6 +266,9 @@ ACPI_GLOBAL(char, acpi_gbl_db_line_buf[ACPI_DB_LINE_BUFFER_SIZE]);
 ACPI_GLOBAL(struct acpi_table_fadt, acpi_gbl_FADT);
 ACPI_GLOBAL(u32, acpi_current_gpe_count);
 ACPI_GLOBAL(u8, acpi_gbl_system_awake_and_running);
+#define MAX_ALLOW_TBL_LEN 100
+ACPI_GLOBAL(char*, acpi_tbl_allow_list[MAX_ALLOW_TBL_LEN]);
+ACPI_INIT_GLOBAL(u8, acpi_tbl_allow_len, 0);
 
 /*****************************************************************************
  *
@@ -962,5 +965,7 @@ ACPI_EXTERNAL_RETURN_STATUS(acpi_status
 void acpi_run_debugger(char *batch_buffer);
 
 void acpi_set_debugger_thread_id(acpi_thread_id thread_id);
+
+void __init acpi_tbl_allow_setup(char *s);
 
 #endif				/* __ACXFACE_H__ */

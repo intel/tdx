@@ -14,6 +14,22 @@
 #define _COMPONENT          ACPI_TABLES
 ACPI_MODULE_NAME("tbinstal")
 
+static bool acpi_tb_install_allowed(struct acpi_table_desc *desc)
+{
+	int index;
+
+	/* If filter is not enabled, allow all tables */
+	if (acpi_tbl_allow_len <= 0)
+		return true;
+
+	for (index = 0; index < acpi_tbl_allow_len; index++)
+		if (ACPI_COMPARE_NAMESEG(&desc->signature,
+					 acpi_tbl_allow_list[index]))
+			return true;
+
+	return false;
+}
+
 /*******************************************************************************
  *
  * FUNCTION:    acpi_tb_install_table_with_override
@@ -112,6 +128,13 @@ acpi_tb_install_standard_table(acpi_physical_address address,
 			    "Could not acquire table length at %8.8X%8.8X",
 			    ACPI_FORMAT_UINT64(address)));
 		return_ACPI_STATUS(status);
+	}
+
+	if (!acpi_tb_install_allowed(&new_table_desc)) {
+		ACPI_INFO(("Ignoring installation of %4.4s at %8.8X%8.8X",
+			   new_table_desc.signature.ascii,
+			   ACPI_FORMAT_UINT64(address)));
+		goto release_and_exit;
 	}
 
 	/*

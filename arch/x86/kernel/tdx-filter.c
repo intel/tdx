@@ -309,7 +309,7 @@ void __init tdg_filter_init(void)
 
 	add_device_filter(&dnode);
 
-	acpi_tbl_allow_setup("RDSP,XSDT,FACP,DSDT,FACS,APIC");
+	acpi_tbl_allow_setup("RDSP,XSDT,FACP,DSDT,FACS,APIC,SVKL");
 
 	pr_info("Enabled TDX guest device filter\n");
 }

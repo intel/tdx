@@ -4379,7 +4379,8 @@ static int kvm_vcpu_ready_for_interrupt_injection(struct kvm_vcpu *vcpu)
 static int kvm_vcpu_ioctl_interrupt(struct kvm_vcpu *vcpu,
 				    struct kvm_interrupt *irq)
 {
-	if (irq->irq >= KVM_NR_INTERRUPTS)
+	if (irq->irq >= KVM_NR_INTERRUPTS ||
+	    vcpu->kvm->arch.irq_injection_disallowed)
 		return -EINVAL;
 
 	if (!irqchip_in_kernel(vcpu->kvm)) {
@@ -8809,6 +8810,7 @@ static int emulator_fix_hypercall(struct x86_emulate_ctxt *ctxt)
 static int dm_request_for_irq_injection(struct kvm_vcpu *vcpu)
 {
 	return vcpu->run->request_interrupt_window &&
+	       !vcpu->kvm->arch.irq_injection_disallowed &&
 		likely(!pic_in_kernel(vcpu->kvm));
 }
 

@@ -1123,6 +1123,7 @@ struct kvm_arch {
 
 	bool bus_lock_detection_enabled;
 	bool irq_injection_disallowed;
+	bool mce_injection_disallowed;
 	/*
 	 * If exit_on_emulation_error is set, and the in-kernel instruction
 	 * emulator fails to emulate an instruction, allow userspace

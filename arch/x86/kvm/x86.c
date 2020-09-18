@@ -4434,15 +4434,16 @@ static int vcpu_ioctl_tpr_access_reporting(struct kvm_vcpu *vcpu,
 static int kvm_vcpu_ioctl_x86_setup_mce(struct kvm_vcpu *vcpu,
 					u64 mcg_cap)
 {
-	int r;
 	unsigned bank_num = mcg_cap & 0xff, bank;
 
-	r = -EINVAL;
+	if (vcpu->kvm->arch.mce_injection_disallowed)
+		return -EINVAL;
+
 	if (!bank_num || bank_num > KVM_MAX_MCE_BANKS)
-		goto out;
+		return -EINVAL;
 	if (mcg_cap & ~(kvm_mce_cap_supported | 0xff | 0xff0000))
-		goto out;
-	r = 0;
+		return -EINVAL;
+
 	vcpu->arch.mcg_cap = mcg_cap;
 	/* Init IA32_MCG_CTL to all 1s */
 	if (mcg_cap & MCG_CTL_P)
@@ -4452,8 +4453,7 @@ static int kvm_vcpu_ioctl_x86_setup_mce(struct kvm_vcpu *vcpu,
 		vcpu->arch.mce_banks[bank*4] = ~(u64)0;
 
 	static_call(kvm_x86_setup_mce)(vcpu);
-out:
-	return r;
+	return 0;
 }
 
 static int kvm_vcpu_ioctl_x86_set_mce(struct kvm_vcpu *vcpu,

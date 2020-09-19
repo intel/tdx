@@ -25,6 +25,8 @@ struct kvm_tdx {
 	u64 xfam;
 	int hkid;
 
+	bool finalized;
+
 	u64 tsc_offset;
 	unsigned long tsc_khz;
 };
@@ -34,6 +36,8 @@ struct vcpu_tdx {
 
 	struct tdx_td_page tdvpr;
 	struct tdx_td_page *tdvpx;
+
+	bool initialized;
 
 	/*
 	 * Dummy to make pmu_intel not corrupt memory.

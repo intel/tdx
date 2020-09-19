@@ -4215,6 +4215,12 @@ long kvm_arch_dev_ioctl(struct file *filp,
 	case KVM_GET_SUPPORTED_HV_CPUID:
 		r = kvm_ioctl_get_supported_hv_cpuid(NULL, argp);
 		break;
+	case KVM_MEMORY_ENCRYPT_OP:
+		r = -EINVAL;
+		if (!kvm_x86_ops.mem_enc_op_dev)
+			goto out;
+		r = kvm_x86_ops.mem_enc_op_dev(argp);
+		break;
 	default:
 		r = -EINVAL;
 		break;
@@ -5402,6 +5408,12 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		r = __set_sregs2(vcpu, u.sregs2);
 		break;
 	}
+	case KVM_MEMORY_ENCRYPT_OP:
+		r = -EINVAL;
+		if (!kvm_x86_ops.mem_enc_op_vcpu)
+			goto out;
+		r = kvm_x86_ops.mem_enc_op_vcpu(vcpu, argp);
+		break;
 	default:
 		r = -EINVAL;
 	}

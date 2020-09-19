@@ -69,6 +69,11 @@ static inline bool is_hkid_assigned(struct kvm_tdx *kvm_tdx)
 	return kvm_tdx->hkid > 0;
 }
 
+static inline bool is_td_finalized(struct kvm_tdx *kvm_tdx)
+{
+	return kvm_tdx->finalized;
+}
+
 static void tdx_clear_page(unsigned long page)
 {
 	const void *zero_page = (const void *) __va(page_to_phys(ZERO_PAGE(0)));
@@ -283,30 +288,11 @@ int tdx_vm_init(struct kvm *kvm)
 
 int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 {
-	struct vcpu_tdx *tdx = to_tdx(vcpu);
-	int ret, i;
-
 	/* TDX only supports x2APIC, which requires an in-kernel local APIC. */
 	if (!vcpu->arch.apic)
 		return -EINVAL;
 
 	fpstate_set_confidential(&vcpu->arch.guest_fpu);
-
-	ret = tdx_alloc_td_page(&tdx->tdvpr);
-	if (ret)
-		return ret;
-
-	tdx->tdvpx = kcalloc(tdx_caps.tdvpx_nr_pages, sizeof(*tdx->tdvpx),
-			GFP_KERNEL_ACCOUNT);
-	if (!tdx->tdvpx) {
-		ret = -ENOMEM;
-		goto free_tdvpr;
-	}
-	for (i = 0; i < tdx_caps.tdvpx_nr_pages; i++) {
-		ret = tdx_alloc_td_page(&tdx->tdvpx[i]);
-		if (ret)
-			goto free_tdvpx;
-	}
 
 	vcpu->arch.efer = EFER_SCE | EFER_LME | EFER_LMA | EFER_NX;
 
@@ -319,16 +305,6 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 		!(to_kvm_tdx(vcpu->kvm)->attributes & TDX_TD_ATTRIBUTE_DEBUG);
 
 	return 0;
-
-free_tdvpx:
-	/* @i points at the TDVPX page that failed allocation. */
-	for (--i; i >= 0; i--)
-		free_page(tdx->tdvpx[i].va);
-	kfree(tdx->tdvpx);
-free_tdvpr:
-	free_page(tdx->tdvpr.va);
-
-	return ret;
 }
 
 void tdx_vcpu_free(struct kvm_vcpu *vcpu)
@@ -348,33 +324,13 @@ void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 
 void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 {
-	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
-	struct vcpu_tdx *tdx = to_tdx(vcpu);
 	struct msr_data apic_base_msr;
-	u64 err;
-	int i;
 
 	/* TDX doesn't support INIT event. */
 	if (WARN_ON_ONCE(init_event))
 		goto td_bugged;
-	if (WARN_ON_ONCE(is_td_vcpu_created(tdx)))
+	if (WARN_ON_ONCE(is_td_vcpu_created(to_tdx(vcpu))))
 		goto td_bugged;
-
-	err = tdh_vp_create(kvm_tdx->tdr.pa, tdx->tdvpr.pa);
-	if (WARN_ON_ONCE(err)) {
-		pr_tdx_error(TDH_VP_CREATE, err, NULL);
-		goto td_bugged;
-	}
-	tdx_mark_td_page_added(&tdx->tdvpr);
-
-	for (i = 0; i < tdx_caps.tdvpx_nr_pages; i++) {
-		err = tdh_vp_addcx(tdx->tdvpr.pa, tdx->tdvpx[i].pa);
-		if (WARN_ON_ONCE(err)) {
-			pr_tdx_error(TDH_VP_ADDCX, err, NULL);
-			goto td_bugged;
-		}
-		tdx_mark_td_page_added(&tdx->tdvpx[i]);
-	}
 
 	if (!vcpu->arch.cpuid_entries) {
 		/*
@@ -395,6 +351,8 @@ void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 		vcpu->arch.cpuid_entries = e;
 		vcpu->arch.cpuid_nent = 1;
 	}
+
+	/* TDX rquires X2APIC. */
 	apic_base_msr.data = APIC_DEFAULT_PHYS_BASE | LAPIC_MODE_X2APIC;
 	if (kvm_vcpu_is_reset_bsp(vcpu))
 		apic_base_msr.data |= MSR_IA32_APICBASE_BSP;
@@ -402,7 +360,10 @@ void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	if (WARN_ON_ONCE(kvm_set_apic_base(vcpu, &apic_base_msr)))
 		goto td_bugged;
 
-	vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
+	/*
+	 * Don't update mp_state to runnable because more initialization
+	 * is needed by TDX_VCPU_INIT.
+	 */
 
 	return;
 
@@ -795,6 +756,107 @@ int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 out:
 	mutex_unlock(&kvm->lock);
 	return r;
+}
+
+static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	int ret, i;
+	u64 err;
+
+	if (is_td_vcpu_created(tdx))
+		return -EINVAL;
+
+	ret = tdx_alloc_td_page(&tdx->tdvpr);
+	if (ret)
+		return ret;
+
+	tdx->tdvpx = kcalloc(tdx_caps.tdvpx_nr_pages, sizeof(*tdx->tdvpx),
+			     GFP_KERNEL_ACCOUNT);
+	if (!tdx->tdvpx) {
+		ret = -ENOMEM;
+		goto free_tdvpr;
+	}
+	for (i = 0; i < tdx_caps.tdvpx_nr_pages; i++) {
+		ret = tdx_alloc_td_page(&tdx->tdvpx[i]);
+		if (ret)
+			goto free_tdvpx;
+	}
+
+	err = tdh_vp_create(kvm_tdx->tdr.pa, tdx->tdvpr.pa);
+	if (WARN_ON_ONCE(err)) {
+		ret = -EIO;
+		pr_tdx_error(TDH_VP_CREATE, err, NULL);
+		goto td_bugged;
+	}
+	tdx_mark_td_page_added(&tdx->tdvpr);
+
+	for (i = 0; i < tdx_caps.tdvpx_nr_pages; i++) {
+		err = tdh_vp_addcx(tdx->tdvpr.pa, tdx->tdvpx[i].pa);
+		if (WARN_ON_ONCE(err)) {
+			ret = -EIO;
+			pr_tdx_error(TDH_VP_ADDCX, err, NULL);
+			goto td_bugged;
+		}
+		tdx_mark_td_page_added(&tdx->tdvpx[i]);
+	}
+
+	err = tdh_vp_init(tdx->tdvpr.pa, vcpu_rcx);
+	if (WARN_ON_ONCE(err)) {
+		ret = -EIO;
+		pr_tdx_error(TDH_VP_INIT, err, NULL);
+		goto td_bugged;
+	}
+
+	vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
+
+	return 0;
+
+td_bugged:
+	vcpu->kvm->vm_bugged = true;
+	return ret;
+
+free_tdvpx:
+	/* @i points at the TDVPX page that failed allocation. */
+	for (--i; i >= 0; i--)
+		free_page(tdx->tdvpx[i].va);
+	kfree(tdx->tdvpx);
+free_tdvpr:
+	free_page(tdx->tdvpr.va);
+
+	return ret;
+}
+
+int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	struct kvm_tdx_cmd cmd;
+	int ret;
+
+	if (tdx->vcpu_initialized)
+		return -EINVAL;
+
+	if (!is_td_initialized(vcpu->kvm) || is_td_finalized(kvm_tdx))
+		return -EINVAL;
+
+	if (copy_from_user(&cmd, argp, sizeof(cmd)))
+		return -EFAULT;
+
+	if (cmd.error || cmd.unused)
+		return -EINVAL;
+
+	/* Currently only KVM_TDX_INTI_VCPU is defined for vcpu operation. */
+	if (cmd.flags || cmd.id != KVM_TDX_INIT_VCPU)
+		return -EINVAL;
+
+	ret = tdx_td_vcpu_init(vcpu, (u64)cmd.data);
+	if (ret)
+		return ret;
+
+	tdx->vcpu_initialized = true;
+	return 0;
 }
 
 int __init tdx_module_setup(void)

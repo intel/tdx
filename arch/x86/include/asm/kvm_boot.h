@@ -9,6 +9,8 @@
 #include <asm/processor.h>
 
 #ifdef CONFIG_KVM_INTEL_TDX
+extern u32 tdx_seam_keyid __ro_after_init;
+
 int __init seam_load_module(void *module, unsigned long module_size,
 			    void *sigstruct, unsigned long sigstruct_size,
 			    void *seamldr, unsigned long seamldr_size);

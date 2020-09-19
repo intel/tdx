@@ -8,6 +8,7 @@
 #include "tdx_arch.h"
 #include "tdx_errno.h"
 #include "tdx_ops.h"
+#include "posted_intr.h"
 
 #ifdef CONFIG_KVM_INTEL_TDX
 
@@ -22,6 +23,50 @@ struct kvm_tdx {
 
 	struct tdx_td_page tdr;
 	struct tdx_td_page tdcs[TDX1_NR_TDCX_PAGES];
+
+	u64 attributes;
+	int hkid;
+
+	int cpuid_nent;
+	struct kvm_cpuid_entry2 cpuid_entries[KVM_MAX_CPUID_ENTRIES];
+
+	bool finalized;
+	bool tdtrack;
+
+	hpa_t source_pa;
+
+	u64 tsc_offset;
+};
+
+union tdx_exit_reason {
+	struct {
+		/* 31:0 mirror the VMX Exit Reason format */
+		u64 basic		: 16;
+		u64 reserved16		: 1;
+		u64 reserved17		: 1;
+		u64 reserved18		: 1;
+		u64 reserved19		: 1;
+		u64 reserved20		: 1;
+		u64 reserved21		: 1;
+		u64 reserved22		: 1;
+		u64 reserved23		: 1;
+		u64 reserved24		: 1;
+		u64 reserved25		: 1;
+		u64 reserved26		: 1;
+		u64 enclave_mode	: 1;
+		u64 smi_pending_mtf	: 1;
+		u64 smi_from_vmx_root	: 1;
+		u64 reserved30		: 1;
+		u64 failed_vmentry	: 1;
+
+		/* 63:32 are TDX specific */
+		u64 details_l1		: 8;
+		u64 class		: 8;
+		u64 reserved61_48	: 14;
+		u64 non_recoverable	: 1;
+		u64 error		: 1;
+	};
+	u64 full;
 };
 
 struct vcpu_tdx {
@@ -29,6 +74,42 @@ struct vcpu_tdx {
 
 	struct tdx_td_page tdvpr;
 	struct tdx_td_page tdvpx[TDX1_NR_TDVPX_PAGES];
+
+	struct list_head cpu_list;
+
+	/* Posted interrupt descriptor */
+	struct pi_desc pi_desc;
+
+	union {
+		struct {
+			union {
+				struct {
+					u16 gpr_mask;
+					u16 xmm_mask;
+				};
+				u32 regs_mask;
+			};
+			u32 reserved;
+		};
+		u64 rcx;
+	} tdvmcall;
+
+	union tdx_exit_reason exit_reason;
+
+	bool initialized;
+};
+
+struct tdx_capabilities {
+	u8 tdcs_nr_pages;
+	u8 tdvpx_nr_pages;
+
+	u64 attrs_fixed0;
+	u64 attrs_fixed1;
+	u64 xfam_fixed0;
+	u64 xfam_fixed1;
+
+	u32 nr_cpuid_configs;
+	struct tdx_cpuid_config cpuid_configs[TDX1_MAX_NR_CPUID_CONFIGS];
 };
 
 static inline bool is_td(struct kvm *kvm)
@@ -150,6 +231,20 @@ TDX_BUILD_TDVPS_ACCESSORS(64, DR, dr);
 TDX_BUILD_TDVPS_ACCESSORS(64, STATE, state);
 TDX_BUILD_TDVPS_ACCESSORS(64, MSR, msr);
 TDX_BUILD_TDVPS_ACCESSORS(8, MANAGEMENT, management);
+
+static __always_inline u64 td_tdcs_exec_read64(struct kvm_tdx *kvm_tdx, u32 field)
+{
+	struct tdx_ex_ret ex_ret;
+	u64 err;
+
+	err = tddbgrd(kvm_tdx->tdr.pa, TDCS_EXEC(field), &ex_ret);
+	if (unlikely(err)) {
+		pr_err("TDDBGRD[EXEC.0x%x] failed: 0x%llx\n", field, err);
+		WARN_ON(1);
+		return 0;
+	}
+	return ex_ret.r8;
+}
 
 #else
 

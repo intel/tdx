@@ -114,10 +114,90 @@ int vmx_set_hv_timer(struct kvm_vcpu *vcpu, u64 guest_deadline_tsc,
 void vmx_cancel_hv_timer(struct kvm_vcpu *vcpu);
 #endif
 void vmx_setup_mce(struct kvm_vcpu *vcpu);
+static inline bool kvm_vcpu_trigger_posted_interrupt(struct kvm_vcpu *vcpu,
+						     bool nested)
+{
+#ifdef CONFIG_SMP
+	int pi_vec = nested ? POSTED_INTR_NESTED_VECTOR : POSTED_INTR_VECTOR;
 
+	if (vcpu->mode == IN_GUEST_MODE) {
+		/*
+		 * The vector of interrupt to be delivered to vcpu had
+		 * been set in PIR before this function.
+		 *
+		 * Following cases will be reached in this block, and
+		 * we always send a notification event in all cases as
+		 * explained below.
+		 *
+		 * Case 1: vcpu keeps in non-root mode. Sending a
+		 * notification event posts the interrupt to vcpu.
+		 *
+		 * Case 2: vcpu exits to root mode and is still
+		 * runnable. PIR will be synced to vIRR before the
+		 * next vcpu entry. Sending a notification event in
+		 * this case has no effect, as vcpu is not in root
+		 * mode.
+		 *
+		 * Case 3: vcpu exits to root mode and is blocked.
+		 * vcpu_block() has already synced PIR to vIRR and
+		 * never blocks vcpu if vIRR is not cleared. Therefore,
+		 * a blocked vcpu here does not wait for any requested
+		 * interrupts in PIR, and sending a notification event
+		 * which has no effect is safe here.
+		 */
+
+		apic->send_IPI_mask(get_cpu_mask(vcpu->cpu), pi_vec);
+		return true;
+	}
+#endif
+	return false;
+}
+
+int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops);
 void __init vmx_pre_kvm_init(unsigned int *vcpu_size, unsigned int *vcpu_align);
 int __init vmx_init(void);
 void vmx_exit(void);
 void vmx_post_kvm_exit(void);
+
+int tdx_vm_init(struct kvm *kvm);
+void tdx_vm_teardown(struct kvm *kvm);
+void tdx_vm_destroy(struct kvm *kvm);
+int tdx_vcpu_create(struct kvm_vcpu *vcpu);
+void tdx_vcpu_free(struct kvm_vcpu *vcpu);
+void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event);
+void tdx_inject_nmi(struct kvm_vcpu *vcpu);
+fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu);
+void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu);
+void tdx_vcpu_put(struct kvm_vcpu *vcpu);
+void tdx_hardware_enable(void);
+void tdx_hardware_disable(void);
+void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu);
+int tdx_handle_exit(struct kvm_vcpu *vcpu,
+		enum exit_fastpath_completion fastpath);
+int tdx_dev_ioctl(void __user *argp);
+int tdx_vm_ioctl(struct kvm *kvm, void __user *argp);
+int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp);
+void tdx_flush_tlb(struct kvm_vcpu *vcpu);
+void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t pgd, int pgd_level);
+void tdx_set_virtual_apic_mode(struct kvm_vcpu *vcpu);
+void tdx_apicv_post_state_restore(struct kvm_vcpu *vcpu);
+int tdx_deliver_posted_interrupt(struct kvm_vcpu *vcpu, int vector);
+void tdx_get_exit_info(struct kvm_vcpu *vcpu, u32 *reason,
+		u64 *info1, u64 *info2, u32 *intr_info, u32 *error_code);
+void tdx_prepare_switch_to_guest(struct kvm_vcpu *vcpu);
+int __init tdx_check_processor_compatibility(void);
+void __init tdx_pre_kvm_init(unsigned int *vcpu_size,
+			unsigned int *vcpu_align, unsigned int *vm_size);
+int __init tdx_init(void);
+void tdx_update_exception_bitmap(struct kvm_vcpu *vcpu);
+void tdx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val);
+int tdx_get_cpl(struct kvm_vcpu *vcpu);
+unsigned long tdx_get_rflags(struct kvm_vcpu *vcpu);
+void tdx_set_rflags(struct kvm_vcpu *vcpu, unsigned long rflags);
+bool tdx_is_emulated_msr(u32 index, bool write);
+int tdx_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr);
+int tdx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr);
+u64 tdx_get_segment_base(struct kvm_vcpu *vcpu, int seg);
+void tdx_get_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var, int seg);
 
 #endif /* __KVM_X86_VMX_X86_OPS_H */

@@ -6,6 +6,7 @@
 
 #include <asm/asm.h>
 #include <asm/kvm_host.h>
+#include <asm/cacheflush.h>
 
 struct tdx_ex_ret {
 	union {
@@ -294,25 +295,34 @@ do {									\
 	seamcall_N_5(fn, ex, "c"(rcx), "d"(rdx), "r"(r8), "r"(r9), "r"(r10)); \
 } while (0)
 
+static inline void tdx_clflush_page(hpa_t addr)
+{
+	clflush_cache_range(__va(addr), PAGE_SIZE);
+}
+
 static inline u64 tdaddcx(hpa_t tdr, hpa_t addr)
 {
+	tdx_clflush_page(addr);
 	seamcall_2(TDADDCX, addr, tdr);
 }
 
 static inline u64 tdaddpage(hpa_t tdr, gpa_t gpa, hpa_t hpa, hpa_t source,
 			    struct tdx_ex_ret *ex)
 {
+	tdx_clflush_page(hpa);
 	seamcall_4_2(TDADDPAGE, gpa, tdr, hpa, source, ex);
 }
 
 static inline u64 tdaddsept(hpa_t tdr, gpa_t gpa, int level, hpa_t page,
 			    struct tdx_ex_ret *ex)
 {
+	tdx_clflush_page(page);
 	seamcall_3_2(TDADDSEPT, gpa | level, tdr, page, ex);
 }
 
 static inline u64 tdaddvpx(hpa_t tdvpr, hpa_t addr)
 {
+	tdx_clflush_page(addr);
 	seamcall_2(TDADDVPX, addr, tdvpr);
 }
 
@@ -324,6 +334,7 @@ static inline u64 tdassignhkid(hpa_t tdr, int hkid)
 static inline u64 tdaugpage(hpa_t tdr, gpa_t gpa, hpa_t hpa,
 			    struct tdx_ex_ret *ex)
 {
+	tdx_clflush_page(hpa);
 	seamcall_3_2(TDAUGPAGE, gpa, tdr, hpa, ex);
 }
 
@@ -340,11 +351,13 @@ static inline u64 tdconfigkey(hpa_t tdr)
 
 static inline u64 tdcreate(hpa_t tdr, int hkid)
 {
+	tdx_clflush_page(tdr);
 	seamcall_2(TDCREATE, tdr, hkid);
 }
 
 static inline u64 tdcreatevp(hpa_t tdr, hpa_t tdvpr)
 {
+	tdx_clflush_page(tdvpr);
 	seamcall_2(TDCREATEVP, tdvpr, tdr);
 }
 

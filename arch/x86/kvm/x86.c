@@ -9958,7 +9958,8 @@ int kvm_arch_vcpu_ioctl_set_sregs(struct kvm_vcpu *vcpu,
 {
 	int ret;
 
-	if (vcpu->arch.guest_state_protected)
+	if (vcpu->arch.guest_state_protected ||
+	    vcpu->kvm->arch.vm_type == KVM_X86_TDX_VM)
 		return -EINVAL;
 
 	vcpu_load(vcpu);
@@ -11842,6 +11843,8 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_cr);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_nested_vmrun);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_nested_vmexit);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_nested_vmexit_inject);
+EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_tdvmcall);
+EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_sept_seamcall);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_nested_intr_vmexit);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_nested_vmenter_failed);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_invlpga);

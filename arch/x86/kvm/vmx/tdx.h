@@ -31,6 +31,8 @@ struct kvm_tdx {
 	int cpuid_nent;
 	struct kvm_cpuid_entry2 cpuid_entries[KVM_MAX_CPUID_ENTRIES];
 
+	bool finalized;
+
 	u64 tsc_offset;
 	unsigned long tsc_khz;
 };
@@ -40,6 +42,8 @@ struct vcpu_tdx {
 
 	struct tdx_td_page tdvpr;
 	struct tdx_td_page *tdvpx;
+
+	bool initialized;
 };
 
 #define TDX_MAX_NR_CPUID_CONFIGS					\

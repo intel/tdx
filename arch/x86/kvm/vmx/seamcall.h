@@ -11,6 +11,7 @@
 #ifndef seamcall
 
 #include <asm/trace/seam.h>
+#include <asm/tdx_host.h>
 
 struct tdx_ex_ret;
 asmlinkage u64 __seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10,

@@ -6,34 +6,45 @@
 
 #include <asm/asm.h>
 #include <asm/kvm_host.h>
+#include <asm/cacheflush.h>
 
 #include "seamcall.h"
 
+static inline void tdx_clflush_page(hpa_t addr)
+{
+	clflush_cache_range(__va(addr), PAGE_SIZE);
+}
+
 static inline u64 tdh_mng_addcx(hpa_t tdr, hpa_t addr)
 {
+	tdx_clflush_page(addr);
 	return seamcall(TDH_MNG_ADDCX, addr, tdr, 0, 0, 0, NULL);
 }
 
 static inline u64 tdh_mem_page_add(hpa_t tdr, gpa_t gpa, hpa_t hpa, hpa_t source,
 			    struct tdx_ex_ret *ex)
 {
+	tdx_clflush_page(hpa);
 	return seamcall(TDH_MEM_PAGE_ADD, gpa, tdr, hpa, source, 0, ex);
 }
 
 static inline u64 tdh_mem_spet_add(hpa_t tdr, gpa_t gpa, int level, hpa_t page,
 			    struct tdx_ex_ret *ex)
 {
+	tdx_clflush_page(page);
 	return seamcall(TDH_MEM_SEPT_ADD, gpa | level, tdr, page, 0, 0, ex);
 }
 
 static inline u64 tdh_vp_addcx(hpa_t tdvpr, hpa_t addr)
 {
+	tdx_clflush_page(addr);
 	return seamcall(TDH_VP_ADDCX, addr, tdvpr, 0, 0, 0, NULL);
 }
 
 static inline u64 tdh_mem_page_aug(hpa_t tdr, gpa_t gpa, hpa_t hpa,
 			    struct tdx_ex_ret *ex)
 {
+	tdx_clflush_page(hpa);
 	return seamcall(TDH_MEM_PAGE_AUG, gpa, tdr, hpa, 0, 0, ex);
 }
 
@@ -50,11 +61,13 @@ static inline u64 tdh_mng_key_config(hpa_t tdr)
 
 static inline u64 tdh_mng_create(hpa_t tdr, int hkid)
 {
+	tdx_clflush_page(tdr);
 	return seamcall(TDH_MNG_CREATE, tdr, hkid, 0, 0, 0, NULL);
 }
 
 static inline u64 tdh_vp_create(hpa_t tdr, hpa_t tdvpr)
 {
+	tdx_clflush_page(tdvpr);
 	return seamcall(TDH_VP_CREATE, tdvpr, tdr, 0, 0, 0, NULL);
 }
 

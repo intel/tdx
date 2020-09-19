@@ -5431,6 +5431,7 @@ int kvm_mmu_load(struct kvm_vcpu *vcpu)
 out:
 	return r;
 }
+EXPORT_SYMBOL_GPL(kvm_mmu_load);
 
 static void __kvm_mmu_unload(struct kvm_vcpu *vcpu, u32 roots_to_free)
 {

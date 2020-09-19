@@ -290,6 +290,7 @@ const struct kvm_stats_header kvm_vcpu_stats_header = {
 };
 
 u64 __read_mostly host_xcr0;
+EXPORT_SYMBOL_GPL(host_xcr0);
 u64 __read_mostly supported_xcr0;
 EXPORT_SYMBOL_GPL(supported_xcr0);
 
@@ -2230,9 +2231,7 @@ static int set_tsc_khz(struct kvm_vcpu *vcpu, u32 user_tsc_khz, bool scale)
 	u64 ratio;
 
 	/* Guest TSC same frequency as host TSC? */
-	if (!scale || vcpu->kvm->arch.tsc_immutable) {
-		if (scale)
-			pr_warn_ratelimited("Guest TSC immutable, scaling not supported\n");
+	if (!scale) {
 		kvm_vcpu_write_tsc_multiplier(vcpu, kvm_default_tsc_scaling_ratio);
 		return 0;
 	}
@@ -10589,7 +10588,8 @@ int kvm_arch_vcpu_ioctl_set_sregs(struct kvm_vcpu *vcpu,
 {
 	int ret;
 
-	if (vcpu->arch.guest_state_protected)
+	if (vcpu->arch.guest_state_protected ||
+	    vcpu->kvm->arch.vm_type == KVM_X86_TDX_VM)
 		return -EINVAL;
 
 	vcpu_load(vcpu);

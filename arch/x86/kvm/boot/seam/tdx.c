@@ -40,6 +40,9 @@ static bool tdx_sysprof;
 static u32 tdx_keyids_start;
 static u32 tdx_nr_keyids;
 
+u32 tdx_seam_keyid __ro_after_init;
+EXPORT_SYMBOL_GPL(tdx_seam_keyid);
+
 /* TDX keyID pool */
 static DEFINE_IDA(tdx_keyid_pool);
 
@@ -1119,6 +1122,7 @@ static int __init tdx_init(void)
 		ret = -EIO;
 		goto err_vmxoff;
 	}
+	tdx_seam_keyid = tdx_keyids_start;
 
 	ret = tdx_seamcall_on_each_pkg(do_tdsysconfigkey, NULL);
 	if (ret)

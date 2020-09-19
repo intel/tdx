@@ -105,6 +105,13 @@ enum tdx_guest_management {
 /* @field is any of enum tdx_guest_management */
 #define TDVPS_MANAGEMENT(field)	BUILD_TDX_FIELD(32, (field))
 
+enum tdx_tdcs_execution_control {
+	TD_TDCS_EXEC_TSC_OFFSET = 10,
+};
+
+/* @field is any of enum tdx_tdcs_execution_control */
+#define TDCS_EXEC(field)	BUILD_TDX_FIELD(17, (field))
+
 #define TDX1_NR_TDCX_PAGES		4
 #define TDX1_NR_TDVPX_PAGES		5
 

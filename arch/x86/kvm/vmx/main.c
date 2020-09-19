@@ -57,14 +57,6 @@ static void vt_vm_free(struct kvm *kvm)
 		return tdx_vm_free(kvm);
 }
 
-static int vt_mem_enc_op(struct kvm *kvm, void __user *argp)
-{
-	if (!is_td(kvm))
-		return -ENOTTY;
-
-	return tdx_vm_ioctl(kvm, argp);
-}
-
 static int vt_vcpu_create(struct kvm_vcpu *vcpu)
 {
 	if (is_td_vcpu(vcpu))
@@ -87,6 +79,22 @@ static void vt_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 		return tdx_vcpu_reset(vcpu, init_event);
 
 	return vmx_vcpu_reset(vcpu, init_event);
+}
+
+static int vt_mem_enc_op(struct kvm *kvm, void __user *argp)
+{
+	if (!is_td(kvm))
+		return -ENOTTY;
+
+	return tdx_vm_ioctl(kvm, argp);
+}
+
+static int vt_mem_enc_op_vcpu(struct kvm_vcpu *vcpu, void __user *argp)
+{
+	if (!is_td_vcpu(vcpu))
+		return -EINVAL;
+
+	return tdx_vcpu_ioctl(vcpu, argp);
 }
 
 struct kvm_x86_ops vt_x86_ops __initdata = {
@@ -229,6 +237,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.vcpu_deliver_sipi_vector = kvm_vcpu_deliver_sipi_vector,
 
 	.mem_enc_op = vt_mem_enc_op,
+	.mem_enc_op_vcpu = vt_mem_enc_op_vcpu,
 };
 
 struct kvm_x86_init_ops vt_init_ops __initdata = {

@@ -5113,6 +5113,10 @@
 	tdx_disable_filter [x86]
 			Disable TDX filter support.
 
+	tdx_disable_lockdown
+			Disable automatic kernel lockdown for TD guest.
+			Only allowed for debug TD.
+
 	tdx_filter_devids= devid[,devid...] Update TDX device allow-list
 			Format: { pci:vendor:device }
 			Format: { acpi:HID }

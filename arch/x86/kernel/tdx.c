@@ -6,6 +6,7 @@
 #include <asm/tdx.h>
 #include <asm/vmx.h>
 #include <asm/insn.h>
+#include <asm/cmdline.h>
 #include <linux/sched/signal.h> /* force_sig_fault() */
 #include <linux/security.h>
 
@@ -425,7 +426,13 @@ void __init tdx_early_init(void)
 		lockdown_reason = LOCKDOWN_INTEGRITY_MAX;
 	else
 		lockdown_reason = LOCKDOWN_CONFIDENTIALITY_MAX;
-	lock_kernel_down("TDX guest init", lockdown_reason);
+
+	/* Do not enable lockdown for debug TD if tdx_disable_lockdown in cmdline */
+	if (!tdx_debug_enabled() ||
+	    !cmdline_find_option_bool(boot_command_line,
+	    "tdx_disable_lockdown")) {
+		lock_kernel_down("TDX guest init", lockdown_reason);
+	}
 
 	pr_info("TDX guest is initialized\n");
 }

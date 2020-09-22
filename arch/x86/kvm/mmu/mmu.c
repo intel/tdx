@@ -3157,6 +3157,7 @@ static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 	gfn_t base_gfn = gfn;
 	bool is_private = is_private_gfn(vcpu, gfn_stolen_bits);
 	bool is_zapped_pte;
+	unsigned int pte_access = ACC_ALL;
 
 	if (is_error_noslot_pfn(pfn) || kvm_is_reserved_pfn(pfn)) {
 		if (is_private)
@@ -3164,6 +3165,10 @@ static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 	} else if (vcpu->kvm->arch.gfn_shared_mask) {
 		kvm_mmu_zap_alias_spte(vcpu, gfn, gpa ^ gpa_stolen_mask);
 	}
+
+	/* TDX shared GPAs are no executable, enforce this for the SDV. */
+	if (!is_private && vcpu->kvm->arch.gfn_shared_mask)
+		pte_access &= ~ACC_EXEC_MASK;
 
 	level = kvm_mmu_hugepage_adjust(vcpu, gfn, max_level, &pfn,
 					huge_page_disallowed, &req_level);
@@ -3198,7 +3203,7 @@ static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 
 	is_zapped_pte = is_zapped_private_pte(*it.sptep);
 
-	ret = mmu_set_spte(vcpu, it.sptep, ACC_ALL,
+	ret = mmu_set_spte(vcpu, it.sptep, pte_access,
 			   write, level, base_gfn, pfn, prefault,
 			   map_writable);
 	if (ret == RET_PF_SPURIOUS)

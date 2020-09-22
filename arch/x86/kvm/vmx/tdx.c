@@ -1208,10 +1208,19 @@ static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 {
 	unsigned long exit_qual;
 
-	if (tdx_is_private_gpa(vcpu->kvm, tdexit_gpa(vcpu)))
+	if (tdx_is_private_gpa(vcpu->kvm, tdexit_gpa(vcpu))) {
 		exit_qual = TDX_SEPT_PFERR;
-	else
+	} else {
 		exit_qual = tdexit_exit_qual(vcpu);
+		if (exit_qual & EPT_VIOLATION_ACC_INSTR) {
+			pr_warn("kvm: TDX instr fetch to shared GPA = 0x%lx @ RIP = 0x%lx\n",
+				tdexit_gpa(vcpu), kvm_rip_read(vcpu));
+			vcpu->run->exit_reason = KVM_EXIT_EXCEPTION;
+			vcpu->run->ex.exception = PF_VECTOR;
+			vcpu->run->ex.error_code = exit_qual;
+			return 0;
+		}
+	}
 	return __vmx_handle_ept_violation(vcpu, tdexit_gpa(vcpu), exit_qual);
 }
 

@@ -3509,6 +3509,7 @@ static int __direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	gfn_t base_gfn = fault->gfn;
 	bool is_private = kvm_vcpu_is_private_gfn(vcpu, fault->addr >> PAGE_SHIFT);
 	bool is_zapped_pte;
+	unsigned int pte_access = ACC_ALL;
 
 	if (is_error_noslot_pfn(fault->pfn) || kvm_is_reserved_pfn(fault->pfn)) {
 		if (is_private)
@@ -3538,6 +3539,10 @@ static int __direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 			}
 		}
 	}
+
+	/* TDX shared GPAs are no executable, enforce this for the SDV. */
+	if (!is_private && vcpu->kvm->arch.gfn_shared_mask)
+		pte_access &= ~ACC_EXEC_MASK;
 
 	kvm_mmu_hugepage_adjust(vcpu, fault);
 
@@ -3582,7 +3587,7 @@ static int __direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 
 	is_zapped_pte = is_zapped_private_pte(*it.sptep);
 
-	ret = mmu_set_spte(vcpu, fault->slot, it.sptep, ACC_ALL,
+	ret = mmu_set_spte(vcpu, fault->slot, it.sptep, pte_access,
 			   base_gfn, fault->pfn, fault);
 	if (ret == RET_PF_SPURIOUS)
 		return ret;

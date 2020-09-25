@@ -11,6 +11,7 @@
 #include <asm/insn.h>
 #include <linux/sched/signal.h> /* force_sig_fault() */
 #include <linux/swiotlb.h>
+#include <linux/security.h>
 
 #define CREATE_TRACE_POINTS
 #include <asm/trace/tdx.h>
@@ -56,6 +57,11 @@ phys_addr_t tdx_shared_mask(void)
 bool tdx_debug_enabled(void)
 {
 	return td_info.attributes & BIT(0);
+}
+
+static bool tdx_perfmon_enabled(void)
+{
+	return td_info.attributes & BIT(63);
 }
 
 static void tdx_get_info(void)
@@ -470,6 +476,7 @@ static int tdx_cpu_offline_prepare(unsigned int cpu)
 
 void __init tdx_early_init(void)
 {
+	enum lockdown_reason lockdown_reason;
 	bool tdx_forced;
 
 	tdx_forced = cmdline_find_option_bool(boot_command_line,
@@ -497,6 +504,22 @@ void __init tdx_early_init(void)
 
 	cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "tdx:cpu_hotplug",
 			  NULL, tdx_cpu_offline_prepare);
+
+	/*
+	 * Do not lockdown perf/bpf/kprobe/... if performance
+	 * monitoring is enabled.
+	 */
+	if (tdx_perfmon_enabled())
+		lockdown_reason = LOCKDOWN_INTEGRITY_MAX;
+	else
+		lockdown_reason = LOCKDOWN_CONFIDENTIALITY_MAX;
+
+	/* Do not enable lockdown for debug TD if tdx_disable_lockdown in cmdline */
+	if (!tdx_debug_enabled() ||
+	    !cmdline_find_option_bool(boot_command_line,
+	    "tdx_disable_lockdown")) {
+		lock_kernel_down("TDX guest init", lockdown_reason);
+	}
 
 	pr_info("TDX guest is initialized\n");
 }

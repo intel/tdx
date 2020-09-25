@@ -23,7 +23,7 @@ static const enum lockdown_reason lockdown_levels[] = {LOCKDOWN_NONE,
 /*
  * Put the kernel into lock-down mode.
  */
-static int lock_kernel_down(const char *where, enum lockdown_reason level)
+int lock_kernel_down(const char *where, enum lockdown_reason level)
 {
 	if (kernel_locked_down >= level)
 		return -EPERM;

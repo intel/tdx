@@ -10,6 +10,8 @@
 
 static int tdx_guest = -1;
 
+int cmdline_find_option_bool(const char *option);
+
 static inline bool early_cpuid_has_tdx_guest(void)
 {
 	u32 eax = TDX_CPUID_LEAF_ID, sig[3] = {0};
@@ -25,7 +27,8 @@ static inline bool early_cpuid_has_tdx_guest(void)
 bool early_is_tdx_guest(void)
 {
 	if (tdx_guest < 0)
-		tdx_guest = early_cpuid_has_tdx_guest();
+		tdx_guest = early_cpuid_has_tdx_guest() ||
+			cmdline_find_option_bool("force_tdx_guest");
 
 	return !!tdx_guest;
 }

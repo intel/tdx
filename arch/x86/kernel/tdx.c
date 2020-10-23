@@ -8,6 +8,7 @@
 #include <linux/cpuhotplug.h>
 
 #include <asm/tdx.h>
+#include <asm/cmdline.h>
 #include <asm/i8259.h>
 #include <asm/vmx.h>
 #include <asm/insn.h>
@@ -507,7 +508,14 @@ __init bool tdg_early_handle_ve(struct pt_regs *regs)
 
 void __init tdx_early_init(void)
 {
-	if (!cpuid_has_tdx_guest())
+	bool tdg_forced;
+
+	tdg_forced = cmdline_find_option_bool(boot_command_line,
+					      "force_tdx_guest");
+	if (tdg_forced)
+		pr_info("Force enabling TDX Guest feature\n");
+
+	if (!cpuid_has_tdx_guest() && !tdg_forced)
 		return;
 
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);

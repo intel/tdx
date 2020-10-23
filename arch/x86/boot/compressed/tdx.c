@@ -6,6 +6,7 @@
 #include <asm/tdx.h>
 
 static int tdx_guest = -1;
+int cmdline_find_option_bool(const char *option);
 
 static inline bool native_cpuid_has_tdx_guest(void)
 {
@@ -25,8 +26,8 @@ static inline bool native_cpuid_has_tdx_guest(void)
 bool is_tdx_guest(void)
 {
 	if (tdx_guest < 0)
-		tdx_guest = native_cpuid_has_tdx_guest();
+		tdx_guest = native_cpuid_has_tdx_guest() ||
+			    cmdline_find_option_bool("tdx_guest");
 
 	return !!tdx_guest;
 }
-

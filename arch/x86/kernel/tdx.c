@@ -3,6 +3,7 @@
 
 #include <asm/tdx.h>
 #include <asm/cpufeature.h>
+#include <asm/cmdline.h>
 #include <linux/cpu.h>
 #include <asm/i8259.h>
 #include <asm/tdx.h>
@@ -461,7 +462,15 @@ static int tdx_cpu_offline_prepare(unsigned int cpu)
 
 void __init tdx_early_init(void)
 {
-	if (!cpuid_has_tdx_guest())
+	bool tdx_forced;
+
+	tdx_forced = cmdline_find_option_bool(boot_command_line,
+					      "force_tdx_guest");
+
+	if (tdx_forced)
+		pr_info("Force enabling TDX feature\n");
+
+	if (!cpuid_has_tdx_guest() && !tdx_forced)
 		return;
 
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);

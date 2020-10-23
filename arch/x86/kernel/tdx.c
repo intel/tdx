@@ -8,6 +8,7 @@
 #include <linux/swiotlb.h>
 #include <linux/io.h>
 #include <asm/tdx.h>
+#include <asm/cmdline.h>
 #include <asm/i8259.h>
 #include <asm/vmx.h>
 #include <asm/insn.h>
@@ -958,10 +959,14 @@ void __init tdx_early_init(void)
 {
 	u32 eax, sig[3];
 
-	cpuid_count(TDX_CPUID_LEAF_ID, 0, &eax, &sig[0], &sig[2],  &sig[1]);
+	if (cmdline_find_option_bool(boot_command_line, "force_tdx_guest")) {
+		pr_info("Force enabling TDX Guest feature\n");
+	} else {
+		cpuid_count(TDX_CPUID_LEAF_ID, 0, &eax, &sig[0], &sig[2],  &sig[1]);
 
-	if (memcmp(TDX_IDENT, sig, 12))
-		return;
+		if (memcmp(TDX_IDENT, sig, 12))
+			return;
+	}
 
 	tdx_guest_detected = true;
 

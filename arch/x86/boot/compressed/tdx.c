@@ -69,14 +69,19 @@ static inline void tdx_outl(unsigned int value, int port)
 	tdx_io_out(4, port, value);
 }
 
+int cmdline_find_option_bool(const char *option);
+
 void early_tdx_detect(void)
 {
 	u32 eax, sig[3];
 
-	cpuid_count(TDX_CPUID_LEAF_ID, 0, &eax, &sig[0], &sig[2],  &sig[1]);
+	if (!cmdline_find_option_bool("force_tdx_guest")) {
+		cpuid_count(TDX_CPUID_LEAF_ID, 0, &eax,
+			    &sig[0], &sig[2],  &sig[1]);
 
-	if (memcmp(TDX_IDENT, sig, 12))
-		return;
+		if (memcmp(TDX_IDENT, sig, 12))
+			return;
+	}
 
 	/* Cache TDX guest feature status */
 	tdx_guest_detected = true;

@@ -52,6 +52,8 @@ u64 __tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
 u64 __tdx_hypercall(u64 type, u64 fn, u64 r12, u64 r13, u64 r14,
 		    u64 r15, struct tdx_hypercall_output *out);
 
+int cmdline_find_option_bool(const char *option);
+
 static inline bool early_cpuid_has_tdx_guest(void)
 {
 	u32 eax = TDX_CPUID_LEAF_ID, sig[3] = {0};
@@ -67,7 +69,8 @@ static inline bool early_cpuid_has_tdx_guest(void)
 bool early_is_tdx_guest(void)
 {
 	if (tdx_guest < 0)
-		tdx_guest = early_cpuid_has_tdx_guest();
+		tdx_guest = early_cpuid_has_tdx_guest() ||
+			cmdline_find_option_bool("force_tdx_guest");
 
 	return !!tdx_guest;
 }

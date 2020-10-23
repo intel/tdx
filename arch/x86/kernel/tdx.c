@@ -8,6 +8,7 @@
 #include <linux/io.h>
 
 #include <asm/tdx.h>
+#include <asm/cmdline.h>
 #include <asm/i8259.h>
 #include <asm/apic.h>
 #include <asm/idtentry.h>
@@ -68,9 +69,10 @@ static struct {
 void (*tdx_event_notify_handler)(void);
 EXPORT_SYMBOL_GPL(tdx_event_notify_handler);
 
+static int tdx_guest = -1;
+
 bool is_tdx_guest(void)
 {
-	static int tdx_guest = -1;
 	u32 eax, sig[3];
 
 	if (tdx_guest >= 0)
@@ -945,6 +947,14 @@ __init bool tdx_early_handle_ve(struct pt_regs *regs)
 
 void __init tdx_early_init(void)
 {
+	bool tdx_guest_forced;
+
+	tdx_guest_forced = cmdline_find_option_bool(boot_command_line,
+						    "force_tdx_guest");
+	if (tdx_guest_forced) {
+		tdx_guest = 1;
+		pr_info("Force enabling TDX Guest feature\n");
+	}
 	if (!is_tdx_guest())
 		return;
 

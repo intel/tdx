@@ -54,8 +54,9 @@
 #define SEAMCALL_TDSYSSHUTDOWNLP	44
 #define SEAMCALL_TDSYSCONFIG		45
 
-/* Undocumented debug configuration SEAMCALL. */
+/* Non-architectural debug configuration SEAMCALLs. */
 #define SEAMCALL_TDDEBUGCONFIG		0xFE
+#define SEAMCALL_TDXMODE		0XFF
 
 #define DEBUGCONFIG_SET_TRACE_LEVEL	3
 #define DEBUGCONFIG_TRACE_ALL		0

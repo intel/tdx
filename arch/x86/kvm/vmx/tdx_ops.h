@@ -555,4 +555,9 @@ static inline void tdx_trace_seamcalls(u64 level)
 		pr_seamcall_error(TDDEBUGCONFIG, err);
 }
 
+static inline u64 tdxmode(bool intercept_vmexits, u64 intercept_bitmap)
+{
+	seamcall_2(TDXMODE, intercept_vmexits, intercept_bitmap);
+}
+
 #endif /* __KVM_X86_TDX_OPS_H */

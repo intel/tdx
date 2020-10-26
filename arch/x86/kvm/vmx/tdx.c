@@ -24,6 +24,7 @@
 
 static int trace_seamcalls __read_mostly = DEBUGCONFIG_TRACE_CUSTOM;
 module_param(trace_seamcalls, int, 0444);
+static int trace_seamcalls_initialized;
 
 /* TDX KeyID pool */
 static DEFINE_IDA(tdx_keyid_pool);
@@ -710,6 +711,13 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 static void tdx_hardware_enable(void)
 {
 	INIT_LIST_HEAD(&per_cpu(associated_tdvcpus, raw_smp_processor_id()));
+
+	if (!cmpxchg(&trace_seamcalls_initialized, 0, 1)) {
+		tdh_trace_seamcalls(trace_seamcalls);
+
+		/* Unconditionally intercept triple faults to aid debug. */
+		tdxmode(true, BIT_ULL(EXIT_REASON_TRIPLE_FAULT));
+	}
 }
 
 static void tdx_hardware_disable(void)
@@ -1381,6 +1389,8 @@ static int tdx_handle_exit(struct kvm_vcpu *vcpu,
 		 * needs to be done in KVM.
 		 */
 		return 1;
+	case EXIT_REASON_TRIPLE_FAULT:
+		return tdx_handle_triple_fault(vcpu);
 	default:
 		break;
 	}

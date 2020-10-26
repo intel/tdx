@@ -42,6 +42,7 @@ static inline const struct tdsysinfo_struct *tdx_get_sysinfo(void)
 
 static int trace_seamcalls __read_mostly = DEBUGCONFIG_TRACE_CUSTOM;
 module_param(trace_seamcalls, int, 0444);
+static int trace_seamcalls_initialized;
 
 /* KeyID range reserved to TDX by BIOS */
 static u32 tdx_keyids_start __read_mostly;
@@ -975,6 +976,13 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 void tdx_hardware_enable(void)
 {
 	INIT_LIST_HEAD(&per_cpu(associated_tdvcpus, raw_smp_processor_id()));
+
+	if (!cmpxchg(&trace_seamcalls_initialized, 0, 1)) {
+		tdh_trace_seamcalls(trace_seamcalls);
+
+		/* Unconditionally intercept triple faults to aid debug. */
+		tdxmode(true, BIT_ULL(EXIT_REASON_TRIPLE_FAULT));
+	}
 }
 
 void tdx_hardware_disable(void)
@@ -2032,6 +2040,8 @@ static int __tdx_handle_exit(struct kvm_vcpu *vcpu,
 		return tdx_handle_ept_misconfig(vcpu);
 	case EXIT_REASON_DR_ACCESS:
 		return tdx_handle_dr(vcpu);
+	case EXIT_REASON_TRIPLE_FAULT:
+		return tdx_handle_triple_fault(vcpu);
 	case EXIT_REASON_OTHER_SMI:
 		/*
 		 * Unlike VMX, all the SMI in SEAM non-root mode (i.e. when

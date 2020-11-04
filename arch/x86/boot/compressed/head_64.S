@@ -465,6 +465,14 @@ SYM_CODE_START(startup_64)
 	/* Save the trampoline address in RCX */
 	movq	%rax, %rcx
 
+#if defined(CONFIG_INTEL_TDX_FIXES)
+	/*
+	 * Skip the trampoline for TDX guests, it's not needed if TDVF and the
+	 * guest use the same paging configuration (4 vs. 5 level). Disabling
+	 * paging appears to trigger issues on some platforms.
+	 */
+	jmp	trampoline_return
+#endif
 	/*
 	 * Load the address of trampoline_return() into RDI.
 	 * It will be used by the trampoline to return to the main code.

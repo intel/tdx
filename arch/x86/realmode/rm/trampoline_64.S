@@ -208,6 +208,22 @@ SYM_CODE_START(trampoline_start64)
 	lidt	tr_idt(%rip)
 	lgdt	tr_gdt64(%rip)
 
+#if defined(CONFIG_INTEL_TDX_FIXES)
+	/* Go directly to 4 level if 5 level is not needed */
+	lea	rm_stack_end(%rip),%rsp
+	movl	$__KERNEL_DS, %edx
+	movl	%edx, %ss
+	movl	%edx, %ds
+	movl	%edx, %es
+	movl	%edx, %fs
+	movl	%edx, %gs
+
+	# Setup trampoline 4 level pagetables
+	movl	$pa_trampoline_pgd, %eax
+	mov	%rax, %cr3
+
+	ljmpl	*tr_startup64(%rip)
+#endif
 	ljmpl	*tr_compat(%rip)
 SYM_CODE_END(trampoline_start64)
 
@@ -234,6 +250,13 @@ SYM_DATA_START(tr_compat)
 	.long	pa_trampoline_compat
 	.short	__KERNEL32_CS
 SYM_DATA_END(tr_compat)
+
+#if defined(CONFIG_INTEL_TDX_FIXES)
+SYM_DATA_START(tr_startup64)
+	.long	pa_startup_64
+	.short	__KERNEL_CS
+SYM_DATA_END(tr_startup64)
+#endif
 
 	.bss
 	.balign	PAGE_SIZE

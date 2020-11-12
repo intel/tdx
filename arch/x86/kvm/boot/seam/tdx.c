@@ -548,8 +548,10 @@ static int __init sanitize_cmrs(void)
 	bool observed_empty;
 	int i, j;
 
-	if (!tdx_nr_cmrs)
+	if (!tdx_nr_cmrs) {
+		pr_err("no valid CMR\n");
 		return -EIO;
+	}
 
 	for (i = 0, j = -1, observed_empty = false; i < tdx_nr_cmrs; i++) {
 		if (!tdx_cmrs[i].size) {
@@ -557,13 +559,17 @@ static int __init sanitize_cmrs(void)
 			continue;
 		}
 		/* Valid entry after empty entry isn't allowed, per SEAM. */
-		if (observed_empty)
+		if (observed_empty) {
+			pr_err("empty CMR entry among valid entries\n");
 			return -EIO;
+		}
 
 		/* The previous CMR must reside fully below this CMR. */
 		if (j >= 0 &&
-		    (tdx_cmrs[j].base + tdx_cmrs[j].size) > tdx_cmrs[i].base)
+		    (tdx_cmrs[j].base + tdx_cmrs[j].size) > tdx_cmrs[i].base) {
+			pr_err("disordered CMRs\n");
 			return -EIO;
+		}
 
 		if (j < 0 ||
 		    (tdx_cmrs[j].base + tdx_cmrs[j].size) != tdx_cmrs[i].base) {
@@ -577,8 +583,10 @@ static int __init sanitize_cmrs(void)
 		}
 	}
 	tdx_nr_cmrs = j + 1;
-	if (!tdx_nr_cmrs)
+	if (!tdx_nr_cmrs) {
+		pr_err("no valid CMR after adjustment\n");
 		return -EINVAL;
+	}
 
 	/*
 	 * Sanity check whether CMR has covered all memory in E820. We need
@@ -600,8 +608,11 @@ static int __init sanitize_cmrs(void)
 		if (!e820_type_cmr_ram(entry->type))
 			continue;
 
-		if (!in_cmr_range(entry->addr, entry->size))
+		if (!in_cmr_range(entry->addr, entry->size)) {
+			pr_err("e820 ram [0x%llx - 0x%llx] not covered by CMRs\n",
+				entry->addr, entry->addr + entry->size);
 			return -EINVAL;
+		}
 	}
 
 	return 0;

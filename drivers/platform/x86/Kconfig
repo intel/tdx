@@ -1301,6 +1301,15 @@ config INTEL_SCU_IPC_UTIL
 	  low level access for debug work and updating the firmware. Say
 	  N unless you will be doing this on an Intel MID platform.
 
+config INTEL_TDX_ATTESTATION
+	tristate "Intel TDX attestation driver"
+	depends on INTEL_TDX_GUEST
+	help
+	  The TDX attestation driver provides IOCTL or MMAP interfaces to
+	  the user to request TDREPORT from the TDX module or request quote
+	  from VMM. It is mainly used to get secure disk decryption keys from
+	  the key server.
+
 config INTEL_TELEMETRY
 	tristate "Intel SoC Telemetry Driver"
 	depends on X86_64

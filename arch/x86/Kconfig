@@ -894,6 +894,10 @@ config INTEL_TDX_GUEST
 	  memory contents and CPU state. TDX guests are protected from
 	  potential attacks from the VMM.
 
+config INTEL_TDX_FIXES
+	bool "Platform specific fixes"
+	depends on INTEL_TDX_GUEST
+
 endif #HYPERVISOR_GUEST
 
 source "arch/x86/Kconfig.cpu"

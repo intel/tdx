@@ -885,6 +885,14 @@ config INTEL_TDX_GUEST
 	  run in a CPU mode that protects the confidentiality of TD memory
 	  contents and the TD’s CPU state from other software, including VMM.
 
+config INTEL_TDX_ICL_FIXES
+	bool "Fixes specific for ICL chip"
+	depends on INTEL_TDX_GUEST
+
+config INTEL_TDX_FIXES
+	bool "Platform specific fixes"
+	depends on INTEL_TDX_GUEST
+
 endif #HYPERVISOR_GUEST
 
 source "arch/x86/Kconfig.cpu"

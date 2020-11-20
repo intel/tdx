@@ -268,6 +268,7 @@ struct kvm_xen_exit {
 #define KVM_EXIT_AP_RESET_HOLD    32
 #define KVM_EXIT_X86_BUS_LOCK     33
 #define KVM_EXIT_XEN              34
+#define KVM_EXIT_TDVMCALL         35
 
 /* For KVM_EXIT_INTERNAL_ERROR */
 /* Emulate instruction failed. */
@@ -446,6 +447,11 @@ struct kvm_run {
 		} msr;
 		/* KVM_EXIT_XEN */
 		struct kvm_xen_exit xen;
+		/* KVM_EXIT_TDVMCALL */
+		struct {
+			__u64 subfunc;
+			__u64 param[4];
+		} tdvmcall;
 		/* Fix the size of the union. */
 		char padding[256];
 	};

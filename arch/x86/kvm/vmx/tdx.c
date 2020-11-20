@@ -1279,6 +1279,32 @@ static int tdx_map_gpa(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static int tdx_get_quote(struct kvm_vcpu *vcpu)
+{
+	gpa_t gpa = tdvmcall_a0_read(vcpu);
+	gpa_t size = tdvmcall_a1_read(vcpu);
+
+	if (!IS_ALIGNED(gpa, PAGE_SIZE) || !IS_ALIGNED(size, PAGE_SIZE) ||
+	    gpa + size < gpa || kvm_is_private_gpa(vcpu->kvm, gpa)) {
+		tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
+		return 1;
+	}
+
+	return tdx_vp_vmcall_to_user(vcpu);
+}
+
+static int tdx_setup_event_notify_interrupt(struct kvm_vcpu *vcpu)
+{
+	u64 vector = tdvmcall_a0_read(vcpu);
+
+	if (!(vector >= 32 && vector <= 255)) {
+		tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
+		return 1;
+	}
+
+	return tdx_vp_vmcall_to_user(vcpu);
+}
+
 static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 {
 	if (tdvmcall_exit_type(vcpu))
@@ -1308,6 +1334,10 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 		return tdx_vp_vmcall_to_user(vcpu);
 	case TDG_VP_VMCALL_MAP_GPA:
 		return tdx_map_gpa(vcpu);
+	case TDG_VP_VMCALL_SETUP_EVENT_NOTIFY_INTERRUPT:
+		return tdx_setup_event_notify_interrupt(vcpu);
+	case TDG_VP_VMCALL_GET_QUOTE:
+		return tdx_get_quote(vcpu);
 	default:
 		break;
 	}

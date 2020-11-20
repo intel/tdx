@@ -1004,11 +1004,71 @@ static int tdx_map_gpa(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static int tdx_get_quote(struct kvm_vcpu *vcpu)
+{
+	gpa_t gpa = tdvmcall_p1_read(vcpu);
+
+	if (!IS_ALIGNED(gpa, PAGE_SIZE)) {
+		tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
+		return 1;
+	}
+
+	/*
+	 * Default return value is set as error.  user space would update this
+	 * value
+	 */
+	tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_TDREPORT_FAILED);
+	vcpu->run->exit_reason = KVM_EXIT_HYPERCALL;
+	vcpu->run->hypercall.nr = TDG_VP_VMCALL_GET_QUOTE;
+	vcpu->run->hypercall.args[0] = gpa;
+	vcpu->run->hypercall.args[1] = 0;
+	vcpu->run->hypercall.args[2] = 0;
+	vcpu->run->hypercall.args[3] = 0;
+	vcpu->run->hypercall.args[4] = 0;
+	vcpu->run->hypercall.args[5] = 0;
+	vcpu->run->hypercall.ret = 0;
+	vcpu->run->hypercall.longmode = 1;
+	vcpu->run->hypercall.pad = 0;
+
+	/* notify userspace to handle the request */
+	return 0;
+}
+
 static int tdx_report_fatal_error(struct kvm_vcpu *vcpu)
 {
 	vcpu->run->exit_reason = KVM_EXIT_SYSTEM_EVENT;
 	vcpu->run->system_event.type = KVM_SYSTEM_EVENT_CRASH;
 	vcpu->run->system_event.flags = tdvmcall_p1_read(vcpu);
+	return 0;
+}
+
+static int tdx_setup_event_notify_interrupt(struct kvm_vcpu *vcpu)
+{
+	u64 vector = tdvmcall_p1_read(vcpu);
+
+	if (!(vector >= 32 && vector <= 255)) {
+		tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
+		return 1;
+	}
+
+	/*
+	 * Default return value is set as error.  user space would update this
+	 * value
+	 */
+	tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
+	vcpu->run->exit_reason = KVM_EXIT_HYPERCALL;
+	vcpu->run->hypercall.nr = TDG_VP_VMCALL_SETUP_EVENT_NOTIFY_INTERRUPT;
+	vcpu->run->hypercall.args[0] = vector;
+	vcpu->run->hypercall.args[1] = 0;
+	vcpu->run->hypercall.args[2] = 0;
+	vcpu->run->hypercall.args[3] = 0;
+	vcpu->run->hypercall.args[4] = 0;
+	vcpu->run->hypercall.args[5] = 0;
+	vcpu->run->hypercall.ret = 0;
+	vcpu->run->hypercall.longmode = 1;
+	vcpu->run->hypercall.pad = 0;
+
+	/* notify userspace to handle the request */
 	return 0;
 }
 
@@ -1044,8 +1104,12 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 		return tdx_emulate_mmio(vcpu);
 	case TDG_VP_VMCALL_MAP_GPA:
 		return tdx_map_gpa(vcpu);
+	case TDG_VP_VMCALL_GET_QUOTE:
+		return tdx_get_quote(vcpu);
 	case TDG_VP_VMCALL_REPORT_FATAL_ERROR:
 		return tdx_report_fatal_error(vcpu);
+	case TDG_VP_VMCALL_SETUP_EVENT_NOTIFY_INTERRUPT:
+		return tdx_setup_event_notify_interrupt(vcpu);
 	default:
 		break;
 	}

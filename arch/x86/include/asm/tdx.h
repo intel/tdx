@@ -87,6 +87,7 @@ unsigned short tdx_inw(unsigned short port);
 unsigned int tdx_inl(unsigned short port);
 
 int tdx_get_tdreport(u64 data, u64 reportdata);
+int tdx_get_quote(u64 data);
 
 #else // !CONFIG_INTEL_TDX_GUEST
 
@@ -98,6 +99,11 @@ static inline bool is_tdx_guest(void)
 static inline void tdx_early_init(void) { };
 
 static inline int tdx_get_tdreport(u64 data, u64 reportdata)
+{
+	return -ENODEV;
+}
+
+static inline int tdx_get_quote(u64 data)
 {
 	return -ENODEV;
 }

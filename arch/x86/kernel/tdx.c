@@ -23,6 +23,7 @@
 /* TDX Module call Leaf IDs */
 #define TDINFO				1
 #define TDGETVEINFO			3
+#define TDREPORT			4
 #define TDACCEPTPAGE			6
 
 /* TDX hypercall Leaf IDs */
@@ -30,6 +31,12 @@
 
 /* TDX Module call error codes */
 #define TDX_PAGE_ALREADY_ACCEPTED       0x8000000000000001
+#define TDCALL_RETURN_CODE_MASK		0xFFFFFFFF00000000
+#define TDCALL_OPERAND_BUSY		0x8000020000000000
+#define TDCALL_INVALID_OPERAND		0x8000000000000000
+#define TDCALL_SUCCESS			0x0
+#define TDCALL_RETURN_CODE(a)		((a) & TDCALL_RETURN_CODE_MASK)
+
 
 #define VE_IS_IO_OUT(exit_qual)		(((exit_qual) & 8) ? 0 : 1)
 #define VE_GET_IO_SIZE(exit_qual)	(((exit_qual) & 7) + 1)
@@ -138,6 +145,35 @@ static bool tdg_perfmon_enabled(void)
 {
 	return td_info.attributes & BIT(63);
 }
+
+/*
+ * tdx_mcall_tdreport() - Generate TDREPORT_STRUCT using TDCALL.
+ *
+ * @data        : Physical address of 1024B aligned data to store
+ *                TDREPORT_STRUCT.
+ * @reportdata  : Physical address of 64B aligned report data
+ *
+ * return 0 on success or failure error number.
+ */
+int tdx_mcall_tdreport(u64 data, u64 reportdata)
+{
+	u64 ret;
+
+	if (!data || !reportdata || !prot_guest_has(PR_GUEST_TDX))
+		return -EINVAL;
+
+	ret = __trace_tdx_module_call(TDREPORT, data, reportdata, 0, 0, NULL);
+
+	if (ret == TDCALL_SUCCESS)
+		return 0;
+	else if (TDCALL_RETURN_CODE(ret) == TDCALL_INVALID_OPERAND)
+		return -EINVAL;
+	else if (TDCALL_RETURN_CODE(ret) == TDCALL_OPERAND_BUSY)
+		return -EBUSY;
+
+	return -EIO;
+}
+EXPORT_SYMBOL_GPL(tdx_mcall_tdreport);
 
 static void tdg_get_info(void)
 {

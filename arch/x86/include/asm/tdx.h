@@ -128,6 +128,7 @@ extern phys_addr_t tdg_shared_mask(void);
 extern int tdg_map_gpa(phys_addr_t gpa, int numpages,
 		       enum tdx_map_type map_type);
 int tdg_get_tdreport(u64 data, u64 reportdata);
+int tdg_get_quote(u64 data);
 
 #else // !CONFIG_INTEL_TDX_GUEST
 

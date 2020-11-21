@@ -24,7 +24,10 @@
 #define TDCALL_OPERAND_BUSY		0x01
 #define TDCALL_INVALID_OPERAND		0x8000000000000000
 
+#define TDVMCALL_TDREPORT_FAILED	0x8000000000000001
+
 #define TDVMCALL_MAP_GPA		0x10001
+#define TDVMCALL_GET_QUOTE		0x10002
 
 static struct {
 	unsigned int gpa_width;
@@ -124,6 +127,31 @@ int tdg_get_tdreport(u64 data, u64 reportdata)
 	if (ret == TDCALL_INVALID_OPERAND)
 		return -EINVAL;
 	else if (ret == TDCALL_OPERAND_BUSY)
+		return -EBUSY;
+
+	return 0;
+}
+
+/*
+ * tdg_get_quote() - Generate TDQUOTE using TDREPORT_STRUCT.
+ *
+ * @data        : Physical address of 4KB GPA memory which contains
+ *                TDREPORT_STRUCT.
+ *
+ * return 0 on success or failure error number.
+ */
+int tdg_get_quote(u64 data)
+{
+	u64 ret;
+
+	if (!data)
+		return -EINVAL;
+
+	ret = tdvmcall(TDVMCALL_GET_QUOTE, data, 0, 0, 0);
+
+	if (ret == TDCALL_INVALID_OPERAND)
+		return -EINVAL;
+	else if (ret == TDVMCALL_TDREPORT_FAILED)
 		return -EBUSY;
 
 	return 0;

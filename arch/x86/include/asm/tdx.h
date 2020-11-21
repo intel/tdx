@@ -40,6 +40,8 @@ phys_addr_t tdx_shared_mask(void);
 
 int tdx_hcall_request_gpa_type(phys_addr_t start, phys_addr_t end, bool enc);
 
+int tdx_mcall_tdreport(void *data, void *reportdata);
+
 #else
 
 static inline void tdx_early_init(void) { };

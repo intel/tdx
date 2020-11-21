@@ -18,6 +18,7 @@
 /* TDX module Call Leaf IDs */
 #define TDX_GET_INFO			1
 #define TDX_GET_VEINFO			3
+#define TDX_GET_REPORT			4
 #define TDX_ACCEPT_PAGE			6
 
 /* TDX hypercall Leaf IDs */
@@ -28,6 +29,12 @@
 #define VE_GET_IO_SIZE(exit_qual)	(((exit_qual) & 7) + 1)
 #define VE_GET_PORT_NUM(exit_qual)	((exit_qual) >> 16)
 #define VE_IS_IO_STRING(exit_qual)	((exit_qual) & 16 ? 1 : 0)
+
+/* TDX Module call error codes */
+#define TDCALL_RETURN_CODE_MASK		0xffffffff00000000
+#define TDCALL_RETURN_CODE(a)		((a) & TDCALL_RETURN_CODE_MASK)
+#define TDCALL_INVALID_OPERAND		0x8000000000000000
+#define TDCALL_OPERAND_BUSY		0x8000020000000000
 
 /* Guest TD execution environment information */
 static struct {
@@ -116,6 +123,50 @@ phys_addr_t tdx_shared_mask(void)
 {
 	return BIT_ULL(td_info.gpa_width - 1);
 }
+
+/*
+ * tdx_mcall_tdreport() - Generate TDREPORT_STRUCT using TDCALL.
+ *
+ * @data        : Address of 1024B aligned data to store
+ *                TDREPORT_STRUCT.
+ * @reportdata  : Address of 64B aligned report data
+ *
+ * return 0 on success or failure error number.
+ */
+int tdx_mcall_tdreport(void *data, void *reportdata)
+{
+	u64 ret;
+
+	/*
+	 * Use confidential guest TDX check to ensure this API is only
+	 * used by TDX guest platforms.
+	 */
+	if (!data || !reportdata || !cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
+		return -EINVAL;
+
+	/*
+	 * Pass the physical address of user generated reportdata
+	 * and the physical address of out pointer to store the
+	 * tdreport data to the TDX module to generate the
+	 * TD report. Generated data contains measurements/configuration
+	 * data of the TD guest. More info about ABI can be found in TDX
+	 * Guest-Host-Communication Interface (GHCI), sec titled
+	 * "TDG.MR.REPORT".
+	 */
+	ret = __tdx_module_call(TDX_GET_REPORT, virt_to_phys(data),
+				virt_to_phys(reportdata), 0, 0, NULL);
+
+	if (ret) {
+		if (TDCALL_RETURN_CODE(ret) == TDCALL_INVALID_OPERAND)
+			return -EINVAL;
+		if (TDCALL_RETURN_CODE(ret) == TDCALL_OPERAND_BUSY)
+			return -EBUSY;
+		return -EIO;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(tdx_mcall_tdreport);
 
 static void tdx_get_info(void)
 {

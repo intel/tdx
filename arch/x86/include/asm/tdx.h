@@ -42,6 +42,8 @@ int tdx_hcall_request_gpa_type(phys_addr_t start, phys_addr_t end, bool enc);
 
 int tdx_mcall_tdreport(void *data, void *reportdata);
 
+int tdx_hcall_get_quote(void *data, u64 len);
+
 #else
 
 static inline void tdx_early_init(void) { };

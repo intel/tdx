@@ -24,7 +24,10 @@
 #define TDCALL_OPERAND_BUSY		0x01
 #define TDCALL_INVALID_OPERAND		0x8000000000000000
 
+#define TDVMCALL_TDREPORT_FAILED	0x8000000000000001
+
 #define TDVMCALL_MAP_GPA		0x10001
+#define TDVMCALL_GET_QUOTE		0x10002
 
 static struct {
 	unsigned int gpa_width;
@@ -95,6 +98,43 @@ int tdx_get_tdreport(u64 data, u64 reportdata)
 	if (ret == TDCALL_INVALID_OPERAND)
 		ret = -EINVAL;
 	else if (ret == TDCALL_OPERAND_BUSY)
+		ret = -EBUSY;
+
+	return ret;
+}
+
+/*
+ * tdx_get_quote() - Generate TDQUOTE using TDREPORT_STRUCT.
+ *
+ * @data        : Physical address of 4KB GPA memory which contains
+ *                TDREPORT_STRUCT.
+ *
+ * return 0 on success or failure error number.
+ */
+int tdx_get_quote(u64 data)
+{
+	register long r10 asm("r10") = TDVMCALL_STANDARD;
+	register long r11 asm("r11") = TDVMCALL_GET_QUOTE;
+	register long r12 asm("r12") = data;
+	register long rcx asm("rcx");
+	int ret;
+
+	if (!data)
+		return -EINVAL;
+
+	/* Allow to pass R10, R11 and R12 down to the VMM */
+	rcx = BIT(10) | BIT(11) | BIT(12);
+
+	asm volatile(TDCALL
+			: "=a"(ret), "=r"(r10)
+			: "a"(TDVMCALL), "r"(rcx), "r"(r10), "r"(r11), "r"(r12)
+			: );
+
+	WARN_ON(ret || r10);
+
+	if (r10 == TDCALL_INVALID_OPERAND)
+		ret = -EINVAL;
+	else if (r10 == TDVMCALL_TDREPORT_FAILED)
 		ret = -EBUSY;
 
 	return ret;

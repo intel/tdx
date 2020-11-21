@@ -7,12 +7,17 @@
 #include <linux/cpufeature.h>
 #include <linux/export.h>
 #include <linux/io.h>
+#include <linux/spinlock.h>
+#include <linux/list.h>
+#include <linux/interrupt.h>
+#include <linux/irq.h>
 #include <asm/coco.h>
 #include <asm/tdx.h>
 #include <asm/vmx.h>
 #include <asm/insn.h>
 #include <asm/insn-eval.h>
 #include <asm/pgtable.h>
+#include <asm/irqdomain.h>
 
 /* TDX module Call Leaf IDs */
 #define TDX_GET_INFO			1
@@ -27,6 +32,7 @@
 /* TDX hypercall Leaf IDs */
 #define TDVMCALL_MAP_GPA		0x10001
 #define TDVMCALL_REPORT_FATAL_ERROR	0x10003
+#define TDVMCALL_SETUP_NOTIFY_INTR	0x10004
 
 /* MMIO direction */
 #define EPT_READ	0
@@ -50,6 +56,16 @@
 #define TDCALL_INVALID_OPERAND	0xc0000100
 
 #define TDREPORT_SUBTYPE_0	0
+
+struct event_irq_entry {
+	tdx_event_irq_cb_t handler;
+	void *data;
+	struct list_head head;
+};
+
+static int tdx_event_irq __ro_after_init;
+static LIST_HEAD(event_irq_cb_list);
+static DEFINE_SPINLOCK(event_irq_cb_lock);
 
 /*
  * Wrapper for standard use of __tdx_hypercall with no output aside from
@@ -873,3 +889,143 @@ void __init tdx_early_init(void)
 
 	pr_info("Guest detected\n");
 }
+
+static irqreturn_t tdx_event_irq_handler(int irq, void *dev_id)
+{
+	struct event_irq_entry *entry;
+
+	spin_lock(&event_irq_cb_lock);
+	list_for_each_entry(entry, &event_irq_cb_list, head) {
+		if (entry->handler)
+			entry->handler(entry->data);
+	}
+	spin_unlock(&event_irq_cb_lock);
+
+	return IRQ_HANDLED;
+}
+
+/* Reserve an IRQ from x86_vector_domain for TD event notification */
+static int __init tdx_event_irq_init(void)
+{
+	struct irq_alloc_info info;
+	struct irq_cfg *cfg;
+	int irq;
+
+	if (!cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
+		return 0;
+
+	init_irq_alloc_info(&info, NULL);
+
+	/*
+	 * Event notification vector will be delivered to the CPU
+	 * in which TDVMCALL_SETUP_NOTIFY_INTR hypercall is requested.
+	 * So set the IRQ affinity to the current CPU (CPU 0).
+	 */
+	info.mask = cpumask_of(0);
+
+	irq = irq_domain_alloc_irqs(x86_vector_domain, 1, cpu_to_node(0), &info);
+	if (irq <= 0) {
+		pr_err("Event notification IRQ allocation failed %d\n", irq);
+		return -EIO;
+	}
+
+	irq_set_handler(irq, handle_edge_irq);
+
+	/* Since the IRQ affinity is set, it cannot be balanced */
+	if (request_irq(irq, tdx_event_irq_handler, IRQF_NOBALANCING,
+			"tdx_event_irq", NULL)) {
+		pr_err("Event notification IRQ request failed\n");
+		goto err_free_domain_irqs;
+	}
+
+	cfg = irq_cfg(irq);
+
+	/*
+	 * Since tdx_event_irq_init() is triggered via early_initcall(),
+	 * it will called before secondary CPUs bringup. Since there is
+	 * only one CPU, it complies with the requirement of executing
+	 * the TDVMCALL_SETUP_NOTIFY_INTR hypercall on the same CPU where
+	 * the IRQ vector is allocated.
+	 *
+	 * Register callback vector address with VMM. More details
+	 * about the ABI can be found in TDX Guest-Host-Communication
+	 * Interface (GHCI), sec titled
+	 * "TDG.VP.VMCALL<SetupEventNotifyInterrupt>".
+	 */
+	if (_tdx_hypercall(TDVMCALL_SETUP_NOTIFY_INTR, cfg->vector, 0, 0, 0)) {
+		pr_err("Event notification hypercall failed\n");
+		goto err_free_irqs;
+	}
+
+	tdx_event_irq = irq;
+
+	return 0;
+
+err_free_irqs:
+	free_irq(irq, NULL);
+err_free_domain_irqs:
+	irq_domain_free_irqs(irq, 1);
+
+	return -EIO;
+}
+early_initcall(tdx_event_irq_init)
+
+/**
+ * tdx_register_event_irq_cb() - Register TDX event IRQ callback handler.
+ * @handler: Address of driver specific event IRQ callback handler. Handler
+ *           will be called in IRQ context and hence cannot sleep.
+ * @data: Context data to be passed to the callback handler.
+ *
+ * Return: 0 on success or standard error code on other failures.
+ */
+int tdx_register_event_irq_cb(tdx_event_irq_cb_t handler, void *data)
+{
+	struct event_irq_entry *entry;
+	unsigned long flags;
+
+	if (tdx_event_irq <= 0)
+		return -EIO;
+
+	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+	if (!entry)
+		return -ENOMEM;
+
+	entry->data = data;
+	entry->handler = handler;
+
+	spin_lock_irqsave(&event_irq_cb_lock, flags);
+	list_add_tail(&entry->head, &event_irq_cb_list);
+	spin_unlock_irqrestore(&event_irq_cb_lock, flags);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(tdx_register_event_irq_cb);
+
+/**
+ * tdx_unregister_event_irq_cb() - Unregister TDX event IRQ callback handler.
+ * @handler: Address of driver specific event IRQ callback handler.
+ * @data: Context data to be passed to the callback handler.
+ *
+ * Return: 0 on success or -EIO if event IRQ is not allocated.
+ */
+int tdx_unregister_event_irq_cb(tdx_event_irq_cb_t handler, void *data)
+{
+	struct event_irq_entry *entry;
+	unsigned long flags;
+
+	if (tdx_event_irq <= 0)
+		return -EIO;
+
+	spin_lock_irqsave(&event_irq_cb_lock, flags);
+	list_for_each_entry(entry, &event_irq_cb_list, head) {
+		if (entry->handler == handler && entry->data == data) {
+			list_del(&entry->head);
+			kfree(entry);
+			break;
+		}
+	}
+	spin_unlock_irqrestore(&event_irq_cb_lock, flags);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(tdx_unregister_event_irq_cb);

@@ -96,6 +96,8 @@ extern int tdx_hcall_gpa_intent(phys_addr_t gpa, int numpages,
 
 bool tdg_filter_enabled(void);
 
+int tdx_mcall_tdreport(u64 data, u64 reportdata);
+
 /*
  * To support I/O port access in decompressor or early kernel init
  * code, since #VE exception handler cannot be used, use paravirt

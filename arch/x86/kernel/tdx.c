@@ -26,6 +26,7 @@
 
 #define TDVMCALL_MAP_GPA		0x10001
 #define TDVMCALL_GET_QUOTE		0x10002
+#define TDVMCALL_SETUP_NOTIFY_INTR	0x10004
 
 static struct {
 	unsigned int gpa_width;
@@ -147,6 +148,29 @@ int tdg_get_quote(u64 data)
 		return -EINVAL;
 	else if (ret == TDVMCALL_TDREPORT_FAILED)
 		return -EBUSY;
+
+	return 0;
+}
+
+/*
+ * tdg_set_notify_intr() - Setup Event Notify Interrupt Vector.
+ *
+ * @vector        : Vector address to be used for notification.
+ *
+ * return 0 on success or failure error number.
+ */
+int tdg_set_notify_intr(u8 vector)
+{
+	u64 ret;
+
+	/* Mininum vector value allowed is 32 */
+	if (vector < 32)
+		return -EINVAL;
+
+	ret = tdvmcall(TDVMCALL_SETUP_NOTIFY_INTR, vector, 0, 0, 0);
+
+	if (ret == TDCALL_INVALID_OPERAND)
+		return -EINVAL;
 
 	return 0;
 }

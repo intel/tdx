@@ -14,6 +14,7 @@
 
 #define TDINFO			1
 #define TDGETVEINFO		3
+#define TDREPORT		4
 #define TDACCEPTPAGE		6
 
 #define TDX_PAGE_ALREADY_ACCEPTED       0x00000B0A00000000
@@ -117,6 +118,7 @@ unsigned int tdg_inl(unsigned short port);
 
 phys_addr_t tdg_shared_mask(void);
 int tdg_map_gpa(phys_addr_t gpa, int numpages, bool private);
+int tdg_get_tdreport(u64 data, u64 reportdata);
 
 #else // !CONFIG_INTEL_TDX_GUEST
 

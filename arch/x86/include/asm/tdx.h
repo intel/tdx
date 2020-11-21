@@ -8,6 +8,7 @@
 #define TDVMCALL	0
 #define TDINFO		1
 #define TDGETVEINFO	3
+#define TDREPORT	4
 #define TDACCEPTPAGE	6
 
 #define TDX_PAGE_ALREADY_ACCEPTED       0x00000B0A00000000
@@ -78,6 +79,8 @@ unsigned char tdx_inb(unsigned short port);
 unsigned short tdx_inw(unsigned short port);
 unsigned int tdx_inl(unsigned short port);
 
+int tdx_get_tdreport(u64 data, u64 reportdata);
+
 #else // !CONFIG_INTEL_TDX_GUEST
 
 static inline bool is_tdx_guest(void)
@@ -86,6 +89,11 @@ static inline bool is_tdx_guest(void)
 }
 
 static inline void tdx_early_init(void) { };
+
+static inline int tdx_get_tdreport(u64 data, u64 reportdata)
+{
+	return -ENODEV;
+}
 
 #endif /* CONFIG_INTEL_TDX_GUEST */
 

@@ -53,6 +53,8 @@ struct ve_info {
 
 #ifdef CONFIG_INTEL_TDX_GUEST
 
+extern int tdx_notify_irq;
+
 void __init tdx_early_init(void);
 
 /* Used to communicate with the TDX module */

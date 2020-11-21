@@ -40,6 +40,8 @@ struct ve_info {
 
 #ifdef CONFIG_INTEL_TDX_GUEST
 
+extern int tdx_notify_irq;
+
 void __init tdx_early_init(void);
 
 void tdx_get_ve_info(struct ve_info *ve);

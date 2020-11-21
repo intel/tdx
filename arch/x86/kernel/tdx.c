@@ -21,7 +21,10 @@
 #include "tdx-kvm.c"
 #endif
 
-#define TDVMCALL_MAP_GPA	0x10001
+#define TDCALL_OPERAND_BUSY		0x01
+#define TDCALL_INVALID_OPERAND		0x8000000000000000
+
+#define TDVMCALL_MAP_GPA		0x10001
 
 static struct {
 	unsigned int gpa_width;
@@ -98,6 +101,32 @@ bool tdg_debug_enabled(void)
 static bool tdg_perfmon_enabled(void)
 {
 	return td_info.attributes & BIT(63);
+}
+
+/*
+ * tdg_get_tdreport() - Generate TDREPORT_STRUCT using TDCALL.
+ *
+ * @data        : Physical address of 1024B aligned data to store
+ *                TDREPORT_STRUCT.
+ * @reportdata  : Physical address of 64B aligned report data
+ *
+ * return 0 on success or failure error number.
+ */
+int tdg_get_tdreport(u64 data, u64 reportdata)
+{
+	u64 ret;
+
+	if (!data || !reportdata)
+		return -EINVAL;
+
+	ret = __tdcall(TDREPORT, data, reportdata, 0, 0, NULL);
+
+	if (ret == TDCALL_INVALID_OPERAND)
+		return -EINVAL;
+	else if (ret == TDCALL_OPERAND_BUSY)
+		return -EBUSY;
+
+	return 0;
 }
 
 static void tdg_get_info(void)

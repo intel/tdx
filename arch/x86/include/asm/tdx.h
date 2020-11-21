@@ -19,6 +19,7 @@ enum tdx_map_type {
 
 #define TDINFO			1
 #define TDGETVEINFO		3
+#define TDREPORT		4
 #define TDACCEPTPAGE		6
 
 #define TDX_PAGE_ALREADY_ACCEPTED	0x8000000000000001
@@ -126,6 +127,7 @@ unsigned int tdg_inl(unsigned short port);
 extern phys_addr_t tdg_shared_mask(void);
 extern int tdg_map_gpa(phys_addr_t gpa, int numpages,
 		       enum tdx_map_type map_type);
+int tdg_get_tdreport(u64 data, u64 reportdata);
 
 #else // !CONFIG_INTEL_TDX_GUEST
 

@@ -119,6 +119,7 @@ phys_addr_t tdg_shared_mask(void);
 int tdg_map_gpa(phys_addr_t gpa, int numpages, bool private);
 int tdg_get_tdreport(u64 data, u64 reportdata);
 int tdg_get_quote(u64 data);
+int tdg_set_notify_intr(u8 vector);
 
 #else // !CONFIG_INTEL_TDX_GUEST
 

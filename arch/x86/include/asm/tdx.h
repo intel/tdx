@@ -81,6 +81,7 @@ unsigned int tdx_inl(unsigned short port);
 
 int tdx_get_tdreport(u64 data, u64 reportdata);
 int tdx_get_quote(u64 data);
+int tdx_set_notify_intr(u8 vector);
 
 #else // !CONFIG_INTEL_TDX_GUEST
 
@@ -97,6 +98,11 @@ static inline int tdx_get_tdreport(u64 data, u64 reportdata)
 }
 
 static inline int tdx_get_quote(u64 data)
+{
+	return -ENODEV;
+}
+
+static inline int tdx_set_notify_intr(u8 vector)
 {
 	return -ENODEV;
 }

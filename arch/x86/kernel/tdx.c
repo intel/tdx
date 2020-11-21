@@ -28,6 +28,7 @@
 
 #define TDVMCALL_MAP_GPA		0x10001
 #define TDVMCALL_GET_QUOTE		0x10002
+#define TDVMCALL_SETUP_NOTIFY_INTR	0x10004
 
 static struct {
 	unsigned int gpa_width;
@@ -136,6 +137,41 @@ int tdx_get_quote(u64 data)
 		ret = -EINVAL;
 	else if (r10 == TDVMCALL_TDREPORT_FAILED)
 		ret = -EBUSY;
+
+	return ret;
+}
+
+/*
+ * tdx_set_notify_intr() - Setup Event Notify Interrupt Vector.
+ *
+ * @vector        : Vector address to be used for notification.
+ *
+ * return 0 on success or failure error number.
+ */
+int tdx_set_notify_intr(u8 vector)
+{
+	register long r10 asm("r10") = TDVMCALL_STANDARD;
+	register long r11 asm("r11") = TDVMCALL_SETUP_NOTIFY_INTR;
+	register long r12 asm("r12") = vector;
+	register long rcx asm("rcx");
+	int ret;
+
+	/* Mininum vector value allowed is 32 */
+	if (vector < 32)
+		return -EINVAL;
+
+	/* Allow to pass R10, R11 and R12 down to the VMM */
+	rcx = BIT(10) | BIT(11) | BIT(12);
+
+	asm volatile(TDCALL
+			: "=a"(ret), "=r"(r10)
+			: "a"(TDVMCALL), "r"(rcx), "r"(r10), "r"(r11), "r"(r12)
+			: );
+
+	WARN_ON(ret || r10);
+
+	if (r10 == TDCALL_INVALID_OPERAND)
+		ret = -EINVAL;
 
 	return ret;
 }

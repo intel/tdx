@@ -898,6 +898,10 @@ static int tdx_map_gpa(struct kvm_vcpu *vcpu)
 
 static int tdx_get_quote(struct kvm_vcpu *vcpu)
 {
+#if 1
+	tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_SUCCESS);
+	return 1;
+#else
 	gpa_t gpa = tdvmcall_p1_read(vcpu);
 
 	if (!IS_ALIGNED(gpa, PAGE_SIZE)) {
@@ -917,6 +921,7 @@ static int tdx_get_quote(struct kvm_vcpu *vcpu)
 
 	/* notify userspace to handle the request */
 	return 0;
+#endif
 }
 
 static int tdx_report_fatal_error(struct kvm_vcpu *vcpu)
@@ -929,6 +934,10 @@ static int tdx_report_fatal_error(struct kvm_vcpu *vcpu)
 
 static int tdx_setup_event_notify_interrupt(struct kvm_vcpu *vcpu)
 {
+#if 1
+	tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_SUCCESS);
+	return 1;
+#else
 	u64 vector = tdvmcall_p1_read(vcpu);
 
 	if (!(32 <= vector && vector <= 255)) {
@@ -948,6 +957,7 @@ static int tdx_setup_event_notify_interrupt(struct kvm_vcpu *vcpu)
 
 	/* notify userspace to handle the request */
 	return 0;
+#endif
 }
 
 static int handle_tdvmcall(struct kvm_vcpu *vcpu)

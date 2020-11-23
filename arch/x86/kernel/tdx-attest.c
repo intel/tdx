@@ -94,6 +94,8 @@ static long tdx_attest_ioctl(struct file *filp, unsigned int cmd,
 			break;
 		}
 
+		apic->send_IPI_all(HYPERVISOR_CALLBACK_VECTOR);
+
 		/* Wait for attestation completion */
 		wait_for_completion_interruptible(&attestation_done);
 

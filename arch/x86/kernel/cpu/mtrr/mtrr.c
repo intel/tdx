@@ -713,6 +713,15 @@ void __init mtrr_bp_init(void)
 			     boot_cpu_data.x86_stepping == 0x4))
 				phys_addr = 36;
 
+			if (boot_cpu_has(X86_FEATURE_TME)) {
+				u64 tme_activate;
+
+				rdmsrl(MSR_IA32_TME_ACTIVATE, tme_activate);
+				if (TME_ACTIVATE_LOCKED(tme_activate) &&
+				    TME_ACTIVATE_ENABLED(tme_activate)) {
+					phys_addr -= TME_ACTIVATE_KEYID_BITS(tme_activate);
+				}
+			}
 			size_or_mask = SIZE_OR_MASK_BITS(phys_addr);
 			size_and_mask = ~size_or_mask & 0xfffff00000ULL;
 		} else if (boot_cpu_data.x86_vendor == X86_VENDOR_CENTAUR &&

@@ -654,7 +654,7 @@ static void __init print_mtrr_state(void)
 	}
 	pr_info("MTRR variable ranges %sabled:\n",
 		mtrr_state.enabled & MTRR_STATE_MTRR_ENABLED ? "en" : "dis");
-	high_width = (boot_cpu_data.x86_phys_bits - (32 - PAGE_SHIFT) + 3) / 4;
+	high_width = ((boot_cpu_data.x86_phys_bits - phys_key_bits) - (32 - PAGE_SHIFT) + 3) / 4;
 
 	for (i = 0; i < num_var_ranges; ++i) {
 		if (mtrr_state.var_ranges[i].mask_lo & MTRR_PHYSMASK_V)

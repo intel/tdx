@@ -170,7 +170,7 @@ set_var_mtrr(unsigned int reg, unsigned long basek, unsigned long sizek,
 		return;
 	}
 
-	mask = (1ULL << boot_cpu_data.x86_phys_bits) - 1;
+	mask = (1ULL << (boot_cpu_data.x86_phys_bits - phys_key_bits)) - 1;
 	mask &= ~((((u64)sizek) << 10) - 1);
 
 	base = ((u64)basek) << 10;

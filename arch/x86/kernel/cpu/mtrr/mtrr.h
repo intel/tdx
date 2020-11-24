@@ -61,6 +61,7 @@ extern unsigned int num_var_ranges;
 extern u64 mtrr_tom2;
 extern struct mtrr_state_type mtrr_state;
 extern u32 phys_hi_rsvd;
+extern u32 phys_key_bits;
 
 void mtrr_state_warn(void);
 const char *mtrr_attrib_to_str(int x);

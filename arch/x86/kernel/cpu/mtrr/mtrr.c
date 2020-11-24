@@ -64,6 +64,7 @@ unsigned int mtrr_usage_table[MTRR_MAX_VAR_RANGES];
 DEFINE_MUTEX(mtrr_mutex);
 
 const struct mtrr_ops *mtrr_if;
+u32 phys_key_bits;
 
 /*  Returns non-zero if we have the write-combining memory type  */
 static int have_wrcomb(void)
@@ -253,7 +254,7 @@ int mtrr_add_page(unsigned long base, unsigned long size,
 	}
 
 	if ((base | (base + size - 1)) >>
-	    (boot_cpu_data.x86_phys_bits - PAGE_SHIFT)) {
+	    (boot_cpu_data.x86_phys_bits - phys_key_bits - PAGE_SHIFT)) {
 		pr_warn("base or size exceeds the MTRR width\n");
 		return -EINVAL;
 	}
@@ -556,7 +557,16 @@ void __init mtrr_bp_init(void)
 	const char *why = "(not available)";
 	unsigned long config, dummy;
 
-	phys_hi_rsvd = GENMASK(31, boot_cpu_data.x86_phys_bits - 32);
+	if (boot_cpu_has(X86_FEATURE_TME)) {
+		u64 tme_activate;
+
+		rdmsrl(MSR_IA32_TME_ACTIVATE, tme_activate);
+		if (TME_ACTIVATE_LOCKED(tme_activate) &&
+		    TME_ACTIVATE_ENABLED(tme_activate)) {
+			phys_key_bits = TME_ACTIVATE_KEYID_BITS(tme_activate);
+		}
+	}
+	phys_hi_rsvd = GENMASK(31, (boot_cpu_data.x86_phys_bits - phys_key_bits) - 32);
 
 	if (!generic_mtrrs && mtrr_state.enabled) {
 		/*

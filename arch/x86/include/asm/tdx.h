@@ -83,6 +83,9 @@ int tdx_get_tdreport(u64 data, u64 reportdata);
 int tdx_get_quote(u64 data);
 int tdx_set_notify_intr(u8 vector);
 
+int tdx_guest_register_callback_handler(void (*handler)(void));
+void tdx_guest_unregister_callback_handler(void);
+
 #else // !CONFIG_INTEL_TDX_GUEST
 
 static inline bool is_tdx_guest(void)
@@ -106,6 +109,13 @@ static inline int tdx_set_notify_intr(u8 vector)
 {
 	return -ENODEV;
 }
+
+static inline int tdx_guest_register_callback_handler(void (*handler)(void))
+{
+	return -ENODEV;
+}
+
+static inline void tdx_guest_unregister_callback_handler(void) { }
 
 #endif /* CONFIG_INTEL_TDX_GUEST */
 

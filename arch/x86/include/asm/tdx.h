@@ -44,6 +44,7 @@ int tdx_mcall_tdreport(void *data, void *reportdata);
 
 int tdx_hcall_get_quote(void *data, u64 len);
 
+extern void (*tdx_event_notify_handler)(void);
 #else
 
 static inline void tdx_early_init(void) { };

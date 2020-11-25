@@ -182,6 +182,13 @@ int arch_show_interrupts(struct seq_file *p, int prec)
 			   irq_stats(j)->kvm_posted_intr_wakeup_ipis);
 	seq_puts(p, "  Posted-interrupt wakeup event\n");
 #endif
+
+#ifdef CONFIG_INTEL_TDX_GUEST
+	seq_printf(p, "%*s: ", prec, "TGN");
+	for_each_online_cpu(j)
+		seq_printf(p, "%10u ", irq_stats(j)->irq_tdg_callback_count);
+	seq_puts(p, "  TDX guest notification event\n");
+#endif
 	return 0;
 }
 

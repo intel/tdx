@@ -46,6 +46,7 @@ typedef struct {
 #endif
 #if IS_ENABLED(CONFIG_INTEL_TDX_GUEST)
 	unsigned int tdx_ve_count;
+	unsigned int irq_tdx_event_notify_count;
 #endif
 } ____cacheline_aligned irq_cpustat_t;
 

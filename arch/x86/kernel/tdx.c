@@ -4,6 +4,11 @@
 #include <asm/tdx.h>
 #include <asm/cmdline.h>
 #include <asm/i8259.h>
+#include <asm/apic.h>
+#include <asm/idtentry.h>
+#include <asm/irq_regs.h>
+#include <asm/desc.h>
+#include <asm/idtentry.h>
 #include <asm/vmx.h>
 #include <asm/insn.h>
 #include <linux/sched/signal.h> /* force_sig_fault() */
@@ -32,6 +37,8 @@ static struct {
 	unsigned int gpa_width;
 	unsigned long attributes;
 } td_info __ro_after_init;
+
+static void (*tdg_callback_handler)(void);
 
 /*
  * Wrapper for the common case with standard output value (R10).
@@ -99,6 +106,44 @@ bool tdg_debug_enabled(void)
 static bool tdg_perfmon_enabled(void)
 {
 	return td_info.attributes & BIT(63);
+}
+
+int tdg_register_callback_handler(void (*handler)(void))
+{
+	/* register only if its NULL*/
+	if (!tdg_callback_handler)
+		tdg_callback_handler = handler;
+	else
+		return -EBUSY;
+
+	return 0;
+}
+
+void tdg_unregister_callback_handler(void)
+{
+	tdg_callback_handler = NULL;
+}
+
+/* TDX guest callback handler */
+DEFINE_IDTENTRY_SYSVEC(sysvec_tdg_callback)
+{
+	struct pt_regs *old_regs = set_irq_regs(regs);
+
+	inc_irq_stat(irq_tdg_callback_count);
+
+	if (tdg_callback_handler)
+		tdg_callback_handler();
+
+	/*
+	 * The hypervisor requires that the APIC EOI should be acked.
+	 * If the APIC EOI is not acked, the APIC ISR bit for the
+	 * HYPERVISOR_CALLBACK_VECTOR will not be cleared and then it
+	 * will block the interrupt whose vector is lower than
+	 * HYPERVISOR_CALLBACK_VECTOR.
+	 */
+	ack_APIC_irq();
+
+	set_irq_regs(old_regs);
 }
 
 /*
@@ -579,6 +624,11 @@ void __init tdx_early_init(void)
 	    "tdx_disable_lockdown")) {
 		lock_kernel_down("TDX guest init", lockdown_reason);
 	}
+
+	alloc_intr_gate(HYPERVISOR_CALLBACK_VECTOR, asm_sysvec_tdg_callback);
+
+	if (tdg_set_notify_intr(HYPERVISOR_CALLBACK_VECTOR))
+		pr_warn("Seting callback interrupt failed\n");
 
 	pr_info("TDX guest is initialized\n");
 }

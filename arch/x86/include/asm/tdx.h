@@ -128,6 +128,9 @@ int tdg_get_tdreport(u64 data, u64 reportdata);
 int tdg_get_quote(u64 data);
 int tdg_set_notify_intr(u8 vector);
 
+int tdg_register_callback_handler(void (*handler)(void));
+void tdg_unregister_callback_handler(void);
+
 #else // !CONFIG_INTEL_TDX_GUEST
 
 static inline bool is_tdx_guest(void)
@@ -176,6 +179,14 @@ static inline int tdg_map_gpa(phys_addr_t gpa, int numpages,
 {
 	return -ENODEV;
 }
+
+static inline int tdg_register_callback_handler(void (*handler)(void))
+{
+	return -ENODEV;
+}
+
+static inline void tdg_unregister_callback_handler(void) { }
+
 #endif /* CONFIG_INTEL_TDX_GUEST */
 #endif /* __ASSEMBLY__ */
 #endif /* _ASM_X86_TDX_H */

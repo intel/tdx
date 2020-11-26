@@ -50,7 +50,7 @@ SYM_CODE_START(launch_seamldr)
 
 	/*
 	 * SEAMLDR restores GDTR and CS before ExitAC, DS/ES/SS don't need to
-	 * be manually preserved as this is 64-bit mode, and FS/GS and IDTR are
+	 * be manually preserved as this is 64-bit mode, and FS/GS are
 	 * not modified by EnterACCS or SEAMLDR.
 	 */
 
@@ -71,12 +71,15 @@ SYM_CODE_START(launch_seamldr)
 	 *  - R9: GDT base to be setup by SEMALDR when returning to kernel
 	 *  - R10: RIP of resume point
 	 *  - R11: CR3 when returning to kernel
+	 *  - R12: IDT to be setup by SEAMLDR when returning to kernel
 	 */
 	movq	%rdx, %r8
 	sgdt	kernel_gdt64(%rip)
 	movq	kernel_gdt64_base(%rip), %r9
 	leaq	.Lseamldr_resume(%rip), %r10
 	movq	%cr3, %r11
+	sidt	kernel_idt(%rip)
+	movq	kernel_idt_base(%rip), %r12
 
 	/* Save MSRs that are modified by EnterACCS and/or SEAMLDR */
 	save_msr MSR_EFER
@@ -114,7 +117,7 @@ SYM_CODE_START(launch_seamldr)
 
 .Lseamldr_resume:
 	/*
-	 * SEAMLDR restores CRs and GDT.  Segment registers are flat, but
+	 * SEAMLDR restores CRs, GDT and IDT.  Segment registers are flat, but
 	 * don't hold kernel selectors.  Reload the data segs now.
 	 */
 	movl	$__KERNEL_DS, %eax
@@ -183,6 +186,10 @@ SYM_CODE_END(launch_seamldr)
 
 	__INITDATA
 	.balign	8
+kernel_idt:
+	.word	0
+kernel_idt_base:
+	.quad	0
 kernel_gdt64:
 	.word	0
 kernel_gdt64_base:

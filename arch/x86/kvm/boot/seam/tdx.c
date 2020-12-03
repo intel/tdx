@@ -28,14 +28,6 @@
 static DEFINE_PER_CPU(unsigned long, tdx_vmxon_vmcs);
 static atomic_t tdx_init_cpu_errors;
 
-/*
- * TODO: better to have kernel boot parameter to let admin control whether to
- * enable TDX with sysprof or not.
- *
- * Or how to decide tdx_sysprof??
- */
-static bool tdx_sysprof;
-
 /* KeyID range reserved to TDX by BIOS */
 static u32 tdx_keyids_start;
 static u32 tdx_nr_keyids;
@@ -803,7 +795,7 @@ static __init int tdx_init_bsp(void)
 
 	cpu_vmxon(__pa(vmcs));
 
-	err = tdsysinit(tdx_sysprof ? BIT(0) : 0, &ex_ret);
+	err = tdsysinit(0, &ex_ret);
 	if (TDX_ERR(err, TDSYSINIT)) {
 		ret = -EIO;
 		goto out_vmxoff;

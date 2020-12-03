@@ -6329,6 +6329,12 @@ static void vmx_cancel_injection(struct kvm_vcpu *vcpu)
 	vmcs_write32(VM_ENTRY_INTR_INFO_FIELD, 0);
 }
 
+/*
+ * TODO: TDX: if td.attribute.{debug = 1, perfmon = 0} and guest profiling
+ * is requested, * update GUEST_IA32_PERF_GLBOAL_CTRL,
+ * VM_ENTRY_LOAD_IA32_PERF_GLOBAL_CTRL, and
+ * VM_EXIT_LOAD_IA32_PERF_GLOBAL_CTRL properly.
+ */
 static void atomic_switch_perf_msrs(struct vcpu_vmx *vmx)
 {
 	int i, nr_msrs;

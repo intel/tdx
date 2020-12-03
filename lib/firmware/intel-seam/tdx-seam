@@ -1,0 +1,66 @@
+#! /bin/sh -e
+
+if [ -z "${TDXSEAM_SRCDIR}" ]; then
+    TDXSEAM_SRCDIR=/lib/firmware/intel-seam
+fi
+if [ -z "${TDXSEAM_FILES}" ]; then
+    TDXSEAM_FILES="seamldr.acm libtdx.so libtdx.so.sigstruct"
+fi
+TDXSEAM_DESTDIR=/lib/firmware/intel-seam
+
+PREREQ=""
+prereqs()
+{
+    echo "$PREREQ"
+}
+
+case $1 in
+    prereqs)
+        prereqs
+        exit 0
+        ;;
+esac
+
+. /usr/share/initramfs-tools/hook-functions
+
+
+verbose()
+{
+    if [ "${verbose}" = "y" ] ; then
+        echo "I: tdx-seam: $*"
+    fi
+    :
+}
+
+verbose "using tdx seam module into early initramfs..."
+EFW_TMP=$(mktemp -d "${TMPDIR:-/var/tmp}/mkinitramfs-EFW_XXXXXXXXXX") || {
+    echo "E: tdx-seam: cannot create temporary file" >&2
+    exit 1
+}
+EFW_D="${EFW_TMP}/d"
+EFW_CPIO="${EFW_TMP}/early-initramfs.cpio"
+
+cleanup()
+{
+    [ -d "${EFW_TMP}" ] && rm -fr "${EFW_TMP}" || true
+}
+
+errorout()
+{
+    cleanup
+    exit 1
+}
+
+mkdir -p ${EFW_D}/${TDXSEAM_DESTDIR} || errorout
+
+for f in ${TDXSEAM_FILES}; do
+    verbose "Adding tdx-seam module ${TDXSEAM_SRCDIR}/${f} -> ${EFW_D}/${TDXSEAM_DESTDIR}/$(basename ${f})
+"
+    cp ${TDXSEAM_SRCDIR}/${f} ${EFW_D}/${TDXSEAM_DESTDIR}/$(basename ${f}) || errorout
+done
+
+(cd ${EFW_D}; find . -type f -print0 | cpio --create --quiet --dereference --format newc --null -R 0:0 > ${EFW_CPIO}) || errorout
+prepend_earlyinitramfs "${EFW_CPIO}" || errorout
+
+cleanup
+exit 0

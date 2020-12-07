@@ -70,6 +70,7 @@ int tdg_handle_virtualization_exception(struct pt_regs *regs,
 /* Common API to check TDX support in decompression and common kernel code. */
 bool is_tdx_guest(void);
 
+bool tdg_debug_enabled(void);
 void __init tdx_early_init(void);
 
 /* Helper function used to communicate with the TDX module */

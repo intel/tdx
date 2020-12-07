@@ -123,6 +123,11 @@ phys_addr_t tdg_shared_mask(void)
 	return 1ULL << (td_info.gpa_width - 1);
 }
 
+bool tdg_debug_enabled(void)
+{
+	return td_info.attributes & BIT(0);
+}
+
 static void tdg_get_info(void)
 {
 	u64 ret;

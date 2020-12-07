@@ -28,6 +28,7 @@ struct ve_info {
 
 void __init tdx_early_init(void);
 bool is_tdx_guest(void);
+bool tdx_debug_enabled(void);
 
 void __init tdx_filter_init(void);
 

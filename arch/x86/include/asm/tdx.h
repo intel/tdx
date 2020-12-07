@@ -41,6 +41,7 @@ struct ve_info {
 #ifdef CONFIG_INTEL_TDX_GUEST
 
 void __init tdx_early_init(void);
+bool tdx_debug_enabled(void);
 
 void tdx_get_ve_info(struct ve_info *ve);
 

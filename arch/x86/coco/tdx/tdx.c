@@ -37,6 +37,9 @@
 
 #define TDREPORT_SUBTYPE_0	0
 
+/* Caches TD Attributes from TDG.VP.INFO TDCALL */
+static u64 td_attr;
+
 /* Called from __tdx_hypercall() for unrecoverable failure */
 noinstr void __tdx_hypercall_failed(void)
 {
@@ -143,7 +146,6 @@ static void tdx_parse_tdinfo(u64 *cc_mask)
 {
 	struct tdx_module_output out;
 	unsigned int gpa_width;
-	u64 td_attr;
 
 	/*
 	 * TDINFO TDX module call is used to get the TD execution environment
@@ -224,6 +226,11 @@ static int ve_instr_len(struct ve_info *ve)
 		WARN_ONCE(1, "Unexpected #VE-type: %lld\n", ve->exit_reason);
 		return ve->instr_len;
 	}
+}
+
+bool tdx_debug_enabled(void)
+{
+	return !!(td_attr & ATTR_DEBUG);
 }
 
 static u64 __cpuidle __halt(const bool irq_disabled)

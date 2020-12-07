@@ -145,6 +145,11 @@ phys_addr_t tdx_shared_mask(void)
 	return BIT_ULL(td_info.gpa_width - 1);
 }
 
+bool tdx_debug_enabled(void)
+{
+	return td_info.attributes & BIT(0);
+}
+
 /* TDX guest event notification handler */
 DEFINE_IDTENTRY_SYSVEC(sysvec_tdx_event_notify)
 {

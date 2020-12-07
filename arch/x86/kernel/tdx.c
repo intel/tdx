@@ -53,6 +53,11 @@ phys_addr_t tdx_shared_mask(void)
 	return 1ULL << (td_info.gpa_width - 1);
 }
 
+bool tdx_debug_enabled(void)
+{
+	return td_info.attributes & BIT(0);
+}
+
 static void tdx_get_info(void)
 {
 	register long rcx asm("rcx");

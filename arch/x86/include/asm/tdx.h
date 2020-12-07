@@ -69,6 +69,7 @@ enum tdx_map_type {
 #ifdef CONFIG_INTEL_TDX_GUEST
 
 bool is_tdx_guest(void);
+bool tdx_debug_enabled(void);
 void __init tdx_early_init(void);
 void __init tdx_filter_init(void);
 

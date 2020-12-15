@@ -1232,6 +1232,7 @@ static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 			return 0;
 		}
 	}
+	trace_kvm_page_fault(tdexit_gpa(vcpu), exit_qual);
 	return __vmx_handle_ept_violation(vcpu, tdexit_gpa(vcpu), exit_qual);
 }
 

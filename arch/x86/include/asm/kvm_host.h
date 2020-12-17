@@ -1565,8 +1565,10 @@ struct kvm_x86_ops {
 				     const struct kvm_userspace_memory_region *mem,
 				     enum kvm_mr_change change);
 
+#ifdef CONFIG_KVM_TDX_SEAM_BACKDOOR
 	void (*do_seamcall)(struct kvm_seamcall *call);
 	void (*do_tdenter)(struct kvm_tdenter *tdenter);
+#endif
 };
 
 struct kvm_x86_nested_ops {

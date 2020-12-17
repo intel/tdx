@@ -3771,11 +3771,26 @@ static void __exit tdx_debugfs_exit(void)
  */
 
 /* backdoor ioctl for testing */
+#ifdef CONFIG_KVM_TDX_SEAM_BACKDOOR
+static int enable_tdx_seam_backdoor __read_mostly;
+module_param_named(tdx_seam_backdoor, enable_tdx_seam_backdoor, bool, 0444);
+
 void tdx_do_seamcall(struct kvm_seamcall *call)
 {
 	struct kvm_seamcall_regs *out = &call->out;
 	struct kvm_seamcall_regs *in = &call->in;
 	struct tdx_ex_ret ex;
+
+	if (!enable_tdx_seam_backdoor) {
+		WARN("KVM_SEAMCALL backdoor is not enabled. "
+		     "ignoring the request");
+		return;
+	}
+
+	WARN_ONCE(1, "KVM_SEAMCALL is an unsupported backdoor "
+		  "only for development purpose."
+		  "which can be eliminated anytime.");
+	WARN_ON_ONCE(1);
 
 	memset(&ex, 0, sizeof(ex));
 	out->rax = seamcall(in->rax, in->rcx, in->rdx, in->r8, in->r9, in->r10,
@@ -3791,6 +3806,17 @@ void tdx_do_tdenter(struct kvm_tdenter *tdenter)
 {
 	union tdx_exit_reason exit_reason;
 	u64 *regs = tdenter->regs;
+
+	if (!enable_tdx_seam_backdoor) {
+		WARN("KVM_TDH_VP_ENTER backdoor is not enabled. "
+		     "ignoring the request");
+		return;
+	}
+
+	WARN_ONCE(1, "KVM_TDH_VP_ENTER is an unsupported backdoor "
+		  "only for development purpose."
+		  "which can be eliminated anytime.");
+	WARN_ON_ONCE(1);
 
 	preempt_disable();
 	local_irq_disable();
@@ -3814,3 +3840,4 @@ out:
 	local_irq_enable();
 	preempt_enable();
 }
+#endif

@@ -1977,6 +1977,10 @@ static int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	return 0;
 }
 
+#ifdef CONFIG_KVM_TDX_SEAM_BACKDOOR
+static int enable_tdx_seam_backdoor __read_mostly;
+module_param_named(tdx_seam_backdoor, enable_tdx_seam_backdoor, bool, 0444);
+
 static void tdx_do_seamcall(struct kvm_seamcall *call)
 {
 	struct kvm_seamcall_regs *out = &call->out;
@@ -1984,6 +1988,17 @@ static void tdx_do_seamcall(struct kvm_seamcall *call)
 	register long r8 asm("r8") = in->r8;
 	register long r9 asm("r9") = in->r9;
 	register long r10 asm("r10") = in->r10;
+
+	if (!enable_tdx_seam_backdoor) {
+		WARN("KVM_SEAMCALL backdoor is not enabled. "
+		     "ignoring the request");
+		return;
+	}
+
+	WARN_ONCE(1, "KVM_SEAMCALL is an unsupported backdoor "
+		  "only for development purpose."
+		  "which can be eliminated anytime.");
+	WARN_ON_ONCE(1);
 
 	asm volatile(__seamcall
 		     : ASM_CALL_CONSTRAINT, "=a"(out->rax), "=c"(out->rcx),
@@ -2001,6 +2016,17 @@ static void tdx_do_tdenter(struct kvm_tdenter *tdenter)
 {
 	union tdx_exit_reason exit_reason;
 	u64 *regs = tdenter->regs;
+
+	if (!enable_tdx_seam_backdoor) {
+		WARN("KVM_TDENTER backdoor is not enabled. "
+		     "ignoring the request");
+		return;
+	}
+
+	WARN_ONCE(1, "KVM_TDENTER is an unsupported backdoor "
+		  "only for development purpose."
+		  "which can be eliminated anytime.");
+	WARN_ON_ONCE(1);
 
 	preempt_disable();
 	local_irq_disable();
@@ -2024,3 +2050,4 @@ out:
 	local_irq_enable();
 	preempt_enable();
 }
+#endif

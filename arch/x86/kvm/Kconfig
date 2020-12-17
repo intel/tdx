@@ -92,6 +92,20 @@ config KVM_INTEL_TDX
 	help
 	  Extends KVM on Intel processors to support Trusted Domain Extensions.
 
+config KVM_INTEL_TDX_SEAM_BACKDOOR
+        bool "Trusted Domain Extensions backdoor interface for development"
+        default n
+        depends on KVM_INTEL_TDX
+
+        help
+          Backdoor interface to provide raw interface to call TDX SEAM module
+          for user land
+          This is only for development so that KVM doesn't guarantee any
+          integrity like cache coherency.
+          To enable this feature, also pass tdx_seam_backdoor to the command
+          line.
+          If unsure, say N.
+
 config KVM_AMD
 	tristate "KVM for AMD processors support"
 	depends on KVM

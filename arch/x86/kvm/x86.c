@@ -4237,6 +4237,7 @@ long kvm_arch_dev_ioctl(struct file *filp,
 			goto out;
 		r = kvm_x86_ops.mem_enc_op_dev(argp);
 		break;
+#ifdef CONFIG_KVM_TDX_SEAM_BACKDOOR
 	case KVM_SEAMCALL: {
 		struct kvm_seamcall __user *user_seamcall = argp;
 		struct kvm_seamcall seamcall;
@@ -4277,6 +4278,7 @@ long kvm_arch_dev_ioctl(struct file *filp,
 		r = 0;
 		break;
 	}
+#endif
 	default:
 		r = -EINVAL;
 		break;

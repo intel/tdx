@@ -64,6 +64,7 @@ static __init int vt_hardware_setup(void)
 	if (enable_tdx && tdx_hardware_setup(&vt_x86_ops))
 		enable_tdx = false;
 
+#ifdef CONFIG_KVM_TDX_SEAM_BACKDOOR
 	/*
 	 * Not a typo, direct SEAMCALL is only allowed when it won't interfere
 	 * with TDs created and managed by KVM.
@@ -72,6 +73,7 @@ static __init int vt_hardware_setup(void)
 		vt_x86_ops.do_seamcall = tdx_do_seamcall;
 		vt_x86_ops.do_tdenter = tdx_do_tdenter;
 	}
+#endif
 #endif
 
 	if (enable_ept) {

@@ -807,6 +807,16 @@ static __init int tdx_init_bsp(void)
 		ret = -EIO;
 		goto out_vmxoff;
 	}
+	pr_info("TDX SEAM module: "
+		"attributes 0x%x vendor_id 0x%x "
+		"build_date 0x%x build_num 0x%x "
+		"minor_version 0x%x major_version 0x%x.\n",
+		tdx_tdsysinfo.attributes,
+		tdx_tdsysinfo.vendor_id,
+		tdx_tdsysinfo.build_date,
+		tdx_tdsysinfo.build_num,
+		tdx_tdsysinfo.minor_version,
+		tdx_tdsysinfo.major_version);
 
 	tdx_nr_cmrs = ex_ret.nr_cmr_entries;
 	ret = 0;
@@ -1166,3 +1176,64 @@ void tdx_keyid_free(int keyid)
 	ida_free(&tdx_keyid_pool, keyid);
 }
 EXPORT_SYMBOL_GPL(tdx_keyid_free);
+
+#ifdef CONFIG_SYSFS
+
+#define TDX_SEAM_ATTR_SHOW(name)					\
+static ssize_t name ## _show(						\
+	struct kobject *kobj, struct kobj_attribute *attr, char *buf)	\
+{									\
+	return sprintf(buf, "0x%x\n", tdx_tdsysinfo. name );		\
+}									\
+static struct kobj_attribute tdx_attr_##name = __ATTR_RO(name);
+
+TDX_SEAM_ATTR_SHOW(attributes);
+TDX_SEAM_ATTR_SHOW(vendor_id);
+TDX_SEAM_ATTR_SHOW(build_date);
+TDX_SEAM_ATTR_SHOW(build_num);
+TDX_SEAM_ATTR_SHOW(minor_version);
+TDX_SEAM_ATTR_SHOW(major_version);
+
+static struct kobject *tdx_seam_kobj;
+static struct attribute *tdx_seam_attrs[] = {
+	&tdx_attr_attributes.attr,
+	&tdx_attr_vendor_id.attr,
+	&tdx_attr_build_date.attr,
+	&tdx_attr_build_num.attr,
+	&tdx_attr_minor_version.attr,
+	&tdx_attr_major_version.attr,
+	NULL,
+};
+
+static const struct attribute_group tdx_seam_attr_group = {
+	.attrs = tdx_seam_attrs,
+};
+
+static int __init tdx_seam_sysfs_init(void)
+{
+	int ret = 0;
+
+	if (!boot_cpu_has(X86_FEATURE_TDX))
+		return -ENOTSUPP;
+
+	tdx_seam_kobj = kobject_create_and_add("tdx_seam", firmware_kobj);
+	if (!tdx_seam_kobj) {
+		pr_err("kobject_create_and_add tdx_seam failed\n");
+		ret = -EINVAL;
+		goto out;
+	}
+	ret = sysfs_create_group(tdx_seam_kobj, &tdx_seam_attr_group);
+	if (ret) {
+		pr_err("Sysfs exporting attribute faild with error %d", ret);
+	}
+out:
+	if (ret) {
+		if (tdx_seam_kobj)
+			sysfs_remove_group(tdx_seam_kobj, &tdx_seam_attr_group);
+		kobject_put(tdx_seam_kobj);
+	}
+	return ret;
+}
+
+device_initcall(tdx_seam_sysfs_init);
+#endif

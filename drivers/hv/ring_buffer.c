@@ -17,6 +17,8 @@
 #include <linux/vmalloc.h>
 #include <linux/slab.h>
 #include <linux/prefetch.h>
+#include <linux/io.h>
+#include <asm/mshyperv.h>
 
 #include "hyperv_vmbus.h"
 
@@ -188,6 +190,49 @@ void hv_ringbuffer_pre_init(struct vmbus_channel *channel)
 	mutex_init(&channel->outbound.ring_buffer_mutex);
 }
 
+int hv_ringbuffer_post_init(struct hv_ring_buffer_info *ring_info,
+		       struct page *pages, u32 page_cnt)
+{
+	struct vm_struct *area;
+	u64 physic_addr = page_to_pfn(pages) << PAGE_SHIFT;
+	unsigned long vaddr;
+	int err = 0;
+
+	if (!hv_isolation_type_snp())
+		return 0;
+
+	physic_addr += ms_hyperv.shared_gpa_boundary;
+	area = get_vm_area((2 * page_cnt - 1) * PAGE_SIZE, 0);
+	if (!area || !area->addr)
+		return -ENOMEM;
+	if (apply_to_page_range(&init_mm, (unsigned long)area->addr,
+				(2 * page_cnt - 1) * PAGE_SIZE, NULL, NULL)) {
+		free_vm_area(area);
+		return -EFAULT;
+	}
+
+	vaddr = (unsigned long)area->addr;
+	err = ioremap_page_range(vaddr, vaddr + page_cnt * PAGE_SIZE,
+			   physic_addr, PAGE_KERNEL_IO);
+	err |= ioremap_page_range(vaddr + page_cnt * PAGE_SIZE,
+				  vaddr + (2 * page_cnt - 1) * PAGE_SIZE,
+				  physic_addr + PAGE_SIZE, PAGE_KERNEL_IO);
+	if (err) {
+		vunmap((void *)vaddr);
+		return -EFAULT;
+	}
+
+	/* Clean memory after setting host visibility. */
+	memset((void *)vaddr, 0x00, page_cnt * PAGE_SIZE);
+
+	ring_info->ring_buffer = (struct hv_ring_buffer *)vaddr;
+	ring_info->ring_buffer->read_index = 0;
+	ring_info->ring_buffer->write_index = 0;
+	ring_info->ring_buffer->feature_bits.value = 1;
+
+	return 0;
+}
+
 /* Initialize the ring buffer. */
 int hv_ringbuffer_init(struct hv_ring_buffer_info *ring_info,
 		       struct page *pages, u32 page_cnt)
@@ -197,33 +242,34 @@ int hv_ringbuffer_init(struct hv_ring_buffer_info *ring_info,
 
 	BUILD_BUG_ON((sizeof(struct hv_ring_buffer) != PAGE_SIZE));
 
-	/*
-	 * First page holds struct hv_ring_buffer, do wraparound mapping for
-	 * the rest.
-	 */
-	pages_wraparound = kcalloc(page_cnt * 2 - 1, sizeof(struct page *),
-				   GFP_KERNEL);
-	if (!pages_wraparound)
-		return -ENOMEM;
+	if (!hv_isolation_type_snp()) {
+		/*
+		 * First page holds struct hv_ring_buffer, do wraparound mapping for
+		 * the rest.
+		 */
+		pages_wraparound = kcalloc(page_cnt * 2 - 1, sizeof(struct page *),
+					   GFP_KERNEL);
+		if (!pages_wraparound)
+			return -ENOMEM;
 
-	pages_wraparound[0] = pages;
-	for (i = 0; i < 2 * (page_cnt - 1); i++)
-		pages_wraparound[i + 1] = &pages[i % (page_cnt - 1) + 1];
+		pages_wraparound[0] = pages;
+		for (i = 0; i < 2 * (page_cnt - 1); i++)
+			pages_wraparound[i + 1] = &pages[i % (page_cnt - 1) + 1];
 
-	ring_info->ring_buffer = (struct hv_ring_buffer *)
-		vmap(pages_wraparound, page_cnt * 2 - 1, VM_MAP, PAGE_KERNEL);
+		ring_info->ring_buffer = (struct hv_ring_buffer *)
+			vmap(pages_wraparound, page_cnt * 2 - 1, VM_MAP, PAGE_KERNEL);
 
-	kfree(pages_wraparound);
+		kfree(pages_wraparound);
 
+		if (!ring_info->ring_buffer)
+			return -ENOMEM;
 
-	if (!ring_info->ring_buffer)
-		return -ENOMEM;
+		ring_info->ring_buffer->read_index =
+			ring_info->ring_buffer->write_index = 0;
 
-	ring_info->ring_buffer->read_index =
-		ring_info->ring_buffer->write_index = 0;
-
-	/* Set the feature bit for enabling flow control. */
-	ring_info->ring_buffer->feature_bits.value = 1;
+		/* Set the feature bit for enabling flow control. */
+		ring_info->ring_buffer->feature_bits.value = 1;
+	}
 
 	ring_info->ring_size = page_cnt << PAGE_SHIFT;
 	ring_info->ring_size_div10_reciprocal =

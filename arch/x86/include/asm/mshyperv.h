@@ -277,7 +277,7 @@ void hv_ghcb_msr_write(u64 msr, u64 value);
 void hv_ghcb_msr_read(u64 msr, u64 *value);
 inline bool hv_partition_is_isolated(void);
 inline bool hv_isolation_type_snp(void);
-
+u64 hv_ghcb_hypercall(u64 control, void *input, void *output, u32 input_size);
 #define hv_get_synint_state_ghcb(int_num, val)			\
 	hv_sint_rdmsrl_ghcb(HV_X64_MSR_SINT0 + int_num, val)
 #define hv_set_synint_state_ghcb(int_num, val) \

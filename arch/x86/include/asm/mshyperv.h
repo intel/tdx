@@ -298,4 +298,9 @@ static inline bool hv_partition_is_isolated(void)
 	return (ms_hyperv.partition_flags & HV_X64_PARTITION_ISOLATION);
 }
 
+static inline bool hv_isolation_type_snp(void)
+{
+	return (ms_hyperv.cvm_flag & HV_X64_PARTITION_ISOLATION_SNP);
+}
+
 #endif

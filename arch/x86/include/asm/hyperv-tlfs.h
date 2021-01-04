@@ -24,6 +24,7 @@
 #define HYPERV_CPUID_CPU_MANAGEMENT_FEATURES	0x40000007
 #define HYPERV_CPUID_NESTED_FEATURES		0x4000000A
 #define HYPERV_CPUID_ISOLATION_CONFIG		0x4000000C
+#define HYPERV_CPUID_IVM_FEATURES		0x4000000C
 
 #define HYPERV_CPUID_VIRT_STACK_INTERFACE	0x40000081
 #define HYPERV_VS_INTERFACE_EAX_SIGNATURE	0x31235356  /* "VS#1" */
@@ -35,6 +36,11 @@
 #define HYPERV_HYPERVISOR_PRESENT_BIT		0x80000000
 #define HYPERV_CPUID_MIN			0x40000005
 #define HYPERV_CPUID_MAX			0x4000ffff
+
+/* ISOLATION VM type */
+#define HV_X64_PARTITION_ISOLATION_NONE            0
+#define HV_X64_PARTITION_ISOLATION_VBS             1
+#define HV_X64_PARTITION_ISOLATION_SNP             2
 
 /*
  * Group D Features.  The bit assignments are custom to each architecture.
@@ -238,6 +244,9 @@ enum hv_isolation_type {
 
 /* TSC invariant control */
 #define HV_X64_MSR_TSC_INVARIANT_CONTROL	0x40000118
+
+/* GHCB base address */
+#define HV_X64_MSR_GHCB_ADDR			0xc0010130
 
 /* Hyper-V GPA map flags */
 #define HV_MAP_GPA_PERMISSIONS_NONE		0x0

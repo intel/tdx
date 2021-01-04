@@ -480,6 +480,8 @@ void __init hyperv_init(void)
 			kfree(ms_hyperv.ghcb_base);
 			goto clean_guest_os_id;
 		}
+
+		hv_ghcb_msr_write(HV_X64_MSR_GUEST_OS_ID, guest_id);
 	}
 
 	rdmsrl(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);

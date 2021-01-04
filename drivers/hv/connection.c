@@ -103,6 +103,12 @@ int vmbus_negotiate_version(struct vmbus_channel_msginfo *msginfo, u32 version)
 	msg->monitor_page2 = virt_to_phys(vmbus_connection.monitor_pages[1]);
 	msg->target_vcpu = hv_cpu_number_to_vp_number(VMBUS_CONNECT_CPU);
 
+	if (hv_isolation_type_snp()) {
+		msg->monitor_page1 += ms_hyperv.shared_gpa_boundary;
+		msg->monitor_page2 += ms_hyperv.shared_gpa_boundary;
+	}
+
+
 	/*
 	 * Add to list before we send the request since we may
 	 * receive the response before returning from this routine
@@ -141,8 +147,28 @@ int vmbus_negotiate_version(struct vmbus_channel_msginfo *msginfo, u32 version)
 		if (version >= VERSION_WIN10_V5)
 			vmbus_connection.msg_conn_id =
 				msginfo->response.version_response.msg_conn_id;
-	} else {
+	} else
 		return -ECONNREFUSED;
+
+	if (hv_isolation_type_snp()) {
+		vmbus_connection.monitor_pages[0]
+			= ioremap_cache(msg->monitor_page1, PAGE_SIZE);
+		if (!vmbus_connection.monitor_pages[0])
+			return -ENOMEM;
+		vmbus_connection.monitor_pages_va[0]
+			= vmbus_connection.monitor_pages[0];
+
+		vmbus_connection.monitor_pages[1]
+			= ioremap_cache(msg->monitor_page2, PAGE_SIZE);
+		if (!vmbus_connection.monitor_pages[1]) {
+			vunmap(vmbus_connection.monitor_pages[0]);
+			return -ENOMEM;
+		}
+		vmbus_connection.monitor_pages_va[1]
+			= vmbus_connection.monitor_pages[1];
+
+		memset(vmbus_connection.monitor_pages[0], 0x00, PAGE_SIZE);
+		memset(vmbus_connection.monitor_pages[1], 0x00, PAGE_SIZE);
 	}
 
 	return ret;
@@ -156,6 +182,7 @@ int vmbus_connect(void)
 	struct vmbus_channel_msginfo *msginfo = NULL;
 	int i, ret = 0;
 	__u32 version;
+	u64 pfn[2];
 
 	/* Initialize the vmbus connection */
 	vmbus_connection.conn_state = CONNECTING;
@@ -211,6 +238,16 @@ int vmbus_connect(void)
 	    (vmbus_connection.monitor_pages[1] == NULL)) {
 		ret = -ENOMEM;
 		goto cleanup;
+	}
+
+	if (hv_isolation_type_snp()) {
+		pfn[0] = virt_to_hvpfn(vmbus_connection.monitor_pages[0]);
+		pfn[1] = virt_to_hvpfn(vmbus_connection.monitor_pages[1]);
+		if (hv_mark_gpa_visibility(2, pfn,
+				VMBUS_PAGE_VISIBLE_READ_WRITE)) {
+			ret = -EFAULT;
+			goto cleanup;
+		}
 	}
 
 	msginfo = kzalloc(sizeof(*msginfo) +
@@ -279,6 +316,8 @@ cleanup:
 
 void vmbus_disconnect(void)
 {
+	u64 pfn[2];
+
 	/*
 	 * First send the unload request to the host.
 	 */
@@ -296,6 +335,26 @@ void vmbus_disconnect(void)
 	if (vmbus_connection.int_page) {
 		hv_free_hyperv_page((unsigned long)vmbus_connection.int_page);
 		vmbus_connection.int_page = NULL;
+	}
+
+	if (hv_isolation_type_snp()) {
+		if (vmbus_connection.monitor_pages_va[0]) {
+			vunmap(vmbus_connection.monitor_pages[0]);
+			vmbus_connection.monitor_pages[0]
+				= vmbus_connection.monitor_pages_va[0];
+			vmbus_connection.monitor_pages_va[0] = NULL;
+		}
+
+		if (vmbus_connection.monitor_pages_va[1]) {
+			vunmap(vmbus_connection.monitor_pages[1]);
+			vmbus_connection.monitor_pages[1]
+				= vmbus_connection.monitor_pages_va[1];
+			vmbus_connection.monitor_pages_va[1] = NULL;
+		}
+
+		pfn[0] = virt_to_hvpfn(vmbus_connection.monitor_pages[0]);
+		pfn[1] = virt_to_hvpfn(vmbus_connection.monitor_pages[1]);
+		hv_mark_gpa_visibility(2, pfn, VMBUS_PAGE_NOT_VISIBLE);
 	}
 
 	hv_free_hyperv_page((unsigned long)vmbus_connection.monitor_pages[0]);

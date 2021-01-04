@@ -2519,6 +2519,10 @@ static int netvsc_probe(struct hv_device *dev,
 		goto devinfo_failed;
 	}
 
+	ret = hv_bounce_resources_reserve(dev->channel, PAGE_SIZE * 64);
+	if (ret < 0)
+		return ret;
+
 	nvdev = rndis_filter_device_add(dev, device_info);
 	if (IS_ERR(nvdev)) {
 		ret = PTR_ERR(nvdev);

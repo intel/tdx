@@ -40,3 +40,4 @@ struct mm_struct init_mm = {
 	.cpu_bitmap	= CPU_BITS_NONE,
 	INIT_MM_CONTEXT(init_mm)
 };
+EXPORT_SYMBOL(init_mm);

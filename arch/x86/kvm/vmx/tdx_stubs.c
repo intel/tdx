@@ -33,6 +33,7 @@ static void __init tdx_pre_kvm_init(unsigned int *vcpu_size,
 				    unsigned int *vcpu_align,
 				    unsigned int *vm_size) {}
 static int __init tdx_init(void) { return 0; }
+static void __exit tdx_exit(void) {}
 static void tdx_update_exception_bitmap(struct kvm_vcpu *vcpu) {}
 static void tdx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val) {}
 static int tdx_get_cpl(struct kvm_vcpu *vcpu) { return 0; }

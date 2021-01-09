@@ -198,6 +198,7 @@ int tdx_write_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memory);
 void tdx_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask);
 int tdx_skip_emulated_instruction(struct kvm_vcpu *vcpu);
 int __init tdx_init(void);
+void __exit tdx_exit(void);
 void tdx_update_exception_bitmap(struct kvm_vcpu *vcpu);
 void tdx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val);
 int tdx_get_cpl(struct kvm_vcpu *vcpu);

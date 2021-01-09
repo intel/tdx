@@ -1113,8 +1113,9 @@ err_vmx_post_exit:
 }
 module_init(vt_init);
 
-static void vt_exit(void)
+static void __exit vt_exit(void)
 {
+	tdx_exit();
 	vmx_exit();
 	kvm_exit();
 	vmx_post_kvm_exit();

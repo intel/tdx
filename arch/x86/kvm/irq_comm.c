@@ -128,6 +128,10 @@ static inline bool kvm_msi_route_invalid(struct kvm *kvm,
 			       .data = e->msi.data };
 	return  (kvm->arch.eoi_intercept_unsupported &&
 		 msg.arch_data.is_level) ||
+		(kvm->arch.smm_unsupported &&
+		 msg.arch_data.delivery_mode == APIC_DELIVERY_MODE_SMI) ||
+		(kvm->arch.init_sipi_unsupported &&
+		 msg.arch_data.delivery_mode == APIC_DELIVERY_MODE_INIT) ||
 		(kvm->arch.x2apic_format && (msg.address_hi & 0xff));
 }
 

@@ -4426,8 +4426,7 @@ static int kvm_vcpu_ioctl_nmi(struct kvm_vcpu *vcpu)
 
 static int kvm_vcpu_ioctl_smi(struct kvm_vcpu *vcpu)
 {
-	/* TODO: use more precise flag */
-	if (vcpu->arch.guest_state_protected)
+	if (vcpu->kvm->arch.smm_unsupported)
 		return -EINVAL;
 
 	kvm_make_request(KVM_REQ_SMI, vcpu);

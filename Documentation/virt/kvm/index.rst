@@ -18,3 +18,5 @@ KVM
    locking
    vcpu-requests
    review-checklist
+
+   intel-tdx

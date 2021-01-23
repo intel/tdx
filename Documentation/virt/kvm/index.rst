@@ -20,4 +20,5 @@ KVM
    halt-polling
    review-checklist
 
+   intel-tdx
    intel-tdx-layer-status.rst

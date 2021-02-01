@@ -890,6 +890,8 @@ static int tdx_handle_external_interrupt(struct kvm_vcpu *vcpu)
 
 static int tdx_handle_triple_fault(struct kvm_vcpu *vcpu)
 {
+	if (to_kvm_tdx(vcpu->kvm)->attributes & TDX_TD_ATTRIBUTE_DEBUG)
+		pr_err("triple fault at 0x%lx\n", kvm_rip_read(vcpu));
 	vcpu->run->exit_reason = KVM_EXIT_SHUTDOWN;
 	vcpu->mmio_needed = 0;
 	return 0;

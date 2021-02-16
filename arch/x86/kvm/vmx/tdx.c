@@ -1023,13 +1023,14 @@ static void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, unsigned long pgd,
 	td_vmcs_write64(to_tdx(vcpu), SHARED_EPT_POINTER, pgd & PAGE_MASK);
 }
 
-#define SEPT_ERR(err, op, kvm)			\
-({						\
-	int __ret = KVM_BUG_ON(err, kvm);	\
-						\
-	if (unlikely(__ret))			\
-		pr_seamcall_error(op, err);	\
-	__ret;					\
+#define SEPT_ERR(err, ex, op, kvm)			\
+({							\
+	int __ret = KVM_BUG_ON(err, kvm);		\
+							\
+	if (unlikely(__ret)) {				\
+		pr_seamcall_error_ex(op, err, ex);	\
+	}						\
+	__ret;						\
 })
 
 static void tdx_measure_page(struct kvm_tdx *kvm_tdx, hpa_t gpa)
@@ -1040,7 +1041,7 @@ static void tdx_measure_page(struct kvm_tdx *kvm_tdx, hpa_t gpa)
 
 	for (i = 0; i < PAGE_SIZE; i += TDX1_EXTENDMR_CHUNKSIZE) {
 		err = tdextendmr(kvm_tdx->tdr.pa, gpa + i, &ex_ret);
-		if (SEPT_ERR(err, TDEXTENDMR, &kvm_tdx->kvm))
+		if (SEPT_ERR(err, &ex_ret, TDEXTENDMR, &kvm_tdx->kvm))
 			break;
 	}
 }
@@ -1070,7 +1071,7 @@ static void tdx_sept_set_private_spte(struct kvm_vcpu *vcpu, gfn_t gfn,
 		trace_kvm_sept_seamcall(SEAMCALL_TDAUGPAGE, gpa, hpa, level);
 
 		err = tdaugpage(kvm_tdx->tdr.pa, gpa, hpa, &ex_ret);
-		SEPT_ERR(err, TDAUGPAGE, vcpu->kvm);
+		SEPT_ERR(err, &ex_ret, TDAUGPAGE, vcpu->kvm);
 		return;
 	}
 
@@ -1079,7 +1080,7 @@ static void tdx_sept_set_private_spte(struct kvm_vcpu *vcpu, gfn_t gfn,
 	source_pa = kvm_tdx->source_pa & ~KVM_TDX_MEASURE_MEMORY_REGION;
 
 	err = tdaddpage(kvm_tdx->tdr.pa,  gpa, hpa, source_pa, &ex_ret);
-	if (!SEPT_ERR(err, TDADDPAGE, vcpu->kvm) &&
+	if (!SEPT_ERR(err, &ex_ret, TDADDPAGE, vcpu->kvm) &&
 	    (kvm_tdx->source_pa & KVM_TDX_MEASURE_MEMORY_REGION))
 		tdx_measure_page(kvm_tdx, gpa);
 }
@@ -1102,7 +1103,7 @@ static void tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn, int level,
 		trace_kvm_sept_seamcall(SEAMCALL_TDREMOVEPAGE, gpa, hpa, level);
 
 		err = tdremovepage(kvm_tdx->tdr.pa, gpa, level, &ex_ret);
-		if (SEPT_ERR(err, TDREMOVEPAGE, kvm))
+		if (SEPT_ERR(err, &ex_ret, TDREMOVEPAGE, kvm))
 			return;
 
 		hpa_with_hkid = set_hkid_to_hpa(hpa, (u16)kvm_tdx->hkid);
@@ -1128,7 +1129,7 @@ static int tdx_sept_link_private_sp(struct kvm_vcpu *vcpu, gfn_t gfn,
 	trace_kvm_sept_seamcall(SEAMCALL_TDADDSEPT, gpa, hpa, level);
 
 	err = tdaddsept(kvm_tdx->tdr.pa, gpa, level, hpa, &ex_ret);
-	if (SEPT_ERR(err, TDADDSEPT, vcpu->kvm))
+	if (SEPT_ERR(err, &ex_ret, TDADDSEPT, vcpu->kvm))
 		return -EIO;
 
 	return 0;
@@ -1144,7 +1145,7 @@ static void tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn, int level)
 	trace_kvm_sept_seamcall(SEAMCALL_TDBLOCK, gpa, -1ull, level);
 
 	err = tdblock(kvm_tdx->tdr.pa, gpa, level, &ex_ret);
-	SEPT_ERR(err, TDBLOCK, kvm);
+	SEPT_ERR(err, &ex_ret, TDBLOCK, kvm);
 }
 
 static void tdx_sept_unzap_private_spte(struct kvm *kvm, gfn_t gfn, int level)
@@ -1157,7 +1158,7 @@ static void tdx_sept_unzap_private_spte(struct kvm *kvm, gfn_t gfn, int level)
 	trace_kvm_sept_seamcall(SEAMCALL_TDUNBLOCK, gpa, -1ull, level);
 
 	err = tdunblock(kvm_tdx->tdr.pa, gpa, level, &ex_ret);
-	SEPT_ERR(err, TDUNBLOCK, kvm);
+	SEPT_ERR(err, &ex_ret, TDUNBLOCK, kvm);
 }
 
 static int tdx_sept_free_private_sp(struct kvm *kvm, gfn_t gfn, int level,
@@ -1187,8 +1188,9 @@ static int tdx_sept_tlb_remote_flush(struct kvm *kvm)
 	kvm_make_all_cpus_request(kvm, KVM_REQ_TLB_FLUSH);
 
 	if (is_hkid_assigned(kvm_tdx) && is_td_finalized(kvm_tdx)) {
+		struct tdx_ex_ret dummy = {};
 		err = tdtrack(to_kvm_tdx(kvm)->tdr.pa);
-		SEPT_ERR(err, TDTRACK, kvm);
+		SEPT_ERR(err, &dummy, TDTRACK, kvm);
 	}
 
 	WRITE_ONCE(kvm_tdx->tdtrack, false);

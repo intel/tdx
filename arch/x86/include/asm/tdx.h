@@ -4,14 +4,54 @@
 #define _ASM_X86_TDX_H
 
 #include <linux/cpufeature.h>
+#include <linux/types.h>
 
 #define TDX_CPUID_LEAF_ID	0x21
+#define TDX_HYPERCALL_STANDARD  0
+
+/*
+ * Used in __tdx_module_call() helper function to gather the
+ * output registers' values of TDCALL instruction when requesting
+ * services from the TDX module. This is software only structure
+ * and not related to TDX module/VMM.
+ */
+struct tdx_module_output {
+	u64 rcx;
+	u64 rdx;
+	u64 r8;
+	u64 r9;
+	u64 r10;
+	u64 r11;
+};
+
+/*
+ * Used in __tdx_hypercall() helper function to gather the
+ * output registers' values of TDCALL instruction when requesting
+ * services from the VMM. This is software only structure
+ * and not related to TDX module/VMM.
+ */
+struct tdx_hypercall_output {
+	u64 r10;
+	u64 r11;
+	u64 r12;
+	u64 r13;
+	u64 r14;
+	u64 r15;
+};
 
 #ifdef CONFIG_INTEL_TDX_GUEST
 
 void __init tdx_early_init(void);
 
 bool tdx_prot_guest_has(unsigned long flag);
+
+/* Helper function used to communicate with the TDX module */
+u64 __tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
+		      struct tdx_module_output *out);
+
+/* Helper function used to request services from VMM */
+u64 __tdx_hypercall(u64 type, u64 fn, u64 r12, u64 r13, u64 r14,
+		    u64 r15, struct tdx_hypercall_output *out);
 
 #else
 

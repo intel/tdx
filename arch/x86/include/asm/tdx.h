@@ -8,11 +8,34 @@
 #ifdef CONFIG_INTEL_TDX_GUEST
 
 #include <asm/cpufeature.h>
+#include <linux/types.h>
+
+struct tdcall_output {
+	u64 rcx;
+	u64 rdx;
+	u64 r8;
+	u64 r9;
+	u64 r10;
+	u64 r11;
+};
+
+struct tdvmcall_output {
+	u64 r11;
+	u64 r12;
+	u64 r13;
+	u64 r14;
+	u64 r15;
+};
 
 /* Common API to check TDX support in decompression and common kernel code. */
 bool is_tdx_guest(void);
 
 void __init tdx_early_init(void);
+
+u64 __tdcall(u64 fn, u64 rcx, u64 rdx, struct tdcall_output *out);
+
+u64 __tdvmcall(u64 fn, u64 r12, u64 r13, u64 r14, u64 r15,
+	       struct tdvmcall_output *out);
 
 #else // !CONFIG_INTEL_TDX_GUEST
 

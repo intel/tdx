@@ -3,6 +3,36 @@
 
 #include <asm/tdx.h>
 
+/*
+ * Wrapper for the common case with standard output value (R10).
+ */
+static inline u64 tdvmcall(u64 fn, u64 r12, u64 r13, u64 r14, u64 r15)
+{
+	u64 err;
+
+	err = __tdvmcall(fn, r12, r13, r14, r15, NULL);
+
+	WARN_ON(err);
+
+	return err;
+}
+
+/*
+ * Wrapper for the semi-common case where we need single output value (R11).
+ */
+static inline u64 tdvmcall_out_r11(u64 fn, u64 r12, u64 r13, u64 r14, u64 r15)
+{
+
+	struct tdvmcall_output out = {0};
+	u64 err;
+
+	err = __tdvmcall(fn, r12, r13, r14, r15, &out);
+
+	WARN_ON(err);
+
+	return out.r11;
+}
+
 static inline bool cpuid_has_tdx_guest(void)
 {
 	u32 eax, signature[3];

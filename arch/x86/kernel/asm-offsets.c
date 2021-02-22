@@ -23,6 +23,10 @@
 #include <xen/interface/xen.h>
 #endif
 
+#ifdef CONFIG_INTEL_TDX_GUEST
+#include <asm/tdx.h>
+#endif
+
 #ifdef CONFIG_X86_32
 # include "asm-offsets_32.c"
 #else
@@ -73,6 +77,24 @@ static void __used common(void)
 	OFFSET(XEN_vcpu_info_mask, vcpu_info, evtchn_upcall_mask);
 	OFFSET(XEN_vcpu_info_pending, vcpu_info, evtchn_upcall_pending);
 	OFFSET(XEN_vcpu_info_arch_cr2, vcpu_info, arch.cr2);
+#endif
+
+#ifdef CONFIG_INTEL_TDX_GUEST
+	BLANK();
+	/* Offset for fields in tdcall_output */
+	OFFSET(TDCALL_rcx, tdcall_output, rcx);
+	OFFSET(TDCALL_rdx, tdcall_output, rdx);
+	OFFSET(TDCALL_r8,  tdcall_output, r8);
+	OFFSET(TDCALL_r9,  tdcall_output, r9);
+	OFFSET(TDCALL_r10, tdcall_output, r10);
+	OFFSET(TDCALL_r11, tdcall_output, r11);
+
+	/* Offset for fields in tdvmcall_output */
+	OFFSET(TDVMCALL_r11, tdvmcall_output, r11);
+	OFFSET(TDVMCALL_r12, tdvmcall_output, r12);
+	OFFSET(TDVMCALL_r13, tdvmcall_output, r13);
+	OFFSET(TDVMCALL_r14, tdvmcall_output, r14);
+	OFFSET(TDVMCALL_r15, tdvmcall_output, r15);
 #endif
 
 	BLANK();

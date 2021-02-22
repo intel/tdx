@@ -27,6 +27,29 @@ done:
 	return !!tdx_guest;
 }
 
+/*
+ * Wrapper for standard use of __tdx_hypercall with BUG_ON() check
+ * for TDCALL error.
+ */
+static inline u64 _tdx_hypercall(u64 fn, u64 r12, u64 r13, u64 r14,
+				 u64 r15, struct tdx_hypercall_output *out)
+{
+	struct tdx_hypercall_output outl;
+	u64 err;
+
+	/* __tdx_hypercall() does not accept NULL output pointer */
+	if (!out)
+		out = &outl;
+
+	err = __tdx_hypercall(TDX_HYPERCALL_STANDARD, fn, r12, r13, r14,
+			      r15, out);
+
+	/* Non zero return value indicates buggy TDX module, so panic */
+	BUG_ON(err);
+
+	return out->r10;
+}
+
 void __init tdx_early_init(void)
 {
 	if (!is_tdx_guest())

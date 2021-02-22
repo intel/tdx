@@ -9,6 +9,29 @@
 
 static bool tdx_guest_detected __ro_after_init;
 
+/*
+ * Wrapper for standard use of __tdx_hypercall with panic report
+ * for TDCALL error.
+ */
+static inline u64 _tdx_hypercall(u64 fn, u64 r12, u64 r13, u64 r14,
+				 u64 r15, struct tdx_hypercall_output *out)
+{
+	struct tdx_hypercall_output dummy_out;
+	u64 err;
+
+	/* __tdx_hypercall() does not accept NULL output pointer */
+	if (!out)
+		out = &dummy_out;
+
+	/* Non zero return value indicates buggy TDX module, so panic */
+	err = __tdx_hypercall(TDX_HYPERCALL_STANDARD, fn, r12, r13, r14,
+			      r15, out);
+	if (err)
+		panic("Hypercall fn %llu failed (Buggy TDX module!)\n", fn);
+
+	return out->r10;
+}
+
 bool is_tdx_guest(void)
 {
 	return tdx_guest_detected;

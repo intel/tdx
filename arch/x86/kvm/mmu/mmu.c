@@ -3135,9 +3135,10 @@ static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 	if (ret == RET_PF_SPURIOUS)
 		return ret;
 
-	if (!is_private)
-		direct_pte_prefetch(vcpu, it.sptep);
-	else if (ret == RET_PF_UNZAPPED)
+	if (!is_private) {
+		if (!vcpu->arch.mmu->no_prefetch)
+			direct_pte_prefetch(vcpu, it.sptep);
+	} else if (ret == RET_PF_UNZAPPED)
 		static_call(kvm_x86_unzap_private_spte)(vcpu->kvm, gfn,
 							level - 1);
 	else if (!WARN_ON_ONCE(ret != RET_PF_FIXED))
@@ -5521,6 +5522,7 @@ static int __kvm_mmu_create(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu)
 	mmu->private_root_hpa = INVALID_PAGE;
 	mmu->root_pgd = 0;
 	mmu->translate_gpa = translate_gpa;
+	mmu->no_prefetch = false;
 	for (i = 0; i < KVM_MMU_NUM_PREV_ROOTS; i++)
 		mmu->prev_roots[i] = KVM_MMU_ROOT_INFO_INVALID;
 

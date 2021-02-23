@@ -451,6 +451,7 @@ static int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	vcpu->arch.l1_tsc_offset = vcpu->arch.tsc_offset;
 	vcpu->arch.guest_state_protected =
 		!(to_kvm_tdx(vcpu->kvm)->attributes & TDX1_TD_ATTRIBUTE_DEBUG);
+	vcpu->arch.root_mmu.no_prefetch = true;
 
 	tdx->pi_desc.nv = POSTED_INTR_VECTOR;
 	tdx->pi_desc.sn = 1;

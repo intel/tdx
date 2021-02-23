@@ -412,6 +412,7 @@ struct kvm_mmu {
 	u8 last_nonleaf_level;
 
 	bool nx;
+	bool no_prefetch;
 
 	u64 pdptrs[4]; /* pae */
 };

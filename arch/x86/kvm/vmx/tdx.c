@@ -1003,6 +1003,23 @@ void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu)
 	} else if (exit_reason == EXIT_REASON_EXTERNAL_INTERRUPT)
 		vmx_handle_external_interrupt_irqoff(vcpu,
 						     tdexit_intr_info(vcpu));
+	else if (unlikely(tdx->exit_reason.non_recoverable ||
+		 tdx->exit_reason.error)) {
+		/*
+		 * The only reason it gets EXIT_REASON_OTHER_SMI is there is
+		 * an #MSMI in TD guest. The #MSMI is delivered right after
+		 * SEAMCALL returns, and an #MC is delivered to host kernel
+		 * after SMI handler returns.
+		 *
+		 * The #MC right after SEAMCALL is fixed up and skipped in #MC
+		 * handler because it's an #MC happens in TD guest we cannot
+		 * handle it with host's context.
+		 *
+		 * Call KVM's machine check handler explicitly here.
+		 */
+		if (tdx->exit_reason.basic == EXIT_REASON_OTHER_SMI)
+			kvm_machine_check();
+	}
 }
 
 static int tdx_emulate_inject_bp_end(struct kvm_vcpu *vcpu, unsigned long dr6)
@@ -1989,6 +2006,11 @@ static int __tdx_handle_exit(struct kvm_vcpu *vcpu,
 		if (exit_reason.basic == EXIT_REASON_TRIPLE_FAULT)
 			return tdx_handle_triple_fault(vcpu);
 
+		/*
+		 * tdx_handle_exit_irqoff() handled EXIT_REASON_OTHER_SMI.  It
+		 * must be handled before enabling preemption because it's #MC.
+		 */
+
 		goto unhandled_exit;
 	}
 
@@ -2009,9 +2031,14 @@ static int __tdx_handle_exit(struct kvm_vcpu *vcpu,
 		return tdx_handle_dr(vcpu);
 	case EXIT_REASON_OTHER_SMI:
 		/*
-		 * If reach here, it's not a MSMI.
-		 * #SMI is delivered and handled right after SEAMRET, nothing
-		 * needs to be done in KVM.
+		 * Unlike VMX, all the SMI in SEAM non-root mode (i.e. when
+		 * TD guest vcpu is running) will cause TD exit to TDX module,
+		 * then SEAMRET to KVM. Once it exits to KVM, SMI is delivered
+		 * and handled right away.
+		 *
+		 * - If it's an MSMI, it's handled above due to non_recoverable
+		 *   bit set.
+		 * - If it's not an MSMI, don't need to do anything here.
 		 */
 		return 1;
 	case EXIT_REASON_BUS_LOCK:

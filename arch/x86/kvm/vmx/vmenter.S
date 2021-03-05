@@ -419,11 +419,12 @@ SYM_FUNC_START(__tdx_vcpu_run)
 
 2:	seamcall
 
+8:	nop
 	/*
 	 * Use same return value convention to tdxcall.S.
 	 * TDX_SEAMCALL_VMFAILINVALID doesn't conflict with any TDX status code.
 	 */
-	jnc 3f
+9:	jnc 3f
 	mov $TDX_SEAMCALL_VMFAILINVALID, %rax
 	jmp 5f
 3:
@@ -502,6 +503,7 @@ SYM_FUNC_START(__tdx_vcpu_run)
 1:	ud2
 	/* Use FAULT version to know what fault happened. */
 	_ASM_EXTABLE_FAULT(2b, 6b)
+	_ASM_EXTABLE_FIX_MC(8b, 9b)
 
 SYM_FUNC_END(__tdx_vcpu_run)
 

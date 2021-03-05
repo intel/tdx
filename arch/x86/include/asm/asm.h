@@ -141,6 +141,9 @@
 # define _ASM_EXTABLE_FAULT(from, to)				\
 	_ASM_EXTABLE_HANDLE(from, to, ex_handler_fault)
 
+# define _ASM_EXTABLE_FIX_MC(from, to)				\
+	_ASM_EXTABLE_HANDLE(from, to, ex_handler_fix_msmi)
+
 # ifdef CONFIG_KPROBES
 #  define _ASM_NOKPROBE(entry)					\
 	.pushsection "_kprobe_blacklist","aw" ;			\
@@ -172,6 +175,9 @@
 
 # define _ASM_EXTABLE_FAULT(from, to)				\
 	_ASM_EXTABLE_HANDLE(from, to, ex_handler_fault)
+
+# define _ASM_EXTABLE_FIX_MC(from, to)				\
+	_ASM_EXTABLE_HANDLE(from, to, ex_handler_fix_msmi)
 
 /* For C file, we already have NOKPROBE_SYMBOL macro */
 

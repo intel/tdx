@@ -277,7 +277,7 @@ static int error_context(struct mce *m, struct pt_regs *regs)
 		return IN_KERNEL;
 
 	t = ex_get_fault_handler_type(m->ip);
-	if (t == EX_HANDLER_FAULT) {
+	if (t == EX_HANDLER_FAULT || t == EX_HANDLER_FIX_MC) {
 		m->kflags |= MCE_IN_KERNEL_RECOV;
 		return IN_KERNEL_RECOV;
 	}

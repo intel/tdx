@@ -195,6 +195,23 @@ static bool ex_handler_ucopy_len(const struct exception_table_entry *fixup,
 	return ex_handler_uaccess(fixup, regs, trapnr);
 }
 
+static bool ex_handler_fix_msmi(const struct exception_table_entry *fixup,
+				struct pt_regs *regs, int trapnr,
+				unsigned long error_code,
+				unsigned long fault_addr)
+{
+	regs->ip = ex_fixup_addr(fixup);
+	/*
+	 * Even on SPR C0, the silicon still doesn't set bit 0 of exit
+	 * qualification correctly for MSMI, therefore in no case will SEAM
+	 * module set non_recoverable bit for EXIT_REASON_OTHER_SMI.
+	 *
+	 * So fix it here to set non_recoverable bit (62).
+	 */
+	regs->ax |= BIT_ULL(62);
+	return true;
+}
+
 int ex_get_fixup_type(unsigned long ip)
 {
 	const struct exception_table_entry *e = search_exception_tables(ip);
@@ -272,6 +289,8 @@ int fixup_exception(struct pt_regs *regs, int trapnr, unsigned long error_code,
 		return ex_handler_ucopy_len(e, regs, trapnr, reg, imm);
 	case EX_TYPE_ZEROPAD:
 		return ex_handler_zeropad(e, regs, fault_addr);
+	case EX_TYPE_FIX_MC:
+		return ex_handler_fix_msmi(e, regs, trapnr, error_code, fault_addr);
 	}
 	BUG();
 }

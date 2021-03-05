@@ -1223,6 +1223,21 @@ static int tdx_handle_exit(struct kvm_vcpu *vcpu,
 		if (exit_reason.basic == EXIT_REASON_TRIPLE_FAULT)
 			return tdx_handle_triple_fault(vcpu);
 
+		/*
+		 * The only reason it gets EXIT_REASON_OTHER_SMI is there is
+		 * an #MSMI in TD guest. The #MSMI is delivered right after
+		 * SEAMCALL returns, and an #MC is delivered to host kernel
+		 * after SMI handler returns.
+		 *
+		 * The #MC right after SEAMCALL is fixed up and skipped in #MC
+		 * handler because it's an #MC happens in TD guest we cannot
+		 * handle it with host's context.
+		 *
+		 * Call KVM's machine check handler explicitly here.
+		 */
+		if (exit_reason.basic == EXIT_REASON_OTHER_SMI)
+			kvm_machine_check();
+
 		goto unhandled_exit;
 	}
 
@@ -1239,13 +1254,6 @@ static int tdx_handle_exit(struct kvm_vcpu *vcpu,
 		return tdx_handle_ept_violation(vcpu);
 	case EXIT_REASON_EPT_MISCONFIG:
 		return tdx_handle_ept_misconfig(vcpu);
-	case EXIT_REASON_OTHER_SMI:
-		/*
-		 * If reach here, it's not a MSMI.
-		 * #SMI is delivered and handled right after SEAMRET, nothing
-		 * needs to be done in KVM.
-		 */
-		return 1;
 	default:
 		break;
 	}

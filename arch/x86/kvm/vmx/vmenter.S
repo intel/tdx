@@ -397,7 +397,8 @@ SYM_FUNC_START(__tdx_vcpu_run)
 2:	seamcall
 
 	/* Skip to the exit path if TDENTER failed. */
-	bt $TDENTER_ERROR_BIT, %rax
+7:	nop
+8:	bt $TDENTER_ERROR_BIT, %rax
 	jc 4f
 
 	/* Temporarily save the TD-Exit reason. */
@@ -468,6 +469,7 @@ SYM_FUNC_START(__tdx_vcpu_run)
 	jmp 4b
 6:	ud2
 	_ASM_EXTABLE(2b, 5b)
+	_ASM_EXTABLE_FIX_MC(7b, 8b)
 
 SYM_FUNC_END(__tdx_vcpu_run)
 

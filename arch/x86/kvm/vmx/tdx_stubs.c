@@ -9,3 +9,4 @@ void __init tdx_pre_kvm_init(unsigned int *vcpu_size,
 int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops) { return -EOPNOTSUPP; }
 
 int tdx_dev_ioctl(void __user *argp) { return -EOPNOTSUPP; }
+int tdx_vm_ioctl(struct kvm *kvm, void __user *argp) { return -EOPNOTSUPP; }

@@ -42,6 +42,19 @@ static DEFINE_PER_CPU(struct list_head, associated_tdvcpus);
 static u64 hkid_mask __ro_after_init;
 static u8 hkid_start_pos __ro_after_init;
 
+struct tdx_uret_msr {
+	u32 index;
+	unsigned int slot;
+	u64 defval;
+};
+
+static struct tdx_uret_msr tdx_uret_msrs[] = {
+	{.index = MSR_SYSCALL_MASK,},
+	{.index = MSR_STAR,},
+	{.index = MSR_LSTAR,},
+	{.index = MSR_TSC_AUX,},
+};
+
 static __always_inline hpa_t set_hkid_to_hpa(hpa_t pa, u16 hkid)
 {
 	pa &= ~hkid_mask;
@@ -588,6 +601,15 @@ static void tdx_inject_nmi(struct kvm_vcpu *vcpu)
 	td_management_write8(to_tdx(vcpu), TD_VCPU_PEND_NMI, 1);
 }
 
+static void tdx_user_return_update_cache(void)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(tdx_uret_msrs); i++)
+		kvm_user_return_update_cache(tdx_uret_msrs[i].slot,
+					     tdx_uret_msrs[i].defval);
+}
+
 u64 __tdx_vcpu_run(hpa_t tdvpr, void *regs, u32 regs_mask);
 
 static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
@@ -608,6 +630,7 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	tdx->exit_reason.full = __tdx_vcpu_run(tdx->tdvpr.pa, vcpu->arch.regs,
 					       tdx->tdvmcall.regs_mask);
 
+	tdx_user_return_update_cache();
 	perf_restore_debug_store();
 	tdx->host_state_need_restore = true;
 
@@ -2065,6 +2088,25 @@ static int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	max_pa = cpuid_eax(0x80000008) & 0xff;
 	hkid_start_pos = boot_cpu_data.x86_phys_bits;
 	hkid_mask = GENMASK_ULL(max_pa - 1, hkid_start_pos);
+
+	for (i = 0; i < ARRAY_SIZE(tdx_uret_msrs); i++) {
+		int j;
+
+		/* Find out the corresponding slot of each MSR */
+		for (j = 0; j < ARRAY_SIZE(vmx_uret_msrs_list); j++) {
+			if (tdx_uret_msrs[i].index == vmx_uret_msrs_list[j]) {
+				tdx_uret_msrs[i].slot = j;
+				break;
+			}
+		}
+
+		/* If any MSR isn't in a slot, it is a KVM bug */
+		if (j == ARRAY_SIZE(vmx_uret_msrs_list)) {
+			pr_err("MSR %x isn't included by vmx_uret_msrs_list\n",
+				tdx_uret_msrs[i].index);
+			return -EIO;
+		}
+	}
 
 	return 0;
 }

@@ -1786,6 +1786,7 @@ int kvm_pv_send_ipi(struct kvm *kvm, unsigned long ipi_bitmap_low,
 		    unsigned long ipi_bitmap_high, u32 min,
 		    unsigned long icr, int op_64_bit);
 
+void kvm_user_return_update_cache(unsigned int index, u64 val);
 void kvm_define_user_return_msr(unsigned index, u32 msr);
 int kvm_set_user_return_msr(unsigned index, u64 val, u64 mask);
 

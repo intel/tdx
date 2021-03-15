@@ -530,7 +530,7 @@ struct kvm_tdx_capabilities {
 
 struct kvm_tdx_init_vm {
 	__u32 max_vcpus;
-	__u32 reserved;
+	__u32 tsc_khz;
 	__u64 attributes;
 	__u64 cpuid;
 };

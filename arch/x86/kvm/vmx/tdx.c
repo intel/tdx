@@ -443,7 +443,7 @@ static int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 
 	vcpu->arch.efer = EFER_SCE | EFER_LME | EFER_LMA | EFER_NX;
 
-	vcpu->arch.switch_db_regs = KVM_DEBUGREG_AUTO_SWITCHED;
+	vcpu->arch.switch_db_regs = KVM_DEBUGREG_AUTO_SWITCH_GUEST;
 	vcpu->arch.cr0_guest_owned_bits = -1ul;
 	vcpu->arch.cr4_guest_owned_bits = -1ul;
 

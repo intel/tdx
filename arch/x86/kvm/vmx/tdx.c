@@ -387,6 +387,203 @@ static int tdx_capabilities(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	return 0;
 }
 
+static struct kvm_cpuid_entry2 *tdx_find_cpuid_entry(struct kvm_tdx *kvm_tdx,
+						u32 function, u32 index)
+{
+	struct kvm_cpuid_entry2 *e;
+	int i;
+
+	for (i = 0; i < kvm_tdx->cpuid_nent; i++) {
+		e = &kvm_tdx->cpuid_entries[i];
+
+		if (e->function == function && (e->index == index ||
+		    !(e->flags & KVM_CPUID_FLAG_SIGNIFCANT_INDEX)))
+			return e;
+	}
+	return NULL;
+}
+
+static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
+			struct kvm_tdx_init_vm *init_vm)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct tdx_cpuid_config *config;
+	struct kvm_cpuid_entry2 *entry;
+	struct tdx_cpuid_value *value;
+	u64 guest_supported_xcr0;
+	u64 guest_supported_xss;
+	u32 guest_tsc_khz;
+	int max_pa;
+	int i;
+
+	/* init_vm->reserved must be zero */
+	if (find_first_bit((unsigned long *)init_vm->reserved,
+			   sizeof(init_vm->reserved) * 8) !=
+	    sizeof(init_vm->reserved) * 8)
+		return -EINVAL;
+
+	td_params->max_vcpus = init_vm->max_vcpus;
+
+	td_params->attributes = init_vm->attributes;
+	if (td_params->attributes & TDX_TD_ATTRIBUTE_PERFMON) {
+		pr_warn("TD doesn't support perfmon. KVM needs to save/restore "
+			"host perf registers properly.\n");
+		return -EOPNOTSUPP;
+	}
+
+	/* TODO: Enforce consistent CPUID features for all vCPUs. */
+	for (i = 0; i < tdx_caps.nr_cpuid_configs; i++) {
+		config = &tdx_caps.cpuid_configs[i];
+
+		entry = tdx_find_cpuid_entry(kvm_tdx, config->leaf,
+					     config->sub_leaf);
+		if (!entry)
+			continue;
+
+		/*
+		 * Non-configurable bits must be '0', even if they are fixed to
+		 * '1' by the TDX module, i.e. mask off non-configurable bits.
+		 */
+		value = &td_params->cpuid_values[i];
+		value->eax = entry->eax & config->eax;
+		value->ebx = entry->ebx & config->ebx;
+		value->ecx = entry->ecx & config->ecx;
+		value->edx = entry->edx & config->edx;
+	}
+
+	max_pa = 36;
+	entry = tdx_find_cpuid_entry(kvm_tdx, 0x80000008, 0);
+	if (entry)
+		max_pa = entry->eax & 0xff;
+
+	td_params->eptp_controls = VMX_EPTP_MT_WB;
+	if (cpu_has_vmx_ept_5levels() && max_pa > 48) {
+		td_params->eptp_controls |= VMX_EPTP_PWL_5;
+		td_params->exec_controls |= TDX_EXEC_CONTROL_MAX_GPAW;
+	} else {
+		td_params->eptp_controls |= VMX_EPTP_PWL_4;
+	}
+
+	/* Setup td_params.xfam */
+	entry = tdx_find_cpuid_entry(kvm_tdx, 0xd, 0);
+	if (entry)
+		guest_supported_xcr0 = (entry->eax | ((u64)entry->edx << 32));
+	else
+		guest_supported_xcr0 = 0;
+	guest_supported_xcr0 &= supported_xcr0;
+
+	entry = tdx_find_cpuid_entry(kvm_tdx, 0xd, 1);
+	if (entry)
+		guest_supported_xss = (entry->ecx | ((u64)entry->edx << 32));
+	else
+		guest_supported_xss = 0;
+	/* PT can be exposed to TD guest regardless of KVM's XSS support */
+	guest_supported_xss &= (supported_xss | XFEATURE_MASK_PT);
+
+	td_params->xfam = guest_supported_xcr0 | guest_supported_xss;
+	if (td_params->xfam & TDX_TD_XFAM_LBR) {
+		pr_warn("TD doesn't support LBR. KVM needs to save/restore "
+			"IA32_LBR_DEPTH properly.\n");
+		return -EOPNOTSUPP;
+	}
+
+	if (td_params->xfam & TDX_TD_XFAM_AMX) {
+		pr_warn("TD doesn't support AMX. KVM needs to save/restore "
+			"IA32_XFD, IA32_XFD_ERR properly.\n");
+		return -EOPNOTSUPP;
+	}
+
+	if (init_vm->tsc_khz)
+		guest_tsc_khz = init_vm->tsc_khz;
+	else
+		guest_tsc_khz = max_tsc_khz;
+	td_params->tsc_frequency = TDX_TSC_KHZ_TO_25MHZ(guest_tsc_khz);
+
+#define BUILD_BUG_ON_MEMCPY(dst, src)				\
+	do {							\
+		BUILD_BUG_ON(sizeof(dst) != sizeof(src));	\
+		memcpy((dst), (src), sizeof(dst));		\
+	} while (0)
+
+	BUILD_BUG_ON_MEMCPY(td_params->mrconfigid, init_vm->mrconfigid);
+	BUILD_BUG_ON_MEMCPY(td_params->mrowner, init_vm->mrowner);
+	BUILD_BUG_ON_MEMCPY(td_params->mrownerconfig, init_vm->mrownerconfig);
+
+	return 0;
+}
+
+static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct kvm_cpuid2 __user *user_cpuid;
+	struct kvm_tdx_init_vm init_vm;
+	struct td_params *td_params;
+	struct tdx_module_output out;
+	struct kvm_cpuid2 cpuid;
+	int ret;
+	u64 err;
+
+	BUILD_BUG_ON(sizeof(init_vm) != 512);
+	BUILD_BUG_ON(sizeof(struct td_params) != 1024);
+
+	if (is_td_initialized(kvm))
+		return -EINVAL;
+
+	if (cmd->metadata)
+		return -EINVAL;
+
+	if (copy_from_user(&init_vm, (void __user *)cmd->data, sizeof(init_vm)))
+		return -EFAULT;
+
+	if (init_vm.max_vcpus > KVM_MAX_VCPUS)
+		return -EINVAL;
+
+	user_cpuid = (void *)init_vm.cpuid;
+	if (copy_from_user(&cpuid, user_cpuid, sizeof(cpuid)))
+		return -EFAULT;
+
+	if (cpuid.nent > KVM_MAX_CPUID_ENTRIES)
+		return -E2BIG;
+
+	if (copy_from_user(&kvm_tdx->cpuid_entries, user_cpuid->entries,
+			   cpuid.nent * sizeof(struct kvm_cpuid_entry2)))
+		return -EFAULT;
+
+	td_params = kzalloc(sizeof(struct td_params), GFP_KERNEL_ACCOUNT);
+	if (!td_params)
+		return -ENOMEM;
+
+	kvm_tdx->cpuid_nent = cpuid.nent;
+
+	ret = setup_tdparams(kvm, td_params, &init_vm);
+	if (ret)
+		goto free_tdparams;
+
+	err = tdh_mng_init(kvm_tdx->tdr.pa, __pa(td_params), &out);
+	if (WARN_ON_ONCE(err)) {
+		pr_tdx_error(TDH_MNG_INIT, err, &out);
+		ret = -EIO;
+		goto free_tdparams;
+	}
+
+	kvm_tdx->tsc_offset = td_tdcs_exec_read64(kvm_tdx, TD_TDCS_EXEC_TSC_OFFSET);
+	kvm_tdx->attributes = td_params->attributes;
+	kvm_tdx->xfam = td_params->xfam;
+	kvm_tdx->tsc_khz = TDX_TSC_25MHZ_TO_KHZ(td_params->tsc_frequency);
+	kvm->max_vcpus = td_params->max_vcpus;
+
+	if (td_params->exec_controls & TDX_EXEC_CONTROL_MAX_GPAW)
+		kvm->arch.gfn_shared_mask = gpa_to_gfn(BIT_ULL(51));
+	else
+		kvm->arch.gfn_shared_mask = gpa_to_gfn(BIT_ULL(47));
+
+free_tdparams:
+	kfree(td_params);
+	if (ret)
+		kvm_tdx->cpuid_nent = 0;
+	return ret;
+}
+
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 {
 	struct kvm_tdx_cmd tdx_cmd;
@@ -400,6 +597,9 @@ int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 	switch (tdx_cmd.id) {
 	case KVM_TDX_CAPABILITIES:
 		r = tdx_capabilities(kvm, &tdx_cmd);
+		break;
+	case KVM_TDX_INIT_VM:
+		r = tdx_td_init(kvm, &tdx_cmd);
 		break;
 	default:
 		r = -EINVAL;

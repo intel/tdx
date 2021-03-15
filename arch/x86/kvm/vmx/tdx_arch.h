@@ -161,6 +161,9 @@ struct tdx_cpuid_value {
 #define TDX1_TD_ATTRIBUTE_KL		BIT_ULL(31)
 #define TDX1_TD_ATTRIBUTE_PERFMON	BIT_ULL(63)
 
+#define TDX1_TD_XFAM_LBR		BIT_ULL(15)
+#define TDX1_TD_XFAM_AMX		(BIT_ULL(17) | BIT_ULL(18))
+
 /*
  * TD_PARAMS is provided as an input to TDINIT, the size of which is 1024B.
  */

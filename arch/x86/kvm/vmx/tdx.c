@@ -4,6 +4,7 @@
 #include <linux/jump_label.h>
 #include <linux/trace_events.h>
 #include <linux/pagemap.h>
+#include <linux/perf_event.h>
 #include <linux/debugfs.h>
 
 #include <asm/kvm_boot.h>
@@ -575,6 +576,8 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 
 	tdx->exit_reason.full = __tdx_vcpu_run(tdx->tdvpr.pa, vcpu->arch.regs,
 					       tdx->tdvmcall.regs_mask);
+
+	perf_restore_debug_store();
 
 	vmx_register_cache_reset(vcpu);
 

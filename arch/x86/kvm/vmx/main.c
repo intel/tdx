@@ -413,8 +413,10 @@ static void vt_prepare_switch_to_guest(struct kvm_vcpu *vcpu)
 	 * is pointless because TDX-SEAM needs to load *something* so as not to
 	 * expose guest state.
 	 */
-	if (is_td_vcpu(vcpu))
+	if (is_td_vcpu(vcpu)) {
+		tdx_prepare_switch_to_guest(vcpu);
 		return;
+	}
 
 	vmx_prepare_switch_to_guest(vcpu);
 }

@@ -456,6 +456,8 @@ static int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 
 	tdx->pi_desc.nv = POSTED_INTR_VECTOR;
 	tdx->pi_desc.sn = 1;
+	tdx->host_state_need_save = true;
+	tdx->host_state_need_restore = false;
 
 	cpu = get_cpu();
 	list_add(&tdx->cpu_list, &per_cpu(associated_tdvcpus, cpu));
@@ -493,9 +495,38 @@ static void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	vmx_vcpu_pi_load(vcpu, cpu);
 }
 
+static void tdx_prepare_switch_to_guest(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	if (!tdx->host_state_need_save)
+		return;
+
+	if (likely(is_64bit_mm(current->mm)))
+		tdx->msr_host_kernel_gs_base = current->thread.gsbase;
+	else
+		tdx->msr_host_kernel_gs_base = read_msr(MSR_KERNEL_GS_BASE);
+
+	tdx->host_state_need_save = false;
+}
+
+static void tdx_prepare_switch_to_host(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	tdx->host_state_need_save = true;
+	if (!tdx->host_state_need_restore)
+		return;
+
+	wrmsrl(MSR_KERNEL_GS_BASE, tdx->msr_host_kernel_gs_base);
+	tdx->host_state_need_restore = false;
+}
+
 static void tdx_vcpu_put(struct kvm_vcpu *vcpu)
 {
 	vmx_vcpu_pi_put(vcpu);
+
+	tdx_prepare_switch_to_host(vcpu);
 }
 
 static void tdx_vcpu_free(struct kvm_vcpu *vcpu)
@@ -578,6 +609,7 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 					       tdx->tdvmcall.regs_mask);
 
 	perf_restore_debug_store();
+	tdx->host_state_need_restore = true;
 
 	vmx_register_cache_reset(vcpu);
 

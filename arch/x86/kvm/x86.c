@@ -2274,7 +2274,8 @@ static atomic_t kvm_guest_has_master_clock = ATOMIC_INIT(0);
 #endif
 
 static DEFINE_PER_CPU(unsigned long, cpu_tsc_khz);
-static unsigned long max_tsc_khz;
+unsigned long max_tsc_khz;
+EXPORT_SYMBOL_GPL(max_tsc_khz);
 
 static u32 adjust_tsc_khz(u32 khz, s32 ppm)
 {

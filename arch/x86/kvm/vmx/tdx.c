@@ -1453,12 +1453,30 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 				  tdx_caps.attrs_fixed1))
 		return -EINVAL;
 
+	if (td_params->attributes & TDX_TD_ATTRIBUTE_PERFMON) {
+		pr_warn("TD doesn't support perfmon. KVM needs to save/restore "
+			"host perf registers properly.\n");
+		return -EOPNOTSUPP;
+	}
+
 	/* Setup td_params.xfam */
 	td_params->xfam = guest_supported_xcr0 | guest_supported_xss;
 	if (!tdx_fixed_bits_valid(td_params->xfam,
 				  tdx_caps.xfam_fixed0,
 				  tdx_caps.xfam_fixed1))
 		return -EINVAL;
+
+	if (td_params->xfam & TDX_TD_XFAM_LBR) {
+		pr_warn("TD doesn't support LBR. KVM needs to save/restore "
+			"IA32_LBR_DEPTH properly.\n");
+		return -EOPNOTSUPP;
+	}
+
+	if (td_params->xfam & TDX_TD_XFAM_AMX) {
+		pr_warn("TD doesn't support AMX. KVM needs to save/restore "
+			"IA32_XFD, IA32_XFD_ERR properly.\n");
+		return -EOPNOTSUPP;
+	}
 
 	if (init_vm->tsc_khz)
 		guest_tsc_khz = init_vm->tsc_khz;

@@ -4,6 +4,7 @@
 #include <linux/jump_label.h>
 #include <linux/trace_events.h>
 #include <linux/pagemap.h>
+#include <linux/perf_event.h>
 
 #include <asm/tdx_errno.h>
 #include <asm/tdx_host.h>
@@ -619,6 +620,7 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 
 	tdx_vcpu_enter_exit(vcpu, tdx);
 
+	perf_restore_debug_store();
 	tdx_restore_host_xsave_state(vcpu);
 
 	vmx_register_cache_reset(vcpu);

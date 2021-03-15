@@ -2068,9 +2068,7 @@ static int set_tsc_khz(struct kvm_vcpu *vcpu, u32 user_tsc_khz, bool scale)
 	u64 ratio;
 
 	/* Guest TSC same frequency as host TSC? */
-	if (!scale || vcpu->kvm->arch.tsc_immutable) {
-		if (scale)
-			pr_warn_ratelimited("Guest TSC immutable, scaling not supported\n");
+	if (!scale) {
 		vcpu->arch.tsc_scaling_ratio = kvm_default_tsc_scaling_ratio;
 		return 0;
 	}

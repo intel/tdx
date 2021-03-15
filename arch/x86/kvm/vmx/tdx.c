@@ -1495,15 +1495,24 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 				  tdx_caps.xfam_fixed1))
 		return -EINVAL;
 
-	/* TODO: Support a scaled guest TSC, i.e. take this from userspace. */
-	guest_tsc_khz = tsc_khz;
+	if (init_vm->tsc_khz)
+		guest_tsc_khz = init_vm->tsc_khz;
+	else
+		guest_tsc_khz = kvm->arch.initial_tsc_khz;
+
 	if (guest_tsc_khz < TDX1_MIN_TSC_FREQUENCY_KHZ ||
-	    guest_tsc_khz > TDX1_MAX_TSC_FREQUENCY_KHZ)
+	    guest_tsc_khz > TDX1_MAX_TSC_FREQUENCY_KHZ) {
+		pr_warn_ratelimited("Illegal TD TSC %d Khz, it must be between [%d, %d] Khz\n",
+		guest_tsc_khz, TDX1_MIN_TSC_FREQUENCY_KHZ, TDX1_MAX_TSC_FREQUENCY_KHZ);
 		return -EINVAL;
+	}
 
 	td_params->tsc_frequency = TDX1_TSC_KHZ_TO_25MHZ(guest_tsc_khz);
-	if (TDX1_TSC_25MHZ_TO_KHZ(td_params->tsc_frequency) != guest_tsc_khz)
-		pr_warn_once("KVM: TD TSC not a multiple of 25Mhz\n");
+	if (TDX1_TSC_25MHZ_TO_KHZ(td_params->tsc_frequency) != guest_tsc_khz) {
+		pr_warn_ratelimited("TD TSC %d Khz not a multiple of 25Mhz\n", guest_tsc_khz);
+		if (init_vm->tsc_khz)
+			return -EINVAL;
+	}
 
 	/* TODO
 	 *  - MRCONFIGID
@@ -1533,7 +1542,7 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	if (copy_from_user(&init_vm, (void __user *)cmd->data, sizeof(init_vm)))
 		return -EFAULT;
 
-	if (init_vm.max_vcpus > KVM_MAX_VCPUS || init_vm.reserved)
+	if (init_vm.max_vcpus > KVM_MAX_VCPUS)
 		return -EINVAL;
 
 	user_cpuid = (void *)init_vm.cpuid;
@@ -1568,6 +1577,7 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	kvm_tdx->tsc_offset = td_tdcs_exec_read64(kvm_tdx, TD_TDCS_EXEC_TSC_OFFSET);
 	kvm_tdx->attributes = td_params->attributes;
 	kvm->max_vcpus = td_params->max_vcpus;
+	kvm->arch.initial_tsc_khz = TDX1_TSC_25MHZ_TO_KHZ(td_params->tsc_frequency);
 
 	if (td_params->exec_controls & TDX1_EXEC_CONTROL_MAX_GPAW)
 		kvm->arch.gfn_shared_mask = BIT_ULL(51) >> PAGE_SHIFT;

@@ -621,6 +621,8 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 		return EXIT_FASTPATH_NONE;
 	}
 
+	trace_kvm_entry(vcpu);
+
 	if (pi_test_on(&tdx->pi_desc)) {
 		apic->send_IPI_self(POSTED_INTR_VECTOR);
 

@@ -1105,11 +1105,13 @@ static int __init tdx_init(void)
 	if (!boot_cpu_has(X86_FEATURE_TDX))
 		return -ENOTSUPP;
 
+#ifdef CONFIG_SMP
 	/* Disable TDX if any CPU(s) failed to boot. */
 	if (!cpumask_equal(cpu_present_mask, &cpus_booted_once_mask)) {
 		ret = -EIO;
 		goto err;
 	}
+#endif
 
 	if (atomic_read(&tdx_init_cpu_errors)) {
 		ret = -EIO;

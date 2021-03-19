@@ -743,16 +743,8 @@ void tdx_init_cpu(struct cpuinfo_x86 *c)
 		goto err_vmcs;
 
 	/* BSP does TDSYSINITLP as part of tdx_seam_init(). */
-	if (c == &boot_cpu_data) {
-		/* Tracing is on by default... */
-		if (!trace_boot_seamcalls) {
-			cpu_vmxon(__pa(vmcs));
-			tdx_trace_seamcalls(DEBUGCONFIG_TRACE_CUSTOM);
-			cpu_vmxoff();
-		}
-	} else if (tdx_init_ap(vmcs)) {
+	if (c != &boot_cpu_data && tdx_init_ap(vmcs))
 		goto err_vmcs;
-	}
 
 	this_cpu_write(tdx_vmxon_vmcs, vmcs);
 	return;
@@ -1138,6 +1130,10 @@ static int __init tdx_init(void)
 	ret = tdx_seamcall_on_each_pkg(do_tdsysconfigkey, NULL);
 	if (ret)
 		goto err_vmxoff;
+
+	/* Tracing is on by default, disable it before INITTDMR  */
+	if (!trace_boot_seamcalls)
+		tdx_trace_seamcalls(DEBUGCONFIG_TRACE_CUSTOM);
 
 	ret = tdx_init_tdmrs();
 	if (ret)

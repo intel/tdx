@@ -878,7 +878,7 @@ static void vt_sched_in(struct kvm_vcpu *vcpu, int cpu)
 	vmx_sched_in(vcpu, cpu);
 }
 
-void vt_update_cpu_dirty_logging(struct kvm_vcpu *vcpu)
+static void vt_update_cpu_dirty_logging(struct kvm_vcpu *vcpu)
 {
 	if (is_td_vcpu(vcpu))
 		return;

@@ -173,6 +173,7 @@ static __always_inline void tdvps_gpr_check(u64 field, u8 bits)
 static __always_inline void tdvps_apic_check(u64 field, u8 bits) {}
 static __always_inline void tdvps_dr_check(u64 field, u8 bits) {}
 static __always_inline void tdvps_state_check(u64 field, u8 bits) {}
+static __always_inline void tdvps_state_non_arch_check(u64 field, u8 bits) {}
 static __always_inline void tdvps_msr_check(u64 field, u8 bits) {}
 static __always_inline void tdvps_management_check(u64 field, u8 bits) {}
 
@@ -240,6 +241,7 @@ TDX_BUILD_TDVPS_ACCESSORS(64, APIC, apic);
 TDX_BUILD_TDVPS_ACCESSORS(64, GPR, gpr);
 TDX_BUILD_TDVPS_ACCESSORS(64, DR, dr);
 TDX_BUILD_TDVPS_ACCESSORS(64, STATE, state);
+TDX_BUILD_TDVPS_ACCESSORS(64, STATE_NON_ARCH, state_non_arch);
 TDX_BUILD_TDVPS_ACCESSORS(64, MSR, msr);
 TDX_BUILD_TDVPS_ACCESSORS(8, MANAGEMENT, management);
 

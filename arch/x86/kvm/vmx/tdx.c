@@ -1074,7 +1074,17 @@ static int tdx_emulate_cpuid(struct kvm_vcpu *vcpu)
 
 static int tdx_emulate_hlt(struct kvm_vcpu *vcpu)
 {
+	bool interrupt_disabled = tdvmcall_p1_read(vcpu);
+	union tdx_vcpu_state_details details;
+
 	tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_SUCCESS);
+
+	if (!interrupt_disabled) {
+		details.full = td_state_non_arch_read64(
+			to_tdx(vcpu), TD_VCPU_STATE_DETAILS_NON_ARCH);
+		if (details.vmxip)
+			return 1;
+	}
 
 	return kvm_vcpu_halt(vcpu);
 }

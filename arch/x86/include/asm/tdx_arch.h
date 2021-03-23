@@ -138,11 +138,21 @@
 	VMX_EXIT_REASONS
 
 /* TDX control structure (TDR/TDCS/TDVPS) field access codes */
+#define TDX_NON_ARCH		BIT_ULL(63)
 #define TDX_CLASS_SHIFT		56
 #define TDX_FIELD_MASK		GENMASK_ULL(31, 0)
 
-#define BUILD_TDX_FIELD(class, field)	\
-	(((u64)(class) << TDX_CLASS_SHIFT) | ((u64)(field) & TDX_FIELD_MASK))
+#define __BUILD_TDX_FIELD(non_arch, class, field)	\
+	(((non_arch) ? TDX_NON_ARCH : 0) |		\
+	 ((u64)(class) << TDX_CLASS_SHIFT) |		\
+	 ((u64)(field) & TDX_FIELD_MASK))
+
+#define BUILD_TDX_FIELD(class, field)			\
+	__BUILD_TDX_FIELD(false, (class), (field))
+
+#define BUILD_TDX_FIELD_NON_ARCH(class, field)		\
+	__BUILD_TDX_FIELD(true, (class), (field))
+
 
 /* @field is the VMCS field encoding */
 #define TDVPS_VMCS(field)	BUILD_TDX_FIELD(0, (field))
@@ -167,10 +177,20 @@ enum tdx_guest_other_state {
 	TD_VCPU_IWK_INTKEY0 = 68,
 	TD_VCPU_IWK_INTKEY1,
 	TD_VCPU_IWK_FLAGS = 70,
+	TD_VCPU_STATE_DETAILS_NON_ARCH = 0x100,
+};
+
+union tdx_vcpu_state_details {
+	struct {
+		u64 vmxip	: 1;
+		u64 reserved	: 63;
+	};
+	u64 full;
 };
 
 /* @field is any of enum tdx_guest_other_state */
 #define TDVPS_STATE(field)	BUILD_TDX_FIELD(17, (field))
+#define TDVPS_STATE_NON_ARCH(field)	BUILD_TDX_FIELD_NON_ARCH(17, field)
 
 /* @msr is the MSR index */
 #define TDVPS_MSR(msr)		BUILD_TDX_FIELD(19, (msr))

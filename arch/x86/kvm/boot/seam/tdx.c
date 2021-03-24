@@ -711,7 +711,7 @@ static int tdx_init_ap(unsigned long vmcs)
 	}
 
 	cpu_vmxon(__pa(vmcs));
-	err = tdsysinitlp(&ex_ret);
+	err = tdh_sys_lp_init(&ex_ret);
 	cpu_vmxoff();
 
 	if (TDX_ERR(err, TDH_SYS_LP_INIT))
@@ -787,13 +787,13 @@ static __init int tdx_init_bsp(void)
 
 	cpu_vmxon(__pa(vmcs));
 
-	err = tdsysinit(0, &ex_ret);
+	err = tdh_sys_init(0, &ex_ret);
 	if (TDX_ERR(err, TDH_SYS_INIT)) {
 		ret = -EIO;
 		goto out_vmxoff;
 	}
 
-	err = tdsysinitlp(&ex_ret);
+	err = tdh_sys_lp_init(&ex_ret);
 	if (TDX_ERR(err, TDH_SYS_LP_INIT)) {
 		ret = -EIO;
 		goto out_vmxoff;
@@ -805,8 +805,8 @@ static __init int tdx_init_bsp(void)
 	 * page allocator can't provide the large chunk (>4MB) of memory needed
 	 * for the PAMTs.
 	 */
-	err = tdsysinfo(__pa(&tdx_tdsysinfo), sizeof(tdx_tdsysinfo),
-			__pa(tdx_cmrs), TDX1_MAX_NR_CMRS, &ex_ret);
+	err = tdh_sys_info(__pa(&tdx_tdsysinfo), sizeof(tdx_tdsysinfo),
+			   __pa(tdx_cmrs), TDX1_MAX_NR_CMRS, &ex_ret);
 	if (TDX_ERR(err, TDH_SYS_INFO)) {
 		ret = -EIO;
 		goto out_vmxoff;
@@ -1020,12 +1020,12 @@ static void __init tdx_free_vmxon_vmcs(void)
 	}
 }
 
-static int __init do_tdsysconfigkey(void *param)
+static int __init do_tdh_sys_key_config(void *param)
 {
 	u64 err;
 
 	do {
-		err = tdsysconfigkey();
+		err = tdh_sys_key_config();
 	} while (err == TDX_KEY_GENERATION_FAILED);
 	TDX_ERR(err, TDH_SYS_KEY_CONFIG);
 
@@ -1053,7 +1053,7 @@ static void __init __tdx_init_tdmrs(void *failed)
 			if (atomic_read(failed))
 				return;
 
-			err = tdsysinittdmr(base, &ex_ret);
+			err = tdh_sys_tdmr_init(base, &ex_ret);
 			if (TDX_ERR(err, TDH_SYS_TDMR_INIT)) {
 				atomic_inc(failed);
 				return;
@@ -1120,14 +1120,14 @@ static int __init tdx_init(void)
 		tdx_tdmr_addrs[i] = __pa(&tdx_tdmrs[i]);
 
 	/* Use the first keyID as TDX-SEAM's global key. */
-	err = tdsysconfig(__pa(tdx_tdmr_addrs), tdx_nr_tdmrs, tdx_keyids_start);
+	err = tdh_sys_config(__pa(tdx_tdmr_addrs), tdx_nr_tdmrs, tdx_keyids_start);
 	if (TDX_ERR(err, TDH_SYS_CONFIG)) {
 		ret = -EIO;
 		goto err_vmxoff;
 	}
 	tdh_seam_keyid = tdx_keyids_start;
 
-	ret = tdh_seamcall_on_each_pkg(do_tdsysconfigkey, NULL);
+	ret = tdh_seamcall_on_each_pkg(do_tdh_sys_key_config, NULL);
 	if (ret)
 		goto err_vmxoff;
 

@@ -30,8 +30,8 @@ static int trace_seamcalls_initialized;
 /* Capabilities of KVM + TDX-SEAM. */
 struct tdx_capabilities tdx_caps;
 
-static struct mutex *tdwbcache_lock;
-static struct mutex *tdconfigkey_lock;
+static struct mutex *tdh_phymem_cache_wb_lock;
+static struct mutex *tdh_mng_key_config_lock;
 
 /*
  * A per-CPU list of TD vCPUs associated with a given CPU.  Used when a CPU
@@ -160,12 +160,12 @@ static int __tdx_reclaim_page(unsigned long va, hpa_t pa, bool do_wb, u16 hkid)
 	struct tdx_ex_ret ex_ret;
 	u64 err;
 
-	err = tdreclaimpage(pa, &ex_ret);
+	err = tdh_phymem_page_reclaim(pa, &ex_ret);
 	if (TDX_ERR(err, TDH_PHYMEM_PAGE_RECLAIM))
 		return -EIO;
 
-	if (do_wb) {
-		err = tdwbinvdpage(set_hkid_to_hpa(pa, hkid));
+	if (do_wb && boot_cpu_has(X86_FEATURE_CLFLUSHOPT)) {
+		err = tdh_phymem_page_wbinvd(set_hkid_to_hpa(pa, hkid));
 		if (TDX_ERR(err, TDH_PHYMEM_PAGE_WBINVD))
 			return -EIO;
 	}
@@ -229,7 +229,7 @@ static void tdx_flush_vp(void *arg)
 	if (vcpu->cpu != raw_smp_processor_id())
 		return;
 
-	err = tdflushvp(to_tdx(vcpu)->tdvpr.pa);
+	err = tdh_vp_flush(to_tdx(vcpu)->tdvpr.pa);
 	if (unlikely(err && err != TDX_VCPU_NOT_ASSOCIATED))
 		TDX_ERR(err, TDH_VP_FLUSH);
 
@@ -252,7 +252,7 @@ static void tdx_flush_vp_on_cpu(struct kvm_vcpu *vcpu)
 		tdx_disassociate_vp(vcpu);
 }
 
-static int tdx_do_tdwbcache(void *param)
+static int tdx_do_tdh_phymem_cache_wb(void *param)
 {
 	int cpu, cur_pkg;
 	u64 err = 0;
@@ -260,11 +260,11 @@ static int tdx_do_tdwbcache(void *param)
 	cpu = raw_smp_processor_id();
 	cur_pkg = topology_physical_package_id(cpu);
 
-	mutex_lock(&tdwbcache_lock[cur_pkg]);
+	mutex_lock(&tdh_phymem_cache_wb_lock[cur_pkg]);
 	do {
-		err = tdwbcache(!!err);
+		err = tdh_phymem_cache_wb(!!err);
 	} while (err == TDX_INTERRUPTED_RESUMABLE);
-	mutex_unlock(&tdwbcache_lock[cur_pkg]);
+	mutex_unlock(&tdh_phymem_cache_wb_lock[cur_pkg]);
 
 	if (TDX_ERR(err, TDH_PHYMEM_CACHE_WB))
 		return -EIO;
@@ -285,22 +285,22 @@ static void tdx_vm_teardown(struct kvm *kvm)
 	if (!is_td_created(kvm_tdx))
 		goto free_hkid;
 
-	err = tdreclaimhkids(kvm_tdx->tdr.pa);
+	err = tdh_mng_key_reclaimid(kvm_tdx->tdr.pa);
 	if (TDX_ERR(err, TDH_MNG_KEY_RECLAIMID))
 		return;
 
 	kvm_for_each_vcpu(i, vcpu, (&kvm_tdx->kvm))
 		tdx_flush_vp_on_cpu(vcpu);
 
-	err = tdflushvpdone(kvm_tdx->tdr.pa);
+	err = tdh_vp_flushdone(kvm_tdx->tdr.pa);
 	if (TDX_ERR(err, TDH_VP_FLUSHDONE))
 		return;
 
-	err = tdh_seamcall_on_each_pkg(tdx_do_tdwbcache, NULL);
+	err = tdh_seamcall_on_each_pkg(tdx_do_tdh_phymem_cache_wb, NULL);
 	if (unlikely(err))
 		return;
 
-	err = tdfreehkids(kvm_tdx->tdr.pa);
+	err = tdh_mng_key_freeid(kvm_tdx->tdr.pa);
 	if (TDX_ERR(err, TDH_MNG_KEY_FREEID))
 		return;
 
@@ -330,7 +330,7 @@ static void tdx_vm_destroy(struct kvm *kvm)
 	free_page(kvm_tdx->tdr.va);
 }
 
-static int tdx_do_tdconfigkey(void *param)
+static int tdx_do_tdh_mng_key_config(void *param)
 {
 	hpa_t *tdr_p = param;
 	int cpu, cur_pkg;
@@ -339,11 +339,11 @@ static int tdx_do_tdconfigkey(void *param)
 	cpu = raw_smp_processor_id();
 	cur_pkg = topology_physical_package_id(cpu);
 
-	mutex_lock(&tdconfigkey_lock[cur_pkg]);
+	mutex_lock(&tdh_mng_key_config_lock[cur_pkg]);
 	do {
-		err = tdconfigkey(*tdr_p);
+		err = tdh_mng_key_config(*tdr_p);
 	} while (err == TDX_KEY_GENERATION_FAILED);
-	mutex_unlock(&tdconfigkey_lock[cur_pkg]);
+	mutex_unlock(&tdh_mng_key_config_lock[cur_pkg]);
 
 	if (TDX_ERR(err, TDH_MNG_KEY_CONFIG))
 		return -EIO;
@@ -395,17 +395,17 @@ static int tdx_vm_init(struct kvm *kvm)
 	}
 
 	ret = -EIO;
-	err = tdcreate(kvm_tdx->tdr.pa, kvm_tdx->hkid);
+	err = tdh_mng_create(kvm_tdx->tdr.pa, kvm_tdx->hkid);
 	if (TDX_ERR(err, TDH_MNG_CREATE))
 		goto free_tdcs;
 	tdx_add_td_page(&kvm_tdx->tdr);
 
-	ret = tdh_seamcall_on_each_pkg(tdx_do_tdconfigkey, &kvm_tdx->tdr.pa);
+	ret = tdh_seamcall_on_each_pkg(tdx_do_tdh_mng_key_config, &kvm_tdx->tdr.pa);
 	if (ret)
 		goto teardown;
 
 	for (i = 0; i < tdx_caps.tdcs_nr_pages; i++) {
-		err = tdaddcx(kvm_tdx->tdr.pa, kvm_tdx->tdcs[i].pa);
+		err = tdh_mng_addcx(kvm_tdx->tdr.pa, kvm_tdx->tdcs[i].pa);
 		if (TDX_ERR(err, TDH_MNG_ADDCX))
 			goto teardown;
 		tdx_add_td_page(&kvm_tdx->tdcs[i]);
@@ -567,13 +567,13 @@ static void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	if (WARN_ON(init_event) || !vcpu->arch.apic)
 		goto td_bugged;
 
-	err = tdcreatevp(kvm_tdx->tdr.pa, tdx->tdvpr.pa);
+	err = tdh_mng_createvp(kvm_tdx->tdr.pa, tdx->tdvpr.pa);
 	if (TDX_ERR(err, TDH_MNG_CREATEVP))
 		goto td_bugged;
 	tdx_add_td_page(&tdx->tdvpr);
 
 	for (i = 0; i < tdx_caps.tdvpx_nr_pages; i++) {
-		err = tdaddvpx(tdx->tdvpr.pa, tdx->tdvpx[i].pa);
+		err = tdh_vp_addcx(tdx->tdvpr.pa, tdx->tdvpx[i].pa);
 		if (TDX_ERR(err, TDH_VP_ADDCX))
 			goto td_bugged;
 		tdx_add_td_page(&tdx->tdvpx[i]);
@@ -1100,7 +1100,7 @@ static void tdx_measure_page(struct kvm_tdx *kvm_tdx, hpa_t gpa)
 	int i;
 
 	for (i = 0; i < PAGE_SIZE; i += TDX1_EXTENDMR_CHUNKSIZE) {
-		err = tdextendmr(kvm_tdx->tdr.pa, gpa + i, &ex_ret);
+		err = tdh_mr_extend(kvm_tdx->tdr.pa, gpa + i, &ex_ret);
 		if (SEPT_ERR(err, &ex_ret, TDH_MR_EXTEND, &kvm_tdx->kvm))
 			break;
 	}
@@ -1130,7 +1130,7 @@ static void tdx_sept_set_private_spte(struct kvm_vcpu *vcpu, gfn_t gfn,
 	if (is_td_finalized(kvm_tdx)) {
 		trace_kvm_sept_seamcall(SEAMCALL_TDH_MEM_PAGE_AUG, gpa, hpa, level);
 
-		err = tdaugpage(kvm_tdx->tdr.pa, gpa, hpa, &ex_ret);
+		err = tdh_mem_page_aug(kvm_tdx->tdr.pa, gpa, hpa, &ex_ret);
 		SEPT_ERR(err, &ex_ret, TDH_MEM_PAGE_AUG, vcpu->kvm);
 		return;
 	}
@@ -1139,7 +1139,7 @@ static void tdx_sept_set_private_spte(struct kvm_vcpu *vcpu, gfn_t gfn,
 
 	source_pa = kvm_tdx->source_pa & ~KVM_TDX_MEASURE_MEMORY_REGION;
 
-	err = tdaddpage(kvm_tdx->tdr.pa,  gpa, hpa, source_pa, &ex_ret);
+	err = tdh_mem_page_add(kvm_tdx->tdr.pa,  gpa, hpa, source_pa, &ex_ret);
 	if (!SEPT_ERR(err, &ex_ret, TDH_MEM_PAGE_ADD, vcpu->kvm) &&
 	    (kvm_tdx->source_pa & KVM_TDX_MEASURE_MEMORY_REGION))
 		tdx_measure_page(kvm_tdx, gpa);
@@ -1162,12 +1162,12 @@ static void tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn, int level,
 	if (is_hkid_assigned(kvm_tdx)) {
 		trace_kvm_sept_seamcall(SEAMCALL_TDH_MEM_PAGE_REMOVE, gpa, hpa, level);
 
-		err = tdremovepage(kvm_tdx->tdr.pa, gpa, level, &ex_ret);
+		err = tdh_mem_page_remove(kvm_tdx->tdr.pa, gpa, level, &ex_ret);
 		if (SEPT_ERR(err, &ex_ret, TDH_MEM_PAGE_REMOVE, kvm))
 			return;
 
 		hpa_with_hkid = set_hkid_to_hpa(hpa, (u16)kvm_tdx->hkid);
-		err = tdwbinvdpage(hpa_with_hkid);
+		err = tdh_phymem_page_wbinvd(hpa_with_hkid);
 		if (TDX_ERR(err, TDH_PHYMEM_PAGE_WBINVD))
 			return;
 	} else if (tdx_reclaim_page((unsigned long)__va(hpa), hpa)) {
@@ -1188,7 +1188,7 @@ static int tdx_sept_link_private_sp(struct kvm_vcpu *vcpu, gfn_t gfn,
 
 	trace_kvm_sept_seamcall(SEAMCALL_TDH_MEM_SEPT_ADD, gpa, hpa, level);
 
-	err = tdaddsept(kvm_tdx->tdr.pa, gpa, level, hpa, &ex_ret);
+	err = tdh_mem_spet_add(kvm_tdx->tdr.pa, gpa, level, hpa, &ex_ret);
 	if (SEPT_ERR(err, &ex_ret, TDH_MEM_SEPT_ADD, vcpu->kvm))
 		return -EIO;
 
@@ -1204,7 +1204,7 @@ static void tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn, int level)
 
 	trace_kvm_sept_seamcall(SEAMCALL_TDH_MEM_RANGE_BLOCK, gpa, -1ull, level);
 
-	err = tdblock(kvm_tdx->tdr.pa, gpa, level, &ex_ret);
+	err = tdh_mem_range_block(kvm_tdx->tdr.pa, gpa, level, &ex_ret);
 	SEPT_ERR(err, &ex_ret, TDH_MEM_RANGE_BLOCK, kvm);
 }
 
@@ -1217,7 +1217,7 @@ static void tdx_sept_unzap_private_spte(struct kvm *kvm, gfn_t gfn, int level)
 
 	trace_kvm_sept_seamcall(SEAMCALL_TDH_MEM_RANGE_UNBLOCK, gpa, -1ull, level);
 
-	err = tdunblock(kvm_tdx->tdr.pa, gpa, level, &ex_ret);
+	err = tdh_mem_range_unblock(kvm_tdx->tdr.pa, gpa, level, &ex_ret);
 	SEPT_ERR(err, &ex_ret, TDH_MEM_RANGE_UNBLOCK, kvm);
 }
 
@@ -1243,17 +1243,17 @@ static int tdx_sept_tlb_remote_flush(struct kvm *kvm)
 		return -ENOTSUPP;
 
 	kvm_tdx = to_kvm_tdx(kvm);
-	kvm_tdx->tdtrack = true;
+	kvm_tdx->tdh_mem_track = true;
 
 	kvm_make_all_cpus_request(kvm, KVM_REQ_TLB_FLUSH);
 
 	if (is_hkid_assigned(kvm_tdx) && is_td_finalized(kvm_tdx)) {
 		struct tdx_ex_ret dummy = {};
-		err = tdtrack(to_kvm_tdx(kvm)->tdr.pa);
+		err = tdh_mem_track(to_kvm_tdx(kvm)->tdr.pa);
 		SEPT_ERR(err, &dummy, TDH_MEM_TRACK, kvm);
 	}
 
-	WRITE_ONCE(kvm_tdx->tdtrack, false);
+	WRITE_ONCE(kvm_tdx->tdh_mem_track, false);
 
 	return 0;
 }
@@ -1269,7 +1269,7 @@ static void tdx_flush_tlb(struct kvm_vcpu *vcpu)
 		ept_sync_context(construct_eptp(vcpu, root_hpa,
 						mmu->shadow_root_level));
 
-	while (READ_ONCE(kvm_tdx->tdtrack))
+	while (READ_ONCE(kvm_tdx->tdh_mem_track))
 		cpu_relax();
 }
 
@@ -1645,7 +1645,7 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	if (ret)
 		goto free_tdparams;
 
-	err = tdinit(kvm_tdx->tdr.pa, __pa(td_params), &ex_ret);
+	err = tdh_mng_init(kvm_tdx->tdr.pa, __pa(td_params), &ex_ret);
 	if (TDX_ERR(err, TDH_MNG_INIT)) {
 		ret = -EIO;
 		goto free_tdparams;
@@ -1763,11 +1763,11 @@ static int tdx_td_finalizemr(struct kvm *kvm)
 	if (!is_td_initialized(kvm) || is_td_finalized(kvm_tdx))
 		return -EINVAL;
 
-	err = tdfinalizemr(kvm_tdx->tdr.pa);
+	err = tdh_mr_finalize(kvm_tdx->tdr.pa);
 	if (TDX_ERR(err, TDH_MR_FINALIZE))
 		return -EIO;
 
-	(void)tdtrack(to_kvm_tdx(kvm)->tdr.pa);
+	(void)tdh_mem_track(to_kvm_tdx(kvm)->tdr.pa);
 
 	kvm_tdx->finalized = true;
 	return 0;
@@ -1825,7 +1825,7 @@ static int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 	if (cmd.metadata || cmd.id != KVM_TDX_INIT_VCPU)
 		return -EINVAL;
 
-	err = tdinitvp(tdx->tdvpr.pa, cmd.data);
+	err = tdh_mng_initvp(tdx->tdvpr.pa, cmd.data);
 	if (TDX_ERR(err, TDH_MNG_INITVP))
 		return -EIO;
 
@@ -2072,18 +2072,18 @@ static int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	x86_ops->free_private_sp = tdx_sept_free_private_sp;
 
 	max_pkgs = topology_max_packages();
-	tdwbcache_lock = kcalloc(max_pkgs, sizeof(*tdwbcache_lock),
+	tdh_phymem_cache_wb_lock = kcalloc(max_pkgs, sizeof(*tdh_phymem_cache_wb_lock),
 				 GFP_KERNEL);
-	tdconfigkey_lock = kcalloc(max_pkgs, sizeof(*tdwbcache_lock),
+	tdh_mng_key_config_lock = kcalloc(max_pkgs, sizeof(*tdh_phymem_cache_wb_lock),
 				   GFP_KERNEL);
-	if (!tdwbcache_lock || !tdconfigkey_lock) {
-		kfree(tdwbcache_lock);
-		kfree(tdconfigkey_lock);
+	if (!tdh_phymem_cache_wb_lock || !tdh_mng_key_config_lock) {
+		kfree(tdh_phymem_cache_wb_lock);
+		kfree(tdh_mng_key_config_lock);
 		return -ENOMEM;
 	}
 	for (i = 0; i < max_pkgs; i++) {
-		mutex_init(&tdwbcache_lock[i]);
-		mutex_init(&tdconfigkey_lock[i]);
+		mutex_init(&tdh_phymem_cache_wb_lock[i]);
+		mutex_init(&tdh_mng_key_config_lock[i]);
 	}
 
 	max_pa = cpuid_eax(0x80000008) & 0xff;

@@ -301,34 +301,34 @@ do {									\
 	seamcall_N_5(fn, ex, "c"(rcx), "d"(rdx), "r"(r8), "r"(r9), "r"(r10)); \
 } while (0)
 
-static inline void tdx_clflush_page(hpa_t addr)
+static inline void tdh_clflush_page(hpa_t addr)
 {
 	clflush_cache_range(__va(addr), PAGE_SIZE);
 }
 
-static inline u64 tdaddcx(hpa_t tdr, hpa_t addr)
+static inline u64 tdh_mng_addcx(hpa_t tdr, hpa_t addr)
 {
-	tdx_clflush_page(addr);
+	tdh_clflush_page(addr);
 	seamcall_2(TDH_MNG_ADDCX, addr, tdr);
 }
 
-static inline u64 tdaddpage(hpa_t tdr, gpa_t gpa, hpa_t hpa, hpa_t source,
+static inline u64 tdh_mem_page_add(hpa_t tdr, gpa_t gpa, hpa_t hpa, hpa_t source,
 			    struct tdx_ex_ret *ex)
 {
-	tdx_clflush_page(hpa);
+	tdh_clflush_page(hpa);
 	seamcall_4_2(TDH_MEM_PAGE_ADD, gpa, tdr, hpa, source, ex);
 }
 
-static inline u64 tdaddsept(hpa_t tdr, gpa_t gpa, int level, hpa_t page,
+static inline u64 tdh_mem_spet_add(hpa_t tdr, gpa_t gpa, int level, hpa_t page,
 			    struct tdx_ex_ret *ex)
 {
-	tdx_clflush_page(page);
+	tdh_clflush_page(page);
 	seamcall_3_2(TDH_MEM_SEPT_ADD, gpa | level, tdr, page, ex);
 }
 
-static inline u64 tdaddvpx(hpa_t tdvpr, hpa_t addr)
+static inline u64 tdh_vp_addcx(hpa_t tdvpr, hpa_t addr)
 {
-	tdx_clflush_page(addr);
+	tdh_clflush_page(addr);
 	seamcall_2(TDH_VP_ADDCX, addr, tdvpr);
 }
 
@@ -337,174 +337,174 @@ static inline u64 tdassignhkid(hpa_t tdr, int hkid)
 	seamcall_3(TDASSIGNHKID, tdr, 0, hkid);
 }
 
-static inline u64 tdaugpage(hpa_t tdr, gpa_t gpa, hpa_t hpa,
+static inline u64 tdh_mem_page_aug(hpa_t tdr, gpa_t gpa, hpa_t hpa,
 			    struct tdx_ex_ret *ex)
 {
-	tdx_clflush_page(hpa);
+	tdh_clflush_page(hpa);
 	seamcall_3_2(TDH_MEM_PAGE_AUG, gpa, tdr, hpa, ex);
 }
 
-static inline u64 tdblock(hpa_t tdr, gpa_t gpa, int level,
+static inline u64 tdh_mem_range_block(hpa_t tdr, gpa_t gpa, int level,
 			  struct tdx_ex_ret *ex)
 {
 	seamcall_2_2(TDH_MEM_RANGE_BLOCK, gpa | level, tdr, ex);
 }
 
-static inline u64 tdconfigkey(hpa_t tdr)
+static inline u64 tdh_mng_key_config(hpa_t tdr)
 {
 	seamcall_1(TDH_MNG_KEY_CONFIG, tdr);
 }
 
-static inline u64 tdcreate(hpa_t tdr, int hkid)
+static inline u64 tdh_mng_create(hpa_t tdr, int hkid)
 {
-	tdx_clflush_page(tdr);
+	tdh_clflush_page(tdr);
 	seamcall_2(TDH_MNG_CREATE, tdr, hkid);
 }
 
-static inline u64 tdcreatevp(hpa_t tdr, hpa_t tdvpr)
+static inline u64 tdh_mng_createvp(hpa_t tdr, hpa_t tdvpr)
 {
-	tdx_clflush_page(tdvpr);
+	tdh_clflush_page(tdvpr);
 	seamcall_2(TDH_MNG_CREATEVP, tdvpr, tdr);
 }
 
-static inline u64 tddbgrd(hpa_t tdr, u64 field, struct tdx_ex_ret *ex)
+static inline u64 tdh_mng_rd(hpa_t tdr, u64 field, struct tdx_ex_ret *ex)
 {
 	seamcall_2_3(TDH_MNG_RD, tdr, field, ex);
 }
 
-static inline u64 tddbgwr(hpa_t tdr, u64 field, u64 val, u64 mask,
+static inline u64 tdh_mng_wr(hpa_t tdr, u64 field, u64 val, u64 mask,
 			  struct tdx_ex_ret *ex)
 {
 	seamcall_4_3(TDH_MNG_WR, tdr, field, val, mask, ex);
 }
 
-static inline u64 tddbgrdmem(hpa_t addr, struct tdx_ex_ret *ex)
+static inline u64 tdh_mng_rdmem(hpa_t addr, struct tdx_ex_ret *ex)
 {
 	seamcall_1_2(TDH_MNG_RDMEM, addr, ex);
 }
 
-static inline u64 tddbgwrmem(hpa_t addr, u64 val, struct tdx_ex_ret *ex)
+static inline u64 tdh_mng_wrmem(hpa_t addr, u64 val, struct tdx_ex_ret *ex)
 {
 	seamcall_2_2(TDH_MNG_WRMEM, addr, val, ex);
 }
 
-static inline u64 tddemotepage(hpa_t tdr, gpa_t gpa, int level, hpa_t page,
+static inline u64 tdh_mem_page_demote(hpa_t tdr, gpa_t gpa, int level, hpa_t page,
 			       struct tdx_ex_ret *ex)
 {
 	seamcall_3_2(TDH_MEM_PAGE_DEMOTE, gpa | level, tdr, page, ex);
 }
 
-static inline u64 tdextendmr(hpa_t tdr, gpa_t gpa, struct tdx_ex_ret *ex)
+static inline u64 tdh_mr_extend(hpa_t tdr, gpa_t gpa, struct tdx_ex_ret *ex)
 {
 	seamcall_2_2(TDH_MR_EXTEND, gpa, tdr, ex);
 }
 
-static inline u64 tdfinalizemr(hpa_t tdr)
+static inline u64 tdh_mr_finalize(hpa_t tdr)
 {
 	seamcall_1(TDH_MR_FINALIZE, tdr);
 }
 
-static inline u64 tdflushvp(hpa_t tdvpr)
+static inline u64 tdh_vp_flush(hpa_t tdvpr)
 {
 	seamcall_1(TDH_VP_FLUSH, tdvpr);
 }
 
-static inline u64 tdflushvpdone(hpa_t tdr)
+static inline u64 tdh_vp_flushdone(hpa_t tdr)
 {
 	seamcall_1(TDH_VP_FLUSHDONE, tdr);
 }
 
-static inline u64 tdfreehkids(hpa_t tdr)
+static inline u64 tdh_mng_key_freeid(hpa_t tdr)
 {
 	seamcall_1(TDH_MNG_KEY_FREEID, tdr);
 }
 
-static inline u64 tdinit(hpa_t tdr, hpa_t td_params, struct tdx_ex_ret *ex)
+static inline u64 tdh_mng_init(hpa_t tdr, hpa_t td_params, struct tdx_ex_ret *ex)
 {
 	seamcall_2_2(TDH_MNG_INIT, tdr, td_params, ex);
 }
 
-static inline u64 tdinitvp(hpa_t tdvpr, u64 rcx)
+static inline u64 tdh_mng_initvp(hpa_t tdvpr, u64 rcx)
 {
 	seamcall_2(TDH_MNG_INITVP, tdvpr, rcx);
 }
 
-static inline u64 tdpromotepage(hpa_t tdr, gpa_t gpa, int level,
+static inline u64 tdh_mem_page_promote(hpa_t tdr, gpa_t gpa, int level,
 				struct tdx_ex_ret *ex)
 {
 	seamcall_2_2(TDH_MEM_PAGE_PROMOTE, gpa | level, tdr, ex);
 }
 
-static inline u64 tdrdpagemd(hpa_t page, struct tdx_ex_ret *ex)
+static inline u64 tdh_phymem_page_rdmd(hpa_t page, struct tdx_ex_ret *ex)
 {
 	seamcall_1_3(TDH_PHYMEM_PAGE_RDMD, page, ex);
 }
 
-static inline u64 tdrdsept(hpa_t tdr, gpa_t gpa, int level,
+static inline u64 tdh_mem_sept_rd(hpa_t tdr, gpa_t gpa, int level,
 			   struct tdx_ex_ret *ex)
 {
 	seamcall_2_2(TDH_MEM_SEPT_RD, gpa | level, tdr, ex);
 }
 
-static inline u64 tdrdvps(hpa_t tdvpr, u64 field, struct tdx_ex_ret *ex)
+static inline u64 tdh_vp_rd(hpa_t tdvpr, u64 field, struct tdx_ex_ret *ex)
 {
 	seamcall_2_3(TDH_VP_RD, tdvpr, field, ex);
 }
 
-static inline u64 tdreclaimhkids(hpa_t tdr)
+static inline u64 tdh_mng_key_reclaimid(hpa_t tdr)
 {
 	seamcall_1(TDH_MNG_KEY_RECLAIMID, tdr);
 }
 
-static inline u64 tdreclaimpage(hpa_t page, struct tdx_ex_ret *ex)
+static inline u64 tdh_phymem_page_reclaim(hpa_t page, struct tdx_ex_ret *ex)
 {
 	seamcall_1_3(TDH_PHYMEM_PAGE_RECLAIM, page, ex);
 }
 
-static inline u64 tdremovepage(hpa_t tdr, gpa_t gpa, int level,
+static inline u64 tdh_mem_page_remove(hpa_t tdr, gpa_t gpa, int level,
 				struct tdx_ex_ret *ex)
 {
 	seamcall_2_2(TDH_MEM_PAGE_REMOVE, gpa | level, tdr, ex);
 }
 
-static inline u64 tdremovesept(hpa_t tdr, gpa_t gpa, int level,
+static inline u64 tdh_mem_sept_remove(hpa_t tdr, gpa_t gpa, int level,
 			       struct tdx_ex_ret *ex)
 {
 	seamcall_2_2(TDH_MEM_SEPT_REMOVE, gpa | level, tdr, ex);
 }
 
-static inline u64 tdsysconfig(hpa_t tdmr, int nr_entries, int hkid)
+static inline u64 tdh_sys_config(hpa_t tdmr, int nr_entries, int hkid)
 {
 	seamcall_3(TDH_SYS_CONFIG, tdmr, nr_entries, hkid);
 }
 
-static inline u64 tdsysconfigkey(void)
+static inline u64 tdh_sys_key_config(void)
 {
 	seamcall_0(TDH_SYS_KEY_CONFIG);
 }
 
-static inline u64 tdsysinfo(hpa_t tdsysinfo, int nr_bytes, hpa_t cmr_info,
+static inline u64 tdh_sys_info(hpa_t tdsysinfo, int nr_bytes, hpa_t cmr_info,
 			    int nr_cmr_entries, struct tdx_ex_ret *ex)
 {
 	seamcall_4_4(TDH_SYS_INFO, tdsysinfo, nr_bytes, cmr_info, nr_cmr_entries, ex);
 }
 
-static inline u64 tdsysinit(u64 attributes, struct tdx_ex_ret *ex)
+static inline u64 tdh_sys_init(u64 attributes, struct tdx_ex_ret *ex)
 {
 	seamcall_1_5(TDH_SYS_INIT, attributes, ex);
 }
 
-static inline u64 tdsysinitlp(struct tdx_ex_ret *ex)
+static inline u64 tdh_sys_lp_init(struct tdx_ex_ret *ex)
 {
 	seamcall_0_3(TDH_SYS_LP_INIT, ex);
 }
 
-static inline u64 tdsysinittdmr(hpa_t tdmr, struct tdx_ex_ret *ex)
+static inline u64 tdh_sys_tdmr_init(hpa_t tdmr, struct tdx_ex_ret *ex)
 {
 	seamcall_1_2(TDH_SYS_TDMR_INIT, tdmr, ex);
 }
 
-static inline u64 tdsysshutdownlp(void)
+static inline u64 tdh_sys_lp_shutdown(void)
 {
 	seamcall_0(TDH_SYS_LP_SHUTDOWN);
 }
@@ -514,34 +514,34 @@ static inline u64 tdteardown(hpa_t tdr)
 	seamcall_1(TDTEARDOWN, tdr);
 }
 
-static inline u64 tdtrack(hpa_t tdr)
+static inline u64 tdh_mem_track(hpa_t tdr)
 {
 	seamcall_1(TDH_MEM_TRACK, tdr);
 }
 
-static inline u64 tdunblock(hpa_t tdr, gpa_t gpa, int level,
+static inline u64 tdh_mem_range_unblock(hpa_t tdr, gpa_t gpa, int level,
 			    struct tdx_ex_ret *ex)
 {
 	seamcall_2_2(TDH_MEM_RANGE_UNBLOCK, gpa | level, tdr, ex);
 }
 
-static inline u64 tdwbcache(bool resume)
+static inline u64 tdh_phymem_cache_wb(bool resume)
 {
 	seamcall_1(TDH_PHYMEM_CACHE_WB, resume ? 1 : 0);
 }
 
-static inline u64 tdwbinvdpage(hpa_t page)
+static inline u64 tdh_phymem_page_wbinvd(hpa_t page)
 {
 	seamcall_1(TDH_PHYMEM_PAGE_WBINVD, page);
 }
 
-static inline u64 tdwrsept(hpa_t tdr, gpa_t gpa, int level, u64 val,
+static inline u64 tdh_mem_sept_wr(hpa_t tdr, gpa_t gpa, int level, u64 val,
 			   struct tdx_ex_ret *ex)
 {
 	seamcall_3_2(TDH_MEM_SEPT_WR, gpa | level, tdr, val, ex);
 }
 
-static inline u64 tdwrvps(hpa_t tdvpr, u64 field, u64 val, u64 mask,
+static inline u64 tdh_vp_wr(hpa_t tdvpr, u64 field, u64 val, u64 mask,
 			  struct tdx_ex_ret *ex)
 {
 	seamcall_4_3(TDH_VP_WR, tdvpr, field, val, mask, ex);

@@ -32,8 +32,8 @@ static atomic_t tdx_init_cpu_errors;
 static u32 tdx_keyids_start;
 static u32 tdx_nr_keyids;
 
-u32 tdx_seam_keyid __ro_after_init;
-EXPORT_SYMBOL_GPL(tdx_seam_keyid);
+u32 tdh_seam_keyid __ro_after_init;
+EXPORT_SYMBOL_GPL(tdh_seam_keyid);
 
 /* TDX keyID pool */
 static DEFINE_IDA(tdx_keyid_pool);
@@ -729,7 +729,7 @@ static int __init trace_seamcalls(char *s)
 }
 __setup("trace_boot_seamcalls", trace_seamcalls);
 
-void tdx_init_cpu(struct cpuinfo_x86 *c)
+void tdh_init_cpu(struct cpuinfo_x86 *c)
 {
 	unsigned long vmcs;
 
@@ -742,7 +742,7 @@ void tdx_init_cpu(struct cpuinfo_x86 *c)
 	if (WARN_ON_ONCE(tdx_init_vmxon_vmcs((void *)vmcs)))
 		goto err_vmcs;
 
-	/* BSP does TDSYSINITLP as part of tdx_seam_init(). */
+	/* BSP does TDSYSINITLP as part of tdh_seam_init(). */
 	if (c != &boot_cpu_data && tdx_init_ap(vmcs))
 		goto err_vmcs;
 
@@ -908,7 +908,7 @@ static bool __init tdx_get_firmware(struct cpio_data *blob, const char *name)
 	return false;
 }
 
-void __init tdx_seam_init(void)
+void __init tdh_seam_init(void)
 {
 	const char *sigstruct_name = "intel-seam/libtdx.so.sigstruct";
 	const char *seamldr_name = "intel-seam/seamldr.acm";
@@ -983,7 +983,7 @@ static int __init init_package_masters(void)
 	return 0;
 }
 
-int tdx_seamcall_on_each_pkg(int (*fn)(void *), void *param)
+int tdh_seamcall_on_each_pkg(int (*fn)(void *), void *param)
 {
 	int ret, i;
 
@@ -998,7 +998,7 @@ int tdx_seamcall_on_each_pkg(int (*fn)(void *), void *param)
 	}
 	return 0;
 }
-EXPORT_SYMBOL_GPL(tdx_seamcall_on_each_pkg);
+EXPORT_SYMBOL_GPL(tdh_seamcall_on_each_pkg);
 
 static void __init tdx_vmxon(void *ret)
 {
@@ -1125,9 +1125,9 @@ static int __init tdx_init(void)
 		ret = -EIO;
 		goto err_vmxoff;
 	}
-	tdx_seam_keyid = tdx_keyids_start;
+	tdh_seam_keyid = tdx_keyids_start;
 
-	ret = tdx_seamcall_on_each_pkg(do_tdsysconfigkey, NULL);
+	ret = tdh_seamcall_on_each_pkg(do_tdsysconfigkey, NULL);
 	if (ret)
 		goto err_vmxoff;
 
@@ -1155,16 +1155,16 @@ err:
 }
 arch_initcall(tdx_init);
 
-struct tdsysinfo_struct *tdx_get_sysinfo(void)
+struct tdsysinfo_struct *tdh_get_sysinfo(void)
 {
 	if (boot_cpu_has(X86_FEATURE_TDX))
 		return &tdx_tdsysinfo;
 
 	return NULL;
 }
-EXPORT_SYMBOL_GPL(tdx_get_sysinfo);
+EXPORT_SYMBOL_GPL(tdh_get_sysinfo);
 
-int tdx_keyid_alloc(void)
+int tdh_keyid_alloc(void)
 {
 	if (!boot_cpu_has(X86_FEATURE_TDX))
 		return -EINVAL;
@@ -1177,16 +1177,16 @@ int tdx_keyid_alloc(void)
 			       tdx_keyids_start + tdx_nr_keyids - 1,
 			       GFP_KERNEL);
 }
-EXPORT_SYMBOL_GPL(tdx_keyid_alloc);
+EXPORT_SYMBOL_GPL(tdh_keyid_alloc);
 
-void tdx_keyid_free(int keyid)
+void tdh_keyid_free(int keyid)
 {
 	if (!keyid || keyid < 0)
 		return;
 
 	ida_free(&tdx_keyid_pool, keyid);
 }
-EXPORT_SYMBOL_GPL(tdx_keyid_free);
+EXPORT_SYMBOL_GPL(tdh_keyid_free);
 
 #ifdef CONFIG_SYSFS
 

@@ -700,7 +700,7 @@ static void init_intel(struct cpuinfo_x86 *c)
 		detect_tme(c);
 
 	if (cpu_has(c, X86_FEATURE_TDX))
-		tdx_init_cpu(c);
+		tdh_init_cpu(c);
 
 	init_intel_misc_features(c);
 

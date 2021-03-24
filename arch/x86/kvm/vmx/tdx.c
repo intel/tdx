@@ -291,8 +291,7 @@ static void tdx_vm_teardown(struct kvm *kvm)
 	if (TDX_ERR(err, TDFLUSHVPDONE))
 		return;
 
-	err = tdx_seamcall_on_each_pkg(tdx_do_tdwbcache, NULL);
-
+	err = tdh_seamcall_on_each_pkg(tdx_do_tdwbcache, NULL);
 	if (unlikely(err))
 		return;
 
@@ -301,7 +300,7 @@ static void tdx_vm_teardown(struct kvm *kvm)
 		return;
 
 free_hkid:
-	tdx_keyid_free(kvm_tdx->hkid);
+	tdh_keyid_free(kvm_tdx->hkid);
 	kvm_tdx->hkid = -1;
 }
 
@@ -320,7 +319,7 @@ static void tdx_vm_destroy(struct kvm *kvm)
 		tdx_reclaim_td_page(&kvm_tdx->tdcs[i]);
 
 	if (kvm_tdx->tdr.added &&
-	    __tdx_reclaim_page(kvm_tdx->tdr.va, kvm_tdx->tdr.pa, true, tdx_seam_keyid))
+	    __tdx_reclaim_page(kvm_tdx->tdr.va, kvm_tdx->tdr.pa, true, tdh_seam_keyid))
 		return;
 
 	free_page(kvm_tdx->tdr.va);
@@ -372,7 +371,7 @@ static int tdx_vm_init(struct kvm *kvm)
 	/* vCPUs can't be created until after KVM_TDX_INIT_VM. */
 	kvm->max_vcpus = 0;
 
-	kvm_tdx->hkid = tdx_keyid_alloc();
+	kvm_tdx->hkid = tdh_keyid_alloc();
 	if (kvm_tdx->hkid < 0)
 		return -EBUSY;
 	if (WARN_ON_ONCE(kvm_tdx->hkid >> 16)) {
@@ -396,7 +395,7 @@ static int tdx_vm_init(struct kvm *kvm)
 		goto free_tdcs;
 	tdx_add_td_page(&kvm_tdx->tdr);
 
-	ret = tdx_seamcall_on_each_pkg(tdx_do_tdconfigkey, &kvm_tdx->tdr.pa);
+	ret = tdh_seamcall_on_each_pkg(tdx_do_tdconfigkey, &kvm_tdx->tdr.pa);
 	if (ret)
 		goto teardown;
 
@@ -431,7 +430,7 @@ free_tdcs:
 
 	free_page(kvm_tdx->tdr.va);
 free_hkid:
-	tdx_keyid_free(kvm_tdx->hkid);
+	tdh_keyid_free(kvm_tdx->hkid);
 	return ret;
 }
 
@@ -1976,7 +1975,7 @@ static int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 {
 	int i, max_pkgs;
 	u32 max_pa;
-	struct tdsysinfo_struct *tdsysinfo = tdx_get_sysinfo();
+	struct tdsysinfo_struct *tdsysinfo = tdh_get_sysinfo();
 
 	if (!enable_ept) {
 		pr_warn("Cannot enable TDX with EPT disabled\n");

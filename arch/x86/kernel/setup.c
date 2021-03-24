@@ -1200,7 +1200,7 @@ void __init setup_arch(char **cmdline_p)
 
 	prefill_possible_map();
 
-	tdx_seam_init();
+	tdh_seam_init();
 
 	init_cpu_to_node();
 	init_gi_nodes();

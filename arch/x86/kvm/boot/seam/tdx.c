@@ -714,7 +714,7 @@ static int tdx_init_ap(unsigned long vmcs)
 	err = tdsysinitlp(&ex_ret);
 	cpu_vmxoff();
 
-	if (TDX_ERR(err, TDSYSINITLP))
+	if (TDX_ERR(err, TDH_SYS_LP_INIT))
 		return -EIO;
 
 	return 0;
@@ -742,7 +742,7 @@ void tdh_init_cpu(struct cpuinfo_x86 *c)
 	if (WARN_ON_ONCE(tdx_init_vmxon_vmcs((void *)vmcs)))
 		goto err_vmcs;
 
-	/* BSP does TDSYSINITLP as part of tdh_seam_init(). */
+	/* BSP does TDH_SYS_LP_INIT as part of tdh_seam_init(). */
 	if (c != &boot_cpu_data && tdx_init_ap(vmcs))
 		goto err_vmcs;
 
@@ -788,13 +788,13 @@ static __init int tdx_init_bsp(void)
 	cpu_vmxon(__pa(vmcs));
 
 	err = tdsysinit(0, &ex_ret);
-	if (TDX_ERR(err, TDSYSINIT)) {
+	if (TDX_ERR(err, TDH_SYS_INIT)) {
 		ret = -EIO;
 		goto out_vmxoff;
 	}
 
 	err = tdsysinitlp(&ex_ret);
-	if (TDX_ERR(err, TDSYSINITLP)) {
+	if (TDX_ERR(err, TDH_SYS_LP_INIT)) {
 		ret = -EIO;
 		goto out_vmxoff;
 	}
@@ -807,7 +807,7 @@ static __init int tdx_init_bsp(void)
 	 */
 	err = tdsysinfo(__pa(&tdx_tdsysinfo), sizeof(tdx_tdsysinfo),
 			__pa(tdx_cmrs), TDX1_MAX_NR_CMRS, &ex_ret);
-	if (TDX_ERR(err, TDSYSINFO)) {
+	if (TDX_ERR(err, TDH_SYS_INFO)) {
 		ret = -EIO;
 		goto out_vmxoff;
 	}
@@ -917,7 +917,7 @@ void __init tdh_seam_init(void)
 
 	/*
 	 * Don't load/configure SEAM if not all CPUs can be brought up during
-	 * smp_init(), TDX must execute TDSYSINITLP on all logical processors.
+	 * smp_init(), TDX must execute TDH_SYS_LP_INIT on all logical processors.
 	 */
 	if (!tdx_all_cpus_available())
 		goto error;
@@ -1027,7 +1027,7 @@ static int __init do_tdsysconfigkey(void *param)
 	do {
 		err = tdsysconfigkey();
 	} while (err == TDX_KEY_GENERATION_FAILED);
-	TDX_ERR(err, TDSYSCONFIGKEY);
+	TDX_ERR(err, TDH_SYS_KEY_CONFIG);
 
 	if (err)
 		return -EIO;
@@ -1054,7 +1054,7 @@ static void __init __tdx_init_tdmrs(void *failed)
 				return;
 
 			err = tdsysinittdmr(base, &ex_ret);
-			if (TDX_ERR(err, TDSYSINITTDMR)) {
+			if (TDX_ERR(err, TDH_SYS_TDMR_INIT)) {
 				atomic_inc(failed);
 				return;
 			}
@@ -1074,7 +1074,7 @@ static int __init tdx_init_tdmrs(void)
 
 	/*
 	 * Flush the cache to guarantee there no MODIFIED cache lines exist for
-	 * PAMTs before TDSYSINITTDMR, which will initialize PAMT memory using
+	 * PAMTs before TDH_SYS_TDMR_INIT, which will initialize PAMT memory using
 	 * TDX-SEAM's reserved/system HKID.
 	 */
 	wbinvd_on_all_cpus();
@@ -1121,7 +1121,7 @@ static int __init tdx_init(void)
 
 	/* Use the first keyID as TDX-SEAM's global key. */
 	err = tdsysconfig(__pa(tdx_tdmr_addrs), tdx_nr_tdmrs, tdx_keyids_start);
-	if (TDX_ERR(err, TDSYSCONFIG)) {
+	if (TDX_ERR(err, TDH_SYS_CONFIG)) {
 		ret = -EIO;
 		goto err_vmxoff;
 	}

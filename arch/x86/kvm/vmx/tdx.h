@@ -182,7 +182,7 @@ static __always_inline u##bits td_##lclass##_read##bits(struct vcpu_tdx *tdx,  \
 	tdvps_##lclass##_check(field, bits);				       \
 	err = tdrdvps(tdx->tdvpr.pa, TDVPS_##uclass(field), &ex_ret);	       \
 	if (unlikely(err)) {						       \
-		pr_err("TDRDVPS["#uclass".0x%x] failed: 0x%llx\n", field, err);\
+		pr_err("TDH_VP_RD["#uclass".0x%x] failed: 0x%llx\n", field, err);\
 		return 0;						       \
 	}								       \
 	return (u##bits)ex_ret.r8;					       \
@@ -197,7 +197,7 @@ static __always_inline void td_##lclass##_write##bits(struct vcpu_tdx *tdx,    \
 	err = tdwrvps(tdx->tdvpr.pa, TDVPS_##uclass(field), val,	       \
 		      GENMASK_ULL(bits - 1, 0), &ex_ret);		       \
 	if (unlikely(err))						       \
-		pr_err("TDWRVPS["#uclass".0x%x] = 0x%llx failed: 0x%llx\n",    \
+		pr_err("TDH_VP_WR["#uclass".0x%x] = 0x%llx failed: 0x%llx\n",  \
 		       field, (u64)val, err);				       \
 }									       \
 static __always_inline void td_##lclass##_setbit##bits(struct vcpu_tdx *tdx,   \
@@ -209,7 +209,7 @@ static __always_inline void td_##lclass##_setbit##bits(struct vcpu_tdx *tdx,   \
 	tdvps_##lclass##_check(field, bits);				       \
 	err = tdwrvps(tdx->tdvpr.pa, TDVPS_##uclass(field), bit, bit, &ex_ret);\
 	if (unlikely(err))						       \
-		pr_err("TDWRVPS["#uclass".0x%x] |= 0x%llx failed: 0x%llx\n",   \
+		pr_err("TDH_VP_WR["#uclass".0x%x] |= 0x%llx failed: 0x%llx\n", \
 		       field, bit, err);				       \
 }									       \
 static __always_inline void td_##lclass##_clearbit##bits(struct vcpu_tdx *tdx, \
@@ -221,7 +221,7 @@ static __always_inline void td_##lclass##_clearbit##bits(struct vcpu_tdx *tdx, \
 	tdvps_##lclass##_check(field, bits);				       \
 	err = tdwrvps(tdx->tdvpr.pa, TDVPS_##uclass(field), 0, bit, &ex_ret);  \
 	if (unlikely(err))						       \
-		pr_err("TDWRVPS["#uclass".0x%x] &= ~0x%llx failed: 0x%llx\n",  \
+		pr_err("TDH_VP_WR["#uclass".0x%x] &= ~0x%llx failed: 0x%llx\n",\
 		       field, bit, err);				       \
 }
 
@@ -243,7 +243,7 @@ static __always_inline u64 td_tdcs_exec_read64(struct kvm_tdx *kvm_tdx, u32 fiel
 
 	err = tddbgrd(kvm_tdx->tdr.pa, TDCS_EXEC(field), &ex_ret);
 	if (unlikely(err)) {
-		pr_err("TDDBGRD[EXEC.0x%x] failed: 0x%llx\n", field, err);
+		pr_err("TDH_MNG_RD[EXEC.0x%x] failed: 0x%llx\n", field, err);
 		WARN_ON(1);
 		return 0;
 	}

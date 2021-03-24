@@ -35,7 +35,7 @@ static struct mutex *tdconfigkey_lock;
 
 /*
  * A per-CPU list of TD vCPUs associated with a given CPU.  Used when a CPU
- * is brought down to invoke TDFLUSHVP on the approapriate TD vCPUS.
+ * is brought down to invoke TDH_VP_FLUSH on the approapriate TD vCPUS.
  */
 static DEFINE_PER_CPU(struct list_head, associated_tdvcpus);
 
@@ -161,12 +161,12 @@ static int __tdx_reclaim_page(unsigned long va, hpa_t pa, bool do_wb, u16 hkid)
 	u64 err;
 
 	err = tdreclaimpage(pa, &ex_ret);
-	if (TDX_ERR(err, TDRECLAIMPAGE))
+	if (TDX_ERR(err, TDH_PHYMEM_PAGE_RECLAIM))
 		return -EIO;
 
 	if (do_wb) {
 		err = tdwbinvdpage(set_hkid_to_hpa(pa, hkid));
-		if (TDX_ERR(err, TDWBINVDPAGE))
+		if (TDX_ERR(err, TDH_PHYMEM_PAGE_WBINVD))
 			return -EIO;
 	}
 
@@ -231,7 +231,7 @@ static void tdx_flush_vp(void *arg)
 
 	err = tdflushvp(to_tdx(vcpu)->tdvpr.pa);
 	if (unlikely(err && err != TDX_VCPU_NOT_ASSOCIATED))
-		TDX_ERR(err, TDFLUSHVP);
+		TDX_ERR(err, TDH_VP_FLUSH);
 
 	tdx_disassociate_vp(vcpu);
 }
@@ -242,7 +242,7 @@ static void tdx_flush_vp_on_cpu(struct kvm_vcpu *vcpu)
 		return;
 
 	/*
-	 * No need to do TDFLUSHVP if the vCPU hasn't been initialized.  The
+	 * No need to do TDH_VP_FLUSH if the vCPU hasn't been initialized.  The
 	 * list tracking still needs to be updated so that it's correct if/when
 	 * the vCPU does get initialized.
 	 */
@@ -266,7 +266,7 @@ static int tdx_do_tdwbcache(void *param)
 	} while (err == TDX_INTERRUPTED_RESUMABLE);
 	mutex_unlock(&tdwbcache_lock[cur_pkg]);
 
-	if (TDX_ERR(err, TDWBCACHE))
+	if (TDX_ERR(err, TDH_PHYMEM_CACHE_WB))
 		return -EIO;
 
 	return 0;
@@ -286,14 +286,14 @@ static void tdx_vm_teardown(struct kvm *kvm)
 		goto free_hkid;
 
 	err = tdreclaimhkids(kvm_tdx->tdr.pa);
-	if (TDX_ERR(err, TDRECLAIMHKIDS))
+	if (TDX_ERR(err, TDH_MNG_KEY_RECLAIMID))
 		return;
 
 	kvm_for_each_vcpu(i, vcpu, (&kvm_tdx->kvm))
 		tdx_flush_vp_on_cpu(vcpu);
 
 	err = tdflushvpdone(kvm_tdx->tdr.pa);
-	if (TDX_ERR(err, TDFLUSHVPDONE))
+	if (TDX_ERR(err, TDH_VP_FLUSHDONE))
 		return;
 
 	err = tdh_seamcall_on_each_pkg(tdx_do_tdwbcache, NULL);
@@ -301,7 +301,7 @@ static void tdx_vm_teardown(struct kvm *kvm)
 		return;
 
 	err = tdfreehkids(kvm_tdx->tdr.pa);
-	if (TDX_ERR(err, TDFREEHKIDS))
+	if (TDX_ERR(err, TDH_MNG_KEY_FREEID))
 		return;
 
 free_hkid:
@@ -345,7 +345,7 @@ static int tdx_do_tdconfigkey(void *param)
 	} while (err == TDX_KEY_GENERATION_FAILED);
 	mutex_unlock(&tdconfigkey_lock[cur_pkg]);
 
-	if (TDX_ERR(err, TDCONFIGKEY))
+	if (TDX_ERR(err, TDH_MNG_KEY_CONFIG))
 		return -EIO;
 
 	return 0;
@@ -396,7 +396,7 @@ static int tdx_vm_init(struct kvm *kvm)
 
 	ret = -EIO;
 	err = tdcreate(kvm_tdx->tdr.pa, kvm_tdx->hkid);
-	if (TDX_ERR(err, TDCREATE))
+	if (TDX_ERR(err, TDH_MNG_CREATE))
 		goto free_tdcs;
 	tdx_add_td_page(&kvm_tdx->tdr);
 
@@ -406,13 +406,13 @@ static int tdx_vm_init(struct kvm *kvm)
 
 	for (i = 0; i < tdx_caps.tdcs_nr_pages; i++) {
 		err = tdaddcx(kvm_tdx->tdr.pa, kvm_tdx->tdcs[i].pa);
-		if (TDX_ERR(err, TDADDCX))
+		if (TDX_ERR(err, TDH_MNG_ADDCX))
 			goto teardown;
 		tdx_add_td_page(&kvm_tdx->tdcs[i]);
 	}
 
 	/*
-	 * Note, TDINIT cannot be invoked here.  TDINIT requires a dedicated
+	 * Note, TDH_MNG_INIT cannot be invoked here.  TDH_MNG_INIT requires a dedicated
 	 * ioctl() to define the configure CPUID values for the TD.
 	 */
 	return 0;
@@ -568,13 +568,13 @@ static void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 		goto td_bugged;
 
 	err = tdcreatevp(kvm_tdx->tdr.pa, tdx->tdvpr.pa);
-	if (TDX_ERR(err, TDCREATEVP))
+	if (TDX_ERR(err, TDH_MNG_CREATEVP))
 		goto td_bugged;
 	tdx_add_td_page(&tdx->tdvpr);
 
 	for (i = 0; i < tdx_caps.tdvpx_nr_pages; i++) {
 		err = tdaddvpx(tdx->tdvpr.pa, tdx->tdvpx[i].pa);
-		if (TDX_ERR(err, TDADDVPX))
+		if (TDX_ERR(err, TDH_VP_ADDCX))
 			goto td_bugged;
 		tdx_add_td_page(&tdx->tdvpx[i]);
 	}
@@ -1101,7 +1101,7 @@ static void tdx_measure_page(struct kvm_tdx *kvm_tdx, hpa_t gpa)
 
 	for (i = 0; i < PAGE_SIZE; i += TDX1_EXTENDMR_CHUNKSIZE) {
 		err = tdextendmr(kvm_tdx->tdr.pa, gpa + i, &ex_ret);
-		if (SEPT_ERR(err, &ex_ret, TDEXTENDMR, &kvm_tdx->kvm))
+		if (SEPT_ERR(err, &ex_ret, TDH_MR_EXTEND, &kvm_tdx->kvm))
 			break;
 	}
 }
@@ -1126,21 +1126,21 @@ static void tdx_sept_set_private_spte(struct kvm_vcpu *vcpu, gfn_t gfn,
 	/* Pin the page, KVM doesn't yet support page migration. */
 	get_page(pfn_to_page(pfn));
 
-	/* Build-time faults are induced and handled via TDADDPAGE. */
+	/* Build-time faults are induced and handled via TDH_MEM_PAGE_ADD. */
 	if (is_td_finalized(kvm_tdx)) {
-		trace_kvm_sept_seamcall(SEAMCALL_TDAUGPAGE, gpa, hpa, level);
+		trace_kvm_sept_seamcall(SEAMCALL_TDH_MEM_PAGE_AUG, gpa, hpa, level);
 
 		err = tdaugpage(kvm_tdx->tdr.pa, gpa, hpa, &ex_ret);
-		SEPT_ERR(err, &ex_ret, TDAUGPAGE, vcpu->kvm);
+		SEPT_ERR(err, &ex_ret, TDH_MEM_PAGE_AUG, vcpu->kvm);
 		return;
 	}
 
-	trace_kvm_sept_seamcall(SEAMCALL_TDADDPAGE, gpa, hpa, level);
+	trace_kvm_sept_seamcall(SEAMCALL_TDH_MEM_PAGE_ADD, gpa, hpa, level);
 
 	source_pa = kvm_tdx->source_pa & ~KVM_TDX_MEASURE_MEMORY_REGION;
 
 	err = tdaddpage(kvm_tdx->tdr.pa,  gpa, hpa, source_pa, &ex_ret);
-	if (!SEPT_ERR(err, &ex_ret, TDADDPAGE, vcpu->kvm) &&
+	if (!SEPT_ERR(err, &ex_ret, TDH_MEM_PAGE_ADD, vcpu->kvm) &&
 	    (kvm_tdx->source_pa & KVM_TDX_MEASURE_MEMORY_REGION))
 		tdx_measure_page(kvm_tdx, gpa);
 }
@@ -1160,15 +1160,15 @@ static void tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn, int level,
 		return;
 
 	if (is_hkid_assigned(kvm_tdx)) {
-		trace_kvm_sept_seamcall(SEAMCALL_TDREMOVEPAGE, gpa, hpa, level);
+		trace_kvm_sept_seamcall(SEAMCALL_TDH_MEM_PAGE_REMOVE, gpa, hpa, level);
 
 		err = tdremovepage(kvm_tdx->tdr.pa, gpa, level, &ex_ret);
-		if (SEPT_ERR(err, &ex_ret, TDREMOVEPAGE, kvm))
+		if (SEPT_ERR(err, &ex_ret, TDH_MEM_PAGE_REMOVE, kvm))
 			return;
 
 		hpa_with_hkid = set_hkid_to_hpa(hpa, (u16)kvm_tdx->hkid);
 		err = tdwbinvdpage(hpa_with_hkid);
-		if (TDX_ERR(err, TDWBINVDPAGE))
+		if (TDX_ERR(err, TDH_PHYMEM_PAGE_WBINVD))
 			return;
 	} else if (tdx_reclaim_page((unsigned long)__va(hpa), hpa)) {
 		return;
@@ -1186,10 +1186,10 @@ static int tdx_sept_link_private_sp(struct kvm_vcpu *vcpu, gfn_t gfn,
 	struct tdx_ex_ret ex_ret;
 	u64 err;
 
-	trace_kvm_sept_seamcall(SEAMCALL_TDADDSEPT, gpa, hpa, level);
+	trace_kvm_sept_seamcall(SEAMCALL_TDH_MEM_SEPT_ADD, gpa, hpa, level);
 
 	err = tdaddsept(kvm_tdx->tdr.pa, gpa, level, hpa, &ex_ret);
-	if (SEPT_ERR(err, &ex_ret, TDADDSEPT, vcpu->kvm))
+	if (SEPT_ERR(err, &ex_ret, TDH_MEM_SEPT_ADD, vcpu->kvm))
 		return -EIO;
 
 	return 0;
@@ -1202,10 +1202,10 @@ static void tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn, int level)
 	struct tdx_ex_ret ex_ret;
 	u64 err;
 
-	trace_kvm_sept_seamcall(SEAMCALL_TDBLOCK, gpa, -1ull, level);
+	trace_kvm_sept_seamcall(SEAMCALL_TDH_MEM_RANGE_BLOCK, gpa, -1ull, level);
 
 	err = tdblock(kvm_tdx->tdr.pa, gpa, level, &ex_ret);
-	SEPT_ERR(err, &ex_ret, TDBLOCK, kvm);
+	SEPT_ERR(err, &ex_ret, TDH_MEM_RANGE_BLOCK, kvm);
 }
 
 static void tdx_sept_unzap_private_spte(struct kvm *kvm, gfn_t gfn, int level)
@@ -1215,10 +1215,10 @@ static void tdx_sept_unzap_private_spte(struct kvm *kvm, gfn_t gfn, int level)
 	struct tdx_ex_ret ex_ret;
 	u64 err;
 
-	trace_kvm_sept_seamcall(SEAMCALL_TDUNBLOCK, gpa, -1ull, level);
+	trace_kvm_sept_seamcall(SEAMCALL_TDH_MEM_RANGE_UNBLOCK, gpa, -1ull, level);
 
 	err = tdunblock(kvm_tdx->tdr.pa, gpa, level, &ex_ret);
-	SEPT_ERR(err, &ex_ret, TDUNBLOCK, kvm);
+	SEPT_ERR(err, &ex_ret, TDH_MEM_RANGE_UNBLOCK, kvm);
 }
 
 static int tdx_sept_free_private_sp(struct kvm *kvm, gfn_t gfn, int level,
@@ -1250,7 +1250,7 @@ static int tdx_sept_tlb_remote_flush(struct kvm *kvm)
 	if (is_hkid_assigned(kvm_tdx) && is_td_finalized(kvm_tdx)) {
 		struct tdx_ex_ret dummy = {};
 		err = tdtrack(to_kvm_tdx(kvm)->tdr.pa);
-		SEPT_ERR(err, &dummy, TDTRACK, kvm);
+		SEPT_ERR(err, &dummy, TDH_MEM_TRACK, kvm);
 	}
 
 	WRITE_ONCE(kvm_tdx->tdtrack, false);
@@ -1646,7 +1646,7 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 		goto free_tdparams;
 
 	err = tdinit(kvm_tdx->tdr.pa, __pa(td_params), &ex_ret);
-	if (TDX_ERR(err, TDINIT)) {
+	if (TDX_ERR(err, TDH_MNG_INIT)) {
 		ret = -EIO;
 		goto free_tdparams;
 	}
@@ -1764,7 +1764,7 @@ static int tdx_td_finalizemr(struct kvm *kvm)
 		return -EINVAL;
 
 	err = tdfinalizemr(kvm_tdx->tdr.pa);
-	if (TDX_ERR(err, TDFINALIZEMR))
+	if (TDX_ERR(err, TDH_MR_FINALIZE))
 		return -EIO;
 
 	(void)tdtrack(to_kvm_tdx(kvm)->tdr.pa);
@@ -1826,7 +1826,7 @@ static int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 		return -EINVAL;
 
 	err = tdinitvp(tdx->tdvpr.pa, cmd.data);
-	if (TDX_ERR(err, TDINITVP))
+	if (TDX_ERR(err, TDH_MNG_INITVP))
 		return -EIO;
 
 	tdx->initialized = true;
@@ -1844,7 +1844,7 @@ static void tdx_update_exception_bitmap(struct kvm_vcpu *vcpu)
 
 static void tdx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val)
 {
-	/* TODO: Add TDWRVPS(GUEST_DR7) for debug TDs. */
+	/* TODO: Add TDH_VP_WR(GUEST_DR7) for debug TDs. */
 	if (is_debug_td(vcpu))
 		return;
 
@@ -1858,8 +1858,8 @@ static int tdx_get_cpl(struct kvm_vcpu *vcpu)
 
 	/*
 	 * For debug TDs, tdx_get_cpl() may be called before the vCPU is
-	 * initialized, i.e. before TDRDVPS is legal, if the vCPU is scheduled
-	 * out.  If this happens, simply return CPL0 to avoid TDRDVPS failure.
+	 * initialized, i.e. before TDH_VP_RD is legal, if the vCPU is scheduled
+	 * out.  If this happens, simply return CPL0 to avoid TDH_VP_RD failure.
 	 */
 	if (!to_tdx(vcpu)->initialized)
 		return 0;
@@ -2153,12 +2153,12 @@ static void tdx_do_tdenter(struct kvm_tdenter *tdenter)
 	u64 *regs = tdenter->regs;
 
 	if (!enable_tdx_seam_backdoor) {
-		WARN("KVM_TDENTER backdoor is not enabled. "
+		WARN("KVM_TDH_VP_ENTER backdoor is not enabled. "
 		     "ignoring the request");
 		return;
 	}
 
-	WARN_ONCE(1, "KVM_TDENTER is an unsupported backdoor "
+	WARN_ONCE(1, "KVM_TDH_VP_ENTER is an unsupported backdoor "
 		  "only for development purpose."
 		  "which can be eliminated anytime.");
 	WARN_ON_ONCE(1);

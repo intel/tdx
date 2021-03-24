@@ -332,11 +332,6 @@ static inline u64 tdh_vp_addcx(hpa_t tdvpr, hpa_t addr)
 	seamcall_2(TDH_VP_ADDCX, addr, tdvpr);
 }
 
-static inline u64 tdassignhkid(hpa_t tdr, int hkid)
-{
-	seamcall_3(TDASSIGNHKID, tdr, 0, hkid);
-}
-
 static inline u64 tdh_mem_page_aug(hpa_t tdr, gpa_t gpa, hpa_t hpa,
 			    struct tdx_ex_ret *ex)
 {
@@ -507,11 +502,6 @@ static inline u64 tdh_sys_tdmr_init(hpa_t tdmr, struct tdx_ex_ret *ex)
 static inline u64 tdh_sys_lp_shutdown(void)
 {
 	seamcall_0(TDH_SYS_LP_SHUTDOWN);
-}
-
-static inline u64 tdteardown(hpa_t tdr)
-{
-	seamcall_1(TDTEARDOWN, tdr);
 }
 
 static inline u64 tdh_mem_track(hpa_t tdr)

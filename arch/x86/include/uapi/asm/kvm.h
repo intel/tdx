@@ -493,7 +493,7 @@ struct kvm_pmu_event_filter {
 #define KVM_X86_TDX_VM		2
 
 /* Trust Domain eXtension sub-ioctl() commands. */
-enum tdx_cmd_id {
+enum kvm_tdx_cmd_id {
 	KVM_TDX_CAPABILITIES = 0,
 	KVM_TDX_INIT_VM,
 	KVM_TDX_INIT_VCPU,

@@ -22,7 +22,7 @@
 #define pgprot_decrypted(prot)	__pgprot(__sme_clr(pgprot_val(prot)))
 
 /* Make the page accesable by VMM */
-#define pgprot_tdx_shared(prot) __pgprot(pgprot_val(prot) | tdx_shared_mask())
+#define pgprot_tdg_shared(prot) __pgprot(pgprot_val(prot) | tdg_shared_mask())
 
 #ifndef __ASSEMBLY__
 #include <asm/x86_init.h>

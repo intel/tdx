@@ -245,7 +245,7 @@ __ioremap_caller(resource_size_t phys_addr, unsigned long size,
 	if ((io_desc.flags & IORES_MAP_ENCRYPTED) || encrypted)
 		prot = pgprot_encrypted(prot);
 	else if (is_tdx_guest())
-		prot = pgprot_tdx_shared(prot);
+		prot = pgprot_tdg_shared(prot);
 
 	switch (pcm) {
 	case _PAGE_CACHE_MODE_UC:

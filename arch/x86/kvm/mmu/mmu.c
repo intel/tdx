@@ -2765,7 +2765,6 @@ static int mmu_set_spte(struct kvm_vcpu *vcpu, u64 *sptep,
 			was_rmapped = 1;
 	} else if (is_zapped_private_pte(pte)) {
 		WARN_ON(pfn != spte_to_pfn(pte));
-		ret = RET_PF_UNZAPPED;
 		was_rmapped = 1;
 	}
 
@@ -3081,6 +3080,7 @@ static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 	gfn_t gfn_stolen_bits = (gpa & gpa_stolen_mask) >> PAGE_SHIFT;
 	gfn_t base_gfn = gfn;
 	bool is_private = is_private_gfn(vcpu, gfn_stolen_bits);
+	bool is_zapped_pte;
 
 	if (WARN_ON(!VALID_PAGE(vcpu->arch.mmu->root_hpa)))
 		return RET_PF_RETRY;
@@ -3123,6 +3123,8 @@ static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 			kvm_mmu_link_private_sp(vcpu, sp);
 	}
 
+	is_zapped_pte = is_zapped_private_pte(*it.sptep);
+
 	ret = mmu_set_spte(vcpu, it.sptep, ACC_ALL,
 			   write, level, base_gfn, pfn, prefault,
 			   map_writable);
@@ -3132,11 +3134,14 @@ static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 	if (!is_private) {
 		if (!vcpu->arch.mmu->no_prefetch)
 			direct_pte_prefetch(vcpu, it.sptep);
-	} else if (ret == RET_PF_UNZAPPED)
-		static_call(kvm_x86_unzap_private_spte)(vcpu->kvm, gfn,
-							level - 1);
-	else if (!WARN_ON_ONCE(ret != RET_PF_FIXED))
-		static_call(kvm_x86_set_private_spte)(vcpu, gfn, level, pfn);
+	} else if (!WARN_ON_ONCE(ret != RET_PF_FIXED)) {
+		if (is_zapped_pte)
+			static_call(kvm_x86_unzap_private_spte)(vcpu->kvm, gfn,
+								level - 1);
+		else
+			static_call(kvm_x86_set_private_spte)(vcpu, gfn, level,
+							      pfn);
+	}
 	++vcpu->stat.pf_fixed;
 	return ret;
 }

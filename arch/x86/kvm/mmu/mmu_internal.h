@@ -130,7 +130,6 @@ static inline bool kvm_mmu_put_root(struct kvm *kvm, struct kvm_mmu_page *sp)
  * RET_PF_INVALID: the spte is invalid, let the real page fault path update it.
  * RET_PF_FIXED: The faulting entry has been fixed.
  * RET_PF_SPURIOUS: The faulting entry was already fixed, e.g. by another vCPU.
- * RET_PF_UNZAPPED: A private SPTE was unzapped.
  */
 enum {
 	RET_PF_RETRY = 0,
@@ -138,7 +137,6 @@ enum {
 	RET_PF_INVALID,
 	RET_PF_FIXED,
 	RET_PF_SPURIOUS,
-	RET_PF_UNZAPPED,
 };
 
 /* Bits which may be returned by set_spte() */

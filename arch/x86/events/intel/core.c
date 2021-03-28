@@ -4120,6 +4120,73 @@ static struct perf_guest_switch_msr *core_guest_get_msrs(int *nr, void *data)
 	return arr;
 }
 
+/* Disable host PMU and update all active perf events
+ *
+ * This is particularly for TDX. Following MSRs are reset to initial values
+ * across TD entry/exit if guest is allowed to use perfmon. Host needs to
+ * save them before TD entry and restore them after TD exit.
+ *
+ * MSR_CORE_PERF_GLOBAL_CTRL
+ * MSR_ARCH_PERFMON_FIXED_CTR[0-3]
+ * MSR_ARCH_PERFMON_EVENTSEL[0-7]
+ * MSR_ARCH_PERFMON_PERFCTR[0-7]
+ * MSR_ARCH_PERFMON_FIXED_CTR_CTRL
+ * MSR_OFFCORE_RSP_[0-1]
+ * MSR_PEBS_LD_LAT_THRESHOLD
+ * MSR_PEBS_FRONTEND
+ * MSR_PEBS_DATA_CFG
+ * MSR_IA32_PEBS_ENABLE
+ * MSR_PERF_METRICS
+ *
+ * Three different ways to handle these MSRs:
+ *   1. Most control MSRs are not saved as they have shadow values in memory.
+ *   2. MSR_ARCH_PERFMON_FIXED_CTR_CTRL is saved into/restored from a dedicated
+ *	field.
+ *   3. Read PMCs and record delta events elapsed.
+ */
+void intel_pmu_save(void)
+{
+	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
+	int idx;
+
+	perf_pmu_disable(x86_get_pmu(smp_processor_id()));
+
+	for (idx = 0; idx < X86_PMC_IDX_MAX; idx++) {
+		if (test_bit(idx, cpuc->active_mask))
+			x86_perf_event_update(cpuc->events[idx]);
+		else
+			/*
+			 * Increase unused counters' tags to avoid reusing
+			 * previous config, see match_prev_assignment().
+			 */
+			++cpuc->tags[idx];
+	}
+
+	rdmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, cpuc->saved_fixed_ctr_ctrl);
+}
+EXPORT_SYMBOL_GPL(intel_pmu_save);
+
+/* Restore counters' config MSRs and PMCs, and enable host PMU */
+void intel_pmu_restore(void)
+{
+	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
+	int idx;
+
+	for_each_set_bit(idx, (unsigned long *)&cpuc->active_mask, X86_PMC_IDX_MAX) {
+		struct perf_event *event = cpuc->events[idx];
+
+		x86_perf_event_set_period(event);
+		if (idx < INTEL_PMC_IDX_FIXED)
+			__x86_pmu_enable_event(&event->hw,
+					       ARCH_PERFMON_EVENTSEL_ENABLE);
+	}
+
+	wrmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, cpuc->saved_fixed_ctr_ctrl);
+
+	perf_pmu_enable(x86_get_pmu(smp_processor_id()));
+}
+EXPORT_SYMBOL_GPL(intel_pmu_restore);
+
 static void core_pmu_enable_event(struct perf_event *event)
 {
 	if (!event->attr.exclude_host)

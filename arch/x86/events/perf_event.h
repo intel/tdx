@@ -341,6 +341,8 @@ struct cpu_hw_events {
 	void				*kfree_on_online[X86_PERF_KFREE_MAX];
 
 	struct pmu			*pmu;
+
+	u64				saved_fixed_ctr_ctrl;
 };
 
 #define __EVENT_CONSTRAINT_RANGE(c, e, n, m, w, o, f) {	\

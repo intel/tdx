@@ -873,6 +873,14 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	}
 
 	/*
+	 * Always do PMU context switch here because SEAM module
+	 * unconditionally clear MSR_IA32_DS_AREA, otherwise CPU
+	 * may start to write data into DS area immediately after
+	 * SEAMRET to KVM, which cause PANIC with NULL access.
+	 */
+	intel_pmu_save();
+
+	/*
 	 * TDH.VP.ENTER has special environment requirements that
 	 * RTM_DISABLE(bit 0) and TSX_CPUID_CLEAR(bit 1) of IA32_TSX_CTRL must
 	 * be 0 if it's supported.
@@ -886,6 +894,15 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	perf_restore_debug_store();
 	tdx_restore_host_xsave_state(vcpu);
 	tdx->host_state_need_restore = true;
+
+	/*
+	 * See the comments above for intel_pmu_save() for why
+	 * always do PMU context switch here
+	 *
+	 * Restoring PMU must be after DS area because PMU may start to log
+	 * records in DS area.
+	 */
+	intel_pmu_restore();
 
 	if (is_debug_td(vcpu))
 		tdx_reset_regs_cache(vcpu);

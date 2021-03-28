@@ -503,10 +503,21 @@ static inline int x86_perf_get_lbr(struct x86_pmu_lbr *lbr)
 
 #ifdef CONFIG_CPU_SUP_INTEL
  extern void intel_pt_handle_vmx(int on);
+ extern void intel_pmu_save(void);
+ extern void intel_pmu_restore(void);
+
 #else
 static inline void intel_pt_handle_vmx(int on)
 {
 
+}
+
+static void intel_pmu_save(void)
+{
+}
+
+static void intel_pmu_restore(void)
+{
 }
 #endif
 

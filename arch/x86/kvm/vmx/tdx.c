@@ -614,6 +614,7 @@ u64 __tdx_vcpu_run(hpa_t tdvpr, void *regs, u32 regs_mask);
 static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
 
 	if (unlikely(vcpu->kvm->vm_bugged)) {
 		tdx->exit_reason.full = TDX_NON_RECOVERABLE_VCPU;
@@ -628,8 +629,14 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 		kvm_wait_lapic_expire(vcpu, true);
 	}
 
+	if (kvm_tdx->attributes & TDX1_TD_ATTRIBUTE_PERFMON)
+		intel_pmu_save();
+
 	tdx->exit_reason.full = __tdx_vcpu_run(tdx->tdvpr.pa, vcpu->arch.regs,
 					       tdx->tdvmcall.regs_mask);
+
+	if (kvm_tdx->attributes & TDX1_TD_ATTRIBUTE_PERFMON)
+		intel_pmu_restore();
 
 	tdx_user_return_update_cache();
 	perf_restore_debug_store();
@@ -1546,12 +1553,6 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 				  tdx_caps.attrs_fixed0,
 				  tdx_caps.attrs_fixed1))
 		return -EINVAL;
-
-	if (td_params->attributes & TDX1_TD_ATTRIBUTE_PERFMON) {
-		pr_warn("TD doesn't support perfmon. KVM needs to save/restore "
-			"host perf registers properly.\n");
-		return -ENOSYS;
-	}
 
 	/* Setup td_params.xfam */
 	td_params->xfam = guest_supported_xcr0 | guest_supported_xss;

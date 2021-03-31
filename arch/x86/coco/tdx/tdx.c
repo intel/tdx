@@ -837,6 +837,7 @@ void __init tdx_early_init(void)
 		return;
 
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
+	setup_clear_cpu_cap(X86_FEATURE_MCE);
 
 	/* TSC is the only reliable clock in TDX guest */
 	setup_force_cpu_cap(X86_FEATURE_TSC_RELIABLE);

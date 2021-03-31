@@ -660,6 +660,8 @@ void __init tdx_early_init(void)
 	set_protected_guest_flag(GUEST_TYPE_TDX);
 	set_protected_guest_flag(MEMORY_ENCRYPTION);
 
+	setup_clear_cpu_cap(X86_FEATURE_MCE);
+
 	tdg_get_info();
 
 	tdg_filter_init();

@@ -320,6 +320,7 @@ static void __init tdx_cpu_cap_init(void)
 		setup_clear_cpu_cap(X86_FEATURE_MWAIT);
 	}
 
+	setup_clear_cpu_cap(X86_FEATURE_MCE);
 }
 
 void __init tdx_early_init(void)

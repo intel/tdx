@@ -24,7 +24,7 @@ int tdh_seamcall_on_each_pkg(int (*fn)(void *), void *param);
  * successfully initialized, or NULL.
  */
 struct tdsysinfo_struct;
-struct tdsysinfo_struct *tdh_get_sysinfo(void);
+const struct tdsysinfo_struct *tdh_get_sysinfo(void);
 
 /* TDX keyID allocation functions */
 extern int tdh_keyid_alloc(void);

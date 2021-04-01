@@ -1171,7 +1171,7 @@ err:
 }
 arch_initcall(tdx_init);
 
-struct tdsysinfo_struct *tdh_get_sysinfo(void)
+const struct tdsysinfo_struct *tdh_get_sysinfo(void)
 {
 	if (boot_cpu_has(X86_FEATURE_TDX))
 		return &tdx_tdsysinfo;

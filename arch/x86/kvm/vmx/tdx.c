@@ -2026,7 +2026,7 @@ static int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 {
 	int i, max_pkgs;
 	u32 max_pa;
-	struct tdsysinfo_struct *tdsysinfo = tdh_get_sysinfo();
+	const struct tdsysinfo_struct *tdsysinfo = tdh_get_sysinfo();
 
 	if (!enable_ept) {
 		pr_warn("Cannot enable TDX with EPT disabled\n");

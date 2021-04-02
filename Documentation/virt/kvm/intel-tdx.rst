@@ -84,6 +84,7 @@ TDH.MNG.INIT TDX SEAM call.
 - id: KVM_TDX_INIT_VM
 - metadata: must be 0
 - data: pointer to struct kvm_tdx_init_vm
+- reserved: must be 0
 
 ::
 
@@ -92,6 +93,10 @@ TDH.MNG.INIT TDX SEAM call.
           __u32 reserved;
           __u64 attributes;
           __u64 cpuid;  /* pointer to struct kvm_cpuid2 */
+          __u64 mrconfigid[6];          /* sha384 digest */
+          __u64 mrowner[6];             /* sha384 digest */
+          __u64 mrownerconfig[6];       /* sha348 digest */
+          __u64 reserved[43];           /* must be zero for future extensibility */
   };
 
 

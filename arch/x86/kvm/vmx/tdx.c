@@ -1554,6 +1554,12 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 	int max_pa;
 	int i;
 
+	/* init_vm->reserved must be zero */
+	if (find_first_bit((unsigned long*)init_vm->reserved,
+			   sizeof(init_vm->reserved) * 8) !=
+	    sizeof(init_vm->reserved) * 8)
+		return -EINVAL;
+
 	td_params->attributes = init_vm->attributes;
 	td_params->max_vcpus = init_vm->max_vcpus;
 
@@ -1648,11 +1654,18 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 			return -EINVAL;
 	}
 
-	/* TODO
-	 *  - MRCONFIGID
-	 *  - MROWNER
-	 *  - MROWNERCONFIG
-	 */
+	BUILD_BUG_ON(sizeof(td_params->mrconfigid) !=
+		     sizeof(init_vm->mrconfigid));
+	memcpy(td_params->mrconfigid, init_vm->mrconfigid,
+	       sizeof(td_params->mrconfigid));
+	BUILD_BUG_ON(sizeof(td_params->mrowner) !=
+		     sizeof(init_vm->mrowner));
+	memcpy(td_params->mrowner, init_vm->mrowner, sizeof(td_params->mrowner));
+	BUILD_BUG_ON(sizeof(td_params->mrownerconfig) !=
+		     sizeof(init_vm->mrownerconfig));
+	memcpy(td_params->mrownerconfig, init_vm->mrownerconfig,
+	       sizeof(td_params->mrownerconfig));
+
 	return 0;
 }
 

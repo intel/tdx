@@ -6,6 +6,7 @@
 
 #include <linux/cpu.h>
 #include <linux/cc_platform.h>
+#include <linux/acpi.h>
 
 #include <asm/coco.h>
 #include <asm/tdx.h>
@@ -64,6 +65,8 @@ void __init tdx_filter_init(void)
 		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);
 		return;
 	}
+
+	acpi_tbl_allow_setup("XSDT,FACP,DSDT,FACS,APIC");
 
 	pr_info("Enabled TDX guest device filter\n");
 }

@@ -132,5 +132,7 @@ void __init tdg_filter_init(void)
 			pr_err("Filter deny list registration failed\n");
 	}
 
+	acpi_tbl_allow_setup("RDSP,XSDT,FACP,DSDT,FACS,APIC");
+
 	pr_info("Enabled TDX guest device filter\n");
 }

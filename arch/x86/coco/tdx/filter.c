@@ -265,5 +265,7 @@ void __init tdx_filter_init(void)
 		pr_debug("Device filter is overridden\n");
 	}
 
+	acpi_tbl_allow_setup("XSDT,FACP,DSDT,FACS,APIC");
+
 	pr_info("Enabled TDX guest device filter\n");
 }

@@ -1149,6 +1149,8 @@ DEFINE_IDTENTRY(exc_virtualization_exception)
 
 	RCU_LOCKDEP_WARN(!rcu_is_watching(), "entry code didn't wake RCU");
 
+	inc_irq_stat(tdg_ve_count);
+
 	/*
 	 * Consume #VE info before re-enabling interrupts. It will be
 	 * re-enabled after executing the TDGETVEINFO TDCALL.

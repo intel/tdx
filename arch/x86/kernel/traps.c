@@ -1186,6 +1186,8 @@ DEFINE_IDTENTRY(exc_virtualization_exception)
 
 	RCU_LOCKDEP_WARN(!rcu_is_watching(), "entry code didn't wake RCU");
 
+	inc_irq_stat(tdg_ve_count);
+
 	/*
 	 * NMIs/Machine-checks/Interrupts will be in a disabled state
 	 * till TDGETVEINFO TDCALL is executed. This prevents #VE

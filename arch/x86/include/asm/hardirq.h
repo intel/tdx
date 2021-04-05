@@ -47,6 +47,9 @@ typedef struct {
 #ifdef CONFIG_X86_POSTED_MSI
 	unsigned int posted_msi_notification_count;
 #endif
+#if IS_ENABLED(CONFIG_INTEL_TDX_GUEST)
+	unsigned int tdx_ve_count;
+#endif
 } ____cacheline_aligned irq_cpustat_t;
 
 DECLARE_PER_CPU_SHARED_ALIGNED(irq_cpustat_t, irq_stat);

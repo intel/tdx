@@ -626,6 +626,14 @@ static int __init construct_tdmrs(void)
 	ret = __construct_tdmrs();
 	if (ret)
 		goto free_pamts;
+
+	for (i = 0; i < tdx_nr_tdmrs; i++) {
+		pr_info("TDX TDMR[%d]: 0x%llx 0x%llx\n",
+			i, tdx_tdmrs[i].base, tdx_tdmrs[i].size);
+		pr_info("TDX PAMT[%d]: 0x%llx 0x%llx\n",
+			i, tdx_pamts[i].pamt_base, tdx_pamts[i].pamt_size);
+	}
+
 	return 0;
 
 free_pamts:
@@ -762,6 +770,7 @@ static __init int tdx_init_bsp(void)
 	struct tdx_ex_ret ex_ret;
 	void *vmcs;
 	u64 err;
+	int i;
 	int ret;
 
 	/*
@@ -824,6 +833,9 @@ static __init int tdx_init_bsp(void)
 		tdx_tdsysinfo.major_version);
 
 	tdx_nr_cmrs = ex_ret.nr_cmr_entries;
+	for (i = 0; i < tdx_nr_cmrs; i++)
+		pr_info("TDX CMR[%d]: base 0x%llx size 0x%llx\n",
+			i, tdx_cmrs[i].base, tdx_cmrs[i].size);
 	ret = 0;
 
 out_vmxoff:

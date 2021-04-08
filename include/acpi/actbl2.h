@@ -733,6 +733,17 @@ struct acpi_madt_multiproc_wakeup {
 	u64 base_address;
 };
 
+struct acpi_madt_multiproc_wakeup_mailbox {
+	u16 command;
+	u16 flags;
+	u32 apic_id;
+	u64 wakeup_vector;
+	u8 reserved_os[2032];
+	u8 reserved_firmware[2048];
+};
+
+#define ACPI_MP_WAKE_COMMAND_WAKEUP    1
+
 /*
  * Common flags fields for MADT subtables
  */

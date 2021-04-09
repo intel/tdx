@@ -161,12 +161,12 @@ static int __tdx_reclaim_page(unsigned long va, hpa_t pa, bool do_wb, u16 hkid)
 	u64 err;
 
 	err = tdh_phymem_page_reclaim(pa, &ex_ret);
-	if (TDX_ERR(err, TDH_PHYMEM_PAGE_RECLAIM))
+	if (TDX_ERR(err, TDH_PHYMEM_PAGE_RECLAIM, &ex_ret))
 		return -EIO;
 
 	if (do_wb && boot_cpu_has(X86_FEATURE_CLFLUSHOPT)) {
 		err = tdh_phymem_page_wbinvd(set_hkid_to_hpa(pa, hkid));
-		if (TDX_ERR(err, TDH_PHYMEM_PAGE_WBINVD))
+		if (TDX_ERR(err, TDH_PHYMEM_PAGE_WBINVD, NULL))
 			return -EIO;
 	}
 
@@ -231,7 +231,7 @@ static void tdx_flush_vp(void *arg)
 
 	err = tdh_vp_flush(to_tdx(vcpu)->tdvpr.pa);
 	if (unlikely(err && err != TDX_VCPU_NOT_ASSOCIATED))
-		TDX_ERR(err, TDH_VP_FLUSH);
+		TDX_ERR(err, TDH_VP_FLUSH, NULL);
 
 	tdx_disassociate_vp(vcpu);
 }
@@ -266,7 +266,7 @@ static int tdx_do_tdh_phymem_cache_wb(void *param)
 	} while (err == TDX_INTERRUPTED_RESUMABLE);
 	mutex_unlock(&tdh_phymem_cache_wb_lock[cur_pkg]);
 
-	if (TDX_ERR(err, TDH_PHYMEM_CACHE_WB))
+	if (TDX_ERR(err, TDH_PHYMEM_CACHE_WB, NULL))
 		return -EIO;
 
 	return 0;
@@ -286,14 +286,14 @@ static void tdx_vm_teardown(struct kvm *kvm)
 		goto free_hkid;
 
 	err = tdh_mng_key_reclaimid(kvm_tdx->tdr.pa);
-	if (TDX_ERR(err, TDH_MNG_KEY_RECLAIMID))
+	if (TDX_ERR(err, TDH_MNG_KEY_RECLAIMID, NULL))
 		return;
 
 	kvm_for_each_vcpu(i, vcpu, (&kvm_tdx->kvm))
 		tdx_flush_vp_on_cpu(vcpu);
 
 	err = tdh_vp_flushdone(kvm_tdx->tdr.pa);
-	if (TDX_ERR(err, TDH_VP_FLUSHDONE))
+	if (TDX_ERR(err, TDH_VP_FLUSHDONE, NULL))
 		return;
 
 	err = tdh_seamcall_on_each_pkg(tdx_do_tdh_phymem_cache_wb, NULL);
@@ -301,7 +301,7 @@ static void tdx_vm_teardown(struct kvm *kvm)
 		return;
 
 	err = tdh_mng_key_freeid(kvm_tdx->tdr.pa);
-	if (TDX_ERR(err, TDH_MNG_KEY_FREEID))
+	if (TDX_ERR(err, TDH_MNG_KEY_FREEID, NULL))
 		return;
 
 free_hkid:
@@ -345,7 +345,7 @@ static int tdx_do_tdh_mng_key_config(void *param)
 	} while (err == TDX_KEY_GENERATION_FAILED);
 	mutex_unlock(&tdh_mng_key_config_lock[cur_pkg]);
 
-	if (TDX_ERR(err, TDH_MNG_KEY_CONFIG))
+	if (TDX_ERR(err, TDH_MNG_KEY_CONFIG, NULL))
 		return -EIO;
 
 	return 0;
@@ -396,7 +396,7 @@ static int tdx_vm_init(struct kvm *kvm)
 
 	ret = -EIO;
 	err = tdh_mng_create(kvm_tdx->tdr.pa, kvm_tdx->hkid);
-	if (TDX_ERR(err, TDH_MNG_CREATE))
+	if (TDX_ERR(err, TDH_MNG_CREATE, NULL))
 		goto free_tdcs;
 	tdx_add_td_page(&kvm_tdx->tdr);
 
@@ -406,7 +406,7 @@ static int tdx_vm_init(struct kvm *kvm)
 
 	for (i = 0; i < tdx_caps.tdcs_nr_pages; i++) {
 		err = tdh_mng_addcx(kvm_tdx->tdr.pa, kvm_tdx->tdcs[i].pa);
-		if (TDX_ERR(err, TDH_MNG_ADDCX))
+		if (TDX_ERR(err, TDH_MNG_ADDCX, NULL))
 			goto teardown;
 		tdx_add_td_page(&kvm_tdx->tdcs[i]);
 	}
@@ -568,13 +568,13 @@ static void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 		goto td_bugged;
 
 	err = tdh_mng_createvp(kvm_tdx->tdr.pa, tdx->tdvpr.pa);
-	if (TDX_ERR(err, TDH_MNG_CREATEVP))
+	if (TDX_ERR(err, TDH_MNG_CREATEVP, NULL))
 		goto td_bugged;
 	tdx_add_td_page(&tdx->tdvpr);
 
 	for (i = 0; i < tdx_caps.tdvpx_nr_pages; i++) {
 		err = tdh_vp_addcx(tdx->tdvpr.pa, tdx->tdvpx[i].pa);
-		if (TDX_ERR(err, TDH_VP_ADDCX))
+		if (TDX_ERR(err, TDH_VP_ADDCX, NULL))
 			goto td_bugged;
 		tdx_add_td_page(&tdx->tdvpx[i]);
 	}
@@ -1095,7 +1095,7 @@ static void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, unsigned long pgd,
 	int __ret = KVM_BUG_ON(err, kvm);		\
 							\
 	if (unlikely(__ret)) {				\
-		pr_seamcall_error_ex(op, err, ex);	\
+		pr_seamcall_error(op, err, ex);	\
 	}						\
 	__ret;						\
 })
@@ -1175,7 +1175,7 @@ static void tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn, int level,
 
 		hpa_with_hkid = set_hkid_to_hpa(hpa, (u16)kvm_tdx->hkid);
 		err = tdh_phymem_page_wbinvd(hpa_with_hkid);
-		if (TDX_ERR(err, TDH_PHYMEM_PAGE_WBINVD))
+		if (TDX_ERR(err, TDH_PHYMEM_PAGE_WBINVD, NULL))
 			return;
 	} else if (tdx_reclaim_page((unsigned long)__va(hpa), hpa)) {
 		return;
@@ -1647,7 +1647,7 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 		goto free_tdparams;
 
 	err = tdh_mng_init(kvm_tdx->tdr.pa, __pa(td_params), &ex_ret);
-	if (TDX_ERR(err, TDH_MNG_INIT)) {
+	if (TDX_ERR(err, TDH_MNG_INIT, &ex_ret)) {
 		ret = -EIO;
 		goto free_tdparams;
 	}
@@ -1765,7 +1765,7 @@ static int tdx_td_finalizemr(struct kvm *kvm)
 		return -EINVAL;
 
 	err = tdh_mr_finalize(kvm_tdx->tdr.pa);
-	if (TDX_ERR(err, TDH_MR_FINALIZE))
+	if (TDX_ERR(err, TDH_MR_FINALIZE, NULL))
 		return -EIO;
 
 	(void)tdh_mem_track(to_kvm_tdx(kvm)->tdr.pa);
@@ -1827,7 +1827,7 @@ static int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 		return -EINVAL;
 
 	err = tdh_mng_initvp(tdx->tdvpr.pa, cmd.data);
-	if (TDX_ERR(err, TDH_MNG_INITVP))
+	if (TDX_ERR(err, TDH_MNG_INITVP, NULL))
 		return -EIO;
 
 	tdx->initialized = true;
@@ -2249,7 +2249,7 @@ static int trace_target_set(void *data, u64 val)
 		err = tddebugconfig(DEBUGCONFIG_SET_TARGET, val, paddr);
 		kvm_hardware_disable_all();
 		if (err)
-			pr_seamcall_error(TDDEBUGCONFIG, err);
+			pr_seamcall_error(TDDEBUGCONFIG, err, NULL);
 		else
 			trace_target = val;
 		ret = err;
@@ -2293,7 +2293,7 @@ static int emergency_set(void *data, u64 val)
 				    TRACE_BUFFER_SIZE);
 		kvm_hardware_disable_all();
 		if ((s64)err < 0) {
-			pr_seamcall_error(TDDEBUGCONFIG, err);
+			pr_seamcall_error(TDDEBUGCONFIG, err, NULL);
 			ret = (s64)err;
 		} else
 			ret = 0;
@@ -2318,7 +2318,7 @@ static int dump_set(void *data, u64 val)
 				    __pa(buffer_dump), TRACE_BUFFER_SIZE);
 		kvm_hardware_disable_all();
 		if ((s64)err < 0) {
-			pr_seamcall_error(TDDEBUGCONFIG, err);
+			pr_seamcall_error(TDDEBUGCONFIG, err, NULL);
 			ret = (s64)err;
 		} else
 			ret = 0;

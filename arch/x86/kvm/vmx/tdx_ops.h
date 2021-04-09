@@ -18,10 +18,15 @@ struct tdx_ex_ret {
 			u64 r9;
 			u64 r10;
 		};
-		/* Functions that return SEPT and level that failed. */
+		/* Functions that walk SEPT */
 		struct {
-			u64 septep;
-			int level;
+			u64 septe;
+			struct {
+				u64 level		:3;
+				u64 sept_reserved_0	:5;
+				u64 state		:8;
+				u64 sept_reserved_1	:48;
+			};
 		};
 		/* TDDBG{RD,WR} return the TDR, field code, and value. */
 		struct {
@@ -39,11 +44,6 @@ struct tdx_ex_ret {
 			u64 page_type;
 			u64 owner;
 			u64 page_size;
-		};
-		/* TDH_MEM_SEPT_RD returns the contents of the SEPT entry. */
-		struct {
-			u64 septe;
-			u64 ign;
 		};
 		/*
 		 * TDH_SYS_INFO returns the buffer address and its size, and the

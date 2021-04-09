@@ -1322,11 +1322,15 @@ static int tdx_handle_exit(struct kvm_vcpu *vcpu,
 {
 	union tdx_exit_reason exit_reason = to_tdx(vcpu)->exit_reason;
 
-	if (unlikely(exit_reason.non_recoverable))
-		return tdx_handle_triple_fault(vcpu);
+	if (unlikely(exit_reason.non_recoverable || exit_reason.error)) {
+		kvm_pr_unimpl("TD exit due to %s, Exit Reason %d\n",
+		               tdx_seamcall_error_name(exit_reason.full),
+			       exit_reason.basic);
+		if (exit_reason.basic == EXIT_REASON_TRIPLE_FAULT)
+			return tdx_handle_triple_fault(vcpu);
 
-	if (unlikely(exit_reason.error))
 		goto unhandled_exit;
+	}
 
 	WARN_ON_ONCE(fastpath != EXIT_FASTPATH_NONE);
 
@@ -1355,7 +1359,6 @@ static int tdx_handle_exit(struct kvm_vcpu *vcpu,
 	}
 
 unhandled_exit:
-	kvm_pr_unimpl("Unhandled TD-Exit Reason 0x%llx\n", exit_reason.full);
 	vcpu->run->exit_reason = KVM_EXIT_UNKNOWN;
 	vcpu->run->hw.hardware_exit_reason = exit_reason.full;
 	return 0;

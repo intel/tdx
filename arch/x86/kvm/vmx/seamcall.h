@@ -38,6 +38,7 @@ static inline u64 _seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10,
 #endif
 
 const char *tdx_seamcall_error_name(u64 error_code);
+void pr_seamcall_ex_ret_info(u64 op, u64 error_code, struct tdx_ex_ret *ex_ret);
 
 static inline void __pr_seamcall_error(u64 op, const char *op_str,
 				       u64 err, struct tdx_ex_ret *ex)
@@ -46,10 +47,7 @@ static inline void __pr_seamcall_error(u64 op, const char *op_str,
 			   op_str, smp_processor_id(),
 			   tdx_seamcall_error_name(err), err);
 	if (ex)
-		pr_err_ratelimited(
-			"RCX 0x%llx, RDX 0x%llx, R8 0x%llx, R9 0x%llx, R10 0x%llx, R11 0x%llx\n",
-			(ex)->rcx, (ex)->rdx, (ex)->r8, (ex)->r9, (ex)->r10,
-			(ex)->r11);
+		pr_seamcall_ex_ret_info(op, err, ex);
 }
 
 #define pr_seamcall_error(op, err, ex)			\

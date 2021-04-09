@@ -79,15 +79,19 @@ struct tdx_ex_ret {
 	};
 };
 
-#define pr_seamcall_error(op, err)					  \
-	pr_err_ratelimited("SEAMCALL[" #op "] failed: 0x%llx (cpu %d)\n", \
-			   (err), smp_processor_id())
+const char *tdx_seamcall_error_name(u64 error_code);
+
+#define pr_seamcall_error(op, err)					\
+	pr_err_ratelimited("SEAMCALL[" #op "] failed on cpu %d: %s (0x%llx)\n",	\
+			   smp_processor_id(),				\
+			   tdx_seamcall_error_name((err)), (err))
 
 #define pr_seamcall_error_ex(op, err, ex)				\
-	pr_err_ratelimited("SEAMCALL[" #op "] failed: "			\
-			   "0x%llx 0x%llx 0x%llx (cpu %d)\n",		\
-			   (err), (ex)->rcx, (ex)->rdx,			\
-			   smp_processor_id())
+	pr_err_ratelimited("SEAMCALL[" #op "] failed on cpu %d: %s (0x%llx)" \
+			   " 0x%llx 0x%llx \n",				\
+			   smp_processor_id(),				\
+			   tdx_seamcall_error_name((err)),		\
+			   (err), (ex)->rcx, (ex)->rdx)
 
 #define TDX_ERR(err, op)			\
 ({						\

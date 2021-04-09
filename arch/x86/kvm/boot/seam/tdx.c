@@ -1264,3 +1264,22 @@ out:
 
 device_initcall(tdx_seam_sysfs_init);
 #endif
+
+static struct tdx_seamcall_status{
+	u64 err_code;
+	const char *err_name;
+} tdx_seamcall_status_codes[] = {TDX_SEAMCALL_STATUS_CODES};
+
+const char *tdx_seamcall_error_name(u64 error_code){
+	struct tdx_seamcall_status status;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(tdx_seamcall_status_codes); i++) {
+		status = tdx_seamcall_status_codes[i];
+		if ((error_code & TDX_SEAMCALL_STATUS_MASK) == status.err_code)
+			return status.err_name;
+	}
+
+	return "Unkown SEAMCALL status code";
+}
+EXPORT_SYMBOL_GPL(tdx_seamcall_error_name);

@@ -80,6 +80,7 @@ struct tdx_ex_ret {
 };
 
 const char *tdx_seamcall_error_name(u64 error_code);
+void pr_seamcall_ex_ret_info(u64 error_code, struct tdx_ex_ret *ex_ret);
 
 #define pr_seamcall_error(op, err)					\
 	pr_err_ratelimited("SEAMCALL[" #op "] failed on cpu %d: %s (0x%llx)\n",	\
@@ -87,11 +88,12 @@ const char *tdx_seamcall_error_name(u64 error_code);
 			   tdx_seamcall_error_name((err)), (err))
 
 #define pr_seamcall_error_ex(op, err, ex)				\
-	pr_err_ratelimited("SEAMCALL[" #op "] failed on cpu %d: %s (0x%llx)" \
-			   " 0x%llx 0x%llx \n",				\
+({									\
+	pr_err_ratelimited("SEAMCALL[" #op "] failed on cpu %d: %s (0x%llx)\n", \
 			   smp_processor_id(),				\
-			   tdx_seamcall_error_name((err)),		\
-			   (err), (ex)->rcx, (ex)->rdx)
+			   tdx_seamcall_error_name((err)), (err));	\
+	pr_seamcall_ex_ret_info(err, ex);				\
+})
 
 #define TDX_ERR(err, op)			\
 ({						\

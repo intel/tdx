@@ -723,7 +723,7 @@ static int tdx_init_ap(unsigned long vmcs)
 	err = tdh_sys_lp_init(&ex_ret);
 	cpu_vmxoff();
 
-	if (TDX_ERR(err, TDH_SYS_LP_INIT))
+	if (TDX_ERR(err, TDH_SYS_LP_INIT, &ex_ret))
 		return -EIO;
 
 	return 0;
@@ -798,13 +798,13 @@ static __init int tdx_init_bsp(void)
 	cpu_vmxon(__pa(vmcs));
 
 	err = tdh_sys_init(0, &ex_ret);
-	if (TDX_ERR(err, TDH_SYS_INIT)) {
+	if (TDX_ERR(err, TDH_SYS_INIT, &ex_ret)) {
 		ret = -EIO;
 		goto out_vmxoff;
 	}
 
 	err = tdh_sys_lp_init(&ex_ret);
-	if (TDX_ERR(err, TDH_SYS_LP_INIT)) {
+	if (TDX_ERR(err, TDH_SYS_LP_INIT, &ex_ret)) {
 		ret = -EIO;
 		goto out_vmxoff;
 	}
@@ -817,7 +817,7 @@ static __init int tdx_init_bsp(void)
 	 */
 	err = tdh_sys_info(__pa(&tdx_tdsysinfo), sizeof(tdx_tdsysinfo),
 			   __pa(tdx_cmrs), TDX1_MAX_NR_CMRS, &ex_ret);
-	if (TDX_ERR(err, TDH_SYS_INFO)) {
+	if (TDX_ERR(err, TDH_SYS_INFO, &ex_ret)) {
 		ret = -EIO;
 		goto out_vmxoff;
 	}
@@ -1043,7 +1043,7 @@ static int __init do_tdh_sys_key_config(void *param)
 	do {
 		err = tdh_sys_key_config();
 	} while (err == TDX_KEY_GENERATION_FAILED);
-	TDX_ERR(err, TDH_SYS_KEY_CONFIG);
+	TDX_ERR(err, TDH_SYS_KEY_CONFIG, NULL);
 
 	if (err)
 		return -EIO;
@@ -1070,7 +1070,7 @@ static void __init __tdx_init_tdmrs(void *failed)
 				return;
 
 			err = tdh_sys_tdmr_init(base, &ex_ret);
-			if (TDX_ERR(err, TDH_SYS_TDMR_INIT)) {
+			if (TDX_ERR(err, TDH_SYS_TDMR_INIT, &ex_ret)) {
 				atomic_inc(failed);
 				return;
 			}
@@ -1137,7 +1137,7 @@ static int __init tdx_init(void)
 
 	/* Use the first keyID as TDX-SEAM's global key. */
 	err = tdh_sys_config(__pa(tdx_tdmr_addrs), tdx_nr_tdmrs, tdx_keyids_start);
-	if (TDX_ERR(err, TDH_SYS_CONFIG)) {
+	if (TDX_ERR(err, TDH_SYS_CONFIG, NULL)) {
 		ret = -EIO;
 		goto err_vmxoff;
 	}

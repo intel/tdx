@@ -82,25 +82,26 @@ struct tdx_ex_ret {
 const char *tdx_seamcall_error_name(u64 error_code);
 void pr_seamcall_ex_ret_info(u64 error_code, struct tdx_ex_ret *ex_ret);
 
-#define pr_seamcall_error(op, err)					\
-	pr_err_ratelimited("SEAMCALL[" #op "] failed on cpu %d: %s (0x%llx)\n",	\
-			   smp_processor_id(),				\
-			   tdx_seamcall_error_name((err)), (err))
-
-#define pr_seamcall_error_ex(op, err, ex)				\
+#define pr_seamcall_error(op, err, ex)					\
 ({									\
 	pr_err_ratelimited("SEAMCALL[" #op "] failed on cpu %d: %s (0x%llx)\n", \
 			   smp_processor_id(),				\
 			   tdx_seamcall_error_name((err)), (err));	\
-	pr_seamcall_ex_ret_info(err, ex);				\
+	if (ex != NULL)							\
+		pr_seamcall_ex_ret_info(err, ex);			\
 })
 
-#define TDX_ERR(err, op)			\
+/*
+ * Note:
+ * ex needs to be a pointer to struct tdx_ex_ret.
+ * If no, must pass NULL
+ */
+#define TDX_ERR(err, op, ex)			\
 ({						\
 	int __ret_warn_on = WARN_ON_ONCE(err);	\
 						\
 	if (unlikely(__ret_warn_on))		\
-		pr_seamcall_error(op, err);	\
+		pr_seamcall_error(op, err, ex);	\
 	__ret_warn_on;				\
 })
 
@@ -554,7 +555,7 @@ static inline void tdx_trace_seamcalls(u64 level)
 
 	err = tddebugconfig(DEBUGCONFIG_SET_TRACE_LEVEL, level, 0);
 	if (err)
-		pr_seamcall_error(TDDEBUGCONFIG, err);
+		pr_seamcall_error(TDDEBUGCONFIG, err, NULL);
 }
 
 static inline u64 tdxmode(bool intercept_vmexits, u64 intercept_bitmap)

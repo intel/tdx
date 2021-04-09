@@ -708,10 +708,9 @@ static int tdx_handle_external_interrupt(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
-static int tdx_handle_triple_fault(struct kvm_vcpu *vcpu, bool real_triple_fault)
+static int tdx_handle_triple_fault(struct kvm_vcpu *vcpu)
 {
-	if (real_triple_fault &&
-	    to_kvm_tdx(vcpu->kvm)->attributes & TDX1_TD_ATTRIBUTE_DEBUG)
+	if (to_kvm_tdx(vcpu->kvm)->attributes & TDX1_TD_ATTRIBUTE_DEBUG)
 		pr_err("triple fault at 0x%lx\n", kvm_rip_read(vcpu));
 	vcpu->run->exit_reason = KVM_EXIT_SHUTDOWN;
 	vcpu->mmio_needed = 0;
@@ -1323,11 +1322,8 @@ static int tdx_handle_exit(struct kvm_vcpu *vcpu,
 {
 	union tdx_exit_reason exit_reason = to_tdx(vcpu)->exit_reason;
 
-	if (unlikely(exit_reason.non_recoverable)) {
-		pr_err("TD vcpu is non-recoverable with exit reason 0x%llx\n",
-			exit_reason.full);
-		return tdx_handle_triple_fault(vcpu, false);
-	}
+	if (unlikely(exit_reason.non_recoverable))
+		return tdx_handle_triple_fault(vcpu);
 
 	if (unlikely(exit_reason.error))
 		goto unhandled_exit;
@@ -1353,7 +1349,7 @@ static int tdx_handle_exit(struct kvm_vcpu *vcpu,
 		 */
 		return 1;
 	case EXIT_REASON_TRIPLE_FAULT:
-		return tdx_handle_triple_fault(vcpu, true);
+		return tdx_handle_triple_fault(vcpu);
 	default:
 		break;
 	}

@@ -1675,7 +1675,7 @@ static int tdx_init_mem_region(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	struct kvm_vcpu *vcpu;
 	struct page *page;
 	kvm_pfn_t pfn;
-	int idx, ret;
+	int idx, ret = 0;
 
 	/* The BSP vCPU must be created before initializing memory regions. */
 	if (!atomic_read(&kvm->online_vcpus))
@@ -1691,6 +1691,8 @@ static int tdx_init_mem_region(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	if (!IS_ALIGNED(region.source_addr, PAGE_SIZE))
 		return -EINVAL;
 	if (!IS_ALIGNED(region.gpa, PAGE_SIZE))
+		return -EINVAL;
+	if (!region.nr_pages)
 		return -EINVAL;
 	if (region.gpa + (region.nr_pages << PAGE_SHIFT) <= region.gpa)
 		return -EINVAL;

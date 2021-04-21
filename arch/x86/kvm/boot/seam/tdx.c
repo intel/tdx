@@ -1292,7 +1292,7 @@ static const char *TDX_SEPT_ENTRY_STATES[] = {
 	"SEPT_PRESENT"
 };
 
-void pr_seamcall_ex_ret_info(u64 error_code, struct tdx_ex_ret *ex_ret)
+void pr_seamcall_ex_ret_info(u64 op, u64 error_code, struct tdx_ex_ret *ex_ret)
 {
 	if (WARN_ON(!ex_ret))
 		return;
@@ -1328,9 +1328,11 @@ void pr_seamcall_ex_ret_info(u64 error_code, struct tdx_ex_ret *ex_ret)
 		break;
 	}
 	default:
-		pr_err("RCX 0x%llx, RDX 0x%llx, R8 0x%llx, R9 0x%llx, r10 0x%llx\n",
+		/* TODO: print only meaningful registers depending on op */
+		pr_err("RCX 0x%llx, RDX 0x%llx, R8 0x%llx, R9 0x%llx, "
+		       "R10 0x%llx, R11 0x%llx\n",
 		       ex_ret->rcx, ex_ret->rdx, ex_ret->r8, ex_ret->r9,
-		       ex_ret->r10);
+		       ex_ret->r10, ex_ret->r11);
 		break;
 	}
 }

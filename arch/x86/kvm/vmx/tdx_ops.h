@@ -17,6 +17,7 @@ struct tdx_ex_ret {
 			u64 r8;
 			u64 r9;
 			u64 r10;
+			u64 r11;
 		};
 		/* Functions that walk SEPT */
 		struct {
@@ -80,7 +81,7 @@ struct tdx_ex_ret {
 };
 
 const char *tdx_seamcall_error_name(u64 error_code);
-void pr_seamcall_ex_ret_info(u64 error_code, struct tdx_ex_ret *ex_ret);
+void pr_seamcall_ex_ret_info(u64 op, u64 error_code, struct tdx_ex_ret *ex_ret);
 
 #define pr_seamcall_error(op, err, ex)					\
 ({									\
@@ -88,7 +89,7 @@ void pr_seamcall_ex_ret_info(u64 error_code, struct tdx_ex_ret *ex_ret);
 			   smp_processor_id(),				\
 			   tdx_seamcall_error_name((err)), (err));	\
 	if (ex != NULL)							\
-		pr_seamcall_ex_ret_info(err, ex);			\
+		pr_seamcall_ex_ret_info(SEAMCALL_##op, err, ex);			\
 })
 
 /*
@@ -308,6 +309,30 @@ do {									\
 	seamcall_N_5(fn, ex, "c"(rcx), "d"(rdx), "r"(r8), "r"(r9), "r"(r10)); \
 } while (0)
 
+#define seamcall_N_6(fn, ex, inputs...)					\
+do {									\
+	register long r8_out asm("r8");					\
+	register long r9_out asm("r9");					\
+	register long r10_out asm("r10");				\
+	register long r11_out asm("r11");				\
+	u64 ret;							\
+									\
+	asm volatile(__seamcall						\
+		     : ASM_CALL_CONSTRAINT, "=a"(ret), "=c"((ex)->rcx),	\
+		       "=d"((ex)->rdx), "=r"(r8_out), "=r"(r9_out),	\
+		       "=r"(r10_out), "=r"(r11_out)			\
+		     : "a"(SEAMCALL_##fn), inputs			\
+		     : );						\
+	(ex)->r8 = r8_out;						\
+	(ex)->r9 = r9_out;						\
+	(ex)->r10 = r10_out;						\
+	(ex)->r11 = r11_out;						\
+	return ret;							\
+} while (0)
+
+#define seamcall_1_6(fn, rcx, ex)					\
+	seamcall_N_6(fn, ex, "c"(rcx))
+
 static inline void tdh_clflush_page(hpa_t addr)
 {
 	clflush_cache_range(__va(addr), PAGE_SIZE);
@@ -439,7 +464,7 @@ static inline u64 tdh_mem_page_promote(hpa_t tdr, gpa_t gpa, int level,
 
 static inline u64 tdh_phymem_page_rdmd(hpa_t page, struct tdx_ex_ret *ex)
 {
-	seamcall_1_3(TDH_PHYMEM_PAGE_RDMD, page, ex);
+	seamcall_1_6(TDH_PHYMEM_PAGE_RDMD, page, ex);
 }
 
 static inline u64 tdh_mem_sept_rd(hpa_t tdr, gpa_t gpa, int level,
@@ -460,7 +485,7 @@ static inline u64 tdh_mng_key_reclaimid(hpa_t tdr)
 
 static inline u64 tdh_phymem_page_reclaim(hpa_t page, struct tdx_ex_ret *ex)
 {
-	seamcall_1_3(TDH_PHYMEM_PAGE_RECLAIM, page, ex);
+	seamcall_1_6(TDH_PHYMEM_PAGE_RECLAIM, page, ex);
 }
 
 static inline u64 tdh_mem_page_remove(hpa_t tdr, gpa_t gpa, int level,

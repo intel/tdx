@@ -9,6 +9,7 @@
 #include <asm/kvm_boot.h>
 
 #include "vmx/tdx_arch.h"
+#include "vmx/tdx_errno.h"
 
 /*
  * TDX system information returned by TDSYSINFO.
@@ -165,3 +166,23 @@ void tdx_keyid_free(int keyid)
 	ida_free(&tdx_keyid_pool, keyid);
 }
 EXPORT_SYMBOL_GPL(tdx_keyid_free);
+
+static struct tdx_seamcall_status {
+	u64 err_code;
+	const char *err_name;
+} tdx_seamcall_status_codes[] = {TDX_SEAMCALL_STATUS_CODES};
+
+const char *tdx_seamcall_error_name(u64 error_code)
+{
+	struct tdx_seamcall_status status;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(tdx_seamcall_status_codes); i++) {
+		status = tdx_seamcall_status_codes[i];
+		if ((error_code & TDX_SEAMCALL_STATUS_MASK) == status.err_code)
+			return status.err_name;
+	}
+
+	return "Unknown SEAMCALL status code";
+}
+EXPORT_SYMBOL_GPL(tdx_seamcall_error_name);

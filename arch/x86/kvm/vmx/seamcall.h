@@ -37,11 +37,14 @@ static inline u64 _seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10,
 	_seamcall(SEAMCALL_##op, (rcx), (rdx), (r8), (r9), (r10), (ex))
 #endif
 
+const char *tdx_seamcall_error_name(u64 error_code);
+
 static inline void __pr_seamcall_error(u64 op, const char *op_str,
 				       u64 err, struct tdx_ex_ret *ex)
 {
-	pr_err_ratelimited("SEAMCALL[%s] failed on cpu %d: 0x%llx\n",
-			   op_str, smp_processor_id(), (err));
+	pr_err_ratelimited("SEAMCALL[%s] failed on cpu %d: %s (0x%llx)\n",
+			   op_str, smp_processor_id(),
+			   tdx_seamcall_error_name(err), err);
 	if (ex)
 		pr_err_ratelimited(
 			"RCX 0x%llx, RDX 0x%llx, R8 0x%llx, R9 0x%llx, R10 0x%llx, R11 0x%llx\n",

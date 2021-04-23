@@ -901,7 +901,7 @@ static inline bool is_private_gfn(struct kvm_vcpu *vcpu, gfn_t gfn_stolen_bits)
 
 static inline bool is_private_spte(struct kvm *kvm, u64 *sptep)
 {
-	return __is_private_gfn(kvm, sptep_to_sp(sptep)->gfn);
+	return __is_private_gfn(kvm, sptep_to_sp(sptep)->gfn_stolen_bits);
 }
 
 /*

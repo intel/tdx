@@ -147,11 +147,18 @@ static u64 __trace_tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
 /* The highest bit of a guest physical address is the "sharing" bit */
 phys_addr_t tdx_shared_mask(void)
 {
+#ifdef CONFIG_INTEL_TDX_KVM_SDV
+	return 0;
+#else
 	return 1ULL << (td_info.gpa_width - 1);
+#endif
 }
 
 bool tdx_debug_enabled(void)
 {
+#ifdef CONFIG_INTEL_TDX_KVM_SDV
+	return true;
+#endif
 	return td_info.attributes & BIT(0);
 }
 

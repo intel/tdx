@@ -62,7 +62,13 @@ SYM_FUNC_START_LOCAL(verify_cpu)
 	cmpl	$0x444d4163,%ecx
 	jnz	.Lverify_cpu_noamd
 	mov	$1,%di			# cpu is from AMD
+#ifdef CONFIG_INTEL_TDX_KVM_SDV
+	/* The KVM SDV currently injects a #VE on accessing
+	 * MISC_ENABLE, which we cannot handle here. Just
+	 * skip it, since XD_DISABLE is never set.
+	 */
 	jmp	.Lverify_cpu_check
+#endif
 
 .Lverify_cpu_noamd:
 	cmpl	$0x756e6547,%ebx        # GenuineIntel?
@@ -71,6 +77,8 @@ SYM_FUNC_START_LOCAL(verify_cpu)
 	jnz	.Lverify_cpu_check
 	cmpl	$0x6c65746e,%ecx
 	jnz	.Lverify_cpu_check
+
+	jmp	.Lverify_cpu_check
 
 	# only call IA32_MISC_ENABLE when:
 	# family > 6 || (family == 6 && model >= 0xd)

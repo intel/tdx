@@ -908,6 +908,10 @@ config TDX_FUZZ
 	help
 	  Support fuzzing of TDX guests against attacks from hosts
 
+config INTEL_TDX_KVM_SDV
+	bool "Fixes specific to KVM SDV (incompatible to others)"
+	depends on INTEL_TDX_GUEST
+
 config INTEL_TDX_ICL_FIXES
 	bool "Fixes specific for ICL chip"
 	depends on INTEL_TDX_GUEST

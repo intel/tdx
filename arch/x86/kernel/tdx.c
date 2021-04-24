@@ -147,11 +147,18 @@ EXPORT_SYMBOL_GPL(tdx_kvm_hypercall);
  */
 phys_addr_t tdx_shared_mask(void)
 {
+#ifdef CONFIG_INTEL_TDX_KVM_SDV
+	return 0;
+#else
 	return BIT_ULL(td_info.gpa_width - 1);
+#endif
 }
 
 bool tdx_debug_enabled(void)
 {
+#ifdef CONFIG_INTEL_TDX_KVM_SDV
+	return true;
+#endif
 	return td_info.attributes & BIT(0);
 }
 

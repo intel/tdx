@@ -898,6 +898,10 @@ config INTEL_TDX_GUEST_KVM
 	def_bool y
 	depends on KVM_GUEST && INTEL_TDX_GUEST
 
+config INTEL_TDX_KVM_SDV
+	bool "Fixes specific to KVM SDV (incompatible to others)"
+	depends on INTEL_TDX_GUEST
+
 config INTEL_TDX_ICL_FIXES
 	bool "Fixes specific for ICL chip"
 	depends on INTEL_TDX_GUEST

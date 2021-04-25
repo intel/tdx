@@ -527,44 +527,28 @@ static enum kernel_gp_hint get_kernel_gp_address(struct pt_regs *regs,
 
 #define GPFSTR "general protection fault"
 
-DEFINE_IDTENTRY_ERRORCODE(exc_general_protection)
+static void do_general_protection(struct pt_regs *regs, long error_code)
 {
 	char desc[sizeof(GPFSTR) + 50 + 2*sizeof(unsigned long) + 1] = GPFSTR;
 	enum kernel_gp_hint hint = GP_NO_HINT;
-	struct task_struct *tsk;
+	struct task_struct *tsk = current;
 	unsigned long gp_addr;
 	int ret;
-
-	cond_local_irq_enable(regs);
-
-	if (static_cpu_has(X86_FEATURE_UMIP)) {
-		if (user_mode(regs) && fixup_umip_exception(regs))
-			goto exit;
-	}
-
-	if (v8086_mode(regs)) {
-		local_irq_enable();
-		handle_vm86_fault((struct kernel_vm86_regs *) regs, error_code);
-		local_irq_disable();
-		return;
-	}
-
-	tsk = current;
 
 	if (user_mode(regs)) {
 		tsk->thread.error_code = error_code;
 		tsk->thread.trap_nr = X86_TRAP_GP;
 
 		if (fixup_vdso_exception(regs, X86_TRAP_GP, error_code, 0))
-			goto exit;
+			return;
 
 		show_signal(tsk, SIGSEGV, "", desc, regs, error_code);
 		force_sig(SIGSEGV);
-		goto exit;
+		return;
 	}
 
 	if (fixup_exception(regs, X86_TRAP_GP, error_code, 0))
-		goto exit;
+		return;
 
 	tsk->thread.error_code = error_code;
 	tsk->thread.trap_nr = X86_TRAP_GP;
@@ -576,11 +560,11 @@ DEFINE_IDTENTRY_ERRORCODE(exc_general_protection)
 	if (!preemptible() &&
 	    kprobe_running() &&
 	    kprobe_fault_handler(regs, X86_TRAP_GP))
-		goto exit;
+		return;
 
 	ret = notify_die(DIE_GPF, desc, regs, error_code, X86_TRAP_GP, SIGSEGV);
 	if (ret == NOTIFY_STOP)
-		goto exit;
+		return;
 
 	if (error_code)
 		snprintf(desc, sizeof(desc), "segment-related " GPFSTR);
@@ -601,8 +585,27 @@ DEFINE_IDTENTRY_ERRORCODE(exc_general_protection)
 		gp_addr = 0;
 
 	die_addr(desc, regs, error_code, gp_addr);
+}
 
-exit:
+DEFINE_IDTENTRY_ERRORCODE(exc_general_protection)
+{
+	cond_local_irq_enable(regs);
+
+	if (static_cpu_has(X86_FEATURE_UMIP)) {
+		if (user_mode(regs) && fixup_umip_exception(regs)) {
+			cond_local_irq_disable(regs);
+			return;
+		}
+	}
+
+	if (v8086_mode(regs)) {
+		local_irq_enable();
+		handle_vm86_fault((struct kernel_vm86_regs *) regs, error_code);
+		local_irq_disable();
+		return;
+	}
+
+	do_general_protection(regs, error_code);
 	cond_local_irq_disable(regs);
 }
 

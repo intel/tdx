@@ -470,6 +470,7 @@ static int __init __construct_tdmrs(void)
 			/* First memory range */
 			last_nid = nid;
 			tdmr_start_pfn = ALIGN_DOWN(start_pfn, TDMR_PFN_ALIGNMENT);
+			tdmr_end_pfn = ALIGN(end_pfn, TDMR_PFN_ALIGNMENT);
 			WARN_ON(tdmr_start_pfn != 0);
 		} else if (nid == last_nid) {
 			/*
@@ -508,6 +509,7 @@ static int __init __construct_tdmrs(void)
 				return ret;
 
 			tdmr_start_pfn = tdmr_end_pfn;
+			tdmr_end_pfn = ALIGN(end_pfn, TDMR_PFN_ALIGNMENT);
 			last_nid = nid;
 		}
 	}

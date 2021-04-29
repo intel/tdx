@@ -251,6 +251,21 @@ static __always_inline u64 td_tdcs_exec_read64(struct kvm_tdx *kvm_tdx, u32 fiel
 	return ex_ret.r8;
 }
 
+#define TDG_VP_VMCALL_GET_TD_VM_CALL_INFO		0x10000
+#define TDG_VP_VMCALL_MAP_GPA				0x10001
+#define TDG_VP_VMCALL_GET_QUOTE				0x10002
+#define TDG_VP_VMCALL_REPORT_FATAL_ERROR		0x10003
+#define TDG_VP_VMCALL_SETUP_EVENT_NOTIFY_INTERRUPT	0x10004
+
+#define TDG_VP_VMCALL_EXIT_REASON				\
+	{ TDG_VP_VMCALL_GET_TD_VM_CALL_INFO,			\
+			"GET_TD_VM_CALL_INFO" },		\
+	{ TDG_VP_VMCALL_MAP_GPA,	"MAP_GPA" },		\
+	{ TDG_VP_VMCALL_GET_QUOTE,	"GET_QUOTE" },		\
+	{ TDG_VP_VMCALL_SETUP_EVENT_NOTIFY_INTERRUPT,		\
+			"SETUP_EVENT_NOTIFY_INTERRUPT" },	\
+	VMX_EXIT_REASONS
+
 #else
 
 struct kvm_tdx;

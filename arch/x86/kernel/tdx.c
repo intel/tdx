@@ -63,6 +63,33 @@ static inline u64 _tdx_hypercall(u64 fn, u64 r12, u64 r13, u64 r14,
 	return out->r10;
 }
 
+/* Traced version of _tdx_hypercall() */
+static u64 _trace_tdx_hypercall(u64 fn, u64 r12, u64 r13, u64 r14, u64 r15,
+				struct tdx_hypercall_output *out)
+{
+	u64 err;
+
+	trace_tdx_hypercall_enter_rcuidle(fn, r12, r13, r14, r15);
+	err = _tdx_hypercall(fn, r12, r13, r14, r15, out);
+	trace_tdx_hypercall_exit_rcuidle(err, out->r11, out->r12, out->r13,
+					 out->r14, out->r15);
+
+	return err;
+}
+
+static u64 __trace_tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
+				   struct tdx_module_output *out)
+{
+	u64 err;
+
+	trace_tdx_module_call_enter_rcuidle(fn, rcx, rdx, r8, r9);
+	err = __tdx_module_call(fn, rcx, rdx, r8, r9, out);
+	trace_tdx_module_call_exit_rcuidle(err, out->rcx, out->rdx, out->r8,
+					   out->r9, out->r10, out->r11);
+
+	return err;
+}
+
 static inline bool cpuid_has_tdx_guest(void)
 {
 	u32 eax, sig[3];
@@ -101,7 +128,7 @@ static void tdg_get_info(void)
 	u64 ret;
 	struct tdx_module_output out = {0};
 
-	ret = __tdx_module_call(TDINFO, 0, 0, 0, 0, &out);
+	ret = __trace_tdx_module_call(TDINFO, 0, 0, 0, 0, &out);
 
 	BUG_ON(ret);
 
@@ -116,7 +143,7 @@ static void tdg_accept_page(phys_addr_t gpa)
 {
 	u64 ret;
 
-	ret = __tdx_module_call(TDACCEPTPAGE, gpa, 0, 0, 0, NULL);
+	ret = __trace_tdx_module_call(TDACCEPTPAGE, gpa, 0, 0, 0, NULL);
 
 	BUG_ON(ret && ret != TDX_PAGE_ALREADY_ACCEPTED);
 }
@@ -157,7 +184,8 @@ static __cpuidle void tdg_halt(void)
 {
 	u64 ret;
 
-	ret = _tdx_hypercall(EXIT_REASON_HLT, irqs_disabled(), 0, 0, 0, NULL);
+	ret = _trace_tdx_hypercall(EXIT_REASON_HLT, irqs_disabled(),
+				   0, 0, 0, NULL);
 
 	/* It should never fail */
 	BUG_ON(ret);
@@ -174,7 +202,7 @@ static __cpuidle void tdg_safe_halt(void)
 	local_irq_enable();
 
 	/* IRQ is enabled, So set R12 as 0 */
-	ret = _tdx_hypercall(EXIT_REASON_HLT, 0, 0, 0, 0, NULL);
+	ret = _trace_tdx_hypercall(EXIT_REASON_HLT, 0, 0, 0, 0, NULL);
 
 	/* It should never fail */
 	BUG_ON(ret);
@@ -209,7 +237,7 @@ static u64 tdg_read_msr_safe(unsigned int msr, int *err)
 
 	WARN_ON_ONCE(tdg_is_context_switched_msr(msr));
 
-	ret = _tdx_hypercall(EXIT_REASON_MSR_READ, msr, 0, 0, 0, &out);
+	ret = _trace_tdx_hypercall(EXIT_REASON_MSR_READ, msr, 0, 0, 0, &out);
 
 	*err = ret ? -EIO : 0;
 
@@ -223,8 +251,8 @@ static int tdg_write_msr_safe(unsigned int msr, unsigned int low,
 
 	WARN_ON_ONCE(tdg_is_context_switched_msr(msr));
 
-	ret = _tdx_hypercall(EXIT_REASON_MSR_WRITE, msr, (u64)high << 32 | low,
-			     0, 0, NULL);
+	ret = _trace_tdx_hypercall(EXIT_REASON_MSR_WRITE, msr,
+				   (u64)high << 32 | low, 0, 0, NULL);
 
 	return ret ? -EIO : 0;
 }
@@ -234,7 +262,8 @@ static void tdg_handle_cpuid(struct pt_regs *regs)
 	u64 ret;
 	struct tdx_hypercall_output out = {0};
 
-	ret = _tdx_hypercall(EXIT_REASON_CPUID, regs->ax, regs->cx, 0, 0, &out);
+	ret = _trace_tdx_hypercall(EXIT_REASON_CPUID, regs->ax,
+				   regs->cx, 0, 0, &out);
 
 	WARN_ON(ret);
 
@@ -264,11 +293,16 @@ static void tdg_handle_io(struct pt_regs *regs, u32 exit_qual)
 	/* I/O strings ops are unrolled at build time. */
 	BUG_ON(string);
 
-	ret = _tdx_hypercall(EXIT_REASON_IO_INSTRUCTION, size, out, port,
-			     regs->ax, &outh);
 	if (!out) {
+		ret = _trace_tdx_hypercall(EXIT_REASON_IO_INSTRUCTION,
+					   size, out, port, regs->ax,
+					   &outh);
 		regs->ax &= ~mask;
 		regs->ax |= (ret ? UINT_MAX : outh.r11) & mask;
+	} else {
+		ret = _tdx_hypercall(EXIT_REASON_IO_INSTRUCTION,
+				     size, out, port, regs->ax,
+				     &outh);
 	}
 }
 
@@ -278,8 +312,8 @@ static unsigned long tdg_mmio(int size, bool write, unsigned long addr,
 	struct tdx_hypercall_output out = {0};
 	u64 err;
 
-	err = _tdx_hypercall(EXIT_REASON_EPT_VIOLATION, size, write,
-			     addr, *val, &out);
+	err = _trace_tdx_hypercall(EXIT_REASON_EPT_VIOLATION, size, write,
+				   addr, *val, &out);
 	*val = out.r11;
 	return err;
 }
@@ -392,7 +426,7 @@ unsigned long tdg_get_ve_info(struct ve_info *ve)
 	 * additional #VEs are permitted (but we don't expect them to
 	 * happen unless you panic).
 	 */
-	ret = __tdx_module_call(TDGETVEINFO, 0, 0, 0, 0, &out);
+	ret = __trace_tdx_module_call(TDGETVEINFO, 0, 0, 0, 0, &out);
 
 	ve->exit_reason = out.rcx;
 	ve->exit_qual   = out.rdx;

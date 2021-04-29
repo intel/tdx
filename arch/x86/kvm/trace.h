@@ -8,6 +8,8 @@
 #include <asm/clocksource.h>
 #include <asm/pvclock-abi.h>
 
+#include "vmx/tdx.h"
+
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM kvm
 
@@ -687,7 +689,8 @@ TRACE_EVENT(kvm_tdvmcall,
 
 	TP_printk("rip: %llx reason: %s p1: %llx p2: %llx p3: %llx p4: %llx",
 		  __entry->rip,
-		  __print_symbolic(__entry->exit_reason, VMX_EXIT_REASONS),
+		  __print_symbolic(__entry->exit_reason,
+				   TDG_VP_VMCALL_EXIT_REASON),
 		  __entry->p1, __entry->p2, __entry->p3, __entry->p4)
 );
 

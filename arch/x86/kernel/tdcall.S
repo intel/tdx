@@ -44,6 +44,99 @@
  */
 #define tdcall .byte 0x66,0x0f,0x01,0xcc
 
+.macro trace_save_registers
+	push %rax
+	push %rcx
+	push %rdx
+	push %rdi
+	push %rsi
+	push %r8
+	push %r9
+	push %r10
+	push %r11
+.endm
+.macro trace_restore_registers
+	pop %r11
+	pop %r10
+	pop %r9
+	pop %r8
+	pop %rsi
+	pop %rdi
+	pop %rdx
+	pop %rcx
+	pop %rax
+.endm
+
+/*
+ * Wrapper macros to mangle TDCALL registers into format acceptable
+ * for making call to _trace_tdx_module_call_{enter()/exit()}
+ * functions. After tracepoint call, register state is restored to
+ * previous state.
+ */
+.macro trace_module_call_enter
+	/* Save register context before calling tracepoint */
+	trace_save_registers
+	mov %rax, %rdi /* Move TDCALL leaf ID to RDI */
+	mov %rcx, %rsi /* Move input 1 to RSI */
+	mov %rdx, %rdx /* Move input 2 to RDX */
+	mov %r8,  %rcx /* Move input 3 to RCX */
+	mov %r9,  %r8  /* Move input 4 to R8  */
+	call _trace_tdx_module_call_enter /* Call tracepoint hook */
+	/* Restore register context after calling tracepoint */
+	trace_restore_registers
+.endm
+
+.macro trace_module_call_exit
+	/* Save register context before calling tracepoint */
+	trace_save_registers
+	mov %rax, %rdi /* Move TDCALL status to RDI */
+	mov %rcx, %rsi /* Move output 1 to RSI */
+	mov %rdx, %rdx /* Move output 2 to RDX */
+	mov %r8,  %rcx /* Move output 3 to RCX */
+	mov %r9,  %r8  /* Move output 4 to R8  */
+	mov %r10, %r9  /* Move output 5 to R9  */
+	pushq %r11     /* Move output 6 to stack */
+	call _trace_tdx_module_call_exit /* Call tracepoint hook */
+	popq %r11      /* Remove output 6 stack allocation */
+	/* Restore register context after calling tracepoint */
+	trace_restore_registers
+.endm
+
+/*
+ * Wrapper macros to mangle TDCALL registers into format acceptable
+ * for making call to _trace_tdx_hypercall{enter()/exit()} function.
+ * After tracepoint call, register state is restored to previous
+ * state.
+ */
+.macro trace_hypercall_enter
+	/* Save register context before calling tracepoint */
+	trace_save_registers
+	/* Mangle TDCALL ABI into trace function ABI */
+	mov %r11, %rdi /* Move TDG.VP.VMCALL subid to RDI */
+	mov %r12, %rsi /* Move input 1 to RSI */
+	mov %r13, %rdx /* Move input 2 to RDX */
+	mov %r14, %rcx /* Move input 3 to RCX */
+	mov %r15, %r8  /* Move input 4 to R8  */
+	call _trace_tdx_hypercall_enter /* Call tracepoint hook */
+	/* Restore register context after calling tracepoint */
+	trace_restore_registers
+.endm
+
+.macro trace_hypercall_exit
+	/* Save register context before calling tracepoint */
+	trace_save_registers
+	/* Mangle TDCALL ABI into trace function ABI */
+	mov %r10, %rdi /* Move TDG.VP.VMCALL return ID to RDI */
+	mov %r11, %rsi /* Move output 1 to RSI */
+	mov %r12, %rdx /* Move output 2 to RDX */
+	mov %r13, %rcx /* Move output 3 to RCX */
+	mov %r14, %r8  /* Move output 4 to R8  */
+	mov %r15, %r9  /* Move output 5 to R9  */
+	call _trace_tdx_hypercall_exit /* Call tracepoint hook */
+	/* Restore register context after calling tracepoint */
+	trace_restore_registers
+.endm
+
 /*
  * __tdx_module_call()  - Helper function used by TDX guests to request
  * services from the TDX module (does not include VMM services).
@@ -92,7 +185,28 @@ SYM_FUNC_START(__tdx_module_call)
 	mov %rsi, %rcx	/* Move input 1 to RCX */
 	/* Leave input param 2 in RDX */
 
+	/*
+	 * TDG_SKIP_TRACE_SUPPORT macro is used to disable
+	 * tracing support in compressed boot code. Since
+	 * this file is included in arch/x86/boot/compressed/tdcall.S
+	 * and tracepoint support cannot be enabled in compressed
+	 * boot code, TDG_SKIP_TRACE_SUPPORT macro will be defined
+	 * in compressed boot code.
+	 */
+#ifndef TDG_SKIP_TRACE_SUPPORT
+	/*
+	 * Call TDCALL trace point. Although this operation
+	 * is costly in TDCALL code path, but still it is
+	 * negligible compared to TDCALL instruction.
+	 */
+	trace_module_call_enter
+#endif
+
 	tdcall
+
+#ifndef TDG_SKIP_TRACE_SUPPORT
+	trace_module_call_exit
+#endif
 
 	/* Check for TDCALL success: 0 - Successful, otherwise failed */
 	test %rax, %rax
@@ -166,8 +280,28 @@ SYM_FUNC_START_LOCAL(do_tdx_hypercall)
 
 	movl $TDVMCALL_EXPOSE_REGS_MASK, %ecx
 
+	/*
+	 * TDG_SKIP_TRACE_SUPPORT macro is used to disable
+	 * tracing support in compressed boot code. Since
+	 * this file is included in arch/x86/boot/compressed/tdcall.S
+	 * and tracepoint support cannot be enabled in compressed
+	 * boot code, TDG_SKIP_TRACE_SUPPORT macro will be defined
+	 * in compressed boot code.
+	 */
+#ifndef TDG_SKIP_TRACE_SUPPORT
+	/*
+	 * Call TDCALL trace point. Although this operation
+	 * is costly in TDVMCALL code path, but still it is
+	 * negligible compared to TDCALL instruction.
+	 */
+	trace_hypercall_enter
+#endif
+
 	tdcall
 
+#ifndef TDG_SKIP_TRACE_SUPPORT
+	trace_hypercall_exit
+#endif
 	/*
 	 * Check for TDCALL success: 0 - Successful, otherwise failed.
 	 * If failed, there is an issue with TDX Module which is fatal

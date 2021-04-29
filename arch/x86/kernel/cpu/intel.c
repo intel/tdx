@@ -15,7 +15,6 @@
 #include <asm/msr.h>
 #include <asm/bugs.h>
 #include <asm/cpu.h>
-#include <asm/kvm_boot.h>
 #include <asm/intel-family.h>
 #include <asm/microcode_intel.h>
 #include <asm/hwcap2.h>

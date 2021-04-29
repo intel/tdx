@@ -12,6 +12,8 @@
 
 int __init seam_load_module(void *seamldr, unsigned long seamldr_size);
 
+void __init tdx_seam_init(void);
+
 /*
  * Return pointer to TDX system info (TDSYSINFO_STRUCT) if TDX has been
  * successfully initialized, or NULL.
@@ -27,6 +29,8 @@ int tdx_seamcall_on_each_pkg(int (*fn)(void *), void *param);
 extern int tdx_keyid_alloc(void);
 extern void tdx_keyid_free(int keyid);
 
+#else
+static inline void __init tdx_seam_init(void) {}
 #endif
 
 #endif /* _ASM_X86_KVM_BOOT_H */

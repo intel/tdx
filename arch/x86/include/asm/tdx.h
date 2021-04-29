@@ -5,6 +5,19 @@
 
 #define TDX_CPUID_LEAF_ID	0x21
 
+#include <linux/types.h>
+
+/*
+ * Trace call wrappers to trace TDCALL in entry and exit paths of
+ * functions __tdx_module_call() and __tdx_hypercall()
+ */
+void _trace_tdx_hypercall_enter(u64 fn, u64 r12, u64 r13, u64 r14, u64 r15);
+void _trace_tdx_hypercall_exit(u64 r10, u64 r11, u64 r12, u64 r13,
+			       u64 r14, u64 r15);
+void _trace_tdx_module_call_enter(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9);
+void _trace_tdx_module_call_exit(u64 rax, u64 rcx, u64 rdx, u64 r8, u64 r9,
+				 u64 r10, u64 r11);
+
 #ifndef __ASSEMBLY__
 
 enum tdx_map_type {

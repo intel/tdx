@@ -6,4 +6,6 @@
 #undef EXPORT_SYMBOL
 #define EXPORT_SYMBOL(sym)
 
+#define TDG_SKIP_TRACE_SUPPORT	1
+
 #include "../../kernel/tdcall.S"

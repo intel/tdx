@@ -27,6 +27,31 @@ static struct {
 	unsigned long attributes;
 } td_info __ro_after_init;
 
+/* Use _rcuidle* trace calls to avoid warnings seen with RCU debug enabled */
+__visible void _trace_tdx_hypercall_enter(u64 fn, u64 r12, u64 r13,
+					  u64 r14, u64 r15)
+{
+	trace_tdx_hypercall_enter_rcuidle(fn, r12, r13, r14, r15);
+}
+
+__visible void _trace_tdx_hypercall_exit(u64 r10, u64 r11, u64 r12,
+					 u64 r13, u64 r14, u64 r15)
+{
+	trace_tdx_hypercall_exit_rcuidle(r10, r11, r12, r13, r14, r15);
+}
+
+__visible void _trace_tdx_module_call_enter(u64 fn, u64 rcx, u64 rdx,
+					    u64 r8, u64 r9)
+{
+	trace_tdx_module_call_enter_rcuidle(fn, rcx, rdx, r8, r9);
+}
+
+__visible void _trace_tdx_module_call_exit(u64 rax, u64 rcx, u64 rdx,
+					   u64 r8, u64 r9, u64 r10, u64 r11)
+{
+	trace_tdx_module_call_exit_rcuidle(rax, rcx, rdx, r8, r9, r10, r11);
+}
+
 /*
  * Wrapper for simple hypercalls that only return a success/error code.
  */

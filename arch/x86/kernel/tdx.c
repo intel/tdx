@@ -60,6 +60,39 @@ static inline u64 _tdx_hypercall(u64 fn, u64 r12, u64 r13, u64 r14,
 	return out->r10;
 }
 
+/* Traced version of _tdx_hypercall() */
+static u64 _trace_tdx_hypercall(u64 fn, u64 r12, u64 r13, u64 r14, u64 r15,
+				struct tdx_hypercall_output *out)
+{
+	struct tdx_hypercall_output dummy_out;
+	u64 err;
+
+	trace_tdx_hypercall_enter_rcuidle(fn, r12, r13, r14, r15);
+	err = _tdx_hypercall(fn, r12, r13, r14, r15, out);
+	if (!out)
+		out = &dummy_out;
+	trace_tdx_hypercall_exit_rcuidle(err, out->r11, out->r12, out->r13,
+					 out->r14, out->r15);
+
+	return err;
+}
+
+static u64 __trace_tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
+				   struct tdx_module_output *out)
+{
+	struct tdx_module_output dummy_out;
+	u64 err;
+
+	trace_tdx_module_call_enter_rcuidle(fn, rcx, rdx, r8, r9);
+	err = __tdx_module_call(fn, rcx, rdx, r8, r9, out);
+	if (!out)
+		out = &dummy_out;
+	trace_tdx_module_call_exit_rcuidle(err, out->rcx, out->rdx, out->r8,
+					   out->r9, out->r10, out->r11);
+
+	return err;
+}
+
 #ifdef CONFIG_KVM_GUEST
 long tdx_kvm_hypercall(unsigned int nr, unsigned long p1, unsigned long p2,
 		       unsigned long p3, unsigned long p4)
@@ -96,7 +129,7 @@ static void tdx_get_info(void)
 	 * Guest-Host-Communication Interface (GHCI), sec 2.4.2 TDCALL
 	 * [TDG.VP.INFO].
 	 */
-	ret = __tdx_module_call(TDX_GET_INFO, 0, 0, 0, 0, &out);
+	ret = __trace_tdx_module_call(TDX_GET_INFO, 0, 0, 0, 0, &out);
 
 	/* Non zero return value indicates buggy TDX module, so panic */
 	if (ret)
@@ -127,7 +160,7 @@ static bool tdx_accept_page(phys_addr_t gpa, enum pg_level pg_level)
 		return true;
 	}
 
-	return __tdx_module_call(TDX_ACCEPT_PAGE, gpa, 0, 0, 0, NULL);
+	return __trace_tdx_module_call(TDX_ACCEPT_PAGE, gpa, 0, 0, 0, NULL);
 }
 
 /*
@@ -152,8 +185,8 @@ int tdx_hcall_request_gpa_type(phys_addr_t start, phys_addr_t end, bool enc)
 	 * can be found in TDX Guest-Host-Communication Interface (GHCI),
 	 * sec "TDG.VP.VMCALL<MapGPA>"
 	 */
-	ret = _tdx_hypercall(TDVMCALL_MAP_GPA, start, end - start, 0, 0, NULL);
-
+	ret = _trace_tdx_hypercall(TDVMCALL_MAP_GPA, start, end - start,
+				   0, 0, NULL);
 	if (ret)
 		ret = -EIO;
 
@@ -204,8 +237,8 @@ static u64 __cpuidle _tdx_halt(const bool irq_disabled, const bool do_sti)
 	 * whether to call the STI instruction before executing the
 	 * TDCALL instruction.
 	 */
-	return _tdx_hypercall(EXIT_REASON_HLT, irq_disabled, 0, 0,
-			      do_sti, NULL);
+	return _trace_tdx_hypercall(EXIT_REASON_HLT, irq_disabled, 0, 0,
+				    do_sti, NULL);
 }
 
 static bool tdx_halt(void)
@@ -250,7 +283,7 @@ static bool tdx_read_msr(unsigned int msr, u64 *val)
 	 * can be found in TDX Guest-Host-Communication Interface
 	 * (GHCI), sec titled "TDG.VP.VMCALL<Instruction.RDMSR>".
 	 */
-	if (_tdx_hypercall(EXIT_REASON_MSR_READ, msr, 0, 0, 0, &out))
+	if (_trace_tdx_hypercall(EXIT_REASON_MSR_READ, msr, 0, 0, 0, &out))
 		return false;
 
 	*val = out.r11;
@@ -268,8 +301,8 @@ static bool tdx_write_msr(unsigned int msr, unsigned int low,
 	 * can be found in TDX Guest-Host-Communication Interface
 	 * (GHCI) sec titled "TDG.VP.VMCALL<Instruction.WRMSR>".
 	 */
-	ret = _tdx_hypercall(EXIT_REASON_MSR_WRITE, msr, (u64)high << 32 | low,
-			     0, 0, NULL);
+	ret = _trace_tdx_hypercall(EXIT_REASON_MSR_WRITE, msr,
+				   (u64)high << 32 | low, 0, 0, NULL);
 
 	return ret ? false : true;
 }
@@ -283,7 +316,8 @@ static bool tdx_handle_cpuid(struct pt_regs *regs)
 	 * ABI can be found in TDX Guest-Host-Communication Interface
 	 * (GHCI), section titled "VP.VMCALL<Instruction.CPUID>".
 	 */
-	if (_tdx_hypercall(EXIT_REASON_CPUID, regs->ax, regs->cx, 0, 0, &out))
+	if (_trace_tdx_hypercall(EXIT_REASON_CPUID, regs->ax, regs->cx,
+				 0, 0, &out))
 		return false;
 
 	/*
@@ -305,7 +339,7 @@ static bool tdx_mmio(int size, bool write, unsigned long addr,
 	struct tdx_hypercall_output out;
 	u64 err;
 
-	err = _tdx_hypercall(EXIT_REASON_EPT_VIOLATION, size, write,
+	err = _trace_tdx_hypercall(EXIT_REASON_EPT_VIOLATION, size, write,
 			     addr, *val, &out);
 	if (err)
 		return true;
@@ -433,7 +467,7 @@ static bool tdx_handle_io(struct pt_regs *regs, u32 exit_qual)
 	 * ABI can be found in TDX Guest-Host-Communication Interface
 	 * (GHCI) sec titled "TDG.VP.VMCALL<Instruction.IO>".
 	 */
-	ret = _tdx_hypercall(EXIT_REASON_IO_INSTRUCTION, size, !in, port,
+	ret = _trace_tdx_hypercall(EXIT_REASON_IO_INSTRUCTION, size, !in, port,
 			     in ? 0 : regs->ax, &out);
 	if (!in)
 		return !ret;
@@ -471,7 +505,7 @@ bool tdx_get_ve_info(struct ve_info *ve)
 	 * additional #VEs are permitted (but it is expected not to
 	 * happen unless kernel panics).
 	 */
-	if (__tdx_module_call(TDX_GET_VEINFO, 0, 0, 0, 0, &out))
+	if (__trace_tdx_module_call(TDX_GET_VEINFO, 0, 0, 0, 0, &out))
 		return false;
 
 	ve->exit_reason = out.rcx;

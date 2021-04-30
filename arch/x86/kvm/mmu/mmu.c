@@ -2270,7 +2270,7 @@ static void shadow_walk_init(struct kvm_shadow_walk_iterator *iterator,
 {
 	hpa_t root;
 
-	if (is_private_gfn(vcpu, addr >> PAGE_SHIFT))
+	if (tdp_enabled && is_private_gfn(vcpu, addr >> PAGE_SHIFT))
 		root = vcpu->arch.mmu->private_root_hpa;
 	else
 		root = vcpu->arch.mmu->root_hpa;

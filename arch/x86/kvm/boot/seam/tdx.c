@@ -1232,3 +1232,64 @@ err:
 	return ret;
 }
 arch_initcall(tdx_init);
+
+#ifdef CONFIG_SYSFS
+
+#define P_SEAMLDR_ATTR_SHOW_FMT(name, fmt)				\
+static ssize_t p_seamldr_ ## name ## _show(				\
+	struct kobject *kobj, struct kobj_attribute *attr, char *buf)	\
+{									\
+	return sprintf(buf, fmt, p_seamldr_info.name);			\
+}									\
+static struct kobj_attribute p_seamldr_attr_##name = __ATTR_RO(p_seamldr_ ## name)
+
+#define P_SEAMLDR_ATTR_SHOW_HEX(name)	P_SEAMLDR_ATTR_SHOW_FMT(name, "0x%x\n")
+#define P_SEAMLDR_ATTR_SHOW_DEC(name)	P_SEAMLDR_ATTR_SHOW_FMT(name, "%d\n")
+
+P_SEAMLDR_ATTR_SHOW_HEX(attributes);
+P_SEAMLDR_ATTR_SHOW_HEX(vendor_id);
+P_SEAMLDR_ATTR_SHOW_DEC(build_date);
+P_SEAMLDR_ATTR_SHOW_HEX(build_num);
+P_SEAMLDR_ATTR_SHOW_HEX(minor_version);
+P_SEAMLDR_ATTR_SHOW_HEX(major_version);
+
+static struct kobject *p_seamldr_kobj;
+static struct attribute *p_seamldr_attrs[] = {
+	&p_seamldr_attr_attributes.attr,
+	&p_seamldr_attr_vendor_id.attr,
+	&p_seamldr_attr_build_date.attr,
+	&p_seamldr_attr_build_num.attr,
+	&p_seamldr_attr_minor_version.attr,
+	&p_seamldr_attr_major_version.attr,
+	NULL,
+};
+
+static const struct attribute_group p_seamldr_attr_group = {
+	.attrs = p_seamldr_attrs,
+};
+
+static int __init p_seamldr_sysfs_init(void)
+{
+	int ret = 0;
+
+	p_seamldr_kobj = kobject_create_and_add("p_seamldr", firmware_kobj);
+	if (!p_seamldr_kobj) {
+		pr_err("kobject_create_and_add p_seamldr failed\n");
+		ret = -EINVAL;
+		goto out;
+	}
+	ret = sysfs_create_group(p_seamldr_kobj, &p_seamldr_attr_group);
+	if (ret)
+		pr_err("Sysfs exporting attribute failed with error %d", ret);
+
+out:
+	if (ret) {
+		if (p_seamldr_kobj)
+			sysfs_remove_group(p_seamldr_kobj,
+					   &p_seamldr_attr_group);
+		kobject_put(p_seamldr_kobj);
+	}
+	return ret;
+}
+device_initcall(p_seamldr_sysfs_init);
+#endif

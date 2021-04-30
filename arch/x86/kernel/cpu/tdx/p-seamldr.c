@@ -3,10 +3,13 @@
 
 #define pr_fmt(fmt) "seam: " fmt
 
+#include <linux/platform_device.h>
 #include <linux/earlycpio.h>
 #include <linux/kvm_types.h>
 #include <linux/spinlock.h>
+#include <linux/kobject.h>
 #include <linux/types.h>
+#include <linux/slab.h>
 #include <linux/cpu.h>
 
 #include <asm/seamcall.h>
@@ -320,3 +323,68 @@ int __init load_p_seamldr(void)
 
 	return 0;
 }
+
+#ifdef CONFIG_SYSFS
+
+static struct kobject *p_seamldr_kobj;
+
+#define P_SEAMLDR_ATTR_SHOW_FMT(name, fmt)				\
+static ssize_t p_seamldr_ ## name ## _show(				\
+	struct kobject *kobj, struct kobj_attribute *attr, char *buf)	\
+{									\
+	return sprintf(buf, fmt, p_seamldr_info->name);			\
+}									\
+static struct kobj_attribute p_seamldr_##name = __ATTR_RO(p_seamldr_ ## name)
+
+#define P_SEAMLDR_ATTR_SHOW_DEC(name)	P_SEAMLDR_ATTR_SHOW_FMT(name, "%d\n")
+#define P_SEAMLDR_ATTR_SHOW_HEX(name)	P_SEAMLDR_ATTR_SHOW_FMT(name, "0x%x\n")
+
+P_SEAMLDR_ATTR_SHOW_HEX(version);
+P_SEAMLDR_ATTR_SHOW_HEX(attributes);
+P_SEAMLDR_ATTR_SHOW_HEX(vendor_id);
+P_SEAMLDR_ATTR_SHOW_DEC(build_date);
+P_SEAMLDR_ATTR_SHOW_HEX(build_num);
+P_SEAMLDR_ATTR_SHOW_HEX(minor);
+P_SEAMLDR_ATTR_SHOW_HEX(major);
+
+static struct attribute *p_seamldr_attrs[] = {
+	&p_seamldr_version.attr,
+	&p_seamldr_attributes.attr,
+	&p_seamldr_vendor_id.attr,
+	&p_seamldr_build_date.attr,
+	&p_seamldr_build_num.attr,
+	&p_seamldr_minor.attr,
+	&p_seamldr_major.attr,
+	NULL,
+};
+
+static const struct attribute_group p_seamldr_attr_group = {
+	.attrs = p_seamldr_attrs,
+};
+
+static int __init p_seamldr_sysfs_init(void)
+{
+	int ret = 0;
+
+	if (!p_seamldr_info)
+		goto out;
+
+	p_seamldr_kobj = kobject_create_and_add("p_seamldr", firmware_kobj);
+	if (!p_seamldr_kobj) {
+		pr_err("kobject_create_and_add p_seamldr failed\n");
+		ret = -EINVAL;
+		goto out;
+	}
+
+	ret = sysfs_create_group(p_seamldr_kobj, &p_seamldr_attr_group);
+	if (ret) {
+		pr_err("Sysfs exporting attribute failed with error %d", ret);
+		kobject_put(p_seamldr_kobj);
+		p_seamldr_kobj = NULL;
+	}
+
+out:
+	return ret;
+}
+device_initcall(p_seamldr_sysfs_init);
+#endif

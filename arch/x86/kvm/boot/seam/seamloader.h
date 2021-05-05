@@ -35,6 +35,11 @@ int seamldr_info(u64 seamldr_info);
 int seamldr_install(u64 seamldr_params);
 int seamldr_shutdown(void);
 
+struct seamldr_params * __init init_seamldr_params(
+	void *module, unsigned long module_size, void *sigstruct,
+	unsigned long sigstruct_size);
+void __init free_seamldr_params(struct seamldr_params *params);
+
 #endif
 
 #endif /* __X86_SEAMLOADER_H */

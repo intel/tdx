@@ -57,6 +57,29 @@ int seamldr_shutdown(void)
 	return 0;
 }
 
+static phys_addr_t __init seam_alloc_mem(phys_addr_t size, phys_addr_t align)
+{
+	struct page *page;
+
+	WARN_ON(!slab_is_available());
+
+	/* Ensure page allocator can meet the alignment requirement. */
+	if (!IS_ALIGNED(PAGE_SIZE, align))
+		return 0;
+
+	page = alloc_pages(GFP_KERNEL, get_order(size));
+	if (page)
+		return __pa(page_address(page));
+	else
+		return 0;
+}
+
+static void __init seam_free_mem(phys_addr_t addr, phys_addr_t size)
+{
+	WARN_ON(!slab_is_available());
+	free_pages((unsigned long)__va(addr), get_order(size));
+}
+
 static bool __init is_seamrr_enabled(void)
 {
 	u64 mtrrcap, seamrr_base, seamrr_mask;
@@ -139,4 +162,78 @@ free:
 		memblock_free_early(seamldr_pa, seamldr_size);
 
 	return ret;
+}
+
+struct seamldr_params * __init init_seamldr_params(void *module,
+						   unsigned long module_size,
+						   void *sigstruct,
+						   unsigned long sigstruct_size)
+{
+	phys_addr_t module_pa, sigstruct_pa, params_pa;
+	struct seamldr_params *params;
+	int i;
+
+	/* SEAM module must be 4K aligned, and less than 496 pages. */
+	if (!module_size || !IS_ALIGNED(module_size, PAGE_SIZE) ||
+	    module_size > SEAMLDR_MAX_NR_MODULE_PAGES * PAGE_SIZE) {
+		pr_err("Invalid SEAM module size 0x%lx\n", module_size);
+		return ERR_PTR(-EINVAL);
+	}
+	/* SEAM signature structure must be 0x200 DWORDS, which is 2048 bytes */
+	if (sigstruct_size != 2048) {
+		pr_err("Invalid SEAM signature structure size 0x%lx\n",
+		       sigstruct_size);
+		return ERR_PTR(-EINVAL);
+	}
+
+	params = ERR_PTR(-ENOMEM);
+	/* SEAMLDR requires the SEAM module to be 4k aligned. */
+	module_pa = seam_alloc_mem(module_size, PAGE_SIZE);
+	if (!module_pa) {
+		pr_err("Unable to allocate memory to copy SEAM module\n");
+		goto out;
+	}
+	memcpy(__va(module_pa), module, module_size);
+
+	/* SEAMLDR requires the sigstruct to be 4K aligned. */
+	sigstruct_pa = seam_alloc_mem(sigstruct_size, PAGE_SIZE);
+	if (!sigstruct_pa) {
+		pr_err("Unable to allocate memory to copy sigstruct\n");
+		goto free_seam_module;
+	}
+	memcpy(__va(sigstruct_pa), sigstruct, sigstruct_size);
+
+	/*
+	 * Allocate and initialize the SEAMLDR params.  Pages are passed in as
+	 * a list of physical addresses.
+	 */
+	params_pa = seam_alloc_mem(PAGE_SIZE, PAGE_SIZE);
+	if (!params_pa) {
+		pr_err("Unable to allocate memory for SEAMLDR_PARAMS\n");
+		goto free_sigstruct;
+	}
+
+	params = __va(params_pa);
+	memset(params, 0, PAGE_SIZE);
+	params->sigstruct_pa = sigstruct_pa;
+	params->module_pages = PFN_UP(module_size);
+	for (i = 0; i < params->module_pages; i++)
+		params->module_pa_list[i] = module_pa + i * PAGE_SIZE;
+
+	return params;
+
+free_sigstruct:
+	seam_free_mem(sigstruct_pa, sigstruct_size);
+free_seam_module:
+	seam_free_mem(module_pa, module_size);
+out:
+	return ERR_PTR(-ENOMEM);
+}
+
+void __init free_seamldr_params(struct seamldr_params *params)
+{
+	seam_free_mem(params->sigstruct_pa, PAGE_SIZE);
+	seam_free_mem(params->module_pa_list[0],
+		      params->module_pages * PAGE_SIZE);
+	seam_free_mem(__pa(params), PAGE_SIZE);
 }

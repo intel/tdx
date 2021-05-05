@@ -22,15 +22,17 @@
 
 #include "vmx/tdx_arch.h"
 #include "vmx/tdx_errno.h"
+#include "seamcall_boot.h"
+#include "tdx_ops_boot.h"
+#include "tdx_common.h"
+#include "vmx/seamcall.h"
 
 #include "vmx/vmcs.h"
 
 struct seamldr_info p_seamldr_info __aligned(256);
 
-/*
- * TDX system information returned by TDSYSINFO.
- */
-static struct tdsysinfo_struct tdx_tdsysinfo;
+static DEFINE_PER_CPU(unsigned long, tdx_vmxon_vmcs);
+static atomic_t tdx_init_cpu_errors;
 
 /*
  * CMR info array returned by TDSYSINFO.
@@ -47,10 +49,18 @@ static int tdx_nr_cmrs;
  */
 static struct tdmr_info tdx_tdmrs[TDX1_MAX_NR_TDMRS] __initdata;
 static int tdx_nr_tdmrs __initdata;
+static atomic_t tdx_next_tdmr_index;
+static atomic_t tdx_nr_initialized_tdmrs;
 
 /* TDMRs must be 1gb aligned */
 #define TDMR_ALIGNMENT		BIT_ULL(30)
 #define TDMR_PFN_ALIGNMENT	(TDMR_ALIGNMENT >> PAGE_SHIFT)
+
+/*
+ * TDSYSCONFIG takes a array of pointers to TDMR infos.  Its just big enough
+ * that allocating it on the stack is undesirable.
+ */
+static u64 tdx_tdmr_addrs[TDX1_MAX_NR_TDMRS] __aligned(TDX_TDMR_ADDR_ALIGNMENT) __initdata;
 
 struct pamt_info {
 	u64 pamt_base;
@@ -619,6 +629,109 @@ free_pamts:
 	return ret;
 }
 
+static inline int tdx_init_vmxon_vmcs(struct vmcs *vmcs)
+{
+	u64 msr;
+
+	/*
+	 * Can't enable TDX if VMX is unsupported or disabled by BIOS.
+	 * cpu_has(X86_FEATURE_VMX) can't be relied on as the BSP calls this
+	 * before the kernel has configured feat_ctl().
+	 */
+	if (!cpu_has_vmx())
+		return -EOPNOTSUPP;
+
+	if (rdmsrl_safe(MSR_IA32_FEAT_CTL, &msr) ||
+	    !(msr & FEAT_CTL_LOCKED) ||
+	    !(msr & FEAT_CTL_VMX_ENABLED_OUTSIDE_SMX))
+		return -EOPNOTSUPP;
+
+	if (rdmsrl_safe(MSR_IA32_VMX_BASIC, &msr))
+		return -EOPNOTSUPP;
+
+	memset(vmcs, 0, PAGE_SIZE);
+	vmcs->hdr.revision_id = (u32)msr;
+
+	return 0;
+}
+
+static inline void tdx_get_keyids(u32 *keyids_start, u32 *nr_keyids)
+{
+	u32 nr_mktme_ids;
+
+	rdmsr(MSR_IA32_MKTME_KEYID_PART, nr_mktme_ids, *nr_keyids);
+
+	/* KeyID 0 is reserved, i.e. KeyIDs are 1-based. */
+	*keyids_start = nr_mktme_ids + 1;
+}
+
+/* Detect if wrong assumptions were made during TDMRs construction. */
+static int __init sanity_check(void)
+{
+	if ((tdx_tdsysinfo.max_tdmrs != TDX1_MAX_NR_TDMRS) ||
+	    (tdx_tdsysinfo.pamt_entry_size != TDX1_PAMT_ENTRY_SIZE) ||
+	    (tdx_tdsysinfo.max_reserved_per_tdmr != TDX1_MAX_NR_RSVD_AREAS)) {
+		pr_err("Early TDMRs are constructed based on wrong info.\n");
+		return -EINVAL;
+	}
+	return 0;
+}
+
+static int tdx_init_cpu(unsigned long vmcs)
+{
+	u32 keyids_start, nr_keyids;
+	struct tdx_ex_ret ex_ret;
+	u64 err;
+
+	/*
+	 * MSR_IA32_MKTME_KEYID_PART is core-scoped, disable TDX if this CPU's
+	 * partitioning doesn't match the BSP's partitioning.
+	 */
+	tdx_get_keyids(&keyids_start, &nr_keyids);
+	if (keyids_start != tdx_keyids_start || nr_keyids != tdx_nr_keyids) {
+		pr_err("MKTME KeyID partioning inconsistent on CPU %u\n",
+		       smp_processor_id());
+		return -EOPNOTSUPP;
+	}
+
+	cpu_vmxon(__pa(vmcs));
+	err = tdh_sys_lp_init(&ex_ret);
+	cpu_vmxoff();
+
+	if (TDX_ERR(err, TDH_SYS_LP_INIT, &ex_ret))
+		return -EIO;
+
+	return 0;
+}
+
+static __init void tdx_init_local(void *unused)
+{
+	unsigned long vmcs;
+
+	/* In case this cpu has been initialized. */
+	WARN_ON(this_cpu_read(tdx_vmxon_vmcs));
+
+	/* Allocate VMCS for VMXON. */
+	vmcs = __get_free_page(GFP_ATOMIC);
+	if (!vmcs)
+		goto err;
+
+	/* VMCS configuration shouldn't fail at this point. */
+	if (WARN_ON_ONCE(tdx_init_vmxon_vmcs((void *)vmcs)))
+		goto err_vmcs;
+
+	if (tdx_init_cpu(vmcs))
+		goto err_vmcs;
+
+	this_cpu_write(tdx_vmxon_vmcs, vmcs);
+	return;
+
+err_vmcs:
+	free_page(vmcs);
+err:
+	atomic_inc(&tdx_init_cpu_errors);
+}
+
 /*
  * Build information needed to construct TDMRs, such as max_tdmrs,
  * max_reserved_per_tdmr and pamt entry_size, and CMRs.
@@ -652,6 +765,81 @@ static int __init build_tdsysinfo_and_cmrs_from_e820(void)
 	tdx_nr_cmrs = j;
 
 	return 0;
+}
+
+static __init int tdx_init_global(void)
+{
+	struct tdx_ex_ret ex_ret;
+	unsigned long vmcs;
+	u64 err;
+	int ret;
+
+	/*
+	 * Detect HKID for TDX if initialization was successful.
+	 *
+	 * TDX provides core-scoped MSR for us to simply read out TDX start
+	 * keyID and number of keyIDs.
+	 */
+	tdx_get_keyids(&tdx_keyids_start, &tdx_nr_keyids);
+	if (!tdx_nr_keyids)
+		return -EOPNOTSUPP;
+
+	/* Allocate VMCS for VMXON. */
+	vmcs = __get_free_page(GFP_ATOMIC);
+	if (!vmcs)
+		return -ENOMEM;
+
+	ret = tdx_init_vmxon_vmcs((void *)vmcs);
+	if (ret)
+		goto out;
+
+	cpu_vmxon(__pa(vmcs));
+
+	err = tdh_sys_init(0, &ex_ret);
+	if (TDX_ERR(err, TDH_SYS_INIT, &ex_ret)) {
+		ret = -EIO;
+		goto out_vmxoff;
+	}
+
+	err = tdh_sys_lp_init(&ex_ret);
+	if (TDX_ERR(err, TDH_SYS_LP_INIT, &ex_ret)) {
+		ret = -EIO;
+		goto out_vmxoff;
+	}
+
+	/*
+	 * Do TDSYSINFO to collect the information needed to construct TDMRs,
+	 * which needs to be done before kernel page allocator is up as the
+	 * page allocator can't provide the large chunk (>4MB) of memory needed
+	 * for the PAMTs.
+	 */
+	err = tdh_sys_info(__pa(&tdx_tdsysinfo), sizeof(tdx_tdsysinfo),
+			   __pa(tdx_cmrs), TDX1_MAX_NR_CMRS, &ex_ret);
+	if (TDX_ERR(err, TDH_SYS_INFO, &ex_ret)) {
+		ret = -EIO;
+		goto out_vmxoff;
+	}
+	pr_info("TDX SEAM module: "
+		"attributes 0x%x vendor_id 0x%x "
+		"build_date %d build_num 0x%x "
+		"minor_version 0x%x major_version 0x%x.\n",
+		tdx_tdsysinfo.attributes,
+		tdx_tdsysinfo.vendor_id,
+		tdx_tdsysinfo.build_date,
+		tdx_tdsysinfo.build_num,
+		tdx_tdsysinfo.minor_version,
+		tdx_tdsysinfo.major_version);
+
+	cpu_vmxoff();
+	tdx_nr_cmrs = ex_ret.nr_cmr_entries;
+	this_cpu_write(tdx_vmxon_vmcs, vmcs);
+	return 0;
+
+out_vmxoff:
+	cpu_vmxoff();
+out:
+	free_page(vmcs);
+	return ret;
 }
 
 static bool __init tdx_all_cpus_available(void)
@@ -781,3 +969,266 @@ error:
 	pr_err("can't load/init TDX module. disabling TDX feature.\n");
 	setup_clear_cpu_cap(X86_FEATURE_TDX);
 }
+
+/* Load seam module on one CPU */
+static void __init p_seamldr_load_module_one(void *data)
+{
+	struct seamldr_params *params = data;
+
+	if (seamldr_install(__pa(params)))
+		atomic_inc(&tdx_init_cpu_errors);
+}
+
+/*
+ * Look for seam module binary in built-in firmware and initrd, and load it on
+ * all CPUs through P-SEAMLDR.
+ */
+static int __init p_seamldr_load_module(void)
+{
+	const char *sigstruct_name = "intel-seam/libtdx.so.sigstruct";
+	const char *module_name = "intel-seam/libtdx.so";
+	struct cpio_data module, sigstruct;
+	struct seamldr_params *params;
+	int ret;
+
+	if (tdx_get_firmware(&module, module_name) ||
+	    tdx_get_firmware(&sigstruct, sigstruct_name))
+		return -EINVAL;
+
+	params = init_seamldr_params(module.data, module.size,
+				     sigstruct.data, sigstruct.size);
+	if (IS_ERR(params))
+		return -ENOMEM;
+
+	smp_call_function(p_seamldr_load_module_one, params, 1);
+
+	p_seamldr_load_module_one(params);
+
+	if (!atomic_read(&tdx_init_cpu_errors)) {
+		setup_force_cpu_cap(X86_FEATURE_TDX);
+		ret = 0;
+	} else {
+		pr_info("Late seam module loading failed.\n");
+		ret = -EIO;
+	}
+
+	free_seamldr_params(params);
+	return ret;
+}
+
+static atomic_t tdx_vmxonoff_errors __initdata;
+
+static void __init tdx_vmxon(void *ign)
+{
+	if (cpu_vmxon(__pa(this_cpu_read(tdx_vmxon_vmcs))))
+		atomic_inc(&tdx_vmxonoff_errors);
+}
+
+static void __init tdx_vmxoff(void *ign)
+{
+	if (cpu_vmxoff())
+		atomic_inc(&tdx_vmxonoff_errors);
+}
+
+static int __init on_each_cpu_vmxon(void)
+{
+	atomic_set(&tdx_vmxonoff_errors, 0);
+	on_each_cpu(tdx_vmxon, NULL, 1);
+	if (atomic_read(&tdx_vmxonoff_errors))
+		return -EFAULT;
+	return 0;
+}
+
+static int __init on_each_cpu_vmxoff(void)
+{
+	atomic_set(&tdx_vmxonoff_errors, 0);
+	on_each_cpu(tdx_vmxoff, NULL, 1);
+	if (atomic_read(&tdx_vmxonoff_errors))
+		return -EIO;
+	return 0;
+}
+
+static void __init tdx_free_vmxon_vmcs(void)
+{
+	int cpu;
+
+	for_each_possible_cpu(cpu) {
+		free_page(per_cpu(tdx_vmxon_vmcs, cpu));
+		per_cpu(tdx_vmxon_vmcs, cpu) = 0;
+	}
+}
+
+static int __init do_tdh_sys_key_config(void *param)
+{
+	u64 err;
+
+	do {
+		err = tdh_sys_key_config();
+	} while (err == TDX_KEY_GENERATION_FAILED);
+
+	if (TDX_ERR(err, TDH_SYS_KEY_CONFIG, NULL))
+		return -EIO;
+
+	return 0;
+}
+
+static void __init __tdx_init_tdmrs(void *failed)
+{
+	struct tdx_ex_ret ex_ret;
+	u64 base, size;
+	u64 err;
+	int i;
+
+	for (i = atomic_fetch_add(1, &tdx_next_tdmr_index);
+	     i < tdx_nr_tdmrs;
+	     i = atomic_fetch_add(1, &tdx_next_tdmr_index)) {
+		base = tdx_tdmrs[i].base;
+		size = tdx_tdmrs[i].size;
+
+		do {
+			/* Abort if a different CPU failed. */
+			if (atomic_read(failed))
+				return;
+
+			err = tdh_sys_tdmr_init(base, &ex_ret);
+			if (TDX_ERR(err, TDH_SYS_TDMR_INIT, &ex_ret)) {
+				atomic_inc(failed);
+				return;
+			}
+			/*
+			 * Note, "next" is simply an indicator, base is passed to
+			 * TDSYSINTTDMR on every iteration.
+			 */
+		} while (ex_ret.next < (base + size));
+
+		atomic_inc(&tdx_nr_initialized_tdmrs);
+	}
+}
+
+static int __init tdx_init_tdmrs(void)
+{
+	atomic_t failed = ATOMIC_INIT(0);
+
+	/*
+	 * Flush the cache to guarantee there no MODIFIED cache lines exist for
+	 * PAMTs before TDH_SYS_TDMR_INIT, which will initialize PAMT memory using
+	 * TDX-SEAM's reserved/system HKID.
+	 */
+	wbinvd_on_all_cpus();
+
+	on_each_cpu(__tdx_init_tdmrs, &failed, 0);
+
+	while (atomic_read(&tdx_nr_initialized_tdmrs) < tdx_nr_tdmrs) {
+		if (atomic_read(&failed))
+			return -EIO;
+	}
+
+	return 0;
+}
+
+/*
+ * Invoke TDH.SYS.INIT to perform system-wise initialization and invoke
+ * TDH.SYS.LP.INIT on all CPUs to perform processor-wise initialization.
+ */
+static int __init tdx_init_cpus(void)
+{
+	int ret;
+
+	/*
+	 * Initialize TDX module needs to involve all CPUs.
+	 * Disable cpu hotplug and ensure all CPUs are online.
+	 */
+	cpus_read_lock();
+#ifdef CONFIG_SMP
+	if (!cpumask_equal(cpu_present_mask, cpu_online_mask)) {
+		ret = -EIO;
+		goto out;
+	}
+#endif
+
+	/*
+	 * Ensure one cpu calls tdx_init_global() and others call
+	 * tdx_init_local(). Thread migration may lead to a CPU tries
+	 * to initialize TDX module twice and another CPU does nothing.
+	 */
+	get_cpu();
+	ret = tdx_init_global();
+	if (ret)
+		goto out;
+
+	ret = sanity_check();
+	if (ret)
+		goto out;
+
+	smp_call_function(tdx_init_local, NULL, 1);
+
+	if (atomic_read(&tdx_init_cpu_errors))
+		ret = -EIO;
+
+out:
+	put_cpu();
+	cpus_read_unlock();
+	return ret;
+}
+
+static int __init tdx_init(void)
+{
+	int ret, i;
+	u64 err;
+
+	if (!boot_cpu_has(X86_FEATURE_TDX))
+		return -EOPNOTSUPP;
+
+	/* Load TDX module if it hasn't been. */
+	pr_info("Loading TDX module via P-SEAMLDR.\n");
+	if (p_seamldr_load_module()) {
+		ret = -EOPNOTSUPP;
+		goto err;
+	}
+
+	ret = tdx_init_cpus();
+	if (ret)
+		goto err;
+
+	ret = init_package_masters();
+	if (ret)
+		goto err;
+
+	ret = on_each_cpu_vmxon();
+	if (ret)
+		goto err;
+
+	for (i = 0; i < tdx_nr_tdmrs; i++)
+		tdx_tdmr_addrs[i] = __pa(&tdx_tdmrs[i]);
+
+	/* Use the first keyID as TDX-SEAM's global key. */
+	err = tdh_sys_config(__pa(tdx_tdmr_addrs), tdx_nr_tdmrs, tdx_keyids_start);
+	if (TDX_ERR(err, TDH_SYS_CONFIG, NULL)) {
+		ret = -EIO;
+		goto err_vmxoff;
+	}
+	tdx_seam_keyid = tdx_keyids_start;
+
+	ret = tdx_seamcall_on_each_pkg(do_tdh_sys_key_config, NULL);
+	if (ret)
+		goto err_vmxoff;
+
+	ret = tdx_init_tdmrs();
+	if (ret)
+		goto err_vmxoff;
+
+	on_each_cpu_vmxoff();
+	tdx_free_vmxon_vmcs();
+
+	pr_info("TDX initialized.\n");
+	pr_info("support upto %d TD keyids\n", tdx_nr_keyids - 1);
+	return 0;
+
+err_vmxoff:
+	on_each_cpu_vmxoff();
+err:
+	tdx_free_vmxon_vmcs();
+	clear_cpu_cap(&boot_cpu_data, X86_FEATURE_TDX);
+	return ret;
+}
+arch_initcall(tdx_init);

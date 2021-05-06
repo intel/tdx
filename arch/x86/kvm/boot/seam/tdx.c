@@ -1292,4 +1292,65 @@ out:
 	return ret;
 }
 device_initcall(p_seamldr_sysfs_init);
+
+#define TDX_SEAM_ATTR_SHOW_FMT(name, format)				\
+static ssize_t tdx_ ## name ## _show(					\
+	struct kobject *kobj, struct kobj_attribute *attr, char *buf)	\
+{									\
+	return sprintf(buf, format, tdx_tdsysinfo.name);		\
+}									\
+static struct kobj_attribute tdx_attr_##name = __ATTR_RO(tdx_ ## name)
+
+#define TDX_SEAM_ATTR_SHOW_HEX(name)	TDX_SEAM_ATTR_SHOW_FMT(name, "0x%x\n")
+#define TDX_SEAM_ATTR_SHOW_DEC(name)	TDX_SEAM_ATTR_SHOW_FMT(name, "%d\n")
+
+TDX_SEAM_ATTR_SHOW_HEX(attributes);
+TDX_SEAM_ATTR_SHOW_HEX(vendor_id);
+TDX_SEAM_ATTR_SHOW_DEC(build_date);
+TDX_SEAM_ATTR_SHOW_HEX(build_num);
+TDX_SEAM_ATTR_SHOW_HEX(minor_version);
+TDX_SEAM_ATTR_SHOW_HEX(major_version);
+
+static struct kobject *tdx_seam_kobj;
+static struct attribute *tdx_seam_attrs[] = {
+	&tdx_attr_attributes.attr,
+	&tdx_attr_vendor_id.attr,
+	&tdx_attr_build_date.attr,
+	&tdx_attr_build_num.attr,
+	&tdx_attr_minor_version.attr,
+	&tdx_attr_major_version.attr,
+	NULL,
+};
+
+static const struct attribute_group tdx_seam_attr_group = {
+	.attrs = tdx_seam_attrs,
+};
+
+static int __init tdx_seam_sysfs_init(void)
+{
+	int ret = 0;
+
+	if (!boot_cpu_has(X86_FEATURE_TDX))
+		return -EOPNOTSUPP;
+
+	tdx_seam_kobj = kobject_create_and_add("tdx_seam", firmware_kobj);
+	if (!tdx_seam_kobj) {
+		pr_err("kobject_create_and_add tdx_seam failed\n");
+		ret = -EINVAL;
+		goto out;
+	}
+	ret = sysfs_create_group(tdx_seam_kobj, &tdx_seam_attr_group);
+	if (ret)
+		pr_err("Sysfs exporting attribute failed with error %d", ret);
+
+out:
+	if (ret) {
+		if (tdx_seam_kobj)
+			sysfs_remove_group(tdx_seam_kobj, &tdx_seam_attr_group);
+		kobject_put(tdx_seam_kobj);
+	}
+	return ret;
+}
+
+device_initcall(tdx_seam_sysfs_init);
 #endif

@@ -1353,6 +1353,21 @@ config MICROCODE_OLD_INTERFACE
 	  should've switched to the early loading method with the initrd or
 	  builtin microcode by now: Documentation/x86/microcode.rst
 
+config INTEL_TDX_HOST
+	bool "Intel Trust Domain eXtensions(TDX) host support"
+	default n
+	depends on CPU_SUP_INTEL
+	depends on X86_64
+	select CONTIG_ALLOC
+	select CMA
+	help
+	  Intel's Trust Domain Extensions (TDX) protect guest VMs from malicious
+	  hosts and some physical attacks.  This option enables initialization
+	  necessary for TDX host support.  For details see
+	  <file:Documentations/x86/tdx-module.rst>.
+
+	  If unsure, say N.
+
 config X86_MSR
 	tristate "/dev/cpu/*/msr - Model-specific register support"
 	help

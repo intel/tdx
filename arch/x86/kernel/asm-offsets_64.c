@@ -9,6 +9,10 @@
 #include <asm/kvm_para.h>
 #endif
 
+#ifdef CONFIG_INTEL_TDX_HOST
+#include <asm/tdx_arch.h>
+#endif
+
 int main(void)
 {
 #ifdef CONFIG_PARAVIRT
@@ -22,6 +26,16 @@ int main(void)
 
 #if defined(CONFIG_KVM_GUEST) && defined(CONFIG_PARAVIRT_SPINLOCKS)
 	OFFSET(KVM_STEAL_TIME_preempted, kvm_steal_time, preempted);
+	BLANK();
+#endif
+
+#ifdef CONFIG_INTEL_TDX_HOST
+	OFFSET(TDX_SEAM_rcx, tdx_ex_ret, rcx);
+	OFFSET(TDX_SEAM_rdx, tdx_ex_ret, rdx);
+	OFFSET(TDX_SEAM_r8,  tdx_ex_ret, r8);
+	OFFSET(TDX_SEAM_r9,  tdx_ex_ret, r9);
+	OFFSET(TDX_SEAM_r10, tdx_ex_ret, r10);
+	OFFSET(TDX_SEAM_r11, tdx_ex_ret, r11);
 	BLANK();
 #endif
 

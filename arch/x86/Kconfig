@@ -1334,6 +1334,22 @@ config MICROCODE_OLD_INTERFACE
 	  should've switched to the early loading method with the initrd or
 	  builtin microcode by now: Documentation/x86/microcode.rst
 
+config INTEL_TDX_HOST
+	bool "Intel Trust Domain eXtensions(TDX) host support"
+	default y
+	depends on CPU_SUP_INTEL
+	depends on X86_64
+	depends on KVM_INTEL
+	help
+	  Intel Trust Domain eXtensions(TDX) is an architecture based on CPU
+	  instructions and TDX module to deploy hardware-isolated virtual
+	  machines(VMs) which is called Trust Domains(TDs).  TDX module needs to
+	  be loaded and initialized.  Include related files into initrd or
+	  buildin firmware and pass "enable_tdx_host" kernel command line as
+	  opt-in.  For details see <file:Documentations/x86/tdx-module.rst>.
+
+	  If unsure, say N.
+
 config X86_MSR
 	tristate "/dev/cpu/*/msr - Model-specific register support"
 	help

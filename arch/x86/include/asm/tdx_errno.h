@@ -1,0 +1,19 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/* architectural status code for SEAMCALL */
+
+#ifndef __ASM_X86_TDX_ERRNO_H
+#define __ASM_X86_TDX_ERRNO_H
+
+#define TDX_SEAMCALL_STATUS_MASK		0xFFFFFFFF00000000ULL
+
+/*
+ * TDX SEAMCALL Status Codes (returned in RAX)
+ */
+#define TDX_SUCCESS				0x0000000000000000ULL
+
+#define TDX_STATUS_CODE(name)	{ name, #name }
+
+#define TDX_STATUS_CODES					\
+	TDX_STATUS_CODE(TDX_SUCCESS)
+
+#endif /* __ASM_X86_TDX_ERRNO_H */

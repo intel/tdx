@@ -11,6 +11,7 @@
 #include <linux/init.h>
 #include <linux/uaccess.h>
 #include <linux/delay.h>
+#include <linux/protected_guest.h>
 
 #include <asm/cpufeature.h>
 #include <asm/msr.h>
@@ -59,6 +60,19 @@ static u64 msr_test_ctrl_cache __ro_after_init;
  * on CPUs that do not support SLD can cause fireworks, even when writing '0'.
  */
 static bool cpu_model_supports_sld __ro_after_init;
+
+#ifdef CONFIG_ARCH_HAS_PROTECTED_GUEST
+bool intel_prot_guest_has(unsigned int flag)
+{
+	switch (flag) {
+	case PATTR_GUEST_TDX:
+		return cpu_feature_enabled(X86_FEATURE_TDX_GUEST);
+	}
+
+	return false;
+}
+EXPORT_SYMBOL_GPL(intel_prot_guest_has);
+#endif
 
 /*
  * Processors which have self-snooping capability can handle conflicting

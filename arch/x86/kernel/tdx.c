@@ -7,6 +7,7 @@
 #include <asm/vmx.h>
 
 #include <linux/cpu.h>
+#include <linux/protected_guest.h>
 
 static struct {
 	unsigned int gpa_width;
@@ -91,6 +92,9 @@ void __init tdx_early_init(void)
 		return;
 
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
+
+	set_protected_guest_flag(GUEST_TYPE_TDX);
+	set_protected_guest_flag(MEMORY_ENCRYPTION);
 
 	tdg_get_info();
 

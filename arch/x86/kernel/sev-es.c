@@ -19,6 +19,7 @@
 #include <linux/memblock.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
+#include <linux/protected_guest.h>
 
 #include <asm/cpu_entry_area.h>
 #include <asm/stacktrace.h>
@@ -680,6 +681,9 @@ static void __init init_ghcb(int cpu)
 
 	data->ghcb_active = false;
 	data->backup_ghcb_active = false;
+
+	set_protected_guest_flag(GUEST_TYPE_SEV);
+	set_protected_guest_flag(MEMORY_ENCRYPTION);
 }
 
 void __init sev_es_init_vc_handling(void)

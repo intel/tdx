@@ -21,6 +21,7 @@
 #include <linux/usb/xhci-dbgp.h>
 #include <linux/static_call.h>
 #include <linux/swiotlb.h>
+#include <linux/protected_guest.h>
 
 #include <uapi/linux/mount.h>
 
@@ -107,6 +108,10 @@ static struct resource bss_resource = {
 	.flags	= IORESOURCE_BUSY | IORESOURCE_SYSTEM_RAM
 };
 
+#ifdef CONFIG_ARCH_HAS_PROTECTED_GUEST
+DECLARE_BITMAP(protected_guest_flags, PROTECTED_GUEST_BITMAP_LEN);
+EXPORT_SYMBOL(protected_guest_flags);
+#endif
 
 #ifdef CONFIG_X86_32
 /* CPU data as detected by the assembly code in head_32.S */

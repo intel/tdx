@@ -22,6 +22,9 @@
 #define PATTR_SEV			0x801
 #define PATTR_SEV_ES			0x802
 
+/* 0x900 - 0x9ff reserved for Intel */
+#define PATTR_GUEST_TDX			0x900
+
 #ifdef CONFIG_ARCH_HAS_PROTECTED_GUEST
 
 #include <asm/protected_guest.h>

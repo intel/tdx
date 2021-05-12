@@ -12,12 +12,17 @@
 
 #include <linux/mem_encrypt.h>
 
+#include <asm/processor.h>
+#include <asm/tdx.h>
+
 #ifndef __ASSEMBLY__
 
 static inline bool prot_guest_has(unsigned int attr)
 {
 	if (sme_me_mask)
 		return amd_prot_guest_has(attr);
+	else if (boot_cpu_data.x86_vendor == X86_VENDOR_INTEL)
+		return tdx_prot_guest_has(attr);
 
 	return false;
 }

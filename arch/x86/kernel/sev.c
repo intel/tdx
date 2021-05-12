@@ -19,6 +19,7 @@
 #include <linux/memblock.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
+#include <linux/protected_guest.h>
 
 #include <asm/cpu_entry_area.h>
 #include <asm/stacktrace.h>
@@ -1493,3 +1494,19 @@ fail:
 	while (true)
 		halt();
 }
+
+bool sev_prot_guest_has(unsigned long flag)
+{
+	switch (flag) {
+	case PR_GUEST_MEM_ENCRYPT:
+	case PR_GUEST_MEM_ENCRYPT_ACTIVE:
+	case PR_GUEST_UNROLL_STRING_IO:
+	case PR_GUEST_HOST_MEM_ENCRYPT:
+		return true;
+	case PR_GUEST_SEV:
+		return sev_active();
+	}
+
+	return false;
+}
+EXPORT_SYMBOL_GPL(sev_prot_guest_has);

@@ -1011,6 +1011,9 @@ config HAVE_ARCH_NVRAM_OPS
 config ISA_BUS_API
 	def_bool ISA
 
+config ARCH_HAS_PROTECTED_GUEST
+	bool
+
 #
 # ABI hall of shame
 #

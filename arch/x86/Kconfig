@@ -875,6 +875,7 @@ config INTEL_TDX_GUEST
 	depends on X86_64 && CPU_SUP_INTEL && PARAVIRT
 	depends on SECURITY
 	depends on X86_X2APIC
+	select ARCH_HAS_CC_PLATFORM
 	help
 	  Provide support for running in a trusted domain on Intel processors
 	  equipped with Trusted Domain Extensions. TDX is a Intel technology

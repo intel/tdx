@@ -34,6 +34,14 @@ KASAN_SANITIZE_sev.o					:= n
 KASAN_SANITIZE_cc_platform.o				:= n
 KASAN_SANITIZE_tdx.o					:= n
 
+# cc_platform_has cannot be instrumented because it can be called
+# with invalid %gs. It also cannot use switch statements with jump
+# table because __startup64 can call it before running on the final
+# mapping
+#
+KCOV_INSTRUMENT_cc_platform.o := n
+CFLAGS_cc_platform.o += -fno-jump-tables
+
 # With some compiler versions the generated code results in boot hangs, caused
 # by several compilation units. To be safe, disable all instrumentation.
 KCSAN_SANITIZE := n

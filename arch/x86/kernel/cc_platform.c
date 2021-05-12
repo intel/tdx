@@ -11,12 +11,18 @@
 #include <linux/cc_platform.h>
 #include <linux/mem_encrypt.h>
 
+#include <asm/tdx.h>
 #include <asm/processor.h>
 
-static bool __maybe_unused intel_cc_platform_has(enum cc_attr attr)
+static bool intel_cc_platform_has(enum cc_attr attr)
 {
 #ifdef CONFIG_INTEL_TDX_GUEST
-	return false;
+	switch (attr) {
+	case CC_ATTR_GUEST_TDX:
+		return is_tdx_guest();
+	default:
+		return false;
+	}
 #else
 	return false;
 #endif
@@ -63,6 +69,8 @@ bool cc_platform_has(enum cc_attr attr)
 {
 	if (sme_me_mask)
 		return amd_cc_platform_has(attr);
+	else if (is_tdx_guest())
+		return intel_cc_platform_has(attr);
 
 	return false;
 }

@@ -18,6 +18,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/suspend.h>
+#include <linux/protected_guest.h>
 #include <asm/cpu_device_id.h>
 #include <asm/intel-family.h>
 
@@ -385,6 +386,10 @@ static int __init intel_uncore_init(void)
 {
 	const struct x86_cpu_id *id;
 	int ret;
+
+	/* Skip uncore support for TDX guest */
+	if (protected_guest_has(GUEST_TYPE_TDX))
+		return -ENODEV;
 
 	id = x86_match_cpu(intel_uncore_cpu_ids);
 	if (!id)

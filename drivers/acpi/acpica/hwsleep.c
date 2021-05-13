@@ -9,6 +9,7 @@
  *****************************************************************************/
 
 #include <acpi/acpi.h>
+#include <linux/protected_guest.h>
 #include "accommon.h"
 
 #define _COMPONENT          ACPI_HARDWARE
@@ -108,9 +109,14 @@ acpi_status acpi_hw_legacy_sleep(u8 sleep_state)
 	pm1a_control |= sleep_enable_reg_info->access_bit_mask;
 	pm1b_control |= sleep_enable_reg_info->access_bit_mask;
 
-	/* Flush caches, as per ACPI specification */
-
-	ACPI_FLUSH_CPU_CACHE();
+	/*
+	 * WBINVD instruction is not supported in TDX
+	 * guest. Since ACPI_FLUSH_CPU_CACHE() uses
+	 * WBINVD, skip cache flushes for TDX guests.
+	 */
+	if (!protected_guest_has(GUEST_TYPE_TDX))
+		/* Flush caches, as per ACPI specification */
+		ACPI_FLUSH_CPU_CACHE();
 
 	status = acpi_os_enter_sleep(sleep_state, pm1a_control, pm1b_control);
 	if (status == AE_CTRL_TERMINATE) {

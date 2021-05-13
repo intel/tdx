@@ -18,6 +18,7 @@
 #include <linux/acpi.h>
 #include <linux/module.h>
 #include <linux/syscore_ops.h>
+#include <linux/protected_guest.h>
 #include <asm/io.h>
 #include <trace/events/power.h>
 
@@ -71,7 +72,14 @@ static int acpi_sleep_prepare(u32 acpi_state)
 		acpi_set_waking_vector(acpi_wakeup_address);
 
 	}
-	ACPI_FLUSH_CPU_CACHE();
+
+	/*
+	 * WBINVD instruction is not supported in TDX
+	 * guest. Since ACPI_FLUSH_CPU_CACHE() uses
+	 * WBINVD, skip cache flushes for TDX guests.
+	 */
+	if (!protected_guest_has(GUEST_TYPE_TDX))
+		ACPI_FLUSH_CPU_CACHE();
 #endif
 	printk(KERN_INFO PREFIX "Preparing to enter system sleep state S%d\n",
 		acpi_state);
@@ -566,7 +574,13 @@ static int acpi_suspend_enter(suspend_state_t pm_state)
 	u32 acpi_state = acpi_target_sleep_state;
 	int error;
 
-	ACPI_FLUSH_CPU_CACHE();
+	/*
+	 * WBINVD instruction is not supported in TDX
+	 * guest. Since ACPI_FLUSH_CPU_CACHE() uses
+	 * WBINVD, skip cache flushes for TDX guests.
+	 */
+	if (!protected_guest_has(GUEST_TYPE_TDX))
+		ACPI_FLUSH_CPU_CACHE();
 
 	trace_suspend_resume(TPS("acpi_suspend"), acpi_state, true);
 	switch (acpi_state) {
@@ -899,7 +913,13 @@ static int acpi_hibernation_enter(void)
 {
 	acpi_status status = AE_OK;
 
-	ACPI_FLUSH_CPU_CACHE();
+	/*
+	 * WBINVD instruction is not supported in TDX
+	 * guest. Since ACPI_FLUSH_CPU_CACHE() uses
+	 * WBINVD, skip cache flushes for TDX guests.
+	 */
+	if (!protected_guest_has(GUEST_TYPE_TDX))
+		ACPI_FLUSH_CPU_CACHE();
 
 	/* This shouldn't return.  If it returns, we have a problem */
 	status = acpi_enter_sleep_state(ACPI_STATE_S4);

@@ -598,7 +598,11 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	vcpu->arch.efer = EFER_SCE | EFER_LME | EFER_LMA | EFER_NX;
 
 	vcpu->arch.switch_db_regs = KVM_DEBUGREG_AUTO_SWITCH;
-	vcpu->arch.cr0_guest_owned_bits = -1ul;
+	/*
+	 * kvm_arch_vcpu_reset(init_event=false) reads cr0 to reset MMU.
+	 * Prevent to read CR0 via SEAMCALL.
+	 */
+	vcpu->arch.cr0_guest_owned_bits = 0ul;
 	vcpu->arch.cr4_guest_owned_bits = -1ul;
 	vcpu->arch.root_mmu.no_prefetch = true;
 
@@ -801,6 +805,8 @@ void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	if (KVM_BUG_ON(is_td_vcpu_created(to_tdx(vcpu)), vcpu->kvm))
 		return;
 
+	vcpu->arch.cr0_guest_owned_bits = -1ul;
+
 	/*
 	 * tdx_vcpu_run()  load GPRs from KVM's internal cache
 	 * into TDX guest for DEBUG TDX guest, but this should
@@ -981,6 +987,25 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	 * records in DS area.
 	 */
 	intel_pmu_restore();
+	if (to_kvm_tdx(vcpu->kvm)->attributes & TDX_TD_ATTRIBUTE_PERFMON) {
+		/*
+		 * Guest perf counters overflow leads to a PMI configured by
+		 * host VMM into APIC_LVTPC being delivered.  This PMI causes a
+		 * VM exit.  And as host counters are disabled before TDENTER, a
+		 * PMI pending (if mask is set) always means a guest counter
+		 * overflew.
+		 *
+		 * Simply set a flag to guide following NMI handling and unmask
+		 * APIC_LVTPC here as host counters are to be enabled.
+		 * Otherwise, a subsequent host PMI may be masked.
+		 */
+		if (tdx->exit_reason.basic == EXIT_REASON_EXCEPTION_NMI) {
+			if (apic_read(APIC_LVTPC) & APIC_LVT_MASKED) {
+				tdx->guest_pmi_exit = true;
+				apic_write(APIC_LVTPC, APIC_DM_NMI);
+			}
+		}
+	}
 
 	if (is_debug_td(vcpu))
 		tdx_reset_regs_cache(vcpu);
@@ -1012,9 +1037,13 @@ void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu)
 	if (exit_reason == EXIT_REASON_EXTERNAL_INTERRUPT)
 		vmx_handle_external_interrupt_irqoff(vcpu,
 						     tdexit_intr_info(vcpu));
-	else if (exit_reason == EXIT_REASON_EXCEPTION_NMI)
-		vmx_handle_exception_irqoff(vcpu, tdexit_intr_info(vcpu));
-	else if (unlikely(tdx->exit_reason.non_recoverable ||
+	else if (exit_reason == EXIT_REASON_EXCEPTION_NMI) {
+		if (tdx->guest_pmi_exit) {
+			kvm_make_request(KVM_REQ_PMI, vcpu);
+			tdx->guest_pmi_exit = false;
+		} else
+			vmx_handle_exception_irqoff(vcpu, tdexit_intr_info(vcpu));
+	} else if (unlikely(tdx->exit_reason.non_recoverable ||
 		 tdx->exit_reason.error)) {
 		/*
 		 * The only reason it gets EXIT_REASON_OTHER_SMI is there is an

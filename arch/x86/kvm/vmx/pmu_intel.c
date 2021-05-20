@@ -17,6 +17,7 @@
 #include "lapic.h"
 #include "nested.h"
 #include "pmu.h"
+#include "tdx.h"
 
 #define MSR_PMC_FULL_WIDTH_BIT      (MSR_IA32_PMC0 - MSR_IA32_PERFCTR0)
 
@@ -615,6 +616,9 @@ static void intel_pmu_legacy_freezing_lbrs_on_pmi(struct kvm_vcpu *vcpu)
 static void intel_pmu_deliver_pmi(struct kvm_vcpu *vcpu)
 {
 	u8 version = vcpu_to_pmu(vcpu)->version;
+
+	if (unlikely(is_td_vcpu(vcpu)))
+		return;
 
 	if (!intel_pmu_lbr_is_enabled(vcpu))
 		return;

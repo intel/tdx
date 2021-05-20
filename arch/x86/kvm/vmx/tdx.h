@@ -97,6 +97,7 @@ struct vcpu_tdx {
 	bool host_state_need_restore;
 	bool emulate_inject_bp;
 
+	bool guest_pmi_exit;
 	u64 msr_host_kernel_gs_base;
 
 	bool interrupt_disabled_hlt;

@@ -622,6 +622,14 @@ static void tdx_inject_nmi(struct kvm_vcpu *vcpu)
 	td_management_write8(to_tdx(vcpu), TD_VCPU_PEND_NMI, 1);
 }
 
+static void tdx_complete_interrupts(struct kvm_vcpu *vcpu)
+{
+	/* Avoid costly SEAMCALL if no nmi was injected */
+	if (vcpu->arch.nmi_injected)
+		vcpu->arch.nmi_injected = td_management_read8(to_tdx(vcpu),
+							      TD_VCPU_PEND_NMI);
+}
+
 static void tdx_user_return_update_cache(void)
 {
 	int i;
@@ -697,6 +705,8 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	vmx_register_cache_reset(vcpu);
 
 	trace_kvm_exit((unsigned int)tdx->exit_reason.full, vcpu, KVM_ISA_VMX);
+
+	tdx_complete_interrupts(vcpu);
 
 	if (tdx->exit_reason.error || tdx->exit_reason.non_recoverable)
 		return EXIT_FASTPATH_NONE;

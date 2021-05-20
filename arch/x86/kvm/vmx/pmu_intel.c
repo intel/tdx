@@ -692,6 +692,9 @@ static void intel_pmu_deliver_pmi(struct kvm_vcpu *vcpu)
 {
 	u8 version = vcpu_to_pmu(vcpu)->version;
 
+	if (unlikely(is_td_vcpu(vcpu)))
+		return;
+
 	if (!intel_pmu_lbr_is_enabled(vcpu))
 		return;
 

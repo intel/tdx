@@ -650,13 +650,17 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	tdx->exit_reason.full = __tdx_vcpu_run(tdx->tdvpr.pa, vcpu->arch.regs,
 					       tdx->tdvmcall.regs_mask);
 
-	if (kvm_tdx->attributes & TDX1_TD_ATTRIBUTE_PERFMON)
-		intel_pmu_restore();
-
 	tdx_user_return_update_cache();
 	perf_restore_debug_store();
 	tdx_restore_host_xsave_state(vcpu);
 	tdx->host_state_need_restore = true;
+
+	/*
+	 * Restoring PMU must be after DS area because PMU may start to log
+	 * records in DS area.
+	 */
+	if (kvm_tdx->attributes & TDX1_TD_ATTRIBUTE_PERFMON)
+		intel_pmu_restore();
 
 	vmx_register_cache_reset(vcpu);
 

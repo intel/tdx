@@ -86,6 +86,7 @@ void __init mem_encrypt_init(void)
 
 int arch_has_restricted_virtio_memory_access(void)
 {
-	return cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT);
+	return cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT) ||
+		cc_platform_has(CC_ATTR_GUEST_TDX);
 }
 EXPORT_SYMBOL_GPL(arch_has_restricted_virtio_memory_access);

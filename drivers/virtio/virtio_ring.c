@@ -2337,6 +2337,11 @@ clear:
 			__virtio_clear_bit(vdev, i);
 		}
 	}
+#ifdef CONFIG_INTEL_TDX_KVM_SDV
+	/* For now until all qemus are fixed */
+	if (prot_guest_has(PR_GUEST_MEM_ENCRYPT))
+		__virtio_set_bit(vdev, VIRTIO_F_ACCESS_PLATFORM);
+#endif
 }
 EXPORT_SYMBOL_GPL(vring_transport_features);
 

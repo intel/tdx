@@ -10,6 +10,7 @@
 #include <asm/mem_encrypt_common.h>
 #include <linux/dma-mapping.h>
 #include <linux/protected_guest.h>
+#include <linux/virtio_config.h>
 #include <linux/swiotlb.h>
 
 /* Override for DMA direct allocation check - ARCH_HAS_FORCE_DMA_UNENCRYPTED */
@@ -36,3 +37,9 @@ void __init mem_encrypt_init(void)
 
 	amd_mem_encrypt_init();
 }
+
+int arch_has_restricted_virtio_memory_access(void)
+{
+	return (prot_guest_has(PR_GUEST_TDX) || sev_active());
+}
+EXPORT_SYMBOL_GPL(arch_has_restricted_virtio_memory_access);

@@ -887,6 +887,7 @@ config INTEL_TDX_GUEST
 	select X86_MCE
 	select X86_MEM_ENCRYPT
 	select UNACCEPTED_MEMORY
+	select ARCH_HAS_RESTRICTED_VIRTIO_MEMORY_ACCESS
 	help
 	  Support running as a guest under Intel TDX.  Without this support,
 	  the guest kernel can not boot or run under TDX.

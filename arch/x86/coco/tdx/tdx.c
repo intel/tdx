@@ -8,6 +8,7 @@
 #include <linux/export.h>
 #include <linux/io.h>
 #include <linux/random.h>
+#include <linux/virtio_anchor.h>
 #include <asm/coco.h>
 #include <asm/tdx.h>
 #include <asm/vmx.h>
@@ -865,6 +866,9 @@ void __init tdx_early_init(void)
 	 * just in case it's some kind of host attack.
 	 */
 	panic_on_oops = 1;
+
+	/* Set restricted memory access for virtio. */
+	virtio_set_mem_acc_cb(virtio_require_restricted_mem_acc);
 
 	tdx_parse_tdinfo(&cc_mask);
 	cc_set_mask(cc_mask);

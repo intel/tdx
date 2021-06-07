@@ -1401,8 +1401,7 @@ static bool kvm_mmu_zap_private_spte(struct kvm *kvm, u64 *sptep)
 	return true;
 }
 
-static bool kvm_zap_rmapp(struct kvm *kvm, struct kvm_rmap_head *rmap_head,
-			  struct kvm_memory_slot *slot)
+static bool __kvm_zap_rmapp(struct kvm *kvm, struct kvm_rmap_head *rmap_head)
 {
 	u64 *sptep;
 	struct rmap_iterator iter;
@@ -1428,11 +1427,17 @@ restart:
 	return flush;
 }
 
+static inline bool kvm_zap_rmapp(struct kvm *kvm, struct kvm_rmap_head *rmap_head,
+				  struct kvm_memory_slot *slot)
+{
+	return __kvm_zap_rmapp(kvm, rmap_head);
+}
+
 static int kvm_unmap_rmapp(struct kvm *kvm, struct kvm_rmap_head *rmap_head,
 			   struct kvm_memory_slot *slot, gfn_t gfn, int level,
 			   unsigned long data)
 {
-	return kvm_zap_rmapp(kvm, rmap_head, slot);
+	return __kvm_zap_rmapp(kvm, rmap_head);
 }
 
 static int kvm_set_pte_rmapp(struct kvm *kvm, struct kvm_rmap_head *rmap_head,
@@ -3032,8 +3037,6 @@ static void kvm_mmu_zap_alias_spte(struct kvm_vcpu *vcpu, gfn_t gfn,
 	struct kvm *kvm = vcpu->kvm;
 	struct rmap_iterator iter;
 	struct kvm_mmu_page *sp;
-	struct kvm_memslots *slots;
-	struct kvm_memory_slot *slot;
 	u64 *sptep;
 
 	for_each_shadow_entry(vcpu, gpa_alias, it) {
@@ -3046,9 +3049,7 @@ static void kvm_mmu_zap_alias_spte(struct kvm_vcpu *vcpu, gfn_t gfn,
 		return;
 
 	rmap_head = gfn_to_rmap(kvm, gfn, sp);
-	slots = kvm_memslots_for_spte_role(kvm, sp->role);
-	slot = __gfn_to_memslot(slots, gfn);
-	if (!kvm_zap_rmapp(kvm, rmap_head, slot))
+	if (!__kvm_zap_rmapp(kvm, rmap_head))
 		return;
 
 	kvm_flush_remote_tlbs_with_address(kvm, gfn, 1);

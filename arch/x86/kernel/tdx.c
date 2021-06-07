@@ -7,6 +7,8 @@
 #include <linux/cpufeature.h>
 #include <asm/tdx.h>
 #include <asm/vmx.h>
+#include <asm/insn.h>
+#include <asm/insn-eval.h>
 
 /* TDX module Call Leaf IDs */
 #define TDX_GET_VEINFO			3
@@ -149,6 +151,111 @@ static bool tdx_handle_cpuid(struct pt_regs *regs)
 	return true;
 }
 
+static int tdx_mmio(int size, bool write, unsigned long addr,
+		     unsigned long *val)
+{
+	struct tdx_hypercall_output out;
+	u64 err;
+
+	err = _tdx_hypercall(EXIT_REASON_EPT_VIOLATION, size, write,
+			     addr, *val, &out);
+	if (err)
+		return -EFAULT;
+
+	*val = out.r11;
+	return 0;
+}
+
+static int tdx_mmio_read(int size, unsigned long addr, unsigned long *val)
+{
+	return tdx_mmio(size, false, addr, val);
+}
+
+static int tdx_mmio_write(int size, unsigned long addr, unsigned long *val)
+{
+	return tdx_mmio(size, true, addr, val);
+}
+
+static int tdx_handle_mmio(struct pt_regs *regs, struct ve_info *ve)
+{
+	char buffer[MAX_INSN_SIZE];
+	unsigned long *reg, val = 0;
+	struct insn insn = {};
+	enum mmio_type mmio;
+	int size, err;
+
+	if (copy_from_kernel_nofault(buffer, (void *)regs->ip, MAX_INSN_SIZE))
+		return -EFAULT;
+
+	if (insn_decode(&insn, buffer, MAX_INSN_SIZE, INSN_MODE_64))
+		return -EFAULT;
+
+	mmio = insn_decode_mmio(&insn, &size);
+	if (WARN_ON_ONCE(mmio == MMIO_DECODE_FAILED))
+		return -EFAULT;
+
+	if (mmio != MMIO_WRITE_IMM && mmio != MMIO_MOVS) {
+		reg = insn_get_modrm_reg_ptr(&insn, regs);
+		if (!reg)
+			return -EFAULT;
+	}
+
+	switch (mmio) {
+	case MMIO_WRITE:
+		memcpy(&val, reg, size);
+		err = tdx_mmio_write(size, ve->gpa, &val);
+		break;
+	case MMIO_WRITE_IMM:
+		val = insn.immediate.value;
+		err = tdx_mmio_write(size, ve->gpa, &val);
+		break;
+	case MMIO_READ:
+		err = tdx_mmio_read(size, ve->gpa, &val);
+		if (err)
+			break;
+		/* Zero-extend for 32-bit operation */
+		if (size == 4)
+			*reg = 0;
+		memcpy(reg, &val, size);
+		break;
+	case MMIO_READ_ZERO_EXTEND:
+		err = tdx_mmio_read(size, ve->gpa, &val);
+		if (err)
+			break;
+
+		/* Zero extend based on operand size */
+		memset(reg, 0, insn.opnd_bytes);
+		memcpy(reg, &val, size);
+		break;
+	case MMIO_READ_SIGN_EXTEND: {
+		u8 sign_byte = 0, msb = 7;
+
+		err = tdx_mmio_read(size, ve->gpa, &val);
+		if (err)
+			break;
+
+		if (size > 1)
+			msb = 15;
+
+		if (val & BIT(msb))
+			sign_byte = -1;
+
+		/* Sign extend based on operand size */
+		memset(reg, sign_byte, insn.opnd_bytes);
+		memcpy(reg, &val, size);
+		break;
+	}
+	case MMIO_MOVS:
+	case MMIO_DECODE_FAILED:
+		return -EFAULT;
+	}
+
+	if (err)
+		return err;
+
+	return insn.length;
+}
+
 bool tdx_get_ve_info(struct ve_info *ve)
 {
 	struct tdx_module_output out;
@@ -218,6 +325,12 @@ static bool tdx_virt_exception_kernel(struct pt_regs *regs, struct ve_info *ve)
 		break;
 	case EXIT_REASON_CPUID:
 		ret = tdx_handle_cpuid(regs);
+		break;
+	case EXIT_REASON_EPT_VIOLATION:
+		ve->instr_len = tdx_handle_mmio(regs, ve);
+		ret = ve->instr_len > 0;
+		if (!ret)
+			pr_warn_once("MMIO failed\n");
 		break;
 	default:
 		pr_warn("Unexpected #VE: %lld\n", ve->exit_reason);

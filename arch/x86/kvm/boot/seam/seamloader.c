@@ -15,20 +15,59 @@
 #include <asm/page_types.h>
 
 
+#define INTEL_TDX_BOOT_TIME_SEAMCALL 1
+#include "vmx/tdx_arch.h"
+#include "vmx/tdx_ops.h"
+#include "vmx/tdx_errno.h"
 #include "seamloader.h"
-
 
 #define MTRRCAP_SEAMRR	BIT(15)
 #define SEAMLDR_MAX_NR_MODULE_PAGES	496
 
-struct seamldr_params {
-	u32 version;
-	u32 scenario;
-	u64 sigstruct_pa;
-	u8 reserved[104];
-	u64 module_pages;
-	u64 module_pa_list[SEAMLDR_MAX_NR_MODULE_PAGES];
-} __packed __aligned(PAGE_SIZE);
+/* Seamcalls of p-seamldr cannot be called concurrently. */
+static DEFINE_SPINLOCK(seamcall_seamldr_lock);
+
+int seamldr_info(hpa_t seamldr_info)
+{
+	u64 ret;
+
+	spin_lock(&seamcall_seamldr_lock);
+	ret = __seamldr_info(seamldr_info);
+	spin_unlock(&seamcall_seamldr_lock);
+
+	if (TDX_ERR(ret, SEAMLDR_INFO, NULL))
+		return -EIO;
+
+	return 0;
+}
+
+int seamldr_install(hpa_t seamldr_params)
+{
+	u64 ret;
+
+	spin_lock(&seamcall_seamldr_lock);
+	ret = __seamldr_install(seamldr_params);
+	spin_unlock(&seamcall_seamldr_lock);
+
+	if (TDX_ERR(ret, SEAMLDR_INSTALL, NULL))
+		return -EIO;
+
+	return 0;
+}
+
+int seamldr_shutdown(void)
+{
+	u64 ret;
+
+	spin_lock(&seamcall_seamldr_lock);
+	ret = __seamldr_shutdown();
+	spin_unlock(&seamcall_seamldr_lock);
+
+	if (TDX_ERR(ret, SEAMLDR_SHUTDOWN, NULL))
+		return -EIO;
+
+	return 0;
+}
 
 /* The ACM and input params need to be below 4G. */
 static phys_addr_t __init seam_alloc_lowmem(phys_addr_t size)

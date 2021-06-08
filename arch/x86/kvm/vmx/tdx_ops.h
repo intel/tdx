@@ -3,6 +3,7 @@
 #define __KVM_X86_TDX_OPS_H
 
 #include <linux/compiler.h>
+#include <linux/spinlock.h>
 
 #include <asm/asm.h>
 #include <asm/kvm_host.h>
@@ -587,5 +588,24 @@ static inline u64 tdxmode(bool intercept_vmexits, u64 intercept_bitmap)
 {
 	seamcall_2(TDXMODE, intercept_vmexits, intercept_bitmap);
 }
+
+static inline u64 __seamldr_info(hpa_t seamldr_info)
+{
+	seamcall_1(SEAMLDR_INFO, seamldr_info);
+}
+
+static inline u64 __seamldr_install(hpa_t seamldr_params)
+{
+	seamcall_1(SEAMLDR_INSTALL, seamldr_params);
+}
+
+static inline u64 __seamldr_shutdown(void)
+{
+	seamcall_0(SEAMLDR_SHUTDOWN);
+}
+
+int seamldr_info(hpa_t seamldr_info);
+int seamldr_install(hpa_t seamldr_params);
+int seamldr_shutdown(void);
 
 #endif /* __KVM_X86_TDX_OPS_H */

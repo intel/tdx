@@ -704,7 +704,7 @@ static inline void tdx_get_keyids(u32 *keyids_start, u32 *nr_keyids)
 	*keyids_start = nr_mktme_ids + 1;
 }
 
-static int tdx_init_ap(unsigned long vmcs)
+static int tdh_init_cpu(unsigned long vmcs)
 {
 	u32 keyids_start, nr_keyids;
 	struct tdx_ex_ret ex_ret;
@@ -740,9 +740,12 @@ static int __init trace_seamcalls(char *s)
 }
 __setup("trace_boot_seamcalls", trace_seamcalls);
 
-void tdh_init_cpu(struct cpuinfo_x86 *c)
+static __init void tdh_init_local(void *unused)
 {
 	unsigned long vmcs;
+
+	/* In case this cpu has been initialized. */
+	WARN_ON(this_cpu_read(tdx_vmxon_vmcs));
 
 	/* Allocate VMCS for VMXON. */
 	vmcs = __get_free_page(GFP_KERNEL);
@@ -753,8 +756,7 @@ void tdh_init_cpu(struct cpuinfo_x86 *c)
 	if (WARN_ON_ONCE(tdx_init_vmxon_vmcs((void *)vmcs)))
 		goto err_vmcs;
 
-	/* BSP does TDH_SYS_LP_INIT as part of tdh_seam_init(). */
-	if (c != &boot_cpu_data && tdx_init_ap(vmcs))
+	if (tdh_init_cpu(vmcs))
 		goto err_vmcs;
 
 	this_cpu_write(tdx_vmxon_vmcs, vmcs);
@@ -763,14 +765,13 @@ void tdh_init_cpu(struct cpuinfo_x86 *c)
 err_vmcs:
 	free_page(vmcs);
 err:
-	clear_cpu_cap(c, X86_FEATURE_TDX);
 	atomic_inc(&tdx_init_cpu_errors);
 }
 
-static __init int tdx_init_bsp(void)
+static __init int tdh_init_global(void)
 {
 	struct tdx_ex_ret ex_ret;
-	void *vmcs;
+	unsigned long vmcs;
 	u64 err;
 	int i;
 	int ret;
@@ -785,15 +786,12 @@ static __init int tdx_init_bsp(void)
 	if (!tdx_nr_keyids)
 		return -ENOTSUPP;
 
-	/*
-	 * Allocate a temporary VMCS for early BSP init, the VMCS for late(ish)
-	 * init will be allocated after the page allocator is up and running.
-	 */
-	vmcs = memblock_alloc(PAGE_SIZE, PAGE_SIZE);
+	/* Allocate VMCS for VMXON. */
+	vmcs = __get_free_page(GFP_KERNEL);
 	if (!vmcs)
 		return -ENOMEM;
 
-	ret = tdx_init_vmxon_vmcs(vmcs);
+	ret = tdx_init_vmxon_vmcs((void *)vmcs);
 	if (ret)
 		goto out;
 
@@ -834,16 +832,19 @@ static __init int tdx_init_bsp(void)
 		tdx_tdsysinfo.minor_version,
 		tdx_tdsysinfo.major_version);
 
+	cpu_vmxoff();
+
 	tdx_nr_cmrs = ex_ret.nr_cmr_entries;
 	for (i = 0; i < tdx_nr_cmrs; i++)
 		pr_info("TDX CMR[%d]: base 0x%llx size 0x%llx\n",
 			i, tdx_cmrs[i].base, tdx_cmrs[i].size);
-	ret = 0;
+	this_cpu_write(tdx_vmxon_vmcs, vmcs);
+	return 0;
 
 out_vmxoff:
 	cpu_vmxoff();
 out:
-	memblock_free(__pa(vmcs), PAGE_SIZE);
+	free_page(vmcs);
 	return ret;
 }
 
@@ -923,6 +924,41 @@ static bool __init tdx_get_firmware(struct cpio_data *blob, const char *name)
 	return false;
 }
 
+/*
+ * Build information needed to construct TDMRs, such as max_tdmrs,
+ * max_reserved_per_tdmr and pamt entry_size, and CMRs.
+ *
+ * Sanity check will be performed after this information becomes available
+ * to ensure no violation against TDX module or hardware.
+ */
+static int __init build_tdsysinfo_and_cmrs_from_e820(void)
+{
+	struct e820_entry *entry;
+	int i, j;
+
+	tdx_tdsysinfo.max_tdmrs = TDX1_MAX_NR_TDMRS;
+	tdx_tdsysinfo.max_reserved_per_tdmr = TDX1_MAX_NR_RSVD_AREAS;
+	tdx_tdsysinfo.pamt_entry_size = TDX1_PAMT_ENTRY_SIZE;
+
+	for (i = 0, j = 0; i < e820_table->nr_entries; i++) {
+		entry = &e820_table->entries[i];
+
+		if (!e820_type_cmr_ram(entry->type))
+			continue;
+
+		if (j == TDX1_MAX_NR_CMRS)
+			return -EINVAL;
+
+		tdx_cmrs[j].base = entry->addr;
+		tdx_cmrs[j].size = entry->size;
+		j++;
+	}
+
+	tdx_nr_cmrs = j;
+
+	return 0;
+}
+
 void __init tdh_seam_init(void)
 {
 	const char *sigstruct_name = "intel-seam/libtdx.so.sigstruct";
@@ -962,8 +998,18 @@ void __init tdh_seam_init(void)
 	if (ret)
 		goto error;
 
-	if (tdx_init_bsp() || construct_tdmrs())
+init_seam:
+	ret = build_tdsysinfo_and_cmrs_from_e820();
+	if (ret) {
+		pr_err("Failed to build tdsysinfo and cmrs %d\n", ret);
 		goto error;
+	}
+
+	ret = construct_tdmrs();
+	if (ret) {
+		pr_err("Failed to construct tdmrs %d\n", ret);
+		goto error;
+	}
 
 	setup_force_cpu_cap(X86_FEATURE_TDX);
 	return;
@@ -1116,6 +1162,66 @@ static int __init tdx_init_tdmrs(void)
 	return 0;
 }
 
+/* Detect if wrong assumptions were made during TDMRs construction. */
+static int __init sanity_check(void)
+{
+	if ((tdx_tdsysinfo.max_tdmrs != TDX1_MAX_NR_TDMRS) ||
+	    (tdx_tdsysinfo.pamt_entry_size != TDX1_PAMT_ENTRY_SIZE) ||
+	    (tdx_tdsysinfo.max_reserved_per_tdmr != TDX1_MAX_NR_RSVD_AREAS)) {
+		pr_err("Early TDMRs are constructed based on wrong info.\n");
+		return -EINVAL;
+	}
+
+	return sanitize_cmrs();
+}
+
+/*
+ * Invoke TDH.SYS.INIT to perform system-wise initialization and invoke
+ * TDH.SYS.LP.INIT on all CPUs to perform processor-wise initialization.
+ */
+static int __init tdx_init_cpus(void)
+{
+	int ret;
+
+	/*
+	 * Initialize TDX module needs to involve all CPUs.
+	 * Disable cpu hotplug and ensure all CPUs are online.
+	 */
+	cpus_read_lock();
+	if (!cpumask_equal(cpu_present_mask, cpu_online_mask)) {
+		ret = -EIO;
+		goto out;
+	}
+
+	/*
+	 * Ensure one cpu calls tdh_init_global() and others call
+	 * tdh_init_local(). Thread migration may lead to a CPU tries
+	 * to initialize TDX module twice and another CPU does nothing.
+	 */
+	preempt_disable();
+	ret = tdh_init_global();
+	if (ret) {
+		preempt_enable();
+		goto out;
+	}
+
+	ret = sanity_check();
+	if (ret) {
+		preempt_enable();
+		goto out;
+	}
+
+	smp_call_function(tdh_init_local, NULL, 1);
+	preempt_enable();
+
+	if (atomic_read(&tdx_init_cpu_errors))
+		ret = -EIO;
+
+out:
+	cpus_read_unlock();
+	return ret;
+}
+
 static int __init tdx_init(void)
 {
 	int ret, i;
@@ -1124,18 +1230,9 @@ static int __init tdx_init(void)
 	if (!boot_cpu_has(X86_FEATURE_TDX))
 		return -ENOTSUPP;
 
-#ifdef CONFIG_SMP
-	/* Disable TDX if any CPU(s) failed to boot. */
-	if (!cpumask_equal(cpu_present_mask, &cpus_booted_once_mask)) {
-		ret = -EIO;
+	ret = tdx_init_cpus();
+	if (ret)
 		goto err;
-	}
-#endif
-
-	if (atomic_read(&tdx_init_cpu_errors)) {
-		ret = -EIO;
-		goto err;
-	}
 
 	ret = init_package_masters();
 	if (ret)

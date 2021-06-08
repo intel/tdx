@@ -246,7 +246,7 @@ int __init seam_load_module(void *seamldr, unsigned long seamldr_size,
 	mb();
 
 retry_enteraccs:
-	ret = launch_seamldr(seamldr_pa, seamldr_size, __pa(params));
+	ret = launch_seamldr(seamldr_pa, seamldr_size, params ? __pa(params) : 0);
 	if (ret == -EFAULT && !WARN_ON(!enteraccs_attempts--)) {
 		udelay(1 * USEC_PER_MSEC);
 		goto retry_enteraccs;

@@ -28,6 +28,11 @@
 
 #include "vmx/vmcs.h"
 
+struct seamldr_info p_seamldr_info __initdata;
+
+/* Is a p_seamldr loaded? */
+static bool use_p_seamldr __initdata;
+
 static DEFINE_PER_CPU(unsigned long, tdx_vmxon_vmcs);
 static atomic_t tdx_init_cpu_errors;
 
@@ -86,6 +91,48 @@ struct pamt_info {
  * whatever reason.
  */
 static struct pamt_info tdx_pamts[TDX1_MAX_NR_TDMRS] __initdata;
+
+static char tdx_seamldr_name[128] = "intel-seam/seamldr.acm";
+static char tdx_npseamldr_name[128] = "intel-seam/np-seamldr.acm";
+static char tdx_module_name[128] = "intel-seam/libtdx.so";
+static bool tdx_sigstruct_name_specified __initdata;
+/* 10 = strlen(".sigstruct") */
+static char tdx_sigstruct_name[128 + 10] = "intel-seam/libtdx.so.sigstruct";
+
+static int __init setup_tdx_module(char *str)
+{
+	strscpy(tdx_module_name, str, sizeof(tdx_module_name));
+
+	/* As default, sigstruct is made by appending ".sigstruct" */
+	if (!tdx_sigstruct_name_specified) {
+		strscpy(tdx_sigstruct_name, str, sizeof(tdx_sigstruct_name));
+		strcat(tdx_sigstruct_name, ".sigstruct");
+	}
+	return 1;
+}
+early_param("tdx_module", setup_tdx_module);
+
+static int __init setup_tdx_sigstruct(char *str)
+{
+	tdx_sigstruct_name_specified = true;
+	strscpy(tdx_sigstruct_name, str, sizeof(tdx_sigstruct_name));
+	return 1;
+}
+early_param("tdx_sigstruct", setup_tdx_sigstruct);
+
+static int __init setup_tdx_npseamldr(char *str)
+{
+	strscpy(tdx_npseamldr_name, str, sizeof(tdx_npseamldr_name));
+	return 1;
+}
+early_param("tdx_npseamldr", setup_tdx_npseamldr);
+
+static int __init setup_tdx_seamldr(char *str)
+{
+	strscpy(tdx_seamldr_name, str, sizeof(tdx_seamldr_name));
+	return 1;
+}
+early_param("tdx_seamldr", setup_tdx_seamldr);
 
 static int __init set_tdmr_reserved_area(struct tdmr_info *tdmr, int *p_idx,
 					 u64 offset, u64 size)
@@ -959,14 +1006,22 @@ static int __init build_tdsysinfo_and_cmrs_from_e820(void)
 	return 0;
 }
 
+static bool __init is_np_seamldr_supported(void)
+{
+	/* SPR prior to stepping D doesn't support np_seamldr */
+	if (boot_cpu_data.x86 == 6 && boot_cpu_data.x86_model == 143 &&
+			boot_cpu_data.x86_stepping < 3)
+		return false;
+
+	return true;
+}
+
 void __init tdh_seam_init(void)
 {
-	const char *sigstruct_name = "intel-seam/libtdx.so.sigstruct";
-	const char *seamldr_name = "intel-seam/seamldr.acm";
-	const char *module_name = "intel-seam/libtdx.so";
 	struct cpio_data module, sigstruct, seamldr;
 	struct seamldr_params *params;
 	int ret;
+	unsigned long vmcs;
 
 	if (cmdline_find_option_bool(boot_command_line, "disable_tdx"))
 		return;
@@ -977,6 +1032,59 @@ void __init tdh_seam_init(void)
 	 */
 	if (!tdx_all_cpus_available())
 		goto error;
+
+	if (is_np_seamldr_supported()) {
+		if (!tdx_get_firmware(&seamldr, tdx_npseamldr_name)) {
+			pr_err("Cannot found np-seamldr:%s\n", tdx_npseamldr_name);
+			goto error;
+		}
+
+		ret = seam_load_module(seamldr.data, seamldr.size, NULL);
+		if (ret) {
+			pr_err("Failed to launch seamldr %d\n", ret);
+			goto error;
+		}
+
+		vmcs = (unsigned long)memblock_alloc(PAGE_SIZE, PAGE_SIZE);
+		if (!vmcs) {
+			pr_err("Failed to alloc vmcs\n");
+			goto error;
+		}
+
+		ret = tdx_init_vmxon_vmcs((void *)vmcs);
+		if (ret) {
+			pr_err("Failed to init vmcs\n");
+			memblock_free(__pa(vmcs), PAGE_SIZE);
+			goto error;
+		}
+
+		cpu_vmxon(__pa(vmcs));
+
+		ret = seamldr_info(__pa(&p_seamldr_info));
+
+		cpu_vmxoff();
+		memblock_free(__pa(vmcs), PAGE_SIZE);
+
+		if (ret) {
+			pr_err("Failed to get seamldr info %d\n", ret);
+			goto error;
+		}
+		pr_info("TDX P-SEAMLDR: "
+			"attributes 0x%0x vendor_id 0x%x "
+			"build_date 0x%x build_num 0x%x "
+			"minor_version 0x%x major_version 0x%x.\n",
+			p_seamldr_info.attributes,
+			p_seamldr_info.vendor_id,
+			p_seamldr_info.build_date,
+			p_seamldr_info.build_num,
+			p_seamldr_info.minor_version,
+			p_seamldr_info.major_version);
+
+		use_p_seamldr = true;
+		goto init_seam;
+	}
+
+	pr_info("np-seamldr isn't supported. Fall back to the old loading method\n");
 
 	if (!tdx_get_firmware(&module, module_name))
 		goto error;
@@ -1162,6 +1270,74 @@ static int __init tdx_init_tdmrs(void)
 	return 0;
 }
 
+/* Load seam module on one CPU */
+static void __init p_seamldr_load_module_one(void *data)
+{
+	unsigned long vmcs;
+	struct seamldr_params *params = data;
+	int ret;
+
+	vmcs = __get_free_page(GFP_KERNEL);
+	if (!vmcs) {
+		atomic_inc(&tdx_init_cpu_errors);
+		return;
+	}
+
+	/* VMCS configuration shouldn't fail at this point. */
+	if (WARN_ON_ONCE(tdx_init_vmxon_vmcs((void *)vmcs))) {
+		atomic_inc(&tdx_init_cpu_errors);
+		return;
+	}
+
+	cpu_vmxon(__pa(vmcs));
+
+	ret = seamldr_install(__pa(params));
+
+	cpu_vmxoff();
+	free_page(vmcs);
+
+	if (ret)
+		atomic_inc(&tdx_init_cpu_errors);
+}
+
+/*
+ * Look for seam module binary in built-in firmware and initrd, and load it on
+ * all CPUs through P-SEAMLDR.
+ */
+static int __init p_seamldr_load_module(void)
+{
+	struct cpio_data module, sigstruct;
+	struct seamldr_params *params;
+	int ret;
+	unsigned int cpu;
+
+	if (!tdx_get_firmware(&module, tdx_module_name) ||
+	    !tdx_get_firmware(&sigstruct, tdx_sigstruct_name))
+		return -EINVAL;
+
+	params = init_seamldr_params(module.data, module.size,
+				     sigstruct.data, sigstruct.size);
+	if (IS_ERR(params))
+		return -ENOMEM;
+
+	/* load module serially. Using smp_call_function() may trigger nmi
+	 * watchdog if there are many CPUs.
+	 */
+	for_each_cpu(cpu, cpu_online_mask)
+		smp_call_function_single(cpu, p_seamldr_load_module_one, params, 1);
+
+	if (!atomic_read(&tdx_init_cpu_errors)) {
+		setup_force_cpu_cap(X86_FEATURE_TDX);
+		ret = 0;
+	} else {
+		pr_err("Late seam module loading failed.\n");
+		ret = -EIO;
+	}
+
+	free_seamldr_params(params);
+	return ret;
+}
+
 /* Detect if wrong assumptions were made during TDMRs construction. */
 static int __init sanity_check(void)
 {
@@ -1229,6 +1405,16 @@ static int __init tdx_init(void)
 
 	if (!boot_cpu_has(X86_FEATURE_TDX))
 		return -ENOTSUPP;
+
+	/* Load TDX module if it hasn't been. */
+	if (use_p_seamldr) {
+		pr_info("Loading TDX module via P-SEAMLDR.\n");
+		ret = p_seamldr_load_module();
+		if (ret) {
+			pr_err("Loading TDX module failed %d\n", ret);
+			goto err;
+		}
+	}
 
 	ret = tdx_init_cpus();
 	if (ret)

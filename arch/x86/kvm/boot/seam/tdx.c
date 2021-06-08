@@ -929,6 +929,8 @@ void __init tdh_seam_init(void)
 	const char *seamldr_name = "intel-seam/seamldr.acm";
 	const char *module_name = "intel-seam/libtdx.so";
 	struct cpio_data module, sigstruct, seamldr;
+	struct seamldr_params *params;
+	int ret;
 
 	if (cmdline_find_option_bool(boot_command_line, "disable_tdx"))
 		return;
@@ -949,8 +951,15 @@ void __init tdh_seam_init(void)
 	if (!tdx_get_firmware(&seamldr, tdx_seamldr_name))
 		goto error;
 
-	if (seam_load_module(module.data, module.size, sigstruct.data,
-			     sigstruct.size, seamldr.data, seamldr.size))
+	params = init_seamldr_params(module.data, module.size,
+				sigstruct.data, sigstruct.size);
+	if (IS_ERR(params))
+		goto error;
+
+	ret = seam_load_module(seamldr.data, seamldr.size, params);
+
+	free_seamldr_params(params);
+	if (ret)
 		goto error;
 
 	if (tdx_init_bsp() || construct_tdmrs())

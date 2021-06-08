@@ -14,6 +14,19 @@ struct seamldr_params {
 	u64 module_pa_list[SEAMLDR_MAX_NR_MODULE_PAGES];
 } __packed __aligned(PAGE_SIZE);
 
+struct seamldr_info {
+	u32 version;
+	u32 attributes;
+	u32 vendor_id;
+	u32 build_date;
+	u16 build_num;
+	u16 minor_version;
+	u16 major_version;
+	u8 reserved0[2];
+	u32 last_shutdown_x2apic_id;
+	u8 reserved1[228];
+} __packed __aligned(256);
+
 int fake_seam_init_seamrr(void);
 bool is_seam_module_loaded(void);
 int fake_seam_load_module(const char *name, void *data, u64 size);

@@ -136,6 +136,8 @@ enum tdx_tdcs_execution_control {
 #define TDX1_MAX_NR_CPUID_CONFIGS	6
 #define TDX1_MAX_NR_CMRS		32
 #define TDX1_MAX_NR_TDMRS		64
+#define TDX1_MAX_NR_RSVD_AREAS		16
+#define TDX1_PAMT_ENTRY_SIZE		16
 #define TDX1_EXTENDMR_CHUNKSIZE		256
 
 struct tdx_cpuid_config {
@@ -215,7 +217,7 @@ struct tdmr_info {
 	u64 pamt_2m_size;
 	u64 pamt_4k_base;
 	u64 pamt_4k_size;
-	struct tdmr_reserved_area reserved_areas[16];
+	struct tdmr_reserved_area reserved_areas[TDX1_MAX_NR_RSVD_AREAS];
 } __packed __aligned(4096);
 
 struct cmr_info {

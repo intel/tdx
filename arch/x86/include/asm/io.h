@@ -41,6 +41,7 @@
 #include <linux/string.h>
 #include <linux/compiler.h>
 #include <asm/page.h>
+#include <asm/tdx.h>
 #include <asm/early_ioremap.h>
 #include <asm/pgtable_types.h>
 
@@ -272,25 +273,25 @@ static inline bool sev_key_active(void) { return false; }
 #endif /* CONFIG_AMD_MEM_ENCRYPT */
 
 #ifndef __out
-#define __out(bwl, bw)							\
+#define __out(bwl, bw, sz)						\
 	asm volatile("out" #bwl " %" #bw "0, %w1" : : "a"(value), "Nd"(port))
 #endif
 
 #ifndef __in
-#define __in(bwl, bw)							\
+#define __in(bwl, bw, sz)						\
 	asm volatile("in" #bwl " %w1, %" #bw "0" : "=a"(value) : "Nd"(port))
 #endif
 
 #define BUILDIO(bwl, bw, type)						\
 static inline void out##bwl(unsigned type value, int port)		\
 {									\
-	__out(bwl, bw);							\
+	__out(bwl, bw, sizeof(type));					\
 }									\
 									\
 static inline unsigned type in##bwl(int port)				\
 {									\
 	unsigned type value;						\
-	__in(bwl, bw);							\
+	__in(bwl, bw, sizeof(type));					\
 	return value;							\
 }									\
 									\

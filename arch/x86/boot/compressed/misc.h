@@ -19,6 +19,12 @@
 /* cpu_feature_enabled() cannot be used this early */
 #define USE_EARLY_PGTABLE_L5
 
+/*
+ * Redefine __in/__out macros via tdx.h before including
+ * linux/io.h.
+ */
+#include "tdx.h"
+
 #include <linux/linkage.h>
 #include <linux/screen_info.h>
 #include <linux/elf.h>
@@ -27,8 +33,6 @@
 #include <asm/boot.h>
 #include <asm/bootparam.h>
 #include <asm/desc_defs.h>
-
-#include "tdx.h"
 
 #define BOOT_CTYPE_H
 #include <linux/acpi.h>

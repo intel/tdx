@@ -5,6 +5,8 @@
 
 #include <linux/cpufeature.h>
 #include <linux/types.h>
+#include <vdso/limits.h>
+#include <asm/vmx.h>
 
 #define TDX_CPUID_LEAF_ID			0x21
 #define TDX_HYPERCALL_STANDARD			0
@@ -72,6 +74,66 @@ unsigned long tdg_get_ve_info(struct ve_info *ve);
 
 int tdg_handle_virtualization_exception(struct pt_regs *regs,
 					struct ve_info *ve);
+
+/*
+ * To support I/O port access in decompressor or early kernel init
+ * code, since #VE exception handler cannot be used, use paravirt
+ * model to implement __in/__out macros which will in turn be used
+ * by in{b,w,l}()/out{b,w,l} I/O helper macros used in kernel. You
+ * can find the __in/__out macro usage in arch/x86/include/asm/io.h
+ */
+#ifdef BOOT_COMPRESSED_MISC_H
+
+bool early_is_tdx_guest(void);
+
+/*
+ * Helper function used for making hypercall for "in"
+ * instruction. It will be called from __in IO macro
+ * If IO is failed, it will return all 1s.
+ */
+static inline unsigned int tdg_in(int size, int port)
+{
+	struct tdx_hypercall_output out = {0};
+	int err;
+
+	err = __tdx_hypercall(TDX_HYPERCALL_STANDARD,
+			      EXIT_REASON_IO_INSTRUCTION, size, 0,
+			      port, 0, &out);
+
+	return out.r10 ? UINT_MAX : out.r11;
+}
+
+/*
+ * Helper function used for making hypercall for "out"
+ * instruction. It will be called from __out IO macro
+ */
+static inline void tdg_out(int size, int port, u64 value)
+{
+	struct tdx_hypercall_output out = {0};
+
+	__tdx_hypercall(TDX_HYPERCALL_STANDARD, EXIT_REASON_IO_INSTRUCTION,
+			size, 1, port, value, &out);
+}
+
+#define __out(bwl, bw, sz)						\
+do {									\
+	if (early_is_tdx_guest()) {					\
+		tdg_out(sz, port, value);				\
+	} else {							\
+		asm volatile("out" #bwl " %" #bw "0, %w1" : :		\
+				"a"(value), "Nd"(port));		\
+	}								\
+} while (0)
+#define __in(bwl, bw, sz)						\
+do {									\
+	if (early_is_tdx_guest()) {					\
+		value = tdg_in(sz, port);				\
+	} else {							\
+		asm volatile("in" #bwl " %w1, %" #bw "0" :		\
+				"=a"(value) : "Nd"(port));		\
+	}								\
+} while (0)
+#endif
 
 #else
 

@@ -13,6 +13,8 @@
 #include <asm/tlbflush.h>
 #include <asm/e820/api.h>
 
+#include "seamloader.h"
+
 #undef pr_fmt
 #define pr_fmt(fmt) "tdx: " fmt
 

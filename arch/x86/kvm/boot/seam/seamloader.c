@@ -13,6 +13,8 @@
 #include <asm/msr.h>
 #include <asm/page_types.h>
 
+#include "seamloader.h"
+
 #define MTRRCAP_SEAMRR	BIT(15)
 
 #define SEAMLDR_MAX_NR_MODULE_PAGES	496

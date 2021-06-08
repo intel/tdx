@@ -11,10 +11,6 @@
 #ifdef CONFIG_KVM_INTEL_TDX
 extern u32 tdh_seam_keyid __ro_after_init;
 
-int __init seam_load_module(void *module, unsigned long module_size,
-			    void *sigstruct, unsigned long sigstruct_size,
-			    void *seamldr, unsigned long seamldr_size);
-
 void __init tdh_seam_init(void);
 void tdh_init_cpu(struct cpuinfo_x86 *c);
 

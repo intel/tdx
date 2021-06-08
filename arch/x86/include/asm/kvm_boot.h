@@ -12,7 +12,6 @@
 extern u32 tdh_seam_keyid __ro_after_init;
 
 void __init tdh_seam_init(void);
-void tdh_init_cpu(struct cpuinfo_x86 *c);
 
 int tdh_seamcall_on_each_pkg(int (*fn)(void *), void *param);
 /*
@@ -27,7 +26,6 @@ extern int tdh_keyid_alloc(void);
 extern void tdh_keyid_free(int keyid);
 #else
 static inline void __init tdh_seam_init(void) {}
-static inline void tdh_init_cpu(struct cpuinfo_x86 *c) {}
 #endif
 
 #endif /* _ASM_X86_KVM_BOOT_H */

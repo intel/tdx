@@ -15,7 +15,6 @@
 #include <asm/msr.h>
 #include <asm/bugs.h>
 #include <asm/cpu.h>
-#include <asm/kvm_boot.h>
 #include <asm/intel-family.h>
 #include <asm/microcode_intel.h>
 #include <asm/hwcap2.h>
@@ -698,9 +697,6 @@ static void init_intel(struct cpuinfo_x86 *c)
 
 	if (cpu_has(c, X86_FEATURE_TME))
 		detect_tme(c);
-
-	if (cpu_has(c, X86_FEATURE_TDX))
-		tdh_init_cpu(c);
 
 	init_intel_misc_features(c);
 

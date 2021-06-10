@@ -3049,10 +3049,8 @@ static void kvm_mmu_zap_alias_spte(struct kvm_vcpu *vcpu, gfn_t gfn,
 		return;
 
 	rmap_head = gfn_to_rmap(kvm, gfn, sp);
-	if (!__kvm_zap_rmapp(kvm, rmap_head))
-		return;
-
-	kvm_flush_remote_tlbs_with_address(kvm, gfn, 1);
+	if (__kvm_zap_rmapp(kvm, rmap_head))
+		kvm_flush_remote_tlbs_with_address(kvm, gfn, 1);
 
 	if (!is_private_gfn(vcpu, sp->gfn_stolen_bits))
 		return;

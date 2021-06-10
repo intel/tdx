@@ -3,9 +3,57 @@
 
 #define pr_fmt(fmt) "seam: " fmt
 
+#include <linux/earlycpio.h>
+#include <linux/init.h>
+#include <linux/initrd.h>
+
 #include <asm/virtext.h>
+#include <asm/cpu.h>
 
 #include "seam.h"
+
+bool __init seam_get_firmware(struct cpio_data *blob, const char *name)
+{
+	char path[128];
+	long offset;
+	void *data;
+	size_t size;
+	static const char * const search_path[] = {
+		"lib/firmware/%s",
+		"usr/lib/firmware/%s",
+		"opt/intel/%s"
+	};
+	int i;
+
+	if (get_builtin_firmware(blob, name))
+		return true;
+
+	if (!IS_ENABLED(CONFIG_BLK_DEV_INITRD) || !initrd_start)
+		return false;
+
+	for (i = 0; i < ARRAY_SIZE(search_path); i++) {
+		offset = 0;
+		data = (void *)initrd_start;
+		size = initrd_end - initrd_start;
+		snprintf(path, sizeof(path), search_path[i], name);
+		while (size > 0) {
+			*blob = find_cpio_data(path, data, size, &offset);
+
+			/* find the filename, the returned blob name is empty */
+			if (blob->data && blob->name[0] == '\0')
+				return true;
+
+			if (!blob->data)
+				break;
+
+			/* match the item with the same path prefix, skip it*/
+			data += offset;
+			size -= offset;
+		}
+	}
+
+	return false;
+}
 
 /*
  * page for VMXON for each CPUs.  Because SEAMCALLs requires VMX enabled, vmxon

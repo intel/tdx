@@ -7,6 +7,16 @@
 #include <asm/page.h>
 
 /*
+ * NP-SEAMLDR error codes
+ */
+#define NP_SEAMLDR_EMODBUSY	0x8000000000000001ULL
+#define NP_SEAMLDR_ELDINPROG	0x8000000000000002ULL
+#define NP_SEAMLDR_EBADRANGE	0x8000000000010000ULL
+#define NP_SEAMLDR_EBADPLATF	0x8000000000010001ULL
+#define NP_SEAMLDR_ENOMEM	0x8000000000010002ULL
+#define NP_SEAMLDR_EUNSPECERR	0x8000000000010003ULL
+
+/*
  * P-SEAMLDR API function leaves
  */
 #define SEAMCALL_SEAMLDR_BASE		BIT_ULL(63)
@@ -84,5 +94,7 @@ struct seamldr_params {
 int seamldr_info(phys_addr_t seamldr_info);
 int seamldr_install(phys_addr_t seamldr_params);
 int seamldr_shutdown(void);
+
+int __init load_p_seamldr(void);
 
 #endif /* _X86_TDX_P_SEAMLOADER_H */

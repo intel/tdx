@@ -14,6 +14,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/kmsan.h>
 #include <linux/spinlock.h>
+#include <linux/cc_platform.h>
 #include <xen/xen.h>
 
 #ifdef DEBUG
@@ -2789,8 +2790,15 @@ void vring_transport_features(struct virtio_device *vdev)
 	unsigned int i;
 
 	for (i = VIRTIO_TRANSPORT_F_START; i < VIRTIO_TRANSPORT_F_END; i++) {
+		/*
+		 * In confidential guest mode disallow packed or indirect
+		 * because they ain't hardened.
+		 */
+
 		switch (i) {
 		case VIRTIO_RING_F_INDIRECT_DESC:
+			if (cc_platform_has(CC_ATTR_GUEST_HARDENED))
+				goto clear;
 			break;
 		case VIRTIO_RING_F_EVENT_IDX:
 			break;
@@ -2799,11 +2807,14 @@ void vring_transport_features(struct virtio_device *vdev)
 		case VIRTIO_F_ACCESS_PLATFORM:
 			break;
 		case VIRTIO_F_RING_PACKED:
+			if (cc_platform_has(CC_ATTR_GUEST_HARDENED))
+				goto clear;
 			break;
 		case VIRTIO_F_ORDER_PLATFORM:
 			break;
 		case VIRTIO_F_NOTIFICATION_DATA:
 			break;
+clear:
 		default:
 			/* We don't understand this bit. */
 			__virtio_clear_bit(vdev, i);

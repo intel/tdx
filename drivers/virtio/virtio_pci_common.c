@@ -14,6 +14,7 @@
  *  Michael S. Tsirkin <mst@redhat.com>
  */
 
+#include <linux/cc_platform.h>
 #include "virtio_pci_common.h"
 
 static bool force_legacy = false;
@@ -549,7 +550,7 @@ static int virtio_pci_probe(struct pci_dev *pci_dev,
 			goto err_probe;
 	} else {
 		rc = virtio_pci_modern_probe(vp_dev);
-		if (rc == -ENODEV)
+		if (rc == -ENODEV && !cc_platform_has(CC_ATTR_GUEST_HARDENED))
 			rc = virtio_pci_legacy_probe(vp_dev);
 		if (rc)
 			goto err_probe;

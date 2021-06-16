@@ -609,6 +609,21 @@ static void tdx_user_return_update_cache(void)
 					     tdx_uret_msrs[i].defval);
 }
 
+static void tdx_restore_host_xsave_state(struct kvm_vcpu *vcpu)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
+
+	if (static_cpu_has(X86_FEATURE_XSAVE) &&
+	    host_xcr0 != (kvm_tdx->xfam & supported_xcr0))
+		xsetbv(XCR_XFEATURE_ENABLED_MASK, host_xcr0);
+	if (static_cpu_has(X86_FEATURE_XSAVES) &&
+	    host_xss != (kvm_tdx->xfam & supported_xss))
+		wrmsrl(MSR_IA32_XSS, host_xss);
+	if (static_cpu_has(X86_FEATURE_PKU) &&
+	    (kvm_tdx->xfam & XFEATURE_MASK_PKRU))
+		__write_pkru(vcpu->arch.host_pkru);
+}
+
 u64 __tdx_vcpu_run(hpa_t tdvpr, void *regs, u32 regs_mask);
 
 static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
@@ -640,6 +655,7 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 
 	tdx_user_return_update_cache();
 	perf_restore_debug_store();
+	tdx_restore_host_xsave_state(vcpu);
 	tdx->host_state_need_restore = true;
 
 	vmx_register_cache_reset(vcpu);
@@ -1653,6 +1669,7 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 
 	kvm_tdx->tsc_offset = td_tdcs_exec_read64(kvm_tdx, TD_TDCS_EXEC_TSC_OFFSET);
 	kvm_tdx->attributes = td_params->attributes;
+	kvm_tdx->xfam = td_params->xfam;
 	kvm->max_vcpus = td_params->max_vcpus;
 	kvm->arch.initial_tsc_khz = TDX1_TSC_25MHZ_TO_KHZ(td_params->tsc_frequency);
 

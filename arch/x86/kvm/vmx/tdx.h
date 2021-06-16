@@ -25,6 +25,7 @@ struct kvm_tdx {
 	struct tdx_td_page tdcs[TDX1_NR_TDCX_PAGES];
 
 	u64 attributes;
+	u64 xfam;
 	int hkid;
 
 	int cpuid_nent;

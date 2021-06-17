@@ -1425,7 +1425,7 @@ static void tdx_get_exit_info(struct kvm_vcpu *vcpu, u64 *info1, u64 *info2,
 			      u32 *intr_info, u32 *error_code)
 {
 	*info1 = tdexit_exit_qual(vcpu);
-	*info2 = 0;
+	*info2 = tdexit_ext_exit_qual(vcpu);
 
 	*intr_info = tdexit_intr_info(vcpu);
 	*error_code = 0;

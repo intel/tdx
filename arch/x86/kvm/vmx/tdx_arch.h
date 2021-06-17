@@ -205,7 +205,7 @@ struct td_params {
  */
 #define TDX1_TSC_KHZ_TO_25MHZ(tsc_in_khz)	((tsc_in_khz) / (25 * 1000))
 #define TDX1_TSC_25MHZ_TO_KHZ(tsc_in_25mhz)	((tsc_in_25mhz) * (25 * 1000))
-#define TDX1_MIN_TSC_FREQUENCY_KHZ		1  * 1000 * 1000
+#define TDX1_MIN_TSC_FREQUENCY_KHZ		100 * 1000
 #define TDX1_MAX_TSC_FREQUENCY_KHZ		10 * 1000 * 1000
 
 struct tdmr_reserved_area {

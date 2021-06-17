@@ -872,7 +872,7 @@ static __init int tdh_init_global(void)
 	}
 	pr_info("TDX SEAM module: "
 		"attributes 0x%x vendor_id 0x%x "
-		"build_date 0x%x build_num 0x%x "
+		"build_date %d build_num 0x%x "
 		"minor_version 0x%x major_version 0x%x.\n",
 		tdx_tdsysinfo.attributes,
 		tdx_tdsysinfo.vendor_id,
@@ -1502,20 +1502,26 @@ EXPORT_SYMBOL_GPL(tdh_keyid_free);
 
 #ifdef CONFIG_SYSFS
 
-#define TDX_SEAM_ATTR_SHOW(name)					\
-static ssize_t name ## _show(						\
+#define TDX_SEAM_ATTR_SHOW_FORMAT(name, format)			\
+	static ssize_t name ## _show(					\
 	struct kobject *kobj, struct kobj_attribute *attr, char *buf)	\
 {									\
-	return sprintf(buf, "0x%x\n", tdx_tdsysinfo. name );		\
+	return sprintf(buf, format, tdx_tdsysinfo.name);		\
 }									\
-static struct kobj_attribute tdx_attr_##name = __ATTR_RO(name);
+static struct kobj_attribute tdx_attr_##name = __ATTR_RO(name)
 
-TDX_SEAM_ATTR_SHOW(attributes);
-TDX_SEAM_ATTR_SHOW(vendor_id);
-TDX_SEAM_ATTR_SHOW(build_date);
-TDX_SEAM_ATTR_SHOW(build_num);
-TDX_SEAM_ATTR_SHOW(minor_version);
-TDX_SEAM_ATTR_SHOW(major_version);
+#define TDX_SEAM_ATTR_SHOW_HEX(name) \
+	TDX_SEAM_ATTR_SHOW_FORMAT(name, "0x%x\n")
+
+#define TDX_SEAM_ATTR_SHOW_DEC(name) \
+	TDX_SEAM_ATTR_SHOW_FORMAT(name, "%d\n")
+
+TDX_SEAM_ATTR_SHOW_HEX(attributes);
+TDX_SEAM_ATTR_SHOW_HEX(vendor_id);
+TDX_SEAM_ATTR_SHOW_DEC(build_date);
+TDX_SEAM_ATTR_SHOW_HEX(build_num);
+TDX_SEAM_ATTR_SHOW_HEX(minor_version);
+TDX_SEAM_ATTR_SHOW_HEX(major_version);
 
 static struct kobject *tdx_seam_kobj;
 static struct attribute *tdx_seam_attrs[] = {

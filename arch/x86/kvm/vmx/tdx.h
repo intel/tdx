@@ -182,9 +182,10 @@ static __always_inline u##bits td_##lclass##_read##bits(struct vcpu_tdx *tdx,  \
 	u64 err;							       \
 									       \
 	tdvps_##lclass##_check(field, bits);				       \
-	err = tdh_vp_rd(tdx->tdvpr.pa, TDVPS_##uclass(field), &ex_ret);	       \
+	err = tdh_vp_rd(tdx->tdvpr.pa, TDVPS_##uclass(field), &ex_ret);        \
 	if (unlikely(err)) {						       \
-		pr_err("TDH_VP_RD["#uclass".0x%x] failed: 0x%llx\n", field, err);\
+		pr_err("TDH_VP_RD["#uclass".0x%x] failed: %s (0x%llx)\n",      \
+		       field, tdx_seamcall_error_name(err), err);	       \
 		return 0;						       \
 	}								       \
 	return (u##bits)ex_ret.r8;					       \
@@ -199,8 +200,8 @@ static __always_inline void td_##lclass##_write##bits(struct vcpu_tdx *tdx,    \
 	err = tdh_vp_wr(tdx->tdvpr.pa, TDVPS_##uclass(field), val,	       \
 		      GENMASK_ULL(bits - 1, 0), &ex_ret);		       \
 	if (unlikely(err))						       \
-		pr_err("TDH_VP_WR["#uclass".0x%x] = 0x%llx failed: 0x%llx\n",  \
-		       field, (u64)val, err);				       \
+		pr_err("TDH_VP_WR["#uclass".0x%x] = 0x%llx failed: %s (0x%llx)\n", \
+		       field, (u64)val, tdx_seamcall_error_name(err), err);    \
 }									       \
 static __always_inline void td_##lclass##_setbit##bits(struct vcpu_tdx *tdx,   \
 						       u32 field, u64 bit)     \
@@ -209,22 +210,24 @@ static __always_inline void td_##lclass##_setbit##bits(struct vcpu_tdx *tdx,   \
 	u64 err;							       \
 									       \
 	tdvps_##lclass##_check(field, bits);				       \
-	err = tdh_vp_wr(tdx->tdvpr.pa, TDVPS_##uclass(field), bit, bit, &ex_ret);\
+	err = tdh_vp_wr(tdx->tdvpr.pa, TDVPS_##uclass(field), bit, bit,        \
+			&ex_ret);					       \
 	if (unlikely(err))						       \
-		pr_err("TDH_VP_WR["#uclass".0x%x] |= 0x%llx failed: 0x%llx\n", \
-		       field, bit, err);				       \
+		pr_err("TDH_VP_WR["#uclass".0x%x] |= 0x%llx failed: %s (0x%llx)\n", \
+		       field, bit, tdx_seamcall_error_name(err), err);         \
 }									       \
 static __always_inline void td_##lclass##_clearbit##bits(struct vcpu_tdx *tdx, \
-						         u32 field, u64 bit)   \
+							 u32 field, u64 bit)   \
 {									       \
 	struct tdx_ex_ret ex_ret;					       \
 	u64 err;							       \
 									       \
 	tdvps_##lclass##_check(field, bits);				       \
-	err = tdh_vp_wr(tdx->tdvpr.pa, TDVPS_##uclass(field), 0, bit, &ex_ret);  \
+	err = tdh_vp_wr(tdx->tdvpr.pa, TDVPS_##uclass(field), 0, bit,	       \
+			&ex_ret);					       \
 	if (unlikely(err))						       \
-		pr_err("TDH_VP_WR["#uclass".0x%x] &= ~0x%llx failed: 0x%llx\n",\
-		       field, bit, err);				       \
+		pr_err("TDH_VP_WR["#uclass".0x%x] &= ~0x%llx failed: %s (0x%llx)\n", \
+		       field, bit, tdx_seamcall_error_name(err), err);	       \
 }
 
 TDX_BUILD_TDVPS_ACCESSORS(16, VMCS, vmcs);
@@ -245,7 +248,8 @@ static __always_inline u64 td_tdcs_exec_read64(struct kvm_tdx *kvm_tdx, u32 fiel
 
 	err = tdh_mng_rd(kvm_tdx->tdr.pa, TDCS_EXEC(field), &ex_ret);
 	if (unlikely(err)) {
-		pr_err("TDH_MNG_RD[EXEC.0x%x] failed: 0x%llx\n", field, err);
+		pr_err("TDH_MNG_RD[EXEC.0x%x] failed: %s (0x%llx)\n", field,
+		       tdx_seamcall_error_name(err), err);
 		WARN_ON(1);
 		return 0;
 	}

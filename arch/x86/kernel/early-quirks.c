@@ -17,6 +17,7 @@
 #include <linux/bcma/bcma.h>
 #include <linux/bcma/bcma_regs.h>
 #include <linux/platform_data/x86/apple.h>
+#include <linux/protected_guest.h>
 #include <drm/i915_drm.h>
 #include <asm/pci-direct.h>
 #include <asm/dma.h>
@@ -799,6 +800,9 @@ static void __init early_pci_scan_bus(int bus)
 void __init early_quirks(void)
 {
 	if (!early_pci_allowed())
+		return;
+
+	if (prot_guest_has(PR_GUEST_TDX))
 		return;
 
 	early_pci_scan_bus(0);

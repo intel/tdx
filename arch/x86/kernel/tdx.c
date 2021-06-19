@@ -150,6 +150,7 @@ bool tdx_prot_guest_has(unsigned long flag)
 	case PATTR_GUEST_SHARED_MAPPING_INIT:
 	case PATTR_MEM_ENCRYPT:
 	case PATTR_GUEST_SECURE_TIME:
+	case PATTR_GUEST_CPUID_FILTER:
 		return tdx_guest_enabled;
 	case PATTR_GUEST_DRIVER_FILTER:
 		return tdg_filter_enabled() && tdx_guest_enabled;

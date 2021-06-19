@@ -860,6 +860,12 @@ void __init tdx_early_init(void)
 	 */
 	setup_force_cpu_cap(X86_FEATURE_TSC_RELIABLE);
 
+	/*
+	 * Make sure there is a panic if something goes wrong,
+	 * just in case it's some kind of host attack.
+	 */
+	panic_on_oops = 1;
+
 	cc_set_vendor(CC_VENDOR_INTEL);
 	tdx_parse_tdinfo(&cc_mask);
 	cc_set_mask(cc_mask);

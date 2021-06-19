@@ -711,6 +711,7 @@ void __init tdx_early_init(void)
 
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
 	setup_clear_cpu_cap(X86_FEATURE_MCE);
+	setup_clear_cpu_cap(X86_FEATURE_MTRR);
 
 	/*
 	 * The only secure (mononotonous) timer inside a TD guest

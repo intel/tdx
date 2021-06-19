@@ -849,6 +849,12 @@ void __init tdx_early_init(void)
 
 	legacy_pic = &null_legacy_pic;
 
+	/*
+	 * Make sure there is a panic if something goes wrong,
+	 * just in case it's some kind of host attack.
+	 */
+	panic_on_oops = 1;
+
 	alloc_intr_gate(TDX_GUEST_EVENT_NOTIFY_VECTOR,
 			asm_sysvec_tdx_event_notify);
 

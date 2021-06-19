@@ -813,6 +813,12 @@ void __init tdx_early_init(void)
 	legacy_pic = &null_legacy_pic;
 	swiotlb_force = SWIOTLB_FORCE;
 
+	/*
+	 * Make sure there is a panic if something goes wrong,
+	 * just in case it's some kind of host attack.
+	 */
+	panic_on_oops = 1;
+
 	cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "tdx:cpu_hotplug",
 			  NULL, tdx_cpu_offline_prepare);
 

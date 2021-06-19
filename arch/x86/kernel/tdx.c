@@ -113,6 +113,7 @@ bool tdx_prot_guest_has(unsigned long flag)
 	case PR_GUEST_UNROLL_STRING_IO:
 	case PR_GUEST_SHARED_MAPPING_INIT:
 	case PR_GUEST_TDX:
+	case PR_GUEST_CPUID_FILTER:
 		return tdx_guest_enabled;
 	case PR_GUEST_DRIVER_FILTER:
 		return tdg_filter_enabled() && tdx_guest_enabled;

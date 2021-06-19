@@ -43,6 +43,7 @@ static bool intel_cc_platform_has(enum cc_attr attr)
 	case CC_ATTR_GUEST_MEM_ENCRYPT:
 	case CC_ATTR_MEM_ENCRYPT:
 	case CC_ATTR_GUEST_SECURE_TIME:
+	case CC_ATTR_GUEST_CPUID_FILTER:
 		return true;
 	case CC_ATTR_GUEST_DEVICE_FILTER:
 		return tdx_filter_enabled();

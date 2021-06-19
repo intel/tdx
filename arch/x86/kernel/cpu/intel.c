@@ -1143,7 +1143,12 @@ static void bus_lock_init(void)
 
 bool handle_user_split_lock(struct pt_regs *regs, long error_code)
 {
-	if ((regs->flags & X86_EFLAGS_AC) || sld_state == sld_fatal)
+	/*
+	 * In virtualization environment, it can get split lock #AC even when
+	 * sld_off but hypervisor enables it.
+	 * Thus only handles when sld_warn explicitly.
+	 */
+	if ((regs->flags & X86_EFLAGS_AC) || sld_state != sld_warn)
 		return false;
 	split_lock_warn(regs->ip);
 	return true;

@@ -29,6 +29,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/suspend.h>
 #include <linux/switchtec.h>
+#include <linux/protected_guest.h>
 #include <asm/dma.h>	/* isa_dma_bridge_buggy */
 #include "pci.h"
 
@@ -101,6 +102,9 @@ void pci_fixup_device(enum pci_fixup_pass pass, struct pci_dev *dev)
 {
 	struct pci_fixup *start, *end;
 
+	if (prot_guest_has(PATTR_GUEST_DRIVER_FILTER))
+		return;
+
 	switch (pass) {
 	case pci_fixup_early:
 		start = __start_pci_fixups_early;
@@ -157,6 +161,9 @@ static int __init pci_apply_final_quirks(void)
 	struct pci_dev *dev = NULL;
 	u8 cls = 0;
 	u8 tmp;
+
+	if (prot_guest_has(PATTR_GUEST_DRIVER_FILTER))
+		return -EIO;
 
 	if (pci_cache_line_size)
 		pr_info("PCI: CLS %u bytes\n", pci_cache_line_size << 2);

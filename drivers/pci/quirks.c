@@ -31,6 +31,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/suspend.h>
 #include <linux/switchtec.h>
+#include <linux/cc_platform.h>
 #include "pci.h"
 
 static ktime_t fixup_debug_start(struct pci_dev *dev,
@@ -102,6 +103,9 @@ void pci_fixup_device(enum pci_fixup_pass pass, struct pci_dev *dev)
 {
 	struct pci_fixup *start, *end;
 
+	if (cc_platform_has(CC_ATTR_GUEST_HARDENED))
+		return;
+
 	switch (pass) {
 	case pci_fixup_early:
 		start = __start_pci_fixups_early;
@@ -158,6 +162,9 @@ static int __init pci_apply_final_quirks(void)
 	struct pci_dev *dev = NULL;
 	u8 cls = 0;
 	u8 tmp;
+
+	if (cc_platform_has(CC_ATTR_GUEST_HARDENED))
+		return -EIO;
 
 	if (pci_cache_line_size)
 		pr_info("PCI: CLS %u bytes\n", pci_cache_line_size << 2);

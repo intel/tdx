@@ -88,6 +88,7 @@ bool intel_prot_guest_has(unsigned int flag)
 	case PATTR_GUEST_SHARED_MAPPING_INIT:
 	case PATTR_MEM_ENCRYPT:
 	case PATTR_GUEST_SECURE_TIME:
+	case PATTR_GUEST_CPUID_FILTER:
 		return tdx_guest_enabled;
 	case PATTR_GUEST_DEVICE_FILTER:
 		return tdx_filter_enabled() && tdx_guest_enabled;

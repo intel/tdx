@@ -108,6 +108,16 @@ enum cc_attr {
 	 * Examples include TDX guest.
 	 */
 	CC_ATTR_GUEST_SECURE_TIME,
+
+	/**
+	 * @CC_ATTR_GUEST_CPUID_FILTER: Enable CPUID based XEN/KVM filter
+	 *
+	 * The platform/OS is running as a guest/virtual machine and uses
+	 * CPUID to disable XEN and other KVM features.
+	 *
+	 * Examples include TDX guest.
+	 */
+	CC_ATTR_GUEST_CPUID_FILTER,
 };
 
 #ifdef CONFIG_ARCH_HAS_CC_PLATFORM

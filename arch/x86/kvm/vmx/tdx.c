@@ -2294,7 +2294,7 @@ static int trace_target = DEBUGCONFIG_TARGET_SERIAL_PORT;
 #define TRACE_BUFFER_SIZE	4096
 #define MAX_PRINT_LENGTH	256
 #define BUFFER_SIZE		(TRACE_BUFFER_SIZE * MAX_PRINT_LENGTH)
-static char buffer_trace[BUFFER_SIZE];
+static char *buffer_trace;
 
 static int trace_target_get(void *data, u64 *val)
 {
@@ -2336,7 +2336,7 @@ static int trace_target_set(void *data, u64 val)
 DEFINE_DEBUGFS_ATTRIBUTE(trace_target_fops,
 			 trace_target_get, trace_target_set, "%llu\n");
 
-static char buffer_emergency[BUFFER_SIZE];
+static char *buffer_emergency;
 static bool emergency_configured = false;
 
 static int emergency_get(void *data, u64 *val)
@@ -2356,7 +2356,7 @@ static int emergency_set(void *data, u64 val)
 	if (!val && emergency_configured)
 		return -EINVAL;
 
-	memset(buffer_emergency, 0, sizeof(buffer_emergency));
+	memset(buffer_emergency, 0, BUFFER_SIZE);
 	if (!emergency_configured) {
 		u64 err;
 		kvm_hardware_enable_all();
@@ -2378,13 +2378,13 @@ static int emergency_set(void *data, u64 val)
 DEFINE_DEBUGFS_ATTRIBUTE(emergency_fops,
 			 emergency_get, emergency_set, "%llu\n");
 
-static char buffer_dump[BUFFER_SIZE];
+static char *buffer_dump;
 static int dump_set(void *data, u64 val)
 {
 	int ret = -EINVAL;
 	if (trace_target == DEBUGCONFIG_TARGET_TRACE_BUFFER) {
 		u64 err;
-		memset(buffer_dump, 0, sizeof(buffer_dump));
+		memset(buffer_dump, 0, BUFFER_SIZE);
 		kvm_hardware_enable_all();
 		err = tddebugconfig(DEBUGCONFIG_DUMP_TRACE_BUFFER,
 				    __pa(buffer_dump), TRACE_BUFFER_SIZE);
@@ -2454,9 +2454,23 @@ static struct dentry *tdx_seam;
 
 static int __init tdx_debugfs_init(void)
 {
+	int ret = 0;
 #ifdef CONFIG_DEBUG_FS
 	if (!boot_cpu_has(X86_FEATURE_TDX))
 		return 0;
+
+	ret = -ENOMEM;
+	buffer_trace = kcalloc(TRACE_BUFFER_SIZE, MAX_PRINT_LENGTH, GFP_KERNEL_ACCOUNT);
+	if (!buffer_trace)
+		goto err;
+
+	buffer_emergency = kcalloc(TRACE_BUFFER_SIZE, MAX_PRINT_LENGTH, GFP_KERNEL_ACCOUNT);
+	if (!buffer_emergency)
+		goto err;
+
+	buffer_dump = kcalloc(TRACE_BUFFER_SIZE, MAX_PRINT_LENGTH, GFP_KERNEL_ACCOUNT);
+	if (!buffer_dump)
+		goto err;
 
 	tdx_seam = debugfs_create_dir("tdx_seam", NULL);
 
@@ -2475,13 +2489,29 @@ static int __init tdx_debugfs_init(void)
 			    tdx_seam, buffer_dump, &buffer_fops);
 	debugfs_create_file("buffer_emergency", S_IRUSR,
 			    tdx_seam, buffer_emergency, &buffer_fops);
-#endif
+
 	return 0;
+err:
+	if (buffer_trace)
+		kfree(buffer_trace);
+	if (buffer_emergency)
+		kfree(buffer_emergency);
+	if (buffer_dump)
+		kfree(buffer_dump);
+#endif
+	return ret;
 }
 
 static void __exit tdx_debugfs_exit(void)
 {
 #ifdef CONFIG_DEBUG_FS
+	if (buffer_trace)
+		kvfree(buffer_trace);
+	if (buffer_emergency)
+		kvfree(buffer_emergency);
+	if (buffer_dump)
+		kvfree(buffer_dump);
+
 	debugfs_remove_recursive(tdx_seam);
 	tdx_seam = NULL;
 #endif

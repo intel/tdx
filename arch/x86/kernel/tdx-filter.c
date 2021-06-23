@@ -35,7 +35,7 @@ static struct drv_filter_node filter_nodes[MAX_FILTER_NODES];
 
 /* Allow list for Virtio bus */
 static char virtio_allow_list[] = "virtio_net,virtio_console,virtio_blk,"
-				  "virtio_rproc_serial";
+				  "virtio_rproc_serial,9pnet_virtio";
 
 /* Allow list for PCI bus */
 static char pci_allow_list[] = "virtio-pci";

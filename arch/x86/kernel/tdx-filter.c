@@ -34,6 +34,7 @@ static char *virtio_allow_list[] = {
 	"virtio_console",
 	"virtio_blk",
 	"virtio_rproc_serial",
+	"9pnet_virtio",
 };
 
 /* Allow list for PCI bus */

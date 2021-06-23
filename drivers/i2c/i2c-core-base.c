@@ -1948,7 +1948,7 @@ int i2c_register_driver(struct module *owner, struct i2c_driver *driver)
 	int res;
 
 	/* Can't register until after driver model init */
-	if (WARN_ON(!is_registered))
+	if (!is_registered)
 		return -EAGAIN;
 
 	/* add the driver to the list of i2c drivers in the driver core */

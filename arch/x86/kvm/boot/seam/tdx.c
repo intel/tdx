@@ -108,7 +108,7 @@ static int __init setup_tdx_module(char *str)
 		strscpy(tdx_sigstruct_name, str, sizeof(tdx_sigstruct_name));
 		strcat(tdx_sigstruct_name, ".sigstruct");
 	}
-	return 1;
+	return 0;
 }
 early_param("tdx_module", setup_tdx_module);
 
@@ -116,21 +116,21 @@ static int __init setup_tdx_sigstruct(char *str)
 {
 	tdx_sigstruct_name_specified = true;
 	strscpy(tdx_sigstruct_name, str, sizeof(tdx_sigstruct_name));
-	return 1;
+	return 0;
 }
 early_param("tdx_sigstruct", setup_tdx_sigstruct);
 
 static int __init setup_tdx_npseamldr(char *str)
 {
 	strscpy(tdx_npseamldr_name, str, sizeof(tdx_npseamldr_name));
-	return 1;
+	return 0;
 }
 early_param("tdx_npseamldr", setup_tdx_npseamldr);
 
 static int __init setup_tdx_seamldr(char *str)
 {
 	strscpy(tdx_seamldr_name, str, sizeof(tdx_seamldr_name));
-	return 1;
+	return 0;
 }
 early_param("tdx_seamldr", setup_tdx_seamldr);
 

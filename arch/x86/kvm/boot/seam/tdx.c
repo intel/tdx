@@ -1010,6 +1010,11 @@ static int __init build_tdsysinfo_and_cmrs_from_e820(void)
 
 static bool __init is_np_seamldr_supported(void)
 {
+	if (tdx_npseamldr_name[0] == '\0') {
+		pr_info("empty filename for NP-SEAMLDR. fall back to legacy SEAMLDR.");
+		return false;
+	}
+
 	/* SPR prior to stepping D doesn't support np_seamldr */
 	if (boot_cpu_data.x86 == 6 && boot_cpu_data.x86_model == 143 &&
 			boot_cpu_data.x86_stepping < 3)
@@ -1038,7 +1043,8 @@ void __init tdh_seam_init(void)
 	if (is_np_seamldr_supported()) {
 		if (!tdx_get_firmware(&seamldr, tdx_npseamldr_name)) {
 			pr_err("Cannot found np-seamldr:%s\n", tdx_npseamldr_name);
-			goto error;
+			pr_info("falls back to old seamldr.\n");
+			goto fallback;
 		}
 
 		ret = seam_load_module(seamldr.data, seamldr.size, NULL);
@@ -1087,8 +1093,8 @@ void __init tdh_seam_init(void)
 	}
 
 	pr_info("np-seamldr isn't supported. Fall back to the old loading method\n");
-
-	if (!tdx_get_firmware(&module, module_name))
+fallback:
+	if (!tdx_get_firmware(&module, tdx_module_name))
 		goto error;
 
 	if (!tdx_get_firmware(&sigstruct, tdx_sigstruct_name))

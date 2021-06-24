@@ -17,6 +17,7 @@
 #include <asm/apic.h>
 #include <asm/cmdline.h>
 #include <asm/virtext.h>
+#include <asm/trace/seam.h>
 
 #include "seamcall-boot.h"
 #include "p-seamldr.h"

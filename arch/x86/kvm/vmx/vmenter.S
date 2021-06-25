@@ -338,6 +338,9 @@ SYM_FUNC_START(vmx_do_interrupt_nmi_irqoff)
 SYM_FUNC_END(vmx_do_interrupt_nmi_irqoff)
 
 #ifdef CONFIG_KVM_INTEL_TDX
+
+.pushsection .noinstr.text, "ax"
+
 /**
  * __tdx_vcpu_run - Call SEAMCALL(TDENTER) to run a TD vcpu
  * @tdvpr:	physical address of TDVPR
@@ -467,4 +470,7 @@ SYM_FUNC_START(__tdx_vcpu_run)
 	_ASM_EXTABLE(2b, 5b)
 
 SYM_FUNC_END(__tdx_vcpu_run)
+
+.popsection
+
 #endif

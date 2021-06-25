@@ -96,6 +96,17 @@ config X86_SGX_KVM
 
 	  If unsure, say N.
 
+config KVM_INTEL_TDX
+	bool "Trusted Domain eXtensions(TDX) Host support"
+	depends on KVM_INTEL && X86_64
+	select FW_LOADER
+
+	help
+	  Extends KVM on Intel processors to support Trusted Domain Extensions.
+	  Intel Trust Domain eXtensions(TDX) is an architecture based on CPU
+	  instructions and TDX module to deploy hardware-isolated virtual
+	  machines(VMs) which is called Trust Domains(TDs).
+
 config KVM_AMD
 	tristate "KVM for AMD processors support"
 	depends on KVM

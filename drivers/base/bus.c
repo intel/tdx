@@ -883,12 +883,16 @@ EXPORT_SYMBOL_GPL(bus_unregister);
 
 int bus_register_notifier(struct bus_type *bus, struct notifier_block *nb)
 {
+	if (!bus->p)
+		return -EIO;
 	return blocking_notifier_chain_register(&bus->p->bus_notifier, nb);
 }
 EXPORT_SYMBOL_GPL(bus_register_notifier);
 
 int bus_unregister_notifier(struct bus_type *bus, struct notifier_block *nb)
 {
+	if (!bus->p)
+		return -EIO;
 	return blocking_notifier_chain_unregister(&bus->p->bus_notifier, nb);
 }
 EXPORT_SYMBOL_GPL(bus_unregister_notifier);

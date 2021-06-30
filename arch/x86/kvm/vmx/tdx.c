@@ -2517,7 +2517,7 @@ static int __init tdx_debugfs_init(void)
 {
 	int ret = 0;
 #ifdef CONFIG_DEBUG_FS
-	if (!boot_cpu_has(X86_FEATURE_TDX))
+	if (!boot_cpu_has(X86_FEATURE_TDX) || !is_debug_seamcall_available)
 		return 0;
 
 	ret = -ENOMEM;

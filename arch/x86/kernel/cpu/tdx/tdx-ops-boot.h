@@ -43,8 +43,41 @@ static inline u64 tdh_sys_tdmr_config(hpa_t tdmr, int nr_entries, int hkid)
 
 static inline u64 tdh_trace_seamcalls_boot(u64 level)
 {
-	return seamcall_boot(SEAMCALL_TDDEBUGCONFIG,
-			     DEBUGCONFIG_SET_TRACE_LEVEL, level, 0, 0, NULL);
+	u64 err;
+
+	if (is_debug_seamcall_available) {
+		err = seamcall_boot(SEAMCALL_TDDEBUGCONFIG,
+				    DEBUGCONFIG_SET_TRACE_LEVEL, level, 0, 0,
+				    NULL);
+		if (err == TDX_OPERAND_INVALID) {
+			pr_warn("TDX module doesn't support DEBUG TRACE SEAMCALL API\n");
+			is_debug_seamcall_available = false;
+		} else if (err) {
+			pr_err_ratelimited("SEAMCALL[TDDBUTCONFIG] failed on cpu %d: %s (0x%llx)\n",
+					   smp_processor_id(),
+					   tdx_seamcall_error_name(err), err);
+		}
+	}
+
+	return err;
+}
+
+static inline void tdxmode_boot(bool intercept_vmexits, u64 intercept_bitmap)
+{
+	u64 err;
+
+	if (is_nonarch_seamcall_available) {
+		err = seamcall_boot(SEAMCALL_TDXMODE, intercept_vmexits,
+				    intercept_bitmap, 0, 0, NULL);
+		if (err == TDX_OPERAND_INVALID) {
+			pr_warn("TDX module doesn't support NON-ARCH SEAMCALL API\n");
+			is_nonarch_seamcall_available = false;
+		} else if (err) {
+			pr_err_ratelimited("SEAMCALL[TDXMODE] failed on cpu %d: %s (0x%llx)\n",
+					   smp_processor_id(),
+					   tdx_seamcall_error_name(err), err);
+		}
+	}
 }
 
 #endif /* __TDX_OPS_BOOT_H */

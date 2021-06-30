@@ -21,6 +21,13 @@ extern u32 tdx_nr_keyids __read_mostly;
 extern u32 tdx_seam_keyid __read_mostly;
 
 bool range_is_tdx_memory(phys_addr_t start, phys_addr_t end);
+
+/* Debug configuration SEAMCALLs */
+extern bool is_debug_seamcall_available __read_mostly;
+
+/* Non-architectural configuration SEAMCALLs */
+extern bool is_nonarch_seamcall_available __read_mostly;
+
 #else
 static inline bool is_tdx_module_enabled(void)
 {

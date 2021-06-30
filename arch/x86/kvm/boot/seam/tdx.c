@@ -36,6 +36,12 @@ static bool use_p_seamldr __initdata;
 static DEFINE_PER_CPU(unsigned long, tdx_vmxon_vmcs);
 static atomic_t tdx_init_cpu_errors;
 
+bool is_debug_seamcall_available __ro_after_init = true;
+EXPORT_SYMBOL_GPL(is_debug_seamcall_available);
+
+bool is_nonarch_seamcall_available __ro_after_init = true;
+EXPORT_SYMBOL_GPL(is_nonarch_seamcall_available);
+
 /* KeyID range reserved to TDX by BIOS */
 static u32 tdx_keyids_start;
 static u32 tdx_nr_keyids;
@@ -1449,9 +1455,18 @@ static int __init tdx_init(void)
 	if (ret)
 		goto err_vmxoff;
 
-	/* Tracing is on by default, disable it before INITTDMR  */
-	if (!trace_boot_seamcalls)
+	/*
+	 * Detect if debug and non-arch seamcall available.
+	 *
+	 * Even though tracing level is ALL level by default, it needs to set
+	 * it explicitly to check if debug seamcall available.
+	 */
+	if (trace_boot_seamcalls)
+		tdx_trace_seamcalls(DEBUGCONFIG_TRACE_ALL);
+	else
 		tdx_trace_seamcalls(DEBUGCONFIG_TRACE_CUSTOM);
+
+	tdxmode(false, 0);
 
 	ret = tdx_init_tdmrs();
 	if (ret)

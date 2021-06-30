@@ -9,6 +9,13 @@
 #include <asm/processor.h>
 
 #ifdef CONFIG_KVM_INTEL_TDX
+
+/* Debug configuration SEAMCALLs */
+extern bool is_debug_seamcall_available __read_mostly;
+
+/* Non-architectural configuration SEAMCALLs */
+extern bool is_nonarch_seamcall_available __read_mostly;
+
 extern u32 tdh_seam_keyid __ro_after_init;
 
 void __init tdh_seam_init(void);

@@ -6,8 +6,12 @@
 #include <linux/spinlock.h>
 
 #include <asm/asm.h>
+#include <asm/cpufeatures.h>
+#include <asm/kvm_boot.h>
 #include <asm/kvm_host.h>
 #include <asm/cacheflush.h>
+
+#include "tdx_errno.h"
 
 struct tdx_ex_ret {
 	union {
@@ -579,14 +583,35 @@ static inline void tdx_trace_seamcalls(u64 level)
 {
 	u64 err;
 
-	err = tddebugconfig(DEBUGCONFIG_SET_TRACE_LEVEL, level, 0);
-	if (err)
-		pr_seamcall_error(TDDEBUGCONFIG, err, NULL);
+	if (is_debug_seamcall_available) {
+		err = tddebugconfig(DEBUGCONFIG_SET_TRACE_LEVEL, level, 0);
+		if (err == TDX_OPERAND_INVALID) {
+			pr_warn("TDX module doesn't support DEBUG TRACE SEAMCALL API\n");
+			is_debug_seamcall_available = false;
+		} else if (err) {
+			pr_seamcall_error(TDDEBUGCONFIG, err, NULL);
+		}
+	}
 }
 
-static inline u64 tdxmode(bool intercept_vmexits, u64 intercept_bitmap)
+static inline u64 __tdxmode(bool intercept_vmexits, u64 intercept_bitmap)
 {
 	seamcall_2(TDXMODE, intercept_vmexits, intercept_bitmap);
+}
+
+static inline void tdxmode(bool intercept_vmexits, u64 intercept_bitmap)
+{
+	u64 err;
+
+	if (is_nonarch_seamcall_available) {
+		err = __tdxmode(intercept_vmexits, intercept_bitmap);
+		if (err == TDX_OPERAND_INVALID) {
+			pr_warn("TDX module doesn't support NON-ARCH SEAMCALL API\n");
+			is_nonarch_seamcall_available = false;
+		} else if (err) {
+			pr_seamcall_error(TDXMODE, err, NULL);
+		}
+	}
 }
 
 static inline u64 __seamldr_info(hpa_t seamldr_info)

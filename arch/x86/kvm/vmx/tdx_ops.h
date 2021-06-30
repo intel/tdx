@@ -11,6 +11,8 @@
 #include <asm/pgtable_types.h>
 #include <asm/cacheflush.h>
 
+#include "tdx_errno.h"
+#include "tdx_arch.h"
 #include "seamcall.h"
 #include "tdx_arch.h"
 
@@ -231,19 +233,42 @@ static inline u64 tddebugconfig(u64 subleaf, u64 param1, u64 param2)
 	return seamcall(TDDEBUGCONFIG, subleaf, param1, param2, 0, 0, NULL);
 }
 
+void pr_tdx_error(u64 op, u64 error_code, const struct tdx_ex_ret *ex_ret);
+
+/* Debug configuration SEAMCALLs */
+extern bool tdx_is_debug_seamcall_available __read_mostly;
+/* Non-architectural configuration SEAMCALLs */
+extern bool tdx_is_nonarch_seamcall_available __read_mostly;
+
 static inline void tdh_trace_seamcalls(u64 level)
 {
 	u64 err;
 
-	err = tddebugconfig(DEBUGCONFIG_SET_TRACE_LEVEL, level, 0);
-	if (err)
-		pr_tdx_error(TDDEBUGCONFIG, err, NULL);
+	if (tdx_is_debug_seamcall_available) {
+		err = tddebugconfig(DEBUGCONFIG_SET_TRACE_LEVEL, level, 0);
+		if (err == TDX_OPERAND_INVALID) {
+			pr_warn("TDX module doesn't support DEBUG TRACE SEAMCALL API\n");
+			tdx_is_debug_seamcall_available = false;
+		} else if (err) {
+			pr_tdx_error(TDDEBUGCONFIG, err, NULL);
+		}
+	}
 }
 
-static inline u64 tdxmode(bool intercept_vmexits, u64 intercept_bitmap)
+static inline void tdxmode(bool intercept_vmexits, u64 intercept_bitmap)
 {
-	return seamcall(TDXMODE, intercept_vmexits, intercept_bitmap,
-			0, 0, 0, NULL);
+	u64 err;
+
+	if (tdx_is_nonarch_seamcall_available) {
+		err = seamcall(TDXMODE, intercept_vmexits, intercept_bitmap,
+			       0, 0, 0, NULL);
+		if (err == TDX_OPERAND_INVALID) {
+			pr_warn("TDX module doesn't support NON-ARCH SEAMCALL API\n");
+			tdx_is_nonarch_seamcall_available = false;
+		} else if (err) {
+			pr_tdx_error(TDXMODE, err, NULL);
+		}
+	}
 }
 #endif /* CONFIG_INTEL_TDX_HOST */
 

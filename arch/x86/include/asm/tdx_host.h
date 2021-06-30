@@ -55,6 +55,12 @@ extern u32 tdx_keyids_start __read_mostly;
 extern u32 tdx_nr_keyids __read_mostly;
 extern u32 tdx_seam_keyid __read_mostly;
 
+/* Debug configuration SEAMCALLs */
+extern bool is_debug_seamcall_available __read_mostly;
+
+/* Non-architectural configuration SEAMCALLs */
+extern bool is_nonarch_seamcall_available __read_mostly;
+
 #else
 struct tdx_ex_ret;
 static inline void pr_seamcall_ex_ret_info(u64 op, u64 error_code,

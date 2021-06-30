@@ -58,6 +58,10 @@ enum TDX_MODULE_STATE {
 
 static enum TDX_MODULE_STATE tdx_module_state __initdata;
 
+bool is_debug_seamcall_available __read_mostly = true;
+
+bool is_nonarch_seamcall_available __read_mostly = true;
+
 /* TDX system information returned by TDH_SYS_INFO. */
 static struct tdsysinfo_struct *tdx_tdsysinfo;
 
@@ -637,14 +641,20 @@ static int __init __tdx_init_module(void)
 		goto out;
 
 	/*
-	 * Tracing is on by default, disable it before INITTDMR which causes
-	 * too many debug messages to take long time.
+	 * Detect if debug and non-arch seamcall available.
+	 *
+	 * Even though tracing level is ALL level by default, it needs to set
+	 * it explicitly to check if debug seamcall available.
 	 */
-	if (!trace_boot_seamcalls) {
-		ret = tdh_trace_seamcalls(DEBUGCONFIG_TRACE_CUSTOM);
-		if (ret)
-			pr_err("failed to set trace level to DEBUGCONFIG_TRACE_CUSTOM.\n");
-	}
+	if (trace_boot_seamcalls)
+		tdh_trace_seamcalls(DEBUGCONFIG_TRACE_ALL);
+	else
+		/*
+		 * Tracing is on by default, disable it before INITTDMR which
+		 * causes too many debug messages to take long time.
+		 */
+		tdh_trace_seamcalls(DEBUGCONFIG_TRACE_CUSTOM);
+	tdxmode(false, 0);
 
 	ret = tdx_init_tdmrs();
 out:

@@ -44,6 +44,11 @@ static int trace_seamcalls __read_mostly = DEBUGCONFIG_TRACE_CUSTOM;
 module_param(trace_seamcalls, int, 0444);
 static int trace_seamcalls_initialized;
 
+/* Debug configuration SEAMCALLs */
+bool tdx_is_debug_seamcall_available __read_mostly;
+/* Non-architectural configuration SEAMCALLs */
+bool tdx_is_nonarch_seamcall_available __read_mostly;
+
 /* KeyID range reserved to TDX by BIOS */
 static u32 tdx_keyids_start __read_mostly;
 static u32 tdx_nr_keyids __read_mostly;
@@ -3618,7 +3623,7 @@ static int __init tdx_debugfs_init(void)
 {
 	int ret = 0;
 #ifdef CONFIG_DEBUG_FS
-	if (!cpu_feature_enabled(X86_FEATURE_TDX))
+	if (!cpu_feature_enabled(X86_FEATURE_TDX) || !tdx_is_debug_seamcall_available)
 		return 0;
 
 	ret = -ENOMEM;

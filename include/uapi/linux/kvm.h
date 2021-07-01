@@ -1117,6 +1117,7 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_BINARY_STATS_FD 203
 #define KVM_CAP_EXIT_ON_EMULATION_FAILURE 204
 #define KVM_CAP_ARM_MTE 205
+#define KVM_CAP_ENCRYPT_MEMORY_DEBUG 206
 
 #define KVM_CAP_VM_TYPES 1000
 
@@ -1685,6 +1686,10 @@ struct kvm_xen_vcpu_attr {
 #define KVM_XEN_VCPU_ATTR_TYPE_RUNSTATE_CURRENT	0x3
 #define KVM_XEN_VCPU_ATTR_TYPE_RUNSTATE_DATA	0x4
 #define KVM_XEN_VCPU_ATTR_TYPE_RUNSTATE_ADJUST	0x5
+
+/* Read/write encrypted guest memory, for guest debugging support in QEMU*/
+#define KVM_MEMORY_ENCRYPT_READ_MEMORY   _IOW(KVMIO, 0xcc, struct kvm_rw_memory)
+#define KVM_MEMORY_ENCRYPT_WRITE_MEMORY  _IOW(KVMIO, 0xcd, struct kvm_rw_memory)
 
 /* Secure Encrypted Virtualization command */
 enum sev_cmd_id {

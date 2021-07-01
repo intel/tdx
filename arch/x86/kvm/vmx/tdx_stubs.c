@@ -58,3 +58,4 @@ u64 tdx_get_segment_base(struct kvm_vcpu *vcpu, int seg) { return 0; }
 void tdx_get_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var, int seg) {}
 void tdx_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask) {}
 int tdx_skip_emulated_instruction(struct kvm_vcpu *vcpu) { return 0; }
+void tdx_queue_exception(struct kvm_vcpu *vcpu) {}

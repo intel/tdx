@@ -208,5 +208,7 @@ int tdx_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr);
 int tdx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr);
 u64 tdx_get_segment_base(struct kvm_vcpu *vcpu, int seg);
 void tdx_get_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var, int seg);
+void tdx_get_cs_db_l_bits(struct kvm_vcpu *vcpu, int *db, int *l);
+void tdx_sync_dirty_debug_regs(struct kvm_vcpu *vcpu);
 
 #endif /* __KVM_X86_VMX_X86_OPS_H */

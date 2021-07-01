@@ -889,6 +889,43 @@ static int tdx_handle_exception(struct kvm_vcpu *vcpu)
 	return -EFAULT;
 }
 
+static void tdx_queue_exception(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx;
+	unsigned int nr;
+	bool has_error_code;
+	u32 error_code;
+	u32 intr_info;
+
+	if (KVM_BUG_ON(!is_debug_td(vcpu), vcpu->kvm))
+		return;
+
+	tdx = to_tdx(vcpu);
+	nr = vcpu->arch.exception.nr;
+	has_error_code = vcpu->arch.exception.has_error_code;
+	error_code = vcpu->arch.exception.error_code;
+	intr_info = nr | INTR_INFO_VALID_MASK;
+
+	kvm_deliver_exception_payload(vcpu);
+
+	if (has_error_code) {
+		td_vmcs_write32(tdx, VM_ENTRY_EXCEPTION_ERROR_CODE,
+				error_code);
+		intr_info |= INTR_INFO_DELIVER_CODE_MASK;
+	}
+
+	if (kvm_exception_is_soft(nr)) {
+		td_vmcs_write32(tdx, VM_ENTRY_INSTRUCTION_LEN,
+				vcpu->arch.event_exit_inst_len);
+		intr_info |= INTR_TYPE_SOFT_EXCEPTION;
+	} else {
+		intr_info |= INTR_TYPE_HARD_EXCEPTION;
+	}
+
+	pr_info("%s: injected: 0x%x\n", __func__, intr_info);
+	td_vmcs_write32(tdx, VM_ENTRY_INTR_INFO_FIELD, intr_info);
+}
+
 static int tdx_handle_external_interrupt(struct kvm_vcpu *vcpu)
 {
 	++vcpu->stat.irq_exits;

@@ -12,6 +12,7 @@
 
 #else
 
+#include <asm/trace/seam.h>
 #include <asm/tdx_host.h>
 
 asmlinkage u64 kvm_seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10,
@@ -26,9 +27,9 @@ static inline u64 _seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10,
 		/* kvm_seamcall requires non-NULL ex. */
 		ex = &dummy;
 
-	/* TODO add trace point */
+	trace_seamcall_enter(op, rcx, rdx, r8, r9, r10, 0);
 	err = kvm_seamcall(op, rcx, rdx, r8, r9, r10, ex);
-	/* TODO add trace point */
+	trace_seamcall_exit(op, err, ex);
 	return err;
 }
 

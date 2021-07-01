@@ -7,6 +7,7 @@
 #include <asm/svm.h>
 #include <asm/clocksource.h>
 #include <asm/pvclock-abi.h>
+#include <asm/tdx_arch.h>
 
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM kvm

@@ -147,6 +147,9 @@ BUILD_TDVMCALL_ACCESSORS(p4, r15);
 
 static void tdx_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask);
 static int tdx_skip_emulated_instruction(struct kvm_vcpu *vcpu);
+static void tdx_set_rflags(struct kvm_vcpu *vcpu, unsigned long rflags);
+static void tdx_update_exception_bitmap(struct kvm_vcpu *vcpu);
+static unsigned long tdx_get_rflags(struct kvm_vcpu *vcpu);
 
 static __always_inline unsigned long tdvmcall_exit_type(struct kvm_vcpu *vcpu)
 {
@@ -681,6 +684,9 @@ static void tdx_complete_interrupts(struct kvm_vcpu *vcpu)
 	if (vcpu->arch.nmi_injected)
 		vcpu->arch.nmi_injected = td_management_read8(to_tdx(vcpu),
 							      TD_VCPU_PEND_NMI);
+
+	if (is_debug_td(vcpu))
+		kvm_clear_exception_queue(vcpu);
 }
 
 static void tdx_user_return_update_cache(void)
@@ -889,6 +895,32 @@ static void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu)
 						     tdexit_intr_info(vcpu));
 }
 
+static int tdx_emulate_inject_bp_end(struct kvm_vcpu *vcpu, unsigned long dr6)
+{
+	if ((dr6 & DR6_BS) && vcpu->arch.exception.emulate_inject_bp) {
+		vcpu->arch.exception.emulate_inject_bp = false;
+
+		// Check if we need enable #BP interception again
+		tdx_update_exception_bitmap(vcpu);
+
+		// No guest debug single step request, so clear it
+		if (!(vcpu->guest_debug & KVM_GUESTDBG_SINGLESTEP)) {
+			unsigned long rflags;
+
+			rflags = tdx_get_rflags(vcpu);
+			rflags &= ~X86_EFLAGS_TF;
+			tdx_set_rflags(vcpu, rflags);
+			kvm_make_request(KVM_REQ_EVENT, vcpu);
+
+			pr_info("Emulate the #BP injection end with single-step disabled\n");
+			return 1;
+		}
+		pr_info("Emulate the #BP injection end with single-step enabled\n");
+	}
+
+	return 0;
+}
+
 static int tdx_handle_exception(struct kvm_vcpu *vcpu)
 {
 	u32 ex_no;
@@ -907,6 +939,10 @@ static int tdx_handle_exception(struct kvm_vcpu *vcpu)
 	switch (ex_no) {
 	case DB_VECTOR:
 		dr6 = tdexit_exit_qual(vcpu);
+
+		if (tdx_emulate_inject_bp_end(vcpu, dr6))
+			return 1;
+
 		if (!(vcpu->guest_debug & guest_debug_enable)) {
 			if (is_icebp(intr_info))
 				WARN_ON(!tdx_skip_emulated_instruction(vcpu));
@@ -933,6 +969,31 @@ static int tdx_handle_exception(struct kvm_vcpu *vcpu)
 	return -EFAULT;
 }
 
+static void tdx_emulate_inject_bp_begin(struct kvm_vcpu *vcpu)
+{
+	unsigned long rflags;
+	unsigned long guest_debug_old;
+
+	/*
+	 * Disable #BP intercept and enable single stepping
+	 * so the int3 will execute normally in guest and
+	 * return to KVM due to single stepping enabled
+	 * this emulated the #BP injection.
+	 */
+	guest_debug_old = vcpu->guest_debug;
+	vcpu->guest_debug &= ~KVM_GUESTDBG_USE_SW_BP;
+	tdx_update_exception_bitmap(vcpu);
+	vcpu->guest_debug = guest_debug_old;
+
+	rflags = tdx_get_rflags(vcpu);
+	rflags |= X86_EFLAGS_TF;
+	tdx_set_rflags(vcpu, rflags);
+
+	vcpu->arch.exception.emulate_inject_bp = true;
+
+	pr_info("Emulate the #BP injection begin\n");
+}
+
 static void tdx_queue_exception(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx;
@@ -949,6 +1010,13 @@ static void tdx_queue_exception(struct kvm_vcpu *vcpu)
 	has_error_code = vcpu->arch.exception.has_error_code;
 	error_code = vcpu->arch.exception.error_code;
 	intr_info = nr | INTR_INFO_VALID_MASK;
+
+	/*
+	 * Emulate BP injection due to
+	 * TDX doesn't support exception injection
+	 */
+	if (nr == BP_VECTOR)
+		return tdx_emulate_inject_bp_begin(vcpu);
 
 	kvm_deliver_exception_payload(vcpu);
 

@@ -112,7 +112,7 @@ static __always_inline hpa_t set_hkid_to_hpa(hpa_t pa, u16 hkid)
 	return pa;
 }
 
-static __always_inline unsigned long tdexit_exit_qual(struct kvm_vcpu *vcpu)
+__always_inline unsigned long tdexit_exit_qual(struct kvm_vcpu *vcpu)
 {
 	return kvm_rcx_read(vcpu);
 }
@@ -1549,6 +1549,11 @@ static int tdx_handle_ept_misconfig(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
+static int tdx_handle_dr(struct kvm_vcpu *vcpu)
+{
+	return vmx_handle_dr(vcpu);
+}
+
 static int tdx_handle_exit(struct kvm_vcpu *vcpu,
 			   enum exit_fastpath_completion fastpath)
 {
@@ -1584,6 +1589,8 @@ static int tdx_handle_exit(struct kvm_vcpu *vcpu,
 		 * needs to be done in KVM.
 		 */
 		return 1;
+	case EXIT_REASON_DR_ACCESS:
+		return tdx_handle_dr(vcpu);
 	case EXIT_REASON_TRIPLE_FAULT:
 		return tdx_handle_triple_fault(vcpu);
 	default:
@@ -2105,6 +2112,13 @@ static int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 		}
 	}
 
+	if (is_debug_td(vcpu)) {
+		td_vmcs_setbit32(tdx,
+				 CPU_BASED_VM_EXEC_CONTROL,
+				 CPU_BASED_MOV_DR_EXITING);
+		pr_info("Set DR access VMExit for debug enabled TD guest\n");
+	}
+
 	return 0;
 }
 
@@ -2115,16 +2129,61 @@ static void tdx_update_exception_bitmap(struct kvm_vcpu *vcpu)
 
 static void tdx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val)
 {
-	/* TODO: Add TDH_VP_WR(GUEST_DR7) for debug TDs. */
-	if (is_debug_td(vcpu))
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	if (!is_debug_td(vcpu) || !tdx->initialized)
 		return;
 
-	KVM_BUG_ON(val != DR7_FIXED_1, vcpu->kvm);
+	// KVM_BUG_ON(val != DR7_FIXED_1, vcpu->kvm);
+	td_vmcs_write64(tdx, GUEST_DR7, val);
+}
+
+static void tdx_sync_dirty_debug_regs(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx_vcpu = to_tdx(vcpu);
+
+	if (!is_debug_td(vcpu))
+		return;
+
+	/*
+	 * Even auto switch guest need save the debug register for visting
+	 * from userspace when KVM/QEMU doesn't using the DR registers.
+	 */
+	// WARN_ON(vcpu->arch.switch_db_regs & KVM_DEBUGREG_AUTO_SWITCH_GUEST);
+
+	vcpu->arch.db[0] = td_dr_read64(tdx_vcpu, 0);
+	vcpu->arch.db[1] = td_dr_read64(tdx_vcpu, 1);
+	vcpu->arch.db[2] = td_dr_read64(tdx_vcpu, 2);
+	vcpu->arch.db[3] = td_dr_read64(tdx_vcpu, 3);
+	vcpu->arch.dr6 = td_dr_read64(tdx_vcpu, 6);
+	vcpu->arch.dr7 = td_vmcs_read64(to_tdx(vcpu), GUEST_DR7);
+
+	vcpu->arch.switch_db_regs &= ~KVM_DEBUGREG_WONT_EXIT;
+	td_vmcs_setbit32(tdx_vcpu,
+			 CPU_BASED_VM_EXEC_CONTROL,
+			 CPU_BASED_MOV_DR_EXITING);
 }
 
 static void tdx_load_guest_debug_regs(struct kvm_vcpu *vcpu)
 {
-	kvm_pr_unimpl("unexpected %s\n", __func__);
+	struct vcpu_tdx *tdx_vcpu = to_tdx(vcpu);
+
+	if (!is_debug_td(vcpu))
+		return;
+
+	td_dr_write64(tdx_vcpu, 0, vcpu->arch.eff_db[0]);
+	td_dr_write64(tdx_vcpu, 1, vcpu->arch.eff_db[1]);
+	td_dr_write64(tdx_vcpu, 2, vcpu->arch.eff_db[2]);
+	td_dr_write64(tdx_vcpu, 3, vcpu->arch.eff_db[3]);
+	td_dr_write64(tdx_vcpu, 6, vcpu->arch.dr6);
+
+	/*
+	 * Optimization:
+	 * tdx auto switch the guest debug regs, so we clear
+	 * KVM_DEBUGREG_BP_ENABLED to avoid  update
+	 * guest debug regs every time.
+	 */
+	vcpu->arch.switch_db_regs &= ~KVM_DEBUGREG_BP_ENABLED;
 }
 
 static int tdx_get_cpl(struct kvm_vcpu *vcpu)
@@ -2242,6 +2301,21 @@ static void tdx_get_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var,
 	var->limit = td_vmcs_read32(tdx, GUEST_ES_LIMIT + seg);
 	var->selector = td_vmcs_read16(tdx, GUEST_ES_SELECTOR + seg);
 	vmx_decode_ar_bytes(td_vmcs_read32(tdx, GUEST_ES_AR_BYTES + seg), var);
+}
+
+static void tdx_get_cs_db_l_bits(struct kvm_vcpu *vcpu, int *db, int *l)
+{
+	u32 ar;
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	if (KVM_BUG_ON(!is_debug_td(vcpu), vcpu->kvm))
+		return;
+
+	ar = td_vmcs_read32(tdx,
+			    kvm_vmx_segment_fields[VCPU_SREG_CS].ar_bytes);
+
+	*db = (ar >> 14) & 1;
+	*l = (ar >> 13) & 1;
 }
 
 static void tdx_cache_gprs(struct kvm_vcpu *vcpu)

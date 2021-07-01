@@ -472,8 +472,8 @@ static int vt_get_cpl(struct kvm_vcpu *vcpu)
 
 static void vt_get_cs_db_l_bits(struct kvm_vcpu *vcpu, int *db, int *l)
 {
-	if (KVM_BUG_ON(is_td_vcpu(vcpu) && !is_debug_td(vcpu), vcpu->kvm))
-		return;
+	if (is_td_vcpu(vcpu))
+		return tdx_get_cs_db_l_bits(vcpu, db, l);
 
 	vmx_get_cs_db_l_bits(vcpu, db, l);
 }
@@ -554,13 +554,9 @@ static void vt_set_dr7(struct kvm_vcpu *vcpu, unsigned long val)
 
 static void vt_sync_dirty_debug_regs(struct kvm_vcpu *vcpu)
 {
-	/*
-	 * MOV-DR exiting is always cleared for TD guest, even in debug mode.
-	 * Thus KVM_DEBUGREG_WONT_EXIT can never be set and it should never
-	 * reach here for TD vcpu.
-	 */
-	if (KVM_BUG_ON(is_td_vcpu(vcpu), vcpu->kvm))
-		return;
+	/* MOV-DR exiting enabled in SEAM v0.8 for debug guest */
+	if (is_td_vcpu(vcpu))
+		return tdx_sync_dirty_debug_regs(vcpu);
 
 	vmx_sync_dirty_debug_regs(vcpu);
 }

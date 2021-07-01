@@ -258,6 +258,9 @@ static __always_inline u64 td_tdcs_exec_read64(struct kvm_tdx *kvm_tdx, u32 fiel
 	return ex_ret.r8;
 }
 
+/* Export for caller in common.h */
+__always_inline unsigned long tdexit_exit_qual(struct kvm_vcpu *vcpu);
+
 #else
 
 struct kvm_tdx;

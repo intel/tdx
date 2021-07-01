@@ -4928,13 +4928,18 @@ static int handle_cr(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
-static int handle_dr(struct kvm_vcpu *vcpu)
+/*
+ * This function is sharing between VMX and TDX to handle
+ * the EXIT_REASON_DR_ACCESS for both legacy guest and INTEL
+ * TD guest
+ */
+int vmx_handle_dr(struct kvm_vcpu *vcpu)
 {
 	unsigned long exit_qualification;
 	int dr, dr7, reg;
 	int err = 1;
 
-	exit_qualification = vmx_get_exit_qual(vcpu);
+	exit_qualification = vm_get_exit_qual(vcpu);
 	dr = exit_qualification & DEBUG_REG_ACCESS_NUM;
 
 	/* First, if DR does not exist, trigger UD */
@@ -4944,7 +4949,8 @@ static int handle_dr(struct kvm_vcpu *vcpu)
 	if (kvm_x86_ops.get_cpl(vcpu) > 0)
 		goto out;
 
-	dr7 = vmcs_readl(GUEST_DR7);
+	dr7 = vmreadl(vcpu, GUEST_DR7);
+
 	if (dr7 & DR7_GD) {
 		/*
 		 * As the vm-exit takes precedence over the debug trap, we
@@ -4965,7 +4971,7 @@ static int handle_dr(struct kvm_vcpu *vcpu)
 	}
 
 	if (vcpu->guest_debug == 0) {
-		exec_controls_clearbit(to_vmx(vcpu), CPU_BASED_MOV_DR_EXITING);
+		vm_exec_controls_clearbit(vcpu, CPU_BASED_MOV_DR_EXITING);
 
 		/*
 		 * No more DR vmexits; force a reload of the debug registers
@@ -4986,13 +4992,15 @@ static int handle_dr(struct kvm_vcpu *vcpu)
 	} else {
 		err = kvm_set_dr(vcpu, dr, kvm_register_read(vcpu, reg));
 	}
-
 out:
 	return kvm_complete_insn_gp(vcpu, err);
 }
 
 static void vmx_sync_dirty_debug_regs(struct kvm_vcpu *vcpu)
 {
+	/* Keep the original checking for legacy x86 guests */
+	WARN_ON(vcpu->arch.switch_db_regs & KVM_DEBUGREG_AUTO_SWITCH_GUEST);
+
 	get_debugreg(vcpu->arch.db[0], 0);
 	get_debugreg(vcpu->arch.db[1], 1);
 	get_debugreg(vcpu->arch.db[2], 2);
@@ -5419,7 +5427,7 @@ static int (*kvm_vmx_exit_handlers[])(struct kvm_vcpu *vcpu) = {
 	[EXIT_REASON_NMI_WINDOW]	      = handle_nmi_window,
 	[EXIT_REASON_IO_INSTRUCTION]          = handle_io,
 	[EXIT_REASON_CR_ACCESS]               = handle_cr,
-	[EXIT_REASON_DR_ACCESS]               = handle_dr,
+	[EXIT_REASON_DR_ACCESS]               = vmx_handle_dr,
 	[EXIT_REASON_CPUID]                   = kvm_emulate_cpuid,
 	[EXIT_REASON_MSR_READ]                = kvm_emulate_rdmsr,
 	[EXIT_REASON_MSR_WRITE]               = kvm_emulate_wrmsr,

@@ -18,6 +18,7 @@
 #include <asm/insn-eval.h>
 #include <linux/sched/signal.h> /* force_sig_fault() */
 #include <linux/swiotlb.h>
+#include <linux/pci.h>
 
 #define CREATE_TRACE_POINTS
 #include <asm/trace/tdx.h>
@@ -814,6 +815,8 @@ void __init tdx_early_init(void)
 
 	if (tdx_hcall_set_notify_intr(TDX_GUEST_EVENT_NOTIFY_VECTOR))
 		pr_warn("Setting event notification interrupt failed\n");
+
+	pci_disable_early();
 
 	pr_info("Guest initialized\n");
 }

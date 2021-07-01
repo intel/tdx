@@ -92,6 +92,11 @@ void pcibios_scan_root(int bus);
 struct irq_routing_table *pcibios_get_irq_routing_table(void);
 int pcibios_set_irq_routing(struct pci_dev *dev, int pin, int irq);
 
+#ifdef CONFIG_PCI
+void pci_disable_early(void);
+#else
+static inline void pci_disable_early(void) { }
+#endif
 
 #define HAVE_PCI_MMAP
 #define arch_can_pci_mmap_wc()	pat_enabled()

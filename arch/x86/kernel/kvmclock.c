@@ -195,6 +195,9 @@ static void kvm_setup_secondary_clock(void)
 
 void kvmclock_disable(void)
 {
+	if (cc_platform_has(CC_ATTR_GUEST_SECURE_TIME))
+		return;
+
 	native_write_msr(msr_kvm_system_time, 0, 0);
 }
 
@@ -288,7 +291,8 @@ void __init kvmclock_init(void)
 {
 	u8 flags;
 
-	if (!kvm_para_available() || !kvmclock)
+	if (!kvm_para_available() || !kvmclock ||
+	    cc_platform_has(CC_ATTR_GUEST_SECURE_TIME))
 		return;
 
 	if (kvm_para_has_feature(KVM_FEATURE_CLOCKSOURCE2)) {

@@ -98,6 +98,16 @@ enum cc_attr {
 	 * Examples include TDX guest.
 	 */
 	CC_ATTR_GUEST_HARDENED,
+
+	/*
+	 * @CC_ATTR_GUEST_SECURE_TIME: Use secured TSC and disable kvmclock.
+	 *
+	 * The platform/OS is running as a guest/virtual machine and use
+	 * secured TSC and disable kvmclock.
+	 *
+	 * Examples include TDX guest.
+	 */
+	CC_ATTR_GUEST_SECURE_TIME,
 };
 
 #ifdef CONFIG_ARCH_HAS_CC_PLATFORM

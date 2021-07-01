@@ -22,6 +22,8 @@
 #define PR_GUEST_SHARED_MAPPING_INIT		0x1004
 /* Support for driver filter */
 #define PR_GUEST_DRIVER_FILTER			0x1005
+/* Do not use paravirtual time */
+#define PR_GUEST_SECURE_TIME			0x1006
 
 #ifdef CONFIG_ARCH_HAS_PROTECTED_GUEST
 #include <asm/protected_guest.h>

@@ -13,6 +13,7 @@
 #include <linux/export.h>
 #include <linux/spinlock.h>
 #include <linux/pci_ids.h>
+#include <linux/protected_guest.h>
 #include <asm/amd_nb.h>
 
 #define PCI_DEVICE_ID_AMD_17H_ROOT	0x1450
@@ -238,6 +239,9 @@ int amd_cache_northbridges(void)
 	u16 i, j;
 
 	if (amd_northbridges.num)
+		return 0;
+
+	if (prot_guest_has(PATTR_GUEST_DRIVER_FILTER))
 		return 0;
 
 	if (boot_cpu_data.x86_vendor == X86_VENDOR_HYGON) {

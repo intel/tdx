@@ -19,6 +19,7 @@
 #define PATTR_GUEST_UNROLL_STRING_IO	4	/* Unrolled string IO */
 #define PATTR_GUEST_SHARED_MAPPING_INIT	5	/* Late shared mapping init*/
 #define PATTR_GUEST_DRIVER_FILTER	6	/* Guest Driver filter */
+#define PATTR_GUEST_SECURE_TIME		7	/* Guest Secure Time */
 
 /* 0x800 - 0x8ff reserved for AMD */
 #define PATTR_SME			0x800

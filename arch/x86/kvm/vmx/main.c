@@ -207,6 +207,9 @@ static void vt_handle_exit_irqoff(struct kvm_vcpu *vcpu)
 
 static int vt_skip_emulated_instruction(struct kvm_vcpu *vcpu)
 {
+	if (is_td_vcpu(vcpu))
+		return tdx_skip_emulated_instruction(vcpu);
+
 	return vmx_skip_emulated_instruction(vcpu);
 }
 
@@ -674,8 +677,8 @@ static void vt_flush_tlb_guest(struct kvm_vcpu *vcpu)
 
 static void vt_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask)
 {
-	if (KVM_BUG_ON(is_td_vcpu(vcpu), vcpu->kvm))
-		return;
+	if (is_td_vcpu(vcpu))
+		return tdx_set_interrupt_shadow(vcpu, mask);
 
 	vmx_set_interrupt_shadow(vcpu, mask);
 }

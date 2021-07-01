@@ -49,3 +49,5 @@ static int tdx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr) { return 1; 
 static u64 tdx_get_segment_base(struct kvm_vcpu *vcpu, int seg) { return 0; }
 static void tdx_get_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var,
 			    int seg) {}
+static void tdx_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask) {}
+static int tdx_skip_emulated_instruction(struct kvm_vcpu *vcpu) { return 0; }

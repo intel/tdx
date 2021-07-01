@@ -2607,6 +2607,52 @@ static int tdx_write_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memo
 				      (void __user *)rw_memory->ubuf);
 }
 
+static void tdx_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask)
+{
+	if (!is_debug_td(vcpu))
+		return;
+
+	vmx_set_interrupt_shadow(vcpu, mask);
+}
+
+static int tdx_skip_emulated_instruction(struct kvm_vcpu *vcpu)
+{
+	unsigned long rip, orig_rip;
+
+	if (!is_debug_td(vcpu))
+		return 0;
+
+	if (is_guest_mode(vcpu)) {
+		/*
+		 * Refer vmx_update_emulated_instruction(vcpu)
+		 * for more information.
+		 */
+		kvm_pr_unimpl("No nested support to TD guest\n");
+		return 0;
+	}
+
+	/*
+	 * Refer skip_emulated_instruction() in vmx.c for more information
+	 * about this checking
+	 */
+	if (static_cpu_has(X86_FEATURE_HYPERVISOR) &&
+	    to_tdx(vcpu)->exit_reason.basic == EXIT_REASON_EPT_MISCONFIG) {
+		kvm_pr_unimpl("kvm_emulate_instruction() doesn't support TD guest\n");
+		return 0;
+	}
+
+	orig_rip = kvm_rip_read(vcpu);
+	rip = orig_rip + td_vmcs_read32(to_tdx(vcpu), VM_EXIT_INSTRUCTION_LEN);
+#ifdef CONFIG_X86_64
+	rip = vmx_mask_out_guest_rip(vcpu, orig_rip, rip);
+#endif
+	kvm_rip_write(vcpu, rip);
+
+	tdx_set_interrupt_shadow(vcpu, 0);
+
+	return 1;
+}
+
 static int __init tdx_debugfs_init(void);
 static void __exit tdx_debugfs_exit(void);
 

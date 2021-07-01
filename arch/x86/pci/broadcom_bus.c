@@ -97,6 +97,9 @@ static int __init broadcom_postcore_init(void)
 		return 0;
 #endif
 
+	if (!early_pci_allowed())
+		return 0;
+
 	id = read_pci_config(bus, slot, 0, PCI_VENDOR_ID);
 	vendor = id & 0xffff;
 	device = (id >> 16) & 0xffff;

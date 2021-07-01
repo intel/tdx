@@ -70,6 +70,12 @@ struct tdx_ex_ret {
 		struct {
 			u64 field_val;
 		} mng_rdwr;
+		/* TDH_MEM_{RD,WR} return the error info and value. */
+		struct {
+			u64 ext_err_info_1;
+			u64 ext_err_info_2;
+			u64 mem_val;
+		} mem_rdwr;
 		/* TDH_PHYMEM_PAGE_RDMD and TDH_PHYMEM_PAGE_RECLAIM return page metadata. */
 		struct {
 			u64 page_type;

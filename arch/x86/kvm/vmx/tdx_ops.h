@@ -85,9 +85,9 @@ static inline u64 tdh_mng_wr(hpa_t tdr, u64 field, u64 val, u64 mask,
 	return seamcall(TDH_MNG_WR, tdr, field, val, mask, 0, ex);
 }
 
-static inline u64 tdh_mem_rd(hpa_t addr, struct tdx_ex_ret *ex)
+static inline u64 tdh_mem_rd(hpa_t tdr, gpa_t addr, struct tdx_ex_ret *ex)
 {
-	return seamcall(TDH_MEM_RD, addr, 0, 0, 0, 0, ex);
+	return seamcall(TDH_MEM_RD, addr, tdr, 0, 0, 0, ex);
 }
 
 static inline u64 tdh_mem_wr(hpa_t addr, u64 val, struct tdx_ex_ret *ex)

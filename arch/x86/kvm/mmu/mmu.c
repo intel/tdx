@@ -6537,3 +6537,58 @@ void kvm_mmu_pre_destroy_vm(struct kvm *kvm)
 	if (kvm->arch.nx_lpage_recovery_thread)
 		kthread_stop(kvm->arch.nx_lpage_recovery_thread);
 }
+
+/* Caller should hold the kvm srcu and kvm mmu lock */
+int kvm_mmu_is_page_private(struct kvm *kvm,
+			    struct kvm_memory_slot *memslot,
+			    gfn_t gfn, bool *is_private)
+{
+	struct slot_rmap_walk_iterator s_iter;
+	struct rmap_iterator r_iter;
+	u64 *sptep;
+	int ret = -EINVAL;
+
+	if (!kvm->arch.gfn_shared_mask) {
+		*is_private = false;
+		return 0;
+	}
+
+	for_each_slot_rmap_range(memslot, PG_LEVEL_4K,
+				 KVM_MAX_HUGEPAGE_LEVEL,
+				 gfn, gfn, &s_iter) {
+		sptep = rmap_get_first(s_iter.rmap, &r_iter);
+
+		/*
+		 * sptep = NULL may happen when:
+		 * 1. mm subsystem doing some memory clean up/optimization
+		 *    task for shared pages, e.g numa balancing or defrag for
+		 *    THP and guest hasn't access/write the page again. This
+		 *    should only happen for shared page because:
+		 *
+		 *    The private pages now are pinned, in future they
+		 *    will be removed from direct mapping and task's cr3
+		 *    mapping, so they won't be influenced by such mm
+		 *    clean up/optimization tasks now and future.
+		 *
+		 * 2. The guest never access this page before so NO EPT
+		 *    violation in KVM to fill the rmap. In this case
+		 *    treat the memory type as shared at least won't break
+		 *    the guest, reading and writing actual has no effect.
+		 *    This can be optimized if we can distinguish these 2
+		 *    cases.
+		 */
+		if (sptep && KVM_BUG_ON(!!rmap_get_next(&r_iter), kvm))
+			return -EFAULT;
+
+		if (sptep) {
+			*is_private = is_private_spte(kvm, sptep);
+			return 0;
+		}
+
+		*is_private = false;
+		ret = 0;
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL(kvm_mmu_is_page_private);

@@ -808,7 +808,7 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 		intel_pmu_restore();
 	}
 
-	vmx_register_cache_reset(vcpu);
+	tdx_register_cache_reset(vcpu);
 
 	trace_kvm_exit((unsigned int)tdx->exit_reason.full, vcpu, KVM_ISA_VMX);
 

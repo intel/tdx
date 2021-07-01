@@ -606,6 +606,18 @@ static void vt_cache_reg(struct kvm_vcpu *vcpu, enum kvm_reg reg)
 		vcpu->arch.cr4 &= ~guest_owned_bits;
 		vcpu->arch.cr4 |= vmreadl(vcpu, GUEST_CR4) & guest_owned_bits;
 		break;
+	case VCPU_REGS_RAX:
+	case VCPU_REGS_RCX:
+	case VCPU_REGS_RDX:
+	case VCPU_REGS_RBX:
+	case VCPU_REGS_RBP:
+	case VCPU_REGS_RSI:
+	case VCPU_REGS_RDI:
+#ifdef CONFIG_X86_64
+	case VCPU_REGS_R8 ... VCPU_REGS_R15:
+#endif
+		vcpu->arch.regs[reg] = vmread_gprs(vcpu, reg);
+		break;
 	default:
 		KVM_BUG_ON(1, vcpu->kvm);
 		break;

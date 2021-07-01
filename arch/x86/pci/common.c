@@ -732,3 +732,8 @@ struct pci_dev *pci_real_dma_dev(struct pci_dev *dev)
 	return dev;
 }
 #endif
+
+void pci_disable_early(void)
+{
+	pci_probe |= PCI_PROBE_NOEARLY;
+}

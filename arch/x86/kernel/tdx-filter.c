@@ -110,6 +110,8 @@ void __init tdg_filter_init(void)
 		return;
 	}
 
+	pci_disable_early();
+
 	if (is_filter_overridden()) {
 		/*
 		 * Since the default allow/deny list is overridden

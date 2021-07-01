@@ -37,6 +37,18 @@ static __always_inline void vmwrite##bits(struct kvm_vcpu *vcpu,	   \
 	}								   \
 	vmcs_write##bits(field, value);					   \
 }
+
+static __always_inline u64 vmread_gprs(struct kvm_vcpu *vcpu,
+				       u64 field)
+{
+	if (!is_td_vcpu(vcpu))
+		return vcpu->arch.regs[field];
+
+	if (KVM_BUG_ON(!is_debug_td(vcpu), vcpu->kvm))
+		return 0UL;
+
+	return td_gpr_read64(to_tdx(vcpu), field);
+}
 #else
 #define VT_BUILD_VMCS_HELPERS(type, bits, tdbits)			   \
 static __always_inline type vmread##bits(struct kvm_vcpu *vcpu,		   \
@@ -48,6 +60,12 @@ static __always_inline void vmwrite##bits(struct kvm_vcpu *vcpu,	   \
 					  unsigned long field, type value) \
 {									   \
 	vmcs_write##bits(field, value);					   \
+}
+
+static __always_inline u64 vmread_gprs(struct kvm_vcpu *vcpu,
+				       u64 field)
+{
+	return vcpu->arch.regs[field];
 }
 #endif /* CONFIG_INTEL_TDX_HOST */
 VT_BUILD_VMCS_HELPERS(u16, 16, 16);

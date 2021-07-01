@@ -22,6 +22,7 @@
 #include <linux/init.h>
 #include <linux/pci.h>
 #include <linux/delay.h>
+#include <linux/protected_guest.h>
 #include <asm/io.h>
 
 /*
@@ -178,6 +179,9 @@ static int __init init_acpi_pm_clocksource(void)
 	unsigned int i, j = 0;
 
 	if (!pmtmr_ioport)
+		return -ENODEV;
+
+	if (prot_guest_has(PATTR_GUEST_SECURE_TIME))
 		return -ENODEV;
 
 	/* "verify" this timing source: */

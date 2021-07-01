@@ -957,6 +957,10 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 
 	exit_reason = tdvmcall_exit_reason(vcpu);
 
+	trace_kvm_tdvmcall(vcpu, exit_reason,
+			   tdvmcall_p1_read(vcpu), tdvmcall_p2_read(vcpu),
+			   tdvmcall_p3_read(vcpu), tdvmcall_p4_read(vcpu));
+
 	switch (exit_reason) {
 	case EXIT_REASON_CPUID:
 		return tdx_emulate_cpuid(vcpu);
@@ -1034,10 +1038,14 @@ static void tdx_sept_set_private_spte(struct kvm_vcpu *vcpu, gfn_t gfn,
 
 	/* Build-time faults are induced and handled via TDH_MEM_PAGE_ADD. */
 	if (is_td_finalized(kvm_tdx)) {
+		trace_kvm_sept_seamcall(SEAMCALL_TDH_MEM_PAGE_AUG, gpa, hpa, level);
+
 		err = tdh_mem_page_aug(kvm_tdx->tdr.pa, gpa, hpa, &ex_ret);
 		SEPT_ERR(err, &ex_ret, TDH_MEM_PAGE_AUG, vcpu->kvm);
 		return;
 	}
+
+	trace_kvm_sept_seamcall(SEAMCALL_TDH_MEM_PAGE_ADD, gpa, hpa, level);
 
 	source_pa = kvm_tdx->source_pa & ~KVM_TDX_MEASURE_MEMORY_REGION;
 
@@ -1062,6 +1070,8 @@ static void tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn, int level,
 		return;
 
 	if (is_hkid_assigned(kvm_tdx)) {
+		trace_kvm_sept_seamcall(SEAMCALL_TDH_MEM_PAGE_REMOVE, gpa, hpa, level);
+
 		err = tdh_mem_page_remove(kvm_tdx->tdr.pa, gpa, level, &ex_ret);
 		if (SEPT_ERR(err, &ex_ret, TDH_MEM_PAGE_REMOVE, kvm))
 			return;
@@ -1086,6 +1096,8 @@ static int tdx_sept_link_private_sp(struct kvm_vcpu *vcpu, gfn_t gfn,
 	struct tdx_ex_ret ex_ret;
 	u64 err;
 
+	trace_kvm_sept_seamcall(SEAMCALL_TDH_MEM_SEPT_ADD, gpa, hpa, level);
+
 	err = tdh_mem_spet_add(kvm_tdx->tdr.pa, gpa, level, hpa, &ex_ret);
 	if (SEPT_ERR(err, &ex_ret, TDH_MEM_SEPT_ADD, vcpu->kvm))
 		return -EIO;
@@ -1100,6 +1112,8 @@ static void tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn, int level)
 	struct tdx_ex_ret ex_ret;
 	u64 err;
 
+	trace_kvm_sept_seamcall(SEAMCALL_TDH_MEM_RANGE_BLOCK, gpa, -1ull, level);
+
 	err = tdh_mem_range_block(kvm_tdx->tdr.pa, gpa, level, &ex_ret);
 	SEPT_ERR(err, &ex_ret, TDH_MEM_RANGE_BLOCK, kvm);
 }
@@ -1110,6 +1124,8 @@ static void tdx_sept_unzap_private_spte(struct kvm *kvm, gfn_t gfn, int level)
 	gpa_t gpa = gfn << PAGE_SHIFT;
 	struct tdx_ex_ret ex_ret;
 	u64 err;
+
+	trace_kvm_sept_seamcall(SEAMCALL_TDH_MEM_RANGE_UNBLOCK, gpa, -1ull, level);
 
 	err = tdh_mem_range_unblock(kvm_tdx->tdr.pa, gpa, level, &ex_ret);
 	SEPT_ERR(err, &ex_ret, TDH_MEM_RANGE_UNBLOCK, kvm);

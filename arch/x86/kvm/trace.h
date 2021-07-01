@@ -676,6 +676,64 @@ TRACE_EVENT(kvm_nested_vmexit_inject,
 );
 
 /*
+ * Tracepoint for TDVMCALL from a TDX guest
+ */
+TRACE_EVENT(kvm_tdvmcall,
+	TP_PROTO(struct kvm_vcpu *vcpu, __u32 exit_reason,
+		 __u64 p1, __u64 p2, __u64 p3, __u64 p4),
+	TP_ARGS(vcpu, exit_reason, p1, p2, p3, p4),
+
+	TP_STRUCT__entry(
+		__field(	__u64,		rip		)
+		__field(	__u32,		exit_reason	)
+		__field(	__u64,		p1		)
+		__field(	__u64,		p2		)
+		__field(	__u64,		p3		)
+		__field(	__u64,		p4		)
+	),
+
+	TP_fast_assign(
+		__entry->rip			= kvm_rip_read(vcpu);
+		__entry->exit_reason		= exit_reason;
+		__entry->p1			= p1;
+		__entry->p2			= p2;
+		__entry->p3			= p3;
+		__entry->p4			= p4;
+	),
+
+	TP_printk("rip: %llx reason: %s p1: %llx p2: %llx p3: %llx p4: %llx",
+		  __entry->rip,
+		  __print_symbolic(__entry->exit_reason,
+				   TDG_VP_VMCALL_EXIT_REASONS),
+		  __entry->p1, __entry->p2, __entry->p3, __entry->p4)
+);
+
+/*
+ * Tracepoint for SEPT related SEAMCALLs.
+ */
+TRACE_EVENT(kvm_sept_seamcall,
+	TP_PROTO(__u64 op, __u64 gpa, __u64 hpa, int level),
+	TP_ARGS(op, gpa, hpa, level),
+
+	TP_STRUCT__entry(
+		__field(	__u64,		op	)
+		__field(	__u64,		gpa	)
+		__field(	__u64,		hpa	)
+		__field(	int,		level	)
+	),
+
+	TP_fast_assign(
+		__entry->op			= op;
+		__entry->gpa			= gpa;
+		__entry->hpa			= hpa;
+		__entry->level			= level;
+	),
+
+	TP_printk("op: %llu gpa: 0x%llx hpa: 0x%llx level: %u",
+		  __entry->op, __entry->gpa, __entry->hpa, __entry->level)
+);
+
+/*
  * Tracepoint for nested #vmexit because of interrupt pending
  */
 TRACE_EVENT(kvm_nested_intr_vmexit,

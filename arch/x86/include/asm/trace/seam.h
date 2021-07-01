@@ -9,9 +9,14 @@
 
 #if IS_ENABLED(CONFIG_INTEL_TDX_HOST)
 
+#ifdef SEAMLDR_SEAMCALLS
 #define SEAMCALLS		\
 	SEAMLDR_SEAMCALLS,	\
 	TDX_SEAMCALLS
+#else
+#define SEAMCALLS		\
+	TDX_SEAMCALLS
+#endif
 
 TRACE_EVENT(seamcall_enter,
 	    TP_PROTO(int cpuid, u64 fn, u64 rcx, u64 rdx,
@@ -88,6 +93,7 @@ TRACE_EVENT(seamcall_exit,
 	    TP_printk("cpuid: %d op: %s err: %s(%llx) %llx %llx %llx %llx %llx %llx",
 		__entry->cpuid,
 		__print_symbolic_u64(__entry->fn, SEAMCALLS),
+#ifdef SEAMLDR_ERROR_CODES
 		({ ((__entry->err & TDX_SEAMCALL_STATUS_MASK) ==
 			  P_SEAMLDR_SEAMCALL_ERROR_CODE) ?
 				__print_symbolic_u64(__entry->err,
@@ -95,6 +101,11 @@ TRACE_EVENT(seamcall_exit,
 				__print_symbolic_u64(__entry->err &
 						     TDX_SEAMCALL_STATUS_MASK,
 						     TDX_STATUS_CODES); }),
+#else
+				__print_symbolic_u64(__entry->err &
+						     TDX_SEAMCALL_STATUS_MASK,
+						     TDX_STATUS_CODES),
+#endif
 		__entry->err,
 		__entry->rcx,
 		__entry->rdx,

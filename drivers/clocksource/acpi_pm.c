@@ -22,6 +22,7 @@
 #include <linux/init.h>
 #include <linux/pci.h>
 #include <linux/delay.h>
+#include <linux/cc_platform.h>
 #include <asm/io.h>
 
 /*
@@ -179,6 +180,15 @@ static int __init init_acpi_pm_clocksource(void)
 
 	if (!pmtmr_ioport)
 		return -ENODEV;
+
+	if (cc_platform_has(CC_ATTR_GUEST_SECURE_TIME)) {
+		/*
+		 * Stop acpi_pm_read_early() from calling directly
+		 * into acpi_pm_read_verified().
+		 */
+		pmtmr_ioport = 0;
+		return -ENODEV;
+	}
 
 	/* "verify" this timing source: */
 	for (j = 0; j < ACPI_PM_MONOTONICITY_CHECKS; j++) {

@@ -8,6 +8,9 @@
 #include <asm/clocksource.h>
 #include <asm/pvclock-abi.h>
 
+#include "vmx/tdx_arch.h"
+#include "vmx/tdx_errno.h"
+
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM kvm
 
@@ -657,6 +660,83 @@ TRACE_EVENT(kvm_nested_vmexit_inject,
 		  kvm_print_exit_reason(__entry->exit_code, __entry->isa),
 		  __entry->exit_info1, __entry->exit_info2,
 		  __entry->exit_int_info, __entry->exit_int_info_err)
+);
+
+/*
+ * Tracepoint for the start of TDX SEAMCALLs.
+ */
+TRACE_EVENT(kvm_tdx_seamcall_enter,
+	TP_PROTO(int cpuid, __u64 op, __u64 rcx, __u64 rdx, __u64 r8,
+		 __u64 r9, __u64 r10),
+	TP_ARGS(cpuid, op, rcx, rdx, r8, r9, r10),
+
+	TP_STRUCT__entry(
+		__field(	int,		cpuid	)
+		__field(	__u64,		op	)
+		__field(	__u64,		rcx	)
+		__field(	__u64,		rdx	)
+		__field(	__u64,		r8	)
+		__field(	__u64,		r9	)
+		__field(	__u64,		r10	)
+	),
+
+	TP_fast_assign(
+		__entry->cpuid			= cpuid;
+		__entry->op			= op;
+		__entry->rcx			= rcx;
+		__entry->rdx			= rdx;
+		__entry->r8			= r8;
+		__entry->r9			= r9;
+		__entry->r10			= r10;
+	),
+
+	TP_printk("cpu: %d op: %s rcx: 0x%llx rdx: 0x%llx r8: 0x%llx r9: 0x%llx r10: 0x%llx",
+		  __entry->cpuid,
+		  __print_symbolic(__entry->op, TDX_SEAMCALL_OP_CODES),
+		  __entry->rcx, __entry->rdx, __entry->r8,
+		  __entry->r9, __entry->r10)
+);
+
+/*
+ * Tracepoint for the end of TDX SEAMCALLs.
+ */
+TRACE_EVENT(kvm_tdx_seamcall_exit,
+	TP_PROTO(int cpuid, __u64 op, __u64 err, __u64 rcx, __u64 rdx, __u64 r8,
+		 __u64 r9, __u64 r10, __u64 r11),
+	TP_ARGS(cpuid, op, err, rcx, rdx, r8, r9, r10, r11),
+
+	TP_STRUCT__entry(
+		__field(	int,		cpuid	)
+		__field(	__u64,		op	)
+		__field(	__u64,		err	)
+		__field(	__u64,		rcx	)
+		__field(	__u64,		rdx	)
+		__field(	__u64,		r8	)
+		__field(	__u64,		r9	)
+		__field(	__u64,		r10	)
+		__field(	__u64,		r11	)
+	),
+
+	TP_fast_assign(
+		__entry->cpuid			= cpuid;
+		__entry->op			= op;
+		__entry->err			= err;
+		__entry->rcx			= rcx;
+		__entry->rdx			= rdx;
+		__entry->r8			= r8;
+		__entry->r9			= r9;
+		__entry->r10			= r10;
+		__entry->r11			= r11;
+	),
+
+	TP_printk("cpu: %d op: %s err %s 0x%llx rcx: 0x%llx rdx: 0x%llx r8: 0x%llx r9: 0x%llx r10: 0x%llx r11: 0x%llx",
+		  __entry->cpuid,
+		  __print_symbolic(__entry->op, TDX_SEAMCALL_OP_CODES),
+		  __print_symbolic(__entry->err & TDX_SEAMCALL_STATUS_MASK,
+				   TDX_SEAMCALL_STATUS_CODES),
+		  __entry->err,
+		  __entry->rcx, __entry->rdx, __entry->r8,
+		  __entry->r9, __entry->r10, __entry->r11)
 );
 
 /*

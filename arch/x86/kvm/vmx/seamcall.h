@@ -9,12 +9,32 @@
 #else
 
 #ifndef seamcall
+#include "trace.h"
+
 struct tdx_ex_ret;
 asmlinkage u64 __seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10,
 			  struct tdx_ex_ret *ex);
 
+static inline u64 _seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10,
+			    struct tdx_ex_ret *ex)
+{
+	u64 err;
+
+	trace_kvm_tdx_seamcall_enter(smp_processor_id(), op,
+				     rcx, rdx, r8, r9, r10);
+	err = __seamcall(op, rcx, rdx, r8, r9, r10, ex);
+	if (ex)
+		trace_kvm_tdx_seamcall_exit(smp_processor_id(), op, err, ex->rcx,
+					    ex->rdx, ex->r8, ex->r9, ex->r10,
+					    ex->r11);
+	else
+		trace_kvm_tdx_seamcall_exit(smp_processor_id(), op, err,
+					    0, 0, 0, 0, 0, 0);
+	return err;
+}
+
 #define seamcall(op, rcx, rdx, r8, r9, r10, ex)				\
-	__seamcall(SEAMCALL_##op, (rcx), (rdx), (r8), (r9), (r10), (ex))
+	_seamcall(SEAMCALL_##op, (rcx), (rdx), (r8), (r9), (r10), (ex))
 #endif
 
 static inline void __pr_seamcall_error(u64 op, const char *op_str,

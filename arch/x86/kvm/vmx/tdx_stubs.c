@@ -51,3 +51,4 @@ static void tdx_get_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var,
 			    int seg) {}
 static void tdx_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask) {}
 static int tdx_skip_emulated_instruction(struct kvm_vcpu *vcpu) { return 0; }
+static void tdx_queue_exception(struct kvm_vcpu *vcpu) {}

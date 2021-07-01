@@ -715,8 +715,8 @@ static void vt_inject_nmi(struct kvm_vcpu *vcpu)
 
 static void vt_queue_exception(struct kvm_vcpu *vcpu)
 {
-	if (KVM_BUG_ON(is_td_vcpu(vcpu) && !is_debug_td(vcpu), vcpu->kvm))
-		return;
+	if (is_td_vcpu(vcpu))
+		return tdx_queue_exception(vcpu);
 
 	vmx_queue_exception(vcpu);
 }

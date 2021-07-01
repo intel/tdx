@@ -192,6 +192,7 @@ void tdx_prepare_switch_to_guest(struct kvm_vcpu *vcpu);
 int __init tdx_check_processor_compatibility(void);
 void __init tdx_pre_kvm_init(unsigned int *vcpu_size,
 			unsigned int *vcpu_align, unsigned int *vm_size);
+int tdx_write_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memory);
 int __init tdx_init(void);
 void tdx_update_exception_bitmap(struct kvm_vcpu *vcpu);
 void tdx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val);

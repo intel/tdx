@@ -3,6 +3,7 @@
     Copyright (C) 2008 Glauber de Oliveira Costa, Red Hat Inc.
 */
 
+#include <linux/cc_platform.h>
 #include <linux/clocksource.h>
 #include <linux/kvm_para.h>
 #include <asm/pvclock.h>
@@ -294,7 +295,8 @@ void __init kvmclock_init(void)
 {
 	u8 flags;
 
-	if (!kvm_para_available() || !kvmclock)
+	if (!kvm_para_available() || !kvmclock ||
+	    cc_platform_has(CC_ATTR_GUEST_SECURE_TIME))
 		return;
 
 	if (kvm_para_has_feature(KVM_FEATURE_CLOCKSOURCE2)) {

@@ -881,10 +881,18 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	/*
 	 * limited to debug td only due to now only debug
 	 * td guest need this feature for instructioin
-	 * emulation/skipping.
+	 * emulation/skipping and TD-off debugging.
 	 */
-	if (is_debug_td(vcpu))
+	if (is_debug_td(vcpu)) {
 		tdx_flush_gprs_dirty(vcpu, false);
+		/*
+		 * Clear corresponding interruptibility bits for STI
+		 * and MOV SS as legacy guest, refer vmx_vcpu_run()
+		 * for more informaiton
+		 */
+		if (vcpu->guest_debug & KVM_GUESTDBG_SINGLESTEP)
+			tdx_set_interrupt_shadow(vcpu, 0);
+	}
 
 	tdx_vcpu_enter_exit(vcpu, tdx);
 
@@ -976,12 +984,45 @@ void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu)
 
 static int tdx_handle_exception(struct kvm_vcpu *vcpu)
 {
+	u32 ex_no;
+	unsigned long dr6;
+	struct vcpu_tdx *tdx;
+	struct kvm_run *kvm_run = vcpu->run;
 	u32 intr_info = tdexit_intr_info(vcpu);
+	const u32 guest_debug_enable = KVM_GUESTDBG_USE_HW_BP
+		| KVM_GUESTDBG_SINGLESTEP;
 
 	if (is_nmi(intr_info) || is_machine_check(intr_info))
 		return 1;
 
-	kvm_pr_unimpl("unexpected exception 0x%x\n", intr_info);
+	tdx = to_tdx(vcpu);
+	ex_no = intr_info & INTR_INFO_VECTOR_MASK;
+	switch (ex_no) {
+	case DB_VECTOR:
+		dr6 = tdexit_exit_qual(vcpu);
+		if (!(vcpu->guest_debug & guest_debug_enable)) {
+			if (is_icebp(intr_info))
+				WARN_ON(!tdx_skip_emulated_instruction(vcpu));
+
+			kvm_queue_exception_p(vcpu, DB_VECTOR, dr6);
+			return 1;
+		}
+
+		kvm_run->debug.arch.dr6 = dr6 | DR6_ACTIVE_LOW;
+		kvm_run->debug.arch.dr7 = td_vmcs_read64(tdx, GUEST_DR7);
+		fallthrough;
+	case BP_VECTOR:
+		vcpu->arch.event_exit_inst_len =
+			td_vmcs_read32(tdx, VM_EXIT_INSTRUCTION_LEN);
+		kvm_run->exit_reason = KVM_EXIT_DEBUG;
+		kvm_run->debug.arch.pc = kvm_get_linear_rip(vcpu);
+		kvm_run->debug.arch.exception = ex_no;
+		return 0;
+	default:
+		kvm_pr_unimpl("unexpected exception 0x%x\n", intr_info);
+		break;
+	}
+
 	return -EFAULT;
 }
 
@@ -2392,7 +2433,40 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 
 void tdx_update_exception_bitmap(struct kvm_vcpu *vcpu)
 {
-	/* TODO: Figure out exception bitmap for debug TD. */
+	u32 eb;
+	u32 new_eb;
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	const u32 guest_debug_sw_bp = KVM_GUESTDBG_ENABLE
+		| KVM_GUESTDBG_USE_SW_BP;
+
+	if (!is_debug_td(vcpu) || !tdx->initialized)
+		return;
+
+	eb = td_vmcs_read32(tdx, EXCEPTION_BITMAP);
+
+	new_eb = eb | 1u << DB_VECTOR;
+	if ((vcpu->guest_debug & guest_debug_sw_bp) ==
+	    guest_debug_sw_bp) {
+		new_eb |= 1u << BP_VECTOR;
+	} else {
+		new_eb &= ~(1u << BP_VECTOR);
+	}
+
+	/*
+	 * Notice for nested support:
+	 * No nested supporting due to SEAM module doesn't
+	 * support it o far, we shuole consult
+	 * vmx_update_exception_bitmap() when nested support
+	 * become ready in future.
+	 */
+
+	if (new_eb != eb) {
+		u32 verify_eb;
+
+		td_vmcs_write32(tdx, EXCEPTION_BITMAP, new_eb);
+		verify_eb = td_vmcs_read32(tdx, EXCEPTION_BITMAP);
+		KVM_BUG_ON(verify_eb != new_eb, vcpu->kvm);
+	}
 }
 
 void tdx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val)
@@ -2480,6 +2554,12 @@ unsigned long tdx_get_rflags(struct kvm_vcpu *vcpu)
 
 void tdx_set_rflags(struct kvm_vcpu *vcpu, unsigned long rflags)
 {
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	u64 val;
+
+	if (!tdx->initialized)
+		return;
+
 	if (KVM_BUG_ON(!is_debug_td(vcpu), vcpu->kvm))
 		return;
 
@@ -2488,6 +2568,8 @@ void tdx_set_rflags(struct kvm_vcpu *vcpu, unsigned long rflags)
 	 * step debug.
 	 */
 	td_vmcs_write64(to_tdx(vcpu), GUEST_RFLAGS, rflags);
+	val = td_vmcs_read64(to_tdx(vcpu), GUEST_RFLAGS);
+	pr_info("Guest RFLAGS updated to 0x%llx\n", val);
 }
 
 bool tdx_is_emulated_msr(u32 index, bool write)

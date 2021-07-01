@@ -40,6 +40,7 @@ static int __init tdx_init(void) { return 0; }
 static void __exit tdx_exit(void) {}
 static void tdx_update_exception_bitmap(struct kvm_vcpu *vcpu) {}
 static void tdx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val) {}
+static void tdx_load_guest_debug_regs(struct kvm_vcpu *vcpu) {}
 static int tdx_get_cpl(struct kvm_vcpu *vcpu) { return 0; }
 static unsigned long tdx_get_rflags(struct kvm_vcpu *vcpu) { return 0; }
 static void tdx_set_rflags(struct kvm_vcpu *vcpu, unsigned long rflags) {}

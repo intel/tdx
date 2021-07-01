@@ -95,6 +95,16 @@ enum cc_attr {
 	CC_ATTR_GUEST_DEVICE_FILTER,
 
 	/**
+	 * @CC_ATTR_GUEST_SECURE_TIME: Use secured TSC and disable kvmclock.
+	 *
+	 * The platform/OS is running as a guest/virtual machine and use
+	 * secured TSC and disable kvmclock.
+	 *
+	 * Examples include TDX guest.
+	 */
+	CC_ATTR_GUEST_SECURE_TIME,
+
+	/**
 	 * @CC_ATTR_GUEST_TDX: Trust Domain Extension Support
 	 *
 	 * The platform/OS is running as a TDX guest/virtual machine.

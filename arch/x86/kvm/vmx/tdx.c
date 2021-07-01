@@ -2122,6 +2122,11 @@ static void tdx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val)
 	KVM_BUG_ON(val != DR7_FIXED_1, vcpu->kvm);
 }
 
+static void tdx_load_guest_debug_regs(struct kvm_vcpu *vcpu)
+{
+	kvm_pr_unimpl("unexpected %s\n", __func__);
+}
+
 static int tdx_get_cpl(struct kvm_vcpu *vcpu)
 {
 	if (KVM_BUG_ON(!is_debug_td(vcpu), vcpu->kvm))

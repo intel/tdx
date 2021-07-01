@@ -248,6 +248,8 @@ void __init tdg_filter_init(void)
 	/* Set default authorization as disabled */
 	dev_default_authorization = false;
 
+	pci_disable_early();
+
 	if (filter_overridden) {
 		/*
 		 * Since the default allow/deny list is overridden

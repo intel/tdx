@@ -10,6 +10,7 @@
 #include <linux/dmi.h>
 #include <linux/pci.h>
 #include <linux/init.h>
+#include <linux/protected_guest.h>
 #include <asm/pci_x86.h>
 #include <asm/pci-direct.h>
 
@@ -96,6 +97,9 @@ static int __init broadcom_postcore_init(void)
 	if (!acpi_disabled && acpi_os_get_root_pointer())
 		return 0;
 #endif
+
+	if (prot_guest_has(PATTR_GUEST_DRIVER_FILTER))
+		return 0;
 
 	id = read_pci_config(bus, slot, 0, PCI_VENDOR_ID);
 	vendor = id & 0xffff;

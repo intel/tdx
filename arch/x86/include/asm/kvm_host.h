@@ -718,6 +718,7 @@ struct kvm_vcpu_arch {
 		unsigned long payload;
 		bool has_payload;
 		u8 nested_apf;
+		bool emulate_inject_bp;
 	} exception;
 
 	struct kvm_queued_interrupt {

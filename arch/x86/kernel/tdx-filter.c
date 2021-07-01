@@ -246,6 +246,8 @@ void __init tdx_filter_init(void)
 
 	dev_default_authorization = false;
 
+	pci_disable_early();
+
 	if (filter_overridden) {
 		/*
 		 * Since the default allow list is overridden to

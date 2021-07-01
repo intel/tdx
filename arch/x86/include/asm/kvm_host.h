@@ -1376,6 +1376,7 @@ struct kvm_x86_ops {
 	void (*set_gdt)(struct kvm_vcpu *vcpu, struct desc_ptr *dt);
 	void (*sync_dirty_debug_regs)(struct kvm_vcpu *vcpu);
 	void (*set_dr7)(struct kvm_vcpu *vcpu, unsigned long value);
+	void (*load_guest_debug_regs)(struct kvm_vcpu *vcpu);
 	void (*cache_gprs)(struct kvm_vcpu *vcpu);
 	void (*flush_gprs)(struct kvm_vcpu *vcpu);
 	void (*cache_reg)(struct kvm_vcpu *vcpu, enum kvm_reg reg);
@@ -2012,6 +2013,9 @@ int memslot_rmap_alloc(struct kvm_memory_slot *slot, unsigned long npages);
 
 #define KVM_CLOCK_VALID_FLAGS						\
 	(KVM_CLOCK_TSC_STABLE | KVM_CLOCK_REALTIME | KVM_CLOCK_HOST_TSC)
+
+/* The common function for normal x86 guest */
+void load_guest_debug_regs(struct kvm_vcpu *vcpu);
 
 bool kvm_is_private_gfn(struct kvm *kvm, gfn_t gfn);
 bool kvm_vcpu_is_private_gfn(struct kvm_vcpu *vcpu, gfn_t gfn);

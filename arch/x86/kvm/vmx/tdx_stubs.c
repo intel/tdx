@@ -48,6 +48,7 @@ void __init tdx_pre_kvm_init(unsigned int *vcpu_size,
 int __init tdx_init(void) { return 0; }
 void tdx_update_exception_bitmap(struct kvm_vcpu *vcpu) {}
 void tdx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val) {}
+void tdx_load_guest_debug_regs(struct kvm_vcpu *vcpu) {}
 int tdx_get_cpl(struct kvm_vcpu *vcpu) { return 0; }
 unsigned long tdx_get_rflags(struct kvm_vcpu *vcpu) { return 0; }
 void tdx_set_rflags(struct kvm_vcpu *vcpu, unsigned long rflags) {}

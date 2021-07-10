@@ -48,6 +48,8 @@ bool tdx_allowed_port(short int port);
 
 int tdx_mcall_tdreport(void *data, void *reportdata);
 
+int tdx_mcall_rtmr_extend(u64 data, u64 rmtr);
+
 int tdx_hcall_get_quote(void *data, u64 len);
 
 extern void (*tdx_event_notify_handler)(void);

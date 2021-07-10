@@ -27,6 +27,7 @@
 
 /* TDX module Call Leaf IDs */
 #define TDX_GET_INFO			1
+#define TDX_RMTR_EXTEND			2
 #define TDX_GET_VEINFO			3
 #define TDX_GET_REPORT			4
 #define TDX_ACCEPT_PAGE			6
@@ -227,6 +228,34 @@ int tdx_mcall_tdreport(void *data, void *reportdata)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(tdx_mcall_tdreport);
+
+/*
+ * tdx_mcall_rtmr_extend() - Extend a TDX measurement register
+ *
+ * @data	: Physical address of 96B aligned data.
+ * @rtmr	: RTMR number
+ *
+ * return 0 on success or failure error number.
+ */
+int tdx_mcall_rtmr_extend(u64 data, u64 rtmr)
+{
+	u64 ret;
+
+	if (!data || !cc_platform_has(CC_ATTR_GUEST_TDX))
+		return -EINVAL;
+
+	ret = __trace_tdx_module_call(TDX_RMTR_EXTEND, data, rtmr, 0, 0, NULL);
+
+	if (ret) {
+		if (TDCALL_RETURN_CODE(ret) == TDCALL_INVALID_OPERAND)
+			return -EINVAL;
+		else if (TDCALL_RETURN_CODE(ret) == TDCALL_OPERAND_BUSY)
+			return -EBUSY;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(tdx_mcall_rtmr_extend);
 
 /*
  * tdx_hcall_get_quote() - Generate TDQUOTE using TDREPORT_STRUCT.

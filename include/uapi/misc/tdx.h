@@ -11,6 +11,9 @@
 /* Output TD report data length after TDX_CMD_GET_TDREPORT IOCTL execution */
 #define TDX_TDREPORT_LEN		1024
 
+/* Input data length for EXTEND_RTMR (not including index) */
+#define TDX_EXTEND_LEN			48
+
 /*
  * TDX_CMD_GET_TDREPORT IOCTL is used to get TDREPORT data from the TDX
  * Module. Users should pass report data of size TDX_REPORT_DATA_LEN bytes
@@ -33,5 +36,15 @@
  * using TDX_CMD_GEN_QUOTE IOCTL.
  */
 #define TDX_CMD_GET_QUOTE_SIZE		_IOR('T', 0x03, __u64)
+
+/*
+ * Extend a TDX measurement register (RTMR) by input data.
+ * The first u64 of the buffer is the RTMR index, then the remaining
+ * is a hash value of the length returned by TDX_CMD_GET_EXTEND_SIZE
+ */
+#define TDX_CMD_EXTEND_RTMR		_IOR('T', 0x04, __u64)
+
+/* Report input buffer size for TDX_CMD_EXTEND_RTMR */
+#define TDX_CMD_GET_EXTEND_SIZE		_IOR('T', 0x05, __u64)
 
 #endif /* _UAPI_MISC_TDX_H */

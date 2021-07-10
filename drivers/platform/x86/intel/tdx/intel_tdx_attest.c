@@ -56,6 +56,7 @@ static long tdg_attest_ioctl(struct file *file, unsigned int cmd,
 {
 	void __user *argp = (void __user *)arg;
 	long ret = 0;
+	u64 rtmr;
 
 	mutex_lock(&attestation_lock);
 
@@ -107,6 +108,27 @@ static long tdg_attest_ioctl(struct file *file, unsigned int cmd,
 	case TDX_CMD_GET_QUOTE_SIZE:
 		ret = put_user(QUOTE_SIZE, (u64 __user *)argp);
 		break;
+
+	case TDX_CMD_EXTEND_RTMR:
+		BUILD_BUG_ON(TDX_TDREPORT_LEN < TDX_EXTEND_LEN);
+
+		ret = -EFAULT;
+
+		if (get_user(rtmr, (u64 __user *)argp))
+			break;
+		if (copy_from_user(report_data, argp + 8, TDX_EXTEND_LEN))
+			break;
+
+		ret = 0;
+		if (tdx_mcall_rtmr_extend(virt_to_phys(report_data), rtmr))
+			ret = -EIO;
+
+		break;
+
+	case TDX_CMD_GET_EXTEND_SIZE:
+		ret = put_user(TDX_EXTEND_LEN, (u64 __user *)argp);
+		break;
+
 	default:
 		pr_err("cmd %d not supported\n", cmd);
 		break;

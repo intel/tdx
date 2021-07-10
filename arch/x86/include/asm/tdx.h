@@ -99,6 +99,8 @@ extern int tdx_hcall_gpa_intent(phys_addr_t gpa, int numpages,
 
 int tdx_mcall_tdreport(u64 data, u64 reportdata);
 
+int tdx_mcall_rtmr_extend(u64 data, u64 rmtr);
+
 int tdx_hcall_get_quote(u64 data);
 
 extern void (*tdg_event_notify_handler)(void);

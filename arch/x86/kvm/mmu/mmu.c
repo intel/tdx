@@ -1617,6 +1617,23 @@ static bool kvm_unmap_rmapp(struct kvm *kvm, struct kvm_rmap_head *rmap_head,
 	return __kvm_zap_rmapp(kvm, rmap_head);
 }
 
+static bool kvm_drop_private_zapped_rmapp(
+	struct kvm *kvm, struct kvm_rmap_head *rmap_head,
+	const struct kvm_memory_slot *slot)
+{
+	u64 *sptep;
+	struct rmap_iterator iter;
+
+	for_each_rmap_spte(rmap_head, &iter, sptep) {
+		if (!is_private_zapped_spte(*sptep))
+			continue;
+
+		drop_spte(kvm, sptep);
+	}
+
+	return false;
+}
+
 static bool kvm_set_pte_rmapp(struct kvm *kvm, struct kvm_rmap_head *rmap_head,
 			      struct kvm_memory_slot *slot, gfn_t gfn, int level,
 			      pte_t pte)
@@ -6070,6 +6087,11 @@ static void kvm_mmu_zap_memslot(struct kvm *kvm, struct kvm_memory_slot *slot)
 	write_lock(&kvm->mmu_lock);
 	slot_handle_level(kvm, slot, kvm_zap_rmapp, PG_LEVEL_4K,
 			  KVM_MAX_HUGEPAGE_LEVEL, true);
+	if (kvm_gfn_stolen_mask(kvm)) {
+		kvm_flush_remote_tlbs(kvm);
+		slot_handle_level(kvm, slot, kvm_drop_private_zapped_rmapp,
+				  PG_LEVEL_4K, KVM_MAX_HUGEPAGE_LEVEL, false);
+	}
 	write_unlock(&kvm->mmu_lock);
 }
 
@@ -6077,7 +6099,7 @@ static void kvm_mmu_invalidate_zap_pages_in_memslot(struct kvm *kvm,
 			struct kvm_memory_slot *slot,
 			struct kvm_page_track_notifier_node *node)
 {
-	if (memslot_update_zap_all)
+	if (memslot_update_zap_all && !kvm_gfn_stolen_mask(kvm))
 		kvm_mmu_zap_all_fast(kvm);
 	else
 		kvm_mmu_zap_memslot(kvm, slot);

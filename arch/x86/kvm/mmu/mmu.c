@@ -1584,6 +1584,22 @@ static bool kvm_zap_rmap(struct kvm *kvm, struct kvm_rmap_head *rmap_head,
 	return __kvm_zap_rmap(kvm, rmap_head, slot);
 }
 
+static bool kvm_drop_private_zapped_rmapp(struct kvm *kvm, struct kvm_rmap_head *rmap_head,
+					  const struct kvm_memory_slot *slot)
+{
+	u64 *sptep;
+	struct rmap_iterator iter;
+
+	for_each_rmap_spte(rmap_head, &iter, sptep) {
+		if (!is_private_zapped_spte(*sptep))
+			continue;
+
+		drop_spte(kvm, sptep);
+	}
+
+	return false;
+}
+
 static bool kvm_set_pte_rmap(struct kvm *kvm, struct kvm_rmap_head *rmap_head,
 			     struct kvm_memory_slot *slot, gfn_t gfn, int level,
 			     pte_t pte)
@@ -6461,6 +6477,13 @@ static void kvm_mmu_zap_memslot(struct kvm *kvm, struct kvm_memory_slot *slot)
 	} else {
 		flush = slot_handle_level(kvm, slot, __kvm_zap_rmap, PG_LEVEL_4K,
 					  KVM_MAX_HUGEPAGE_LEVEL, true);
+		if (kvm_gfn_shared_mask(kvm)) {
+			/* TLB flushing is necessary before drop the private pages */
+			if (flush)
+				kvm_flush_remote_tlbs(kvm);
+			flush = slot_handle_level(kvm, slot, kvm_drop_private_zapped_rmapp,
+						  PG_LEVEL_4K, KVM_MAX_HUGEPAGE_LEVEL, false);
+		}
 	}
 	if (flush)
 		kvm_flush_remote_tlbs(kvm);

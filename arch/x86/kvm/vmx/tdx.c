@@ -61,6 +61,8 @@ static struct mutex *tdx_mng_key_config_lock;
 /*
  * A per-CPU list of TD vCPUs associated with a given CPU.  Used when a CPU
  * is brought down to invoke TDH_VP_FLUSH on the approapriate TD vCPUS.
+ * Protected by interrupt mask.  This list is manipulated in process context
+ * of vcpu and IPI callback.  See tdx_flush_vp_on_cpu().
  */
 static DEFINE_PER_CPU(struct list_head, associated_tdvcpus);
 
@@ -263,6 +265,8 @@ static void tdx_flush_vp(void *arg)
 
 static void tdx_flush_vp_on_cpu(struct kvm_vcpu *vcpu)
 {
+	unsigned long flags;
+
 	if (vcpu->cpu == -1)
 		return;
 
@@ -273,8 +277,11 @@ static void tdx_flush_vp_on_cpu(struct kvm_vcpu *vcpu)
 	 */
 	if (is_td_vcpu_created(to_tdx(vcpu)))
 		smp_call_function_single(vcpu->cpu, tdx_flush_vp, vcpu, 1);
-	else
+	else {
+		local_irq_save(flags);
 		tdx_disassociate_vp(vcpu);
+		local_irq_restore(flags);
+	}
 }
 
 static int tdx_do_tdh_phymem_cache_wb(void *param)
@@ -465,7 +472,7 @@ free_hkid:
 static int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
-	int cpu, ret, i;
+	int ret, i;
 
 	ret = tdx_alloc_td_page(&tdx->tdvpr);
 	if (ret)
@@ -494,11 +501,6 @@ static int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	tdx->host_state_need_save = true;
 	tdx->host_state_need_restore = false;
 
-	cpu = get_cpu();
-	list_add(&tdx->cpu_list, &per_cpu(associated_tdvcpus, cpu));
-	vcpu->cpu = cpu;
-	put_cpu();
-
 	return 0;
 
 free_tdvpx:
@@ -518,6 +520,7 @@ static void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	if (vcpu->cpu != cpu) {
 		tdx_flush_vp_on_cpu(vcpu);
 
+		local_irq_disable();
 		/*
 		 * Pairs with the smp_wmb() in tdx_disassociate_vp() to ensure
 		 * vcpu->cpu is read before tdx->cpu_list.
@@ -525,6 +528,7 @@ static void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 		smp_rmb();
 
 		list_add(&tdx->cpu_list, &per_cpu(associated_tdvcpus, cpu));
+		local_irq_enable();
 	}
 
 	vmx_vcpu_pi_load(vcpu, cpu);

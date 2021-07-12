@@ -3038,14 +3038,35 @@ static void kvm_mmu_zap_alias_spte(struct kvm_vcpu *vcpu, gfn_t gfn,
 	struct rmap_iterator iter;
 	struct kvm_mmu_page *sp;
 	u64 *sptep;
+	u64 spte;
 
 	for_each_shadow_entry(vcpu, gpa_alias, it) {
 		if (!is_shadow_present_pte(*it.sptep))
 			break;
 	}
 
+	spte = *it.sptep;
 	sp = sptep_to_sp(it.sptep);
-	if (!is_last_spte(*it.sptep, sp->role.level))
+
+	if (!is_last_spte(spte, sp->role.level))
+		return;
+
+	/*
+	 * multiple vcpus can race to zap same alias spte when vcpus caused EPT
+	 * violation on same gpa and come to __direct_map() at the same time.
+	 * In such case, __direct_map() handles it as spurious.
+	 *
+	 * rmap (or __kvm_zap_rmapp()) doesn't distinguish private/shared gpa.
+	 * And rmap is not supposed to co-exit with both shared and private
+	 * spte.  Check if other vcpu already zapped alias and established rmap
+	 * for same gpa to avoid zapping faulting gpa.
+	 *
+	 * shared  gpa_alias: !is_shadow_present_pte(spte)
+	 *                    is_zapped_private_pte(spte) is always false
+	 * private gpa_alias: !is_shadow_present_pte(spte) &&
+	 *                    !is_zapped_private_pte(spte)
+	 */
+	if (!is_shadow_present_pte(spte) && !is_zapped_private_pte(spte))
 		return;
 
 	rmap_head = gfn_to_rmap(kvm, gfn, sp);

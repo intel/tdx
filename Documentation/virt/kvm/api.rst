@@ -1319,7 +1319,8 @@ It is recommended to use this API instead of the KVM_SET_MEMORY_REGION ioctl.
 The KVM_SET_MEMORY_REGION does not allow fine grained control over memory
 allocation and is deprecated.
 
-For TDX guest, deleting/moving memory slot loses guest memory contents.
+For TDX guest, deleting/moving memory region loses guest memory contents.
+Read only region isn't supported.  Only as-id 0 is supported.
 
 
 4.36 KVM_SET_TSS_ADDR

@@ -27,6 +27,10 @@ static void tdx_apicv_post_state_restore(struct kvm_vcpu *vcpu) {}
 static int tdx_deliver_posted_interrupt(struct kvm_vcpu *vcpu, int vector) { return -1; }
 static void tdx_get_exit_info(struct kvm_vcpu *vcpu, u64 *info1, u64 *info2,
 			      u32 *intr_info, u32 *error_code) {}
+static int tdx_prepare_memory_region(struct kvm *kvm,
+				     struct kvm_memory_slot *memslot,
+				     const struct kvm_userspace_memory_region *mem,
+				     enum kvm_mr_change change) { return 0; }
 static void tdx_prepare_switch_to_guest(struct kvm_vcpu *vcpu) {}
 static int __init tdx_check_processor_compatibility(void) { return 0; }
 static void __init tdx_pre_kvm_init(unsigned int *vcpu_size,

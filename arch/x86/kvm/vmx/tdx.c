@@ -2107,6 +2107,22 @@ static void tdx_flush_gprs(struct kvm_vcpu *vcpu)
 		td_gpr_write64(tdx, i, vcpu->arch.regs[i]);
 }
 
+static int tdx_prepare_memory_region(struct kvm *kvm,
+				     struct kvm_memory_slot *memslot,
+				     const struct kvm_userspace_memory_region *mem,
+				     enum kvm_mr_change change)
+{
+	/* TDX Secure-EPT allows only RWX. */
+	if (mem->flags & KVM_MEM_READONLY)
+		return -EOPNOTSUPP;
+
+	/* TDX supports only single as-id. */
+	if (mem->slot >> 16)
+		return -EOPNOTSUPP;
+
+	return 0;
+}
+
 static void __init tdx_pre_kvm_init(unsigned int *vcpu_size,
 				    unsigned int *vcpu_align,
 				    unsigned int *vm_size)

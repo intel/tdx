@@ -951,6 +951,17 @@ static void vt_setup_mce(struct kvm_vcpu *vcpu)
 	vmx_setup_mce(vcpu);
 }
 
+static int vt_prepare_memory_region(struct kvm *kvm,
+				    struct kvm_memory_slot *memslot,
+				    const struct kvm_userspace_memory_region *mem,
+				    enum kvm_mr_change change)
+{
+	if (is_td(kvm))
+		tdx_prepare_memory_region(kvm, memslot, mem, change);
+
+	return 0;
+}
+
 static struct kvm_x86_ops vt_x86_ops __initdata = {
 	.hardware_unsetup = hardware_unsetup,
 
@@ -1091,6 +1102,8 @@ static struct kvm_x86_ops vt_x86_ops __initdata = {
 	.mem_enc_op_dev = vt_mem_enc_op_dev,
 	.mem_enc_op = vt_mem_enc_op,
 	.mem_enc_op_vcpu = vt_mem_enc_op_vcpu,
+
+	.prepare_memory_region = vt_prepare_memory_region,
 };
 
 static struct kvm_x86_init_ops vt_init_ops __initdata = {

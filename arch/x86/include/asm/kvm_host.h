@@ -1500,6 +1500,11 @@ struct kvm_x86_ops {
 
 	void (*vcpu_deliver_sipi_vector)(struct kvm_vcpu *vcpu, u8 vector);
 
+	int (*prepare_memory_region)(struct kvm *kvm,
+				     struct kvm_memory_slot *memslot,
+				     const struct kvm_userspace_memory_region *mem,
+				     enum kvm_mr_change change);
+
 #ifdef CONFIG_KVM_TDX_SEAM_BACKDOOR
 	void (*do_seamcall)(struct kvm_seamcall *call);
 	void (*do_tdenter)(struct kvm_tdenter *tdenter);

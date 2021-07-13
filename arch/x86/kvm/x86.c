@@ -4136,6 +4136,12 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 	case KVM_CAP_READONLY_MEM:
 		r = kvm && kvm->readonly_mem_unsupported ? 0 : 1;
 		break;
+	case KVM_CAP_MULTI_ADDRESS_SPACE:
+		r = KVM_ADDRESS_SPACE_NUM;
+		/* TDX supports only single as id */
+		if (kvm && kvm->arch.vm_type == KVM_X86_TDX_VM)
+			r = 1;
+		break;
 	default:
 		break;
 	}
@@ -11682,6 +11688,15 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
 				const struct kvm_userspace_memory_region *mem,
 				enum kvm_mr_change change)
 {
+	int err;
+
+	if (kvm_x86_ops.prepare_memory_region) {
+		err = kvm_x86_ops.prepare_memory_region(kvm, memslot, mem,
+							change);
+		if (err)
+			return err;
+	}
+
 	if (change == KVM_MR_CREATE || change == KVM_MR_MOVE)
 		return kvm_alloc_memslot_metadata(kvm, memslot,
 						  mem->memory_size >> PAGE_SHIFT);

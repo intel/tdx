@@ -154,6 +154,10 @@ static inline bool kvm_vcpu_trigger_posted_interrupt(struct kvm_vcpu *vcpu,
 }
 
 int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops);
+int tdx_prepare_memory_region(struct kvm *kvm,
+			struct kvm_memory_slot *memslot,
+			const struct kvm_userspace_memory_region *mem,
+			enum kvm_mr_change change);
 void __init vmx_pre_kvm_init(unsigned int *vcpu_size, unsigned int *vcpu_align);
 int __init vmx_init(void);
 void vmx_exit(void);

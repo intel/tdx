@@ -30,6 +30,14 @@ void tdx_get_exit_info(struct kvm_vcpu *vcpu, u32 *reason, u64 *info1,
 {
 }
 
+int tdx_prepare_memory_region(struct kvm *kvm,
+			struct kvm_memory_slot *memslot,
+			const struct kvm_userspace_memory_region *mem,
+			enum kvm_mr_change change)
+{
+	return 0;
+}
+
 void tdx_prepare_switch_to_guest(struct kvm_vcpu *vcpu) {}
 int __init tdx_check_processor_compatibility(void) { return 0; }
 void __init tdx_pre_kvm_init(unsigned int *vcpu_size,

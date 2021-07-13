@@ -1535,6 +1535,11 @@ struct kvm_x86_ops {
 	int (*complete_emulated_msr)(struct kvm_vcpu *vcpu, int err);
 
 	void (*vcpu_deliver_sipi_vector)(struct kvm_vcpu *vcpu, u8 vector);
+
+	int (*prepare_memory_region)(struct kvm *kvm,
+				     struct kvm_memory_slot *memslot,
+				     const struct kvm_userspace_memory_region *mem,
+				     enum kvm_mr_change change);
 };
 
 struct kvm_x86_nested_ops {

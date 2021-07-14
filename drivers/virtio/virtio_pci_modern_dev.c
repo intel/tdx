@@ -83,7 +83,7 @@ vp_modern_map_capability(struct virtio_pci_modern_device *mdev, int off,
 		return NULL;
 	}
 
-	p = pci_iomap_range(dev, bar, offset, length);
+	p = pci_iomap_shared_range(dev, bar, offset, length);
 	if (!p)
 		dev_err(&dev->dev,
 			"virtio_pci: unable to map virtio %u@%u on bar %i\n",

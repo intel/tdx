@@ -129,6 +129,7 @@ static inline void gsc_writeq(unsigned long long val, unsigned long addr)
  */
 void __iomem *ioremap(unsigned long offset, unsigned long size);
 #define ioremap_wc			ioremap
+#define ioremap_shared			ioremap
 #define ioremap_uc			ioremap
 
 extern void iounmap(const volatile void __iomem *addr);

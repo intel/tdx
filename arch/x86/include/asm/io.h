@@ -380,6 +380,10 @@ extern void __iomem *ioremap_wc(resource_size_t offset, unsigned long size);
 extern void __iomem *ioremap_wt(resource_size_t offset, unsigned long size);
 #define ioremap_wt ioremap_wt
 
+extern void __iomem *ioremap_host_shared(resource_size_t offset,
+					 unsigned long size);
+#define ioremap_host_shared ioremap_host_shared
+
 extern bool is_early_ioremap_ptep(pte_t *ptep);
 
 #define IO_SPACE_LIMIT 0xffff

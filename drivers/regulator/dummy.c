@@ -16,6 +16,7 @@
 #include <linux/platform_device.h>
 #include <linux/regulator/driver.h>
 #include <linux/regulator/machine.h>
+#include <linux/protected_guest.h>
 
 #include "dummy.h"
 
@@ -83,7 +84,7 @@ void __init regulator_dummy_init(void)
 
 	ret = platform_driver_register(&dummy_regulator_driver);
 	if (ret != 0) {
-		pr_err("Failed to register dummy regulator driver: %d\n", ret);
+		pg_filter_suppress_err("Failed to register dummy regulator driver: %d\n", ret);
 		platform_device_unregister(dummy_pdev);
 	}
 }

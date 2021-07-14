@@ -37,6 +37,12 @@
 #define KVM_FEATURE_HC_MAP_GPA_RANGE	16
 #define KVM_FEATURE_MIGRATION_CONTROL	17
 
+/* Trusted features that are allowed in a confidential guest */
+/* Add more as needed */
+#define KVM_FEATURES_TRUSTED		 \
+	(BIT(KVM_FEATURE_NOP_IO_DELAY) | \
+	 BIT(KVM_FEATURE_PV_SEND_IPI))
+
 #define KVM_HINTS_REALTIME      0
 
 /* The last 8 bits are used to indicate how to interpret the flags field

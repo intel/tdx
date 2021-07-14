@@ -16,6 +16,7 @@
 #include <uapi/asm/kvm_para.h>
 
 #include <linux/ptp_clock_kernel.h>
+#include <linux/protected_guest.h>
 
 struct kvm_ptp_clock {
 	struct ptp_clock *ptp_clock;
@@ -139,7 +140,7 @@ static int __init ptp_kvm_init(void)
 	ret = kvm_arch_ptp_init();
 	if (ret) {
 		if (ret != -EOPNOTSUPP)
-			pr_err("fail to initialize ptp_kvm");
+			pg_filter_suppress_err("fail to initialize ptp_kvm");
 		return ret;
 	}
 

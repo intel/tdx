@@ -12,6 +12,7 @@
 #include <linux/serio.h>
 #include <linux/slab.h>
 #include <linux/workqueue.h>
+#include <linux/protected_guest.h>
 #include "psmouse.h"
 
 struct psmouse_smbus_dev {
@@ -297,7 +298,7 @@ int __init psmouse_smbus_module_init(void)
 
 	error = bus_register_notifier(&i2c_bus_type, &psmouse_smbus_notifier);
 	if (error) {
-		pr_err("failed to register i2c bus notifier: %d\n", error);
+		pg_filter_suppress_err("failed to register i2c bus notifier: %d\n", error);
 		return error;
 	}
 

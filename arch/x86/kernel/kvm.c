@@ -27,6 +27,7 @@
 #include <linux/nmi.h>
 #include <linux/swait.h>
 #include <linux/syscore_ops.h>
+#include <linux/protected_guest.h>
 #include <asm/timer.h>
 #include <asm/cpu.h>
 #include <asm/traps.h>
@@ -776,9 +777,17 @@ bool kvm_para_available(void)
 }
 EXPORT_SYMBOL_GPL(kvm_para_available);
 
+static unsigned int kvm_trusted_features(void)
+{
+	if (prot_guest_has(PR_GUEST_CPUID_FILTER))
+		return KVM_FEATURES_TRUSTED;
+	return -1;
+}
+
 unsigned int kvm_arch_para_features(void)
 {
-	return cpuid_eax(kvm_cpuid_base() | KVM_CPUID_FEATURES);
+	return cpuid_eax(kvm_cpuid_base() | KVM_CPUID_FEATURES) &
+		kvm_trusted_features();
 }
 
 unsigned int kvm_arch_para_hints(void)

@@ -33,6 +33,7 @@
 #include <linux/string.h>
 #include <linux/uaccess.h>
 #include <linux/unistd.h>
+#include <linux/protected_guest.h>
 
 MODULE_DESCRIPTION("PHY library");
 MODULE_AUTHOR("Andy Fleming");
@@ -3144,8 +3145,8 @@ int phy_driver_register(struct phy_driver *new_driver, struct module *owner)
 
 	retval = driver_register(&new_driver->mdiodrv.driver);
 	if (retval) {
-		pr_err("%s: Error %d in registering driver\n",
-		       new_driver->name, retval);
+		pg_filter_suppress_err("%s: Error %d in registering driver\n",
+				       new_driver->name, retval);
 
 		return retval;
 	}

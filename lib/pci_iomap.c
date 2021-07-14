@@ -25,6 +25,11 @@ static void __iomem *map_ioremap_wc(phys_addr_t addr, size_t size)
 	return ioremap_wc(addr, size);
 }
 
+static void __iomem *map_ioremap_shared(phys_addr_t addr, size_t size)
+{
+	return ioremap_shared(addr, size);
+}
+
 static void __iomem *pci_iomap_range_map(struct pci_dev *dev,
 					 int bar,
 					 unsigned long offset,
@@ -100,6 +105,47 @@ void __iomem *pci_iomap_wc_range(struct pci_dev *dev,
 				   map_ioremap_wc);
 }
 EXPORT_SYMBOL_GPL(pci_iomap_wc_range);
+
+/**
+ * pci_iomap_shared_range - create a virtual shared mapping cookie for a
+ *                          PCI BAR
+ * @dev: PCI device that owns the BAR
+ * @bar: BAR number
+ * @offset: map memory at the given offset in BAR
+ * @maxlen: max length of the memory to map
+ *
+ * Remap a pci device's resources shared in a confidential guest.
+ * For more details see pci_iomap_range's documentation.
+ *
+ * @maxlen specifies the maximum length to map. To get access to
+ * the complete BAR from offset to the end, pass %0 here.
+ */
+void __iomem *pci_iomap_shared_range(struct pci_dev *dev, int bar,
+				     unsigned long offset, unsigned long maxlen)
+{
+	return pci_iomap_range_map(dev, bar, offset, maxlen,
+				   map_ioremap_shared);
+}
+EXPORT_SYMBOL_GPL(pci_iomap_shared_range);
+
+/**
+ * pci_iomap_shared - create a virtual shared mapping cookie for a PCI BAR
+ * @dev: PCI device that owns the BAR
+ * @bar: BAR number
+ * @maxlen: length of the memory to map
+ *
+ * See pci_iomap for details. This function creates a shared mapping
+ * with the host for confidential hosts.
+ *
+ * @maxlen specifies the maximum length to map. To get access to the
+ * complete BAR without checking for its length first, pass %0 here.
+ */
+void __iomem *pci_iomap_shared(struct pci_dev *dev, int bar,
+			       unsigned long maxlen)
+{
+	return pci_iomap_shared_range(dev, bar, 0, maxlen);
+}
+EXPORT_SYMBOL_GPL(pci_iomap_shared);
 
 /**
  * pci_iomap - create a virtual mapping cookie for a PCI BAR

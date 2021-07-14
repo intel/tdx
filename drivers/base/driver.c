@@ -15,6 +15,7 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/sysfs.h>
+#include <linux/protected_guest.h>
 #include "base.h"
 
 static struct device *next_device(struct klist_iter *i)
@@ -150,8 +151,7 @@ int driver_register(struct device_driver *drv)
 	struct device_driver *other;
 
 	if (!drv->bus->p) {
-		pr_err("Driver '%s' was unable to register with bus_type '%s' because the bus was not initialized.\n",
-			   drv->name, drv->bus->name);
+		pg_filter_suppress_err("Driver '%s' was unable to register with bus_type '%s' because the bus was not initialized.\n", drv->name, drv->bus->name);
 		return -EINVAL;
 	}
 

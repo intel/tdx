@@ -44,6 +44,7 @@
 #include <linux/sync_core.h>
 #include <linux/task_work.h>
 #include <linux/hardirq.h>
+#include <linux/protected_guest.h>
 
 #include <asm/intel-family.h>
 #include <asm/processor.h>
@@ -2699,7 +2700,7 @@ err_out_mem:
 	free_cpumask_var(mce_device_initialized);
 
 err_out:
-	pr_err("Unable to init MCE device (rc: %d)\n", err);
+	pg_filter_suppress_err("Unable to init MCE device (rc: %d)\n", err);
 
 	return err;
 }

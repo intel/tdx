@@ -17,6 +17,7 @@
 
 static bool tdg_filter_status = 1;
 static char allowed_drivers[MAX_FILTER_LEN];
+static char acpi_allowed[MAX_FILTER_LEN];
 static struct drv_filter_node filter_nodes[MAX_FILTER_NODES];
 
 #define ADD_FILTER_NODE(bname, alist, st)		\
@@ -108,6 +109,7 @@ void __init tdg_filter_init(void)
 {
 	int i;
 	char *allowed;
+	char a_allowed[60];
 
 	if (!prot_guest_has(PR_GUEST_TDX))
 		return;
@@ -129,7 +131,15 @@ void __init tdg_filter_init(void)
 	for (i = 0; i < ARRAY_SIZE(filter_list); i++)
 		register_drv_filter(&filter_list[i]);
 
-	acpi_tbl_allow_setup("RDSP,XSDT,FACP,DSDT,FACS,APIC");
+	allowed = "RDSP,XSDT,FACP,DSDT,FACS,APIC";
+	if (cmdline_find_option(boot_command_line, "tdx_allow_acpi",
+				a_allowed, sizeof(a_allowed))) {
+		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);
+		snprintf(acpi_allowed, sizeof(acpi_allowed), "%s,%s", allowed,
+			 a_allowed);
+		allowed = acpi_allowed;
+	}
+	acpi_tbl_allow_setup(allowed);
 
 	pr_info("Enabled TDX guest device filter\n");
 }

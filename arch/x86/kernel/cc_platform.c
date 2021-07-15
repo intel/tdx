@@ -14,9 +14,26 @@
 #include <asm/tdx.h>
 #include <asm/processor.h>
 
+#ifdef CONFIG_INTEL_TDX_GUEST
+
+unsigned int x86_disable_cc = -1;
+
+static int __init x86_cc_clear_setup(char *arg)
+{
+	get_option(&arg, &x86_disable_cc);
+
+	return 1;
+}
+__setup("x86_cc_clear=", x86_cc_clear_setup);
+
+#endif
+
 static bool intel_cc_platform_has(enum cc_attr attr)
 {
 #ifdef CONFIG_INTEL_TDX_GUEST
+	if (attr == x86_disable_cc)
+		return false;
+
 	switch (attr) {
 	case CC_ATTR_GUEST_TDX:
 	case CC_ATTR_GUEST_UNROLL_STRING_IO:

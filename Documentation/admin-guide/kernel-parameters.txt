@@ -5561,6 +5561,16 @@
 
 	tdfx=		[HW,DRM]
 
+	tdx_allow_drivers=bus:driver [x86]
+			Override the TDX device filter allowing driver in
+			bus. Multiple drivers can be specified, separated
+			by comma. Multiple bus/driver combinations can
+			be specified separated by semicolon.
+			For example to allow the e1000 driver use
+			tdx_allow_drivers=pci:e1000
+			Note that allowing unhardened drivers is likely
+			a security hole.
+
 	tdx_disable_filter [x86]
 			Disable TDX guest filter support.
 

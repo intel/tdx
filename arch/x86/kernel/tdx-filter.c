@@ -12,7 +12,12 @@
 #include <asm/tdx.h>
 #include <asm/cmdline.h>
 
+#define MAX_FILTER_NODES 4
+#define MAX_FILTER_LEN  100
+
 static bool tdg_filter_status = 1;
+static char allowed_drivers[MAX_FILTER_LEN];
+static struct drv_filter_node filter_nodes[MAX_FILTER_NODES];
 
 #define ADD_FILTER_NODE(bname, alist, st)		\
 {							\
@@ -48,9 +53,31 @@ bool tdg_filter_enabled(void)
 	return tdg_filter_status;
 }
 
+static __init void add_custom_driver_filter(char *p)
+{
+	struct drv_filter_node *n;
+	int j = 0;
+	char *k;
+
+	while ((p = strsep(&p, ";")) != NULL) {
+		k = p;
+		p += strcspn(p, ";");
+		if (j >= MAX_FILTER_NODES) {
+			pr_err("tdx_allow_filter: Filter nodes exceed MAX_FILTER_NODES\n");
+			break;
+		}
+		n = &filter_nodes[j++];
+		n->bus_name = strsep(&k, ":");
+		n->allow_list = p;
+		n->default_status = (p == NULL ? false : true);
+		register_drv_filter(n);
+	}
+}
+
 void __init tdg_filter_init(void)
 {
 	int i;
+	char *allowed;
 
 	if (!prot_guest_has(PR_GUEST_TDX))
 		return;
@@ -64,6 +91,11 @@ void __init tdg_filter_init(void)
 		return;
 	}
 
+	if (cmdline_find_option(boot_command_line, "tdx_allow_driver",
+				allowed_drivers, sizeof(allowed_drivers))) {
+		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);
+		add_custom_driver_filter(allowed_drivers);
+	}
 	for (i = 0; i < ARRAY_SIZE(filter_list); i++)
 		register_drv_filter(&filter_list[i]);
 

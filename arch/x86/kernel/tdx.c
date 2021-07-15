@@ -12,6 +12,7 @@
 #include <asm/vmx.h>
 #include <asm/insn.h>
 #include <asm/insn-eval.h>
+#include <asm/cmdline.h>
 #include <linux/sched/signal.h> /* force_sig_fault() */
 #include <linux/swiotlb.h>
 
@@ -40,6 +41,8 @@ static struct {
 	unsigned int gpa_width;
 	unsigned long attributes;
 } td_info __ro_after_init;
+
+unsigned int tdg_disable_prot = -1;
 
 /*
  * Wrapper for standard use of __tdx_hypercall with BUG_ON() check
@@ -111,6 +114,9 @@ static inline bool cpuid_has_tdx_guest(void)
 
 bool tdx_prot_guest_has(unsigned long flag)
 {
+	if (flag == tdg_disable_prot)
+		return false;
+
 	switch (flag) {
 	case PATTR_GUEST_TDX:
 	case PATTR_GUEST_UNROLL_STRING_IO:
@@ -556,6 +562,8 @@ __init bool tdg_early_handle_ve(struct pt_regs *regs)
 
 void __init tdx_early_init(void)
 {
+	char prot_clear[30];
+
 	if (!cpuid_has_tdx_guest())
 		return;
 
@@ -572,6 +580,13 @@ void __init tdx_early_init(void)
 
 	cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "tdg:cpu_hotplug",
 			  NULL, tdg_cpu_offline_prepare);
+
+	if (cmdline_find_option(boot_command_line, "tdx_prot_clear",
+				prot_clear, sizeof(prot_clear))) {
+		if (kstrtouint(prot_clear, 0, &tdg_disable_prot))
+			pr_err("Unparsable tdx_prot_clear= option\n");
+		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);
+	}
 
 	pr_info("Guest initialized\n");
 }

@@ -21,6 +21,7 @@
 #define FILTER_CMDLINE_LEN 500
 
 static bool tdg_filter_status = 1;
+static char acpi_allowed[FILTER_CMDLINE_LEN];
 
 /* Allow list for Virtio bus */
 static const char virtio_allow_list[] = "virtio_net,virtio_console,virtio_blk,"
@@ -96,6 +97,8 @@ bool tdg_allowed_port(short int port)
 void __init tdg_filter_init(void)
 {
 	int i;
+	char *allowed;
+	char a_allowed[60];
 
 	if (!prot_guest_has(PATTR_GUEST_DRIVER_FILTER))
 		return;
@@ -132,7 +135,20 @@ void __init tdg_filter_init(void)
 			pr_err("Filter deny list registration failed\n");
 	}
 
-	acpi_tbl_allow_setup("RDSP,XSDT,FACP,DSDT,FACS,APIC");
+	allowed = "RDSP,XSDT,FACP,DSDT,FACS,APIC";
+	if (cmdline_find_option(boot_command_line, "tdx_allow_acpi",
+				a_allowed, sizeof(a_allowed)) >= 0) {
+		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);
+		snprintf(acpi_allowed, sizeof(acpi_allowed), "%s,%s", allowed,
+			 a_allowed);
+		allowed = acpi_allowed;
+		/*
+		 * Similar to previous overrides, ACPI table override also
+		 * requires ioremap as shared. So force enable it.
+		 */
+		ioremap_force_shared = true;
+	}
+	acpi_tbl_allow_setup(allowed);
 
 	pr_info("Enabled TDX guest device filter\n");
 }

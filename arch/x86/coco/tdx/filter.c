@@ -12,6 +12,14 @@
 #include <asm/tdx.h>
 #include <asm/cmdline.h>
 
+#define CMDLINE_MAX_LEN		1000
+
+
+static char acpi_allowed[CMDLINE_MAX_LEN];
+
+/* Set true if authorize_allow_devs is used */
+static bool filter_overridden;
+
 bool tdx_allowed_port(short int port)
 {
 	if (tdx_debug_enabled() && !cc_filter_enabled())
@@ -51,6 +59,9 @@ bool tdx_allowed_port(short int port)
 
 void __init tdx_filter_init(void)
 {
+	char a_allowed[60];
+	char *allowed;
+
 	if (!cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
 		return;
 
@@ -66,7 +77,15 @@ void __init tdx_filter_init(void)
 		return;
 	}
 
-	acpi_tbl_allow_setup("XSDT,FACP,DSDT,FACS,APIC");
+	allowed = "XSDT,FACP,DSDT,FACS,APIC";
+	if (cmdline_find_option(boot_command_line, "tdx_allow_acpi",
+				a_allowed, sizeof(a_allowed)) >= 0) {
+		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);
+		snprintf(acpi_allowed, sizeof(acpi_allowed), "%s,%s", allowed,
+			 a_allowed);
+		allowed = acpi_allowed;
+	}
+	acpi_tbl_allow_setup(allowed);
 
 	pr_info("Enabled TDX guest device filter\n");
 }

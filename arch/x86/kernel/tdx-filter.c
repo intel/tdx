@@ -42,6 +42,7 @@ static int cmd_allowed_nodes_len;
 
 /* Status of TDX filter */
 static bool tdx_filter_status = 1;
+static char acpi_allowed[CMDLINE_MAX_LEN];
 
 /* Set true if authorize_allow_devs is used */
 static bool filter_overridden;
@@ -238,6 +239,9 @@ bool tdx_allowed_port(short int port)
 
 void __init tdx_filter_init(void)
 {
+	char a_allowed[60];
+	char *allowed;
+
 	if (!cc_platform_has(CC_ATTR_GUEST_DEVICE_FILTER))
 		return;
 
@@ -257,7 +261,15 @@ void __init tdx_filter_init(void)
 		pr_debug("Device filter is overridden\n");
 	}
 
-	acpi_tbl_allow_setup("XSDT,FACP,DSDT,FACS,APIC");
+	allowed = "XSDT,FACP,DSDT,FACS,APIC";
+	if (cmdline_find_option(boot_command_line, "tdx_allow_acpi",
+				a_allowed, sizeof(a_allowed)) >= 0) {
+		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);
+		snprintf(acpi_allowed, sizeof(acpi_allowed), "%s,%s", allowed,
+			 a_allowed);
+		allowed = acpi_allowed;
+	}
+	acpi_tbl_allow_setup(allowed);
 
 	pr_info("Enabled TDX guest device filter\n");
 }

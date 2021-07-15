@@ -25,6 +25,16 @@ static struct cc_attr_flags {
 	      __resv		: 63;
 } cc_flags;
 
+unsigned int x86_cc_attr_override = -1;
+
+static int __init x86_cc_attr_override_setup(char *arg)
+{
+       get_option(&arg, &x86_cc_attr_override);
+
+       return 1;
+}
+__setup("x86_cc_attr_override=", x86_cc_attr_override_setup);
+
 static bool noinstr intel_cc_platform_has(enum cc_attr attr)
 {
 	switch (attr) {
@@ -111,6 +121,9 @@ static bool noinstr amd_cc_platform_has(enum cc_attr attr)
 
 bool noinstr cc_platform_has(enum cc_attr attr)
 {
+	if (attr == x86_cc_attr_override)
+		return false;
+
 	switch (cc_vendor) {
 	case CC_VENDOR_AMD:
 		return amd_cc_platform_has(attr);

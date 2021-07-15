@@ -37,6 +37,7 @@ static struct authorize_node cmd_denied_nodes[CMDLINE_MAX_NODES];
 static int cmd_allowed_nodes_len;
 static int cmd_denied_nodes_len;
 static bool tdx_filter_status = 1;
+static char acpi_allowed[CMDLINE_MAX_LEN];
 
 /* Set true if authorize_allow_devs/authorize_deny_devs is used */
 static bool filter_overridden;
@@ -232,6 +233,9 @@ bool tdx_allowed_port(short int port)
 
 void __init tdg_filter_init(void)
 {
+	char *allowed;
+	char a_allowed[60];
+
 	if (!prot_guest_has(PATTR_GUEST_DEVICE_FILTER))
 		return;
 
@@ -260,7 +264,20 @@ void __init tdg_filter_init(void)
 		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);
 	}
 
-	acpi_tbl_allow_setup("XSDT,FACP,DSDT,FACS,APIC");
+	allowed = "XSDT,FACP,DSDT,FACS,APIC";
+	if (cmdline_find_option(boot_command_line, "tdx_allow_acpi",
+				a_allowed, sizeof(a_allowed)) >= 0) {
+		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);
+		snprintf(acpi_allowed, sizeof(acpi_allowed), "%s,%s", allowed,
+			 a_allowed);
+		allowed = acpi_allowed;
+		/*
+		 * Similar to previous overrides, ACPI table override also
+		 * requires ioremap as shared. So force enable it.
+		 */
+		ioremap_force_shared = true;
+	}
+	acpi_tbl_allow_setup(allowed);
 
 	pr_info("Enabled TDX guest device filter\n");
 }

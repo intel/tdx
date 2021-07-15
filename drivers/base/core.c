@@ -2944,6 +2944,13 @@ static struct kobject *get_device_parent(struct device *dev,
 
 		/* find our class-directory at the parent and reference it */
 		spin_lock(&dev->class->p->glue_dirs.list_lock);
+
+		if (!(&dev->class->p->glue_dirs.list)->next) {
+			spin_unlock(&dev->class->p->glue_dirs.list_lock);
+			mutex_unlock(&gdp_mutex);
+			return NULL;
+		}
+
 		list_for_each_entry(k, &dev->class->p->glue_dirs.list, entry)
 			if (k->parent == parent_kobj) {
 				kobj = kobject_get(k);

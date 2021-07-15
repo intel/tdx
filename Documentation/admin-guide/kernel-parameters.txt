@@ -5588,6 +5588,13 @@
 
 	tdfx=		[HW,DRM]
 
+	tdx_allow_acpi=table
+			Override the TDX ACPI filter allowing ACPI tables
+			table. Multiple tables can be separated by comma.
+			For example tdx_allow_acpi=HPET to allow HPET.
+			Note that allowing unhardened drivers is likely
+			a security hole
+
 	tdx_disable_filter [x86]
 			Disable TDX guest filter support.
 

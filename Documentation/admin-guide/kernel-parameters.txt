@@ -5573,6 +5573,14 @@
 
 	tdfx=		[HW,DRM]
 
+	tdx_prot_clear=val
+			Clear a prot setting for TDX. See
+			include/linux/protected_guest.h for the allowed
+			values. Only a single value can be overridden.
+			Note that invalid values here may break the TDX kernel,
+			this is mainly for debugging. Clearing protections
+			may cause security holes.
+
 	test_suspend=	[SUSPEND][,N]
 			Specify "mem" (for Suspend-to-RAM) or "standby" (for
 			standby suspend) or "freeze" (for suspend type freeze)

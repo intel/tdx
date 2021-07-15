@@ -6272,6 +6272,14 @@
 			default x2apic cluster mode on platforms
 			supporting x2apic.
 
+	x86_prot_clear=val [X86-64]
+			Clear a prot setting for x86 platforms. See
+			include/linux/protected_guest.h for the allowed
+			values. Only a single value can be overridden.
+			Note that invalid values here may break the kernel,
+			this is mainly for debugging. Clearing protections
+			may cause security holes.
+
 	xen_512gb_limit		[KNL,X86-64,XEN]
 			Restricts the kernel running paravirtualized under Xen
 			to use only up to 512 GB of RAM. The reason to do so is

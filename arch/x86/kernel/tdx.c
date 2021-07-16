@@ -722,6 +722,14 @@ void __init tdx_early_init(void)
 
 	pci_disable_early();
 
+	/*
+	 * The only secure (mononotonous) timer inside a TD guest
+	 * is the TSC. The TDX module does various checks on the TSC.
+	 * We cannot reliably fall back to anything else, and checking against
+	 * jiffies is very unreliable. So force the TSC reliable.
+	 */
+	setup_force_cpu_cap(X86_FEATURE_TSC_RELIABLE);
+
 	tdg_get_info();
 
 	tdg_filter_init();

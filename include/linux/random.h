@@ -158,4 +158,6 @@ static inline bool __init arch_get_random_long_early(unsigned long *v)
 }
 #endif
 
+void random_enable_trust_cpu(void);
+
 #endif /* _LINUX_RANDOM_H */

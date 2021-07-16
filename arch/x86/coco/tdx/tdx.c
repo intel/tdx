@@ -7,6 +7,7 @@
 #include <linux/cpufeature.h>
 #include <linux/export.h>
 #include <linux/io.h>
+#include <linux/random.h>
 #include <asm/coco.h>
 #include <asm/tdx.h>
 #include <asm/vmx.h>
@@ -859,6 +860,14 @@ void __init tdx_early_init(void)
 	 * against jiffies is very unreliable. So force the TSC reliable.
 	 */
 	setup_force_cpu_cap(X86_FEATURE_TSC_RELIABLE);
+
+	/*
+	 * In TDX relying on environmental noise like interrupt
+	 * timing alone is dubious, because it can be directly
+	 * controlled by a untrusted hypervisor. Make sure to
+	 * mix in the CPU hardware random number generator too.
+	 */
+	random_enable_trust_cpu();
 
 	/*
 	 * Make sure there is a panic if something goes wrong,

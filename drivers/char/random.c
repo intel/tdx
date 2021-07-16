@@ -771,6 +771,11 @@ static int __init parse_trust_cpu(char *arg)
 }
 early_param("random.trust_cpu", parse_trust_cpu);
 
+__init void random_enable_trust_cpu(void)
+{
+	trust_cpu = true;
+}
+
 static bool crng_init_try_arch(struct crng_state *crng)
 {
 	int		i;

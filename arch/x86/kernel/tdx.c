@@ -710,6 +710,14 @@ void __init tdx_early_init(void)
 
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
 
+	/*
+	 * The only secure (mononotonous) timer inside a TD guest
+	 * is the TSC. The TDX module does various checks on the TSC.
+	 * There are no other reliable fall back options. Also checking
+	 * against jiffies is very unreliable. So force the TSC reliable.
+	 */
+	setup_force_cpu_cap(X86_FEATURE_TSC_RELIABLE);
+
 	tdg_get_info();
 
 	tdg_filter_init();

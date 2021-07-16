@@ -18,6 +18,7 @@
 #include <asm/desc.h>
 #include <linux/pci.h>
 #include <linux/nmi.h>
+#include <linux/random.h>
 
 #define CREATE_TRACE_POINTS
 #include <asm/trace/tdx.h>
@@ -858,6 +859,14 @@ void __init tdx_early_init(void)
 	 * here.
 	 */
 	hardlockup_detector_disable();
+
+	/*
+	 * In TDX relying on environmental noise like interrupt
+	 * timing alone is dubious, because it can be directly
+	 * controlled by a untrusted hypervisor. Make sure to
+	 * mix in the CPU hardware random number generator too.
+	 */
+	random_enable_trust_cpu();
 
 	/*
 	 * Make sure there is a panic if something goes wrong,

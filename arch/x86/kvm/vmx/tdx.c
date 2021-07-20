@@ -585,6 +585,9 @@ static void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 		tdx_reclaim_td_page(&tdx->tdvpx[i]);
 
 	tdx_reclaim_td_page(&tdx->tdvpr);
+
+	/* kvm_unload_vcpu_mmu() in kvm_free_vcpus() reloads vcpu. */
+	tdx_flush_vp_on_cpu(vcpu);
 }
 
 static void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)

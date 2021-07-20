@@ -35,7 +35,7 @@
 
 static int acpi_pci_link_add(struct acpi_device *device,
 			     const struct acpi_device_id *not_used);
-static void acpi_pci_link_remove(struct acpi_device *device);
+static int acpi_pci_link_remove(struct acpi_device *device);
 
 static const struct acpi_device_id link_device_ids[] = {
 	{"PNP0C0F", 0},
@@ -772,7 +772,7 @@ static void irqrouter_resume(void)
 	}
 }
 
-static void acpi_pci_link_remove(struct acpi_device *device)
+static int acpi_pci_link_remove(struct acpi_device *device)
 {
 	struct acpi_pci_link *link;
 
@@ -783,6 +783,7 @@ static void acpi_pci_link_remove(struct acpi_device *device)
 	mutex_unlock(&acpi_link_lock);
 
 	kfree(link);
+	return 0;
 }
 
 /*

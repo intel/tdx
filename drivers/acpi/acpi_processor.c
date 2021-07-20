@@ -161,6 +161,11 @@ int __weak acpi_unmap_cpu(int cpu)
 	return -ENODEV;
 }
 
+bool __weak acpi_unmap_cpu_allowed(int cpu)
+{
+	return true;
+}
+
 int __weak arch_register_cpu(int cpu)
 {
 	return -ENODEV;
@@ -436,6 +441,8 @@ static void acpi_processor_remove(struct acpi_device *device)
 
 	pr = acpi_driver_data(device);
 	if (pr->id >= nr_cpu_ids)
+		goto out;
+	if (!acpi_unmap_cpu_allowed(pr->id))
 		goto out;
 
 	/*

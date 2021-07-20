@@ -432,18 +432,23 @@ static int acpi_processor_add(struct acpi_device *device,
 
 #ifdef CONFIG_ACPI_HOTPLUG_CPU
 /* Removal */
-static void acpi_processor_remove(struct acpi_device *device)
+static int acpi_processor_remove(struct acpi_device *device)
 {
 	struct acpi_processor *pr;
+	int result = 0;
 
 	if (!device || !acpi_driver_data(device))
-		return;
+		return -EINVAL;
 
 	pr = acpi_driver_data(device);
-	if (pr->id >= nr_cpu_ids)
+	if (pr->id >= nr_cpu_ids) {
+		result = -EINVAL;
 		goto out;
-	if (!acpi_unmap_cpu_allowed(pr->id))
+	}
+	if (!acpi_unmap_cpu_allowed(pr->id)) {
+		result = -EOPNOTSUPP;
 		goto out;
+	}
 
 	/*
 	 * The only reason why we ever get here is CPU hot-removal.  The CPU is
@@ -475,6 +480,7 @@ static void acpi_processor_remove(struct acpi_device *device)
  out:
 	free_cpumask_var(pr->throttling.shared_cpu_map);
 	kfree(pr);
+	return result;
 }
 #endif /* CONFIG_ACPI_HOTPLUG_CPU */
 

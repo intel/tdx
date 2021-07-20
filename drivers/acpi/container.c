@@ -70,13 +70,14 @@ static int container_device_attach(struct acpi_device *adev,
 	return 1;
 }
 
-static void container_device_detach(struct acpi_device *adev)
+static int container_device_detach(struct acpi_device *adev)
 {
 	struct device *dev = acpi_driver_data(adev);
 
 	adev->driver_data = NULL;
 	if (dev)
 		device_unregister(dev);
+	return 0;
 }
 
 static void container_device_online(struct acpi_device *adev)

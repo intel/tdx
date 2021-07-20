@@ -267,7 +267,7 @@ static void tdx_flush_vp_on_cpu(struct kvm_vcpu *vcpu)
 {
 	unsigned long flags;
 
-	if (vcpu->cpu == -1)
+	if (unlikely(vcpu->cpu == -1))
 		return;
 
 	/*

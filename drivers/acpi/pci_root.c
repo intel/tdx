@@ -30,7 +30,7 @@
 #define ACPI_PCI_ROOT_DEVICE_NAME	"PCI Root Bridge"
 static int acpi_pci_root_add(struct acpi_device *device,
 			     const struct acpi_device_id *not_used);
-static void acpi_pci_root_remove(struct acpi_device *device);
+static int acpi_pci_root_remove(struct acpi_device *device);
 
 static int acpi_pci_root_scan_dependent(struct acpi_device *adev)
 {
@@ -641,7 +641,7 @@ end:
 	return result;
 }
 
-static void acpi_pci_root_remove(struct acpi_device *device)
+static int acpi_pci_root_remove(struct acpi_device *device)
 {
 	struct acpi_pci_root *root = acpi_driver_data(device);
 
@@ -661,6 +661,7 @@ static void acpi_pci_root_remove(struct acpi_device *device)
 	pci_unlock_rescan_remove();
 
 	kfree(root);
+	return 0;
 }
 
 /*

@@ -68,11 +68,12 @@ static int acpi_install_cmos_rtc_space_handler(struct acpi_device *adev,
 	return 1;
 }
 
-static void acpi_remove_cmos_rtc_space_handler(struct acpi_device *adev)
+static int acpi_remove_cmos_rtc_space_handler(struct acpi_device *adev)
 {
 	if (ACPI_FAILURE(acpi_remove_address_space_handler(adev->handle,
 			ACPI_ADR_SPACE_CMOS, &acpi_cmos_rtc_space_handler)))
 		pr_err("Error removing CMOS-RTC region handler\n");
+	return 0;
 }
 
 static struct acpi_scan_handler cmos_rtc_handler = {

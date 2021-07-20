@@ -31,7 +31,7 @@ static const struct acpi_device_id memory_device_ids[] = {
 
 static int acpi_memory_device_add(struct acpi_device *device,
 				  const struct acpi_device_id *not_used);
-static void acpi_memory_device_remove(struct acpi_device *device);
+static int acpi_memory_device_remove(struct acpi_device *device);
 
 static struct acpi_scan_handler memory_device_handler = {
 	.ids = memory_device_ids,
@@ -311,16 +311,17 @@ static int acpi_memory_device_add(struct acpi_device *device,
 	return 1;
 }
 
-static void acpi_memory_device_remove(struct acpi_device *device)
+static int acpi_memory_device_remove(struct acpi_device *device)
 {
 	struct acpi_memory_device *mem_device;
 
 	if (!device || !acpi_driver_data(device))
-		return;
+		return 0;
 
 	mem_device = acpi_driver_data(device);
 	acpi_memory_remove_memory(mem_device);
 	acpi_memory_device_free(mem_device);
+	return 0;
 }
 
 static bool __initdata acpi_no_memhotplug;

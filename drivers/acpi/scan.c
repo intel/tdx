@@ -251,19 +251,22 @@ static int acpi_scan_hot_remove(struct acpi_device *device)
 	acpi_handle handle = device->handle;
 	unsigned long long sta;
 	acpi_status status;
+	int error;
 
 	if (device->handler && device->handler->hotplug.demand_offline) {
 		if (!acpi_scan_is_offline(device, true))
 			return -EBUSY;
 	} else {
-		int error = acpi_scan_try_to_offline(device);
+		error = acpi_scan_try_to_offline(device);
 		if (error)
 			return error;
 	}
 
 	acpi_handle_debug(handle, "Ejecting\n");
 
-	acpi_bus_trim(device);
+	error = acpi_bus_trim(device);
+	if (error)
+		return error;
 
 	acpi_evaluate_lck(handle, 0);
 	/*
@@ -297,8 +300,7 @@ static int acpi_scan_device_not_present(struct acpi_device *adev)
 		dev_warn(&adev->dev, "Still not present\n");
 		return -EALREADY;
 	}
-	acpi_bus_trim(adev);
-	return 0;
+	return acpi_bus_trim(adev);
 }
 
 static int acpi_scan_device_check(struct acpi_device *adev)
@@ -2391,18 +2393,28 @@ EXPORT_SYMBOL(acpi_bus_scan);
  *
  * Must be called under acpi_scan_lock.
  */
-void acpi_bus_trim(struct acpi_device *adev)
+int acpi_bus_trim(struct acpi_device *adev)
 {
 	struct acpi_scan_handler *handler = adev->handler;
 	struct acpi_device *child;
+	int result;
 
-	list_for_each_entry_reverse(child, &adev->children, node)
-		acpi_bus_trim(child);
+	list_for_each_entry_reverse(child, &adev->children, node) {
+		result = acpi_bus_trim(child);
+		if (result) {
+			list_for_each_entry_continue(child, &adev->children, node)
+				acpi_bus_scan(child);
+			return result;
+		}
+	}
 
 	adev->flags.match_driver = false;
 	if (handler) {
-		if (handler->detach)
-			handler->detach(adev);
+		if (handler->detach) {
+			result = handler->detach(adev);
+			if (result)
+				return result;
+		}
 
 		adev->handler = NULL;
 	} else {
@@ -2415,6 +2427,7 @@ void acpi_bus_trim(struct acpi_device *adev)
 	acpi_device_set_power(adev, ACPI_STATE_D3_COLD);
 	adev->flags.initialized = false;
 	acpi_device_clear_enumerated(adev);
+	return 0;
 }
 EXPORT_SYMBOL_GPL(acpi_bus_trim);
 

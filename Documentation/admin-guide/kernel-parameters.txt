@@ -1358,6 +1358,9 @@
 			to discrete, to make X server driver able to add WB
 			entry later. This parameter enables that.
 
+	enable_tdx_host	[X86-64, TDX]
+			enable to load TDX module as TDX host.
+
 	enable_timer_pin_1 [X86]
 			Enable PIN 1 of APIC timer
 			Can be useful to work around chipset bugs
@@ -3558,6 +3561,10 @@
 			Format: integer between 1 and 255
 			Default: 255
 
+	np_seamldr=	[X86-64, TDX]
+			The name of NP-SEAMLDR to launch.
+			Default value is "intel-seam/np-seamldr.acm".
+
 	nptcg=		[IA-64] Override max number of concurrent global TLB
 			purges which is reported from either PAL_VM_SUMMARY or
 			SAL PALO.
@@ -5560,6 +5567,14 @@
 			"tcp_no_metrics_save" section for more details.
 
 	tdfx=		[HW,DRM]
+
+	tdx_module=     [X86-64, TDX]
+			Name of TDX module to load.
+			Default value is "intel-seam/libtdx.so".
+
+	tdx_sigstruct=  [X86-64, TDX]
+			Name of sigstruct of TDX module to load.
+			Default value is "intel-seam/libtdx.so.sigstruct".
 
 	test_suspend=	[SUSPEND][,N]
 			Specify "mem" (for Suspend-to-RAM) or "standby" (for

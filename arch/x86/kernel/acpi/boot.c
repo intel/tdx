@@ -25,6 +25,7 @@
 
 #include <asm/e820/api.h>
 #include <asm/irqdomain.h>
+#include <asm/tdx_host.h>
 #include <asm/pci_x86.h>
 #include <asm/io_apic.h>
 #include <asm/apic.h>
@@ -777,6 +778,20 @@ int acpi_unmap_cpu(int cpu)
 	return (0);
 }
 EXPORT_SYMBOL(acpi_unmap_cpu);
+
+bool acpi_unmap_cpu_allowed(int cpu)
+{
+	/*
+	 * TDX (TDX module specification 344425-002US) doesn't support CPU
+	 * hotplug.
+	 */
+	if (is_tdx_module_enabled()) {
+		pr_info("trying to physically hot unplug CPU %d\n", cpu);
+		return false;
+	}
+	return true;
+}
+EXPORT_SYMBOL(acpi_unmap_cpu_allowed);
 #endif				/* CONFIG_ACPI_HOTPLUG_CPU */
 
 int acpi_register_ioapic(acpi_handle handle, u64 phys_addr, u32 gsi_base)

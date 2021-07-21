@@ -29,6 +29,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/pci_hotplug.h>
 #include <linux/vmalloc.h>
+#include <linux/protected_guest.h>
 #include <asm/dma.h>
 #include <linux/aer.h>
 #include "pci.h"
@@ -1688,6 +1689,11 @@ void pci_restore_state(struct pci_dev *dev)
 {
 	if (!dev->state_saved)
 		return;
+
+	if (prot_guest_has(PATTR_GUEST_DEVICE_FILTER)) {
+		pci_restore_msi_state(dev);
+		return;
+	}
 
 	/*
 	 * Restore max latencies (in the LTR capability) before enabling

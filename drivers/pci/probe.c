@@ -2408,9 +2408,14 @@ void pcie_report_downtraining(struct pci_dev *dev)
 
 static void pci_init_capabilities(struct pci_dev *dev)
 {
-	pci_ea_init(dev);		/* Enhanced Allocation */
+	if (!prot_guest_has(PATTR_GUEST_DEVICE_FILTER))
+		pci_ea_init(dev);	/* Enhanced Allocation */
+
 	pci_msi_init(dev);		/* Disable MSI */
 	pci_msix_init(dev);		/* Disable MSI-X */
+
+	if (prot_guest_has(PATTR_GUEST_DEVICE_FILTER))
+		return;
 
 	/* Buffers for saving PCIe and PCI-X capabilities */
 	pci_allocate_cap_save_buffers(dev);

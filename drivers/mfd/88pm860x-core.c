@@ -23,6 +23,7 @@
 #include <linux/mfd/88pm860x.h>
 #include <linux/regulator/machine.h>
 #include <linux/power/charger-manager.h>
+#include <linux/protected_guest.h>
 
 #define INT_STATUS_NUM			3
 
@@ -1266,7 +1267,7 @@ static int __init pm860x_i2c_init(void)
 
 	ret = i2c_add_driver(&pm860x_driver);
 	if (ret != 0)
-		pr_err("Failed to register 88PM860x I2C driver: %d\n", ret);
+		pg_filter_suppress_err("Failed to register 88PM860x I2C driver: %d\n", ret);
 	return ret;
 }
 subsys_initcall(pm860x_i2c_init);

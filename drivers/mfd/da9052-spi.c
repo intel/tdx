@@ -13,6 +13,7 @@
 #include <linux/mfd/core.h>
 #include <linux/spi/spi.h>
 #include <linux/err.h>
+#include <linux/protected_guest.h>
 
 #include <linux/mfd/da9052/da9052.h>
 
@@ -87,7 +88,7 @@ static int __init da9052_spi_init(void)
 
 	ret = spi_register_driver(&da9052_spi_driver);
 	if (ret != 0) {
-		pr_err("Failed to register DA9052 SPI driver, %d\n", ret);
+		pg_filter_suppress_err("Failed to register DA9052 SPI driver, %d\n", ret);
 		return ret;
 	}
 

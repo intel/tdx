@@ -11,6 +11,7 @@
 #include <linux/i2c.h>
 #include <linux/mfd/max8925.h>
 #include <linux/slab.h>
+#include <linux/protected_guest.h>
 
 #define RTC_I2C_ADDR		0x68
 #define ADC_I2C_ADDR		0x47
@@ -254,7 +255,7 @@ static int __init max8925_i2c_init(void)
 
 	ret = i2c_add_driver(&max8925_driver);
 	if (ret != 0)
-		pr_err("Failed to register MAX8925 I2C driver: %d\n", ret);
+		pg_filter_suppress_err("Failed to register MAX8925 I2C driver: %d\n", ret);
 
 	return ret;
 }

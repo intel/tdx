@@ -17,6 +17,7 @@
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/regmap.h>
+#include <linux/protected_guest.h>
 
 #include <linux/mfd/wm831x/core.h>
 #include <linux/mfd/wm831x/pdata.h>
@@ -112,7 +113,7 @@ static int __init wm831x_i2c_init(void)
 
 	ret = i2c_add_driver(&wm831x_i2c_driver);
 	if (ret != 0)
-		pr_err("Failed to register wm831x I2C driver: %d\n", ret);
+		pg_filter_suppress_err("Failed to register wm831x I2C driver: %d\n", ret);
 
 	return ret;
 }

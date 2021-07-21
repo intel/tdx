@@ -18,6 +18,7 @@
 #include <linux/of_device.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
+#include <linux/protected_guest.h>
 
 static const struct mfd_cell max8907_cells[] = {
 	{ .name = "max8907-regulator", },
@@ -327,7 +328,8 @@ static int __init max8907_i2c_init(void)
 
 	ret = i2c_add_driver(&max8907_i2c_driver);
 	if (ret != 0)
-		pr_err("Failed to register I2C driver: %d\n", ret);
+		pg_filter_suppress_err("Failed to register I2C driver: %d\n",
+				       ret);
 
 	return ret;
 }

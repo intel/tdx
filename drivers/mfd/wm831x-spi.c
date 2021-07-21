@@ -15,6 +15,7 @@
 #include <linux/spi/spi.h>
 #include <linux/regmap.h>
 #include <linux/err.h>
+#include <linux/protected_guest.h>
 
 #include <linux/mfd/wm831x/core.h>
 
@@ -112,7 +113,7 @@ static int __init wm831x_spi_init(void)
 
 	ret = spi_register_driver(&wm831x_spi_driver);
 	if (ret != 0)
-		pr_err("Failed to register WM831x SPI driver: %d\n", ret);
+		pg_filter_suppress_err("Failed to register WM831x SPI driver: %d\n", ret);
 
 	return 0;
 }

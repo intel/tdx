@@ -31,4 +31,11 @@
 static inline bool prot_guest_has(unsigned long flag) { return false; }
 #endif
 
+/* Suppress error messages generated due to driver filter */
+#define pg_filter_suppress_err(fmt, ...)		\
+do {							\
+	if (!prot_guest_has(PR_GUEST_DRIVER_FILTER))	\
+		pr_err(fmt, ##__VA_ARGS__);		\
+} while (0)
+
 #endif /* _LINUX_PROTECTED_GUEST_H */

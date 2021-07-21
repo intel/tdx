@@ -19,6 +19,7 @@
 #include <linux/hypervisor.h>
 #include <linux/irqdomain.h>
 #include <linux/pm_runtime.h>
+#include <linux/protected_guest.h>
 #include "pci.h"
 
 #define CARDBUS_LATENCY_TIMER	176	/* secondary latency timer */
@@ -2407,6 +2408,9 @@ void pcie_report_downtraining(struct pci_dev *dev)
 
 static void pci_init_capabilities(struct pci_dev *dev)
 {
+	if (prot_guest_has(PATTR_GUEST_DRIVER_FILTER))
+		return;
+
 	pci_ea_init(dev);		/* Enhanced Allocation */
 	pci_msi_init(dev);		/* Disable MSI */
 	pci_msix_init(dev);		/* Disable MSI-X */

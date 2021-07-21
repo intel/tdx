@@ -28,6 +28,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/pci_hotplug.h>
 #include <linux/vmalloc.h>
+#include <linux/cc_platform.h>
 #include <asm/dma.h>
 #include <linux/aer.h>
 #include <linux/bitfield.h>
@@ -1880,6 +1881,11 @@ void pci_restore_state(struct pci_dev *dev)
 {
 	if (!dev->state_saved)
 		return;
+
+	if (cc_platform_has(CC_ATTR_GUEST_HARDENED)) {
+		pci_restore_msi_state(dev);
+		return;
+	}
 
 	pci_restore_pcie_state(dev);
 	pci_restore_pasid_state(dev);

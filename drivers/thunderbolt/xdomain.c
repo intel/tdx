@@ -1898,7 +1898,7 @@ int tb_register_property_dir(const char *key, struct tb_property_dir *dir)
 {
 	int ret;
 
-	if (WARN_ON(!xdomain_property_dir))
+	if (!xdomain_property_dir)
 		return -EAGAIN;
 
 	if (!key || strlen(key) > 8)
@@ -1976,4 +1976,5 @@ int tb_xdomain_init(void)
 void tb_xdomain_exit(void)
 {
 	tb_property_free_dir(xdomain_property_dir);
+	xdomain_property_dir = NULL;
 }

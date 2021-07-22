@@ -13,6 +13,7 @@
 #include <linux/cpu.h>
 
 #include <asm/seamcall.h>
+#include <asm/tdx_host.h>
 #include <asm/delay.h>
 #include <asm/apic.h>
 #include <asm/cmdline.h>
@@ -37,8 +38,12 @@ int seamldr_info(phys_addr_t seamldr_info)
 	u64 ret;
 
 	ret = seamcall_boot(SEAMCALL_SEAMLDR_INFO, seamldr_info, 0, 0, 0, NULL);
-	if (WARN_ON_ONCE(ret))
+	if (WARN_ON_ONCE(ret)) {
+		pr_err_ratelimited(
+			"SEAMCALL[SEAMLDR_INFO] failed on cpu %d: %s (0x%llx)\n",
+			smp_processor_id(), tdx_seamcall_error_name(ret), ret);
 		return -EIO;
+	}
 	return 0;
 }
 
@@ -48,8 +53,12 @@ int seamldr_install(phys_addr_t seamldr_params)
 
 	ret = seamcall_boot(SEAMCALL_SEAMLDR_INSTALL, seamldr_params, 0, 0, 0,
 			    NULL);
-	if (WARN_ON_ONCE(ret))
+	if (WARN_ON_ONCE(ret)) {
+		pr_err_ratelimited(
+			"SEAMCALL[SEAMLDR_INSTALL] failed on cpu %d: %s (0x%llx)\n",
+			smp_processor_id(), tdx_seamcall_error_name(ret), ret);
 		return -EIO;
+	}
 	return 0;
 }
 
@@ -58,8 +67,12 @@ int seamldr_shutdown(void)
 	u64 ret;
 
 	ret = seamcall_boot(SEAMCALL_SEAMLDR_SHUTDOWN, 0, 0, 0, 0, NULL);
-	if (WARN_ON_ONCE(ret))
+	if (WARN_ON_ONCE(ret)) {
+		pr_err_ratelimited(
+			"SEAMCALL[SEAMLDR_SHUTDOWN] failed on cpu %d: %s (0x%llx)\n",
+			smp_processor_id(), tdx_seamcall_error_name(ret), ret);
 		return -EIO;
+	}
 	return 0;
 }
 

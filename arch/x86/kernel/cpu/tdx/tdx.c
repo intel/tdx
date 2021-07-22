@@ -29,14 +29,23 @@
 #include "seam.h"
 #include "tdx-tdmr.h"
 
+static inline void pr_seamcall_error(u64 op, const char *op_str,
+				       u64 err, struct tdx_ex_ret *ex)
+{
+	pr_err_ratelimited("SEAMCALL[%s] failed on cpu %d: %s (0x%llx)\n",
+			   op_str, smp_processor_id(),
+			   tdx_seamcall_error_name(err), err);
+	if (ex)
+		pr_seamcall_ex_ret_info(op, err, ex);
+}
+
 /* ex is a pointer to struct tdx_ex_ret or NULL. */
 #define TDX_ERR(err, op, ex)						\
 ({									\
 	u64 __ret_warn_on = WARN_ON_ONCE(err);				\
 									\
-	if (unlikely(__ret_warn_on)) {					\
-		/* TODO: print error info */;				\
-	}								\
+	if (unlikely(__ret_warn_on))					\
+		pr_seamcall_error(SEAMCALL_##op, #op, (err), (ex));	\
 	__ret_warn_on;							\
 })
 

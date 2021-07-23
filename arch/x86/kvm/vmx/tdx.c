@@ -91,6 +91,28 @@ static DEFINE_PER_CPU(struct list_head, associated_tdvcpus);
 
 static int tdx_emulate_inject_bp_end(struct kvm_vcpu *vcpu, unsigned long dr6);
 
+static enum {
+	TD_PROFILE_NONE = 0,
+	TD_PROFILE_ENABLE,
+	TD_PROFILE_DISABLE,
+} td_profile_state;
+
+/*
+ * Currently, host is allowed to get TD's profile only if this TD is debuggable
+ * and cannot use PMU.
+ */
+static inline bool td_profile_allowed(struct kvm_tdx *kvm_tdx)
+{
+	u64 attributes = kvm_tdx->attributes;
+
+	if ((td_profile_state == TD_PROFILE_ENABLE) &&
+	    (attributes & TDX_TD_ATTRIBUTE_DEBUG) &&
+	    !(attributes & TDX_TD_ATTRIBUTE_PERFMON))
+		return true;
+
+	return false;
+}
+
 static __always_inline hpa_t set_hkid_to_hpa(hpa_t pa, u16 hkid)
 {
 	return pa | ((hpa_t)hkid << boot_cpu_data.x86_phys_bits);
@@ -907,6 +929,40 @@ static void tdx_load_gprs(struct kvm_vcpu *vcpu)
 	}
 }
 
+/*
+ * Update TD VMCS to enable PMU counters when this TD vCPU is running.
+ */
+static void tdx_switch_perf_msrs(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	struct perf_guest_switch_msr *msrs;
+	int i, nr_msrs;
+
+	/*
+	 * TODO: pass tdx version of vcpu_to_pmu(&vmx->vcpu) instead of NULL.
+	 * See intel_guest_get_msr() in arch/x86/events/intel/core.c
+	 */
+	msrs = perf_guest_get_msrs(&nr_msrs, NULL);
+	if (!msrs)
+		return;
+
+	for (i = 0; i < nr_msrs; i++) {
+		switch (msrs[i].msr) {
+		case MSR_CORE_PERF_GLOBAL_CTRL:
+			if (tdx->guest_perf_global_ctrl != msrs[i].guest) {
+				td_vmcs_write64(tdx,
+						GUEST_IA32_PERF_GLOBAL_CTRL,
+						msrs[i].guest);
+				tdx->guest_perf_global_ctrl = msrs[i].guest;
+			}
+			break;
+
+		default:
+			WARN_ONCE(1, "Cannot switch msrs other than IA32_PERF_GLOBAL_CTRL");
+		}
+	}
+}
+
 u64 __tdx_vcpu_run(hpa_t tdvpr, void *regs, u32 regs_mask);
 
 static noinstr void tdx_vcpu_enter_exit(struct vcpu_tdx *tdx)
@@ -931,6 +987,7 @@ static noinstr void tdx_vcpu_enter_exit(struct vcpu_tdx *tdx)
 
 fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 {
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 
 	if (unlikely(!tdx->initialized))
@@ -966,6 +1023,9 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	 * SEAMRET to KVM, which cause PANIC with NULL access.
 	 */
 	intel_pmu_save();
+	if (!(kvm_tdx->attributes & TDX_TD_ATTRIBUTE_PERFMON) &&
+		td_profile_allowed(kvm_tdx))
+		tdx_switch_perf_msrs(vcpu);
 
 	/*
 	 * Before 1.0.3.3, TDH.VP.ENTER has special environment requirements
@@ -1046,8 +1106,11 @@ void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu)
 		if (tdx->guest_pmi_exit) {
 			kvm_make_request(KVM_REQ_PMI, vcpu);
 			tdx->guest_pmi_exit = false;
-		} else
+		} else {
+			kvm_before_interrupt(vcpu, KVM_HANDLING_NMI);
 			vmx_handle_exception_irqoff(vcpu, tdexit_intr_info(vcpu));
+			kvm_after_interrupt(vcpu);
+		}
 	} else if (unlikely(tdx->exit_reason.non_recoverable ||
 		 tdx->exit_reason.error)) {
 		/*
@@ -3803,6 +3866,28 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 	td_vmcs_write16(tdx, POSTED_INTR_NV, POSTED_INTR_VECTOR);
 	td_vmcs_write64(tdx, POSTED_INTR_DESC_ADDR, __pa(&tdx->pi_desc));
 	td_vmcs_setbit32(tdx, PIN_BASED_VM_EXEC_CONTROL, PIN_BASED_POSTED_INTR);
+
+	/*
+	 * Check if VM_{ENTRY, EXIT}_LOAD_IA32_PERF_GLOBAL_CTRL are set in case
+	 * of a TDX module bug. It is required to monitor TD with PMU events.
+	 * Note that these two bits are read-only even for debug TD.
+	 */
+	if ((td_profile_state == TD_PROFILE_NONE) &&
+	    (kvm_tdx->attributes & TDX_TD_ATTRIBUTE_DEBUG) &&
+	    !(kvm_tdx->attributes & TDX_TD_ATTRIBUTE_PERFMON))	{
+		u32 exit, entry;
+
+		exit = td_vmcs_read32(tdx, VM_EXIT_CONTROLS);
+		entry = td_vmcs_read32(tdx, VM_ENTRY_CONTROLS);
+
+		if ((exit & VM_EXIT_LOAD_IA32_PERF_GLOBAL_CTRL) &&
+		    (entry & VM_ENTRY_LOAD_IA32_PERF_GLOBAL_CTRL))
+			td_profile_state = TD_PROFILE_ENABLE;
+		else {
+			pr_warn_once("Cannot monitor TD with PMU events\n");
+			td_profile_state = TD_PROFILE_DISABLE;
+		}
+	}
 
 	if (vcpu->kvm->arch.bus_lock_detection_enabled)
 		td_vmcs_setbit32(tdx,

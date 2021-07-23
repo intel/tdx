@@ -4407,7 +4407,8 @@ void kvm_arch_vcpu_put(struct kvm_vcpu *vcpu)
 {
 	int idx;
 
-	if (vcpu->preempted && !vcpu->arch.guest_state_protected)
+	if (vcpu->preempted && !vcpu->arch.guest_state_protected &&
+	    vcpu->kvm->arch.vm_type != KVM_X86_TDX_VM)
 		vcpu->arch.preempted_in_kernel = !static_call(kvm_x86_get_cpl)(vcpu);
 
 	/*

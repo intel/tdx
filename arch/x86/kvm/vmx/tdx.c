@@ -601,6 +601,9 @@ static void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	if (WARN_ON(init_event) || !vcpu->arch.apic)
 		goto td_bugged;
 
+	if (WARN_ON(is_td_vcpu_created(tdx)))
+		goto td_bugged;
+
 	err = tdh_vp_create(kvm_tdx->tdr.pa, tdx->tdvpr.pa);
 	if (TDX_ERR(err, TDH_VP_CREATE, NULL))
 		goto td_bugged;

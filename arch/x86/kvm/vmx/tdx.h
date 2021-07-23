@@ -128,6 +128,7 @@ struct vcpu_tdx {
 
 	bool guest_pmi_exit;
 	u64 msr_host_kernel_gs_base;
+	u64 guest_perf_global_ctrl;
 
 	bool interrupt_disabled_hlt;
 

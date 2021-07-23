@@ -256,32 +256,26 @@ static void tdx_flush_vp(void *arg)
 	if (vcpu->cpu != raw_smp_processor_id())
 		return;
 
-	err = tdh_vp_flush(to_tdx(vcpu)->tdvpr.pa);
-	if (unlikely(err && err != TDX_VCPU_NOT_ASSOCIATED))
-		TDX_ERR(err, TDH_VP_FLUSH, NULL);
+	/*
+	 * No need to do TDH_VP_FLUSH if the vCPU hasn't been initialized.  The
+	 * list tracking still needs to be updated so that it's correct if/when
+	 * the vCPU does get initialized.
+	 */
+	if (is_td_vcpu_created(to_tdx(vcpu))) {
+		err = tdh_vp_flush(to_tdx(vcpu)->tdvpr.pa);
+		if (unlikely(err && err != TDX_VCPU_NOT_ASSOCIATED))
+			TDX_ERR(err, TDH_VP_FLUSH, NULL);
+	}
 
 	tdx_disassociate_vp(vcpu);
 }
 
 static void tdx_flush_vp_on_cpu(struct kvm_vcpu *vcpu)
 {
-	unsigned long flags;
-
 	if (unlikely(vcpu->cpu == -1))
 		return;
 
-	/*
-	 * No need to do TDH_VP_FLUSH if the vCPU hasn't been initialized.  The
-	 * list tracking still needs to be updated so that it's correct if/when
-	 * the vCPU does get initialized.
-	 */
-	if (is_td_vcpu_created(to_tdx(vcpu)))
-		smp_call_function_single(vcpu->cpu, tdx_flush_vp, vcpu, 1);
-	else {
-		local_irq_save(flags);
-		tdx_disassociate_vp(vcpu);
-		local_irq_restore(flags);
-	}
+	smp_call_function_single(vcpu->cpu, tdx_flush_vp, vcpu, 1);
 }
 
 static int tdx_do_tdh_phymem_cache_wb(void *param)

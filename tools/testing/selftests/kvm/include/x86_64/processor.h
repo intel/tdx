@@ -438,6 +438,11 @@ uint64_t vm_get_page_table_entry(struct kvm_vm *vm, int vcpuid, uint64_t vaddr);
 void vm_set_page_table_entry(struct kvm_vm *vm, int vcpuid, uint64_t vaddr,
 			     uint64_t pte);
 
+void vm_vcpu_add_tdx(struct kvm_vm *vm, uint32_t vcpuid);
+
+#define __stringify_1(x) #x
+#define __stringify(x)  __stringify_1(x)
+
 /*
  * get_cpuid() - find matching CPUID entry and return pointer to it.
  */

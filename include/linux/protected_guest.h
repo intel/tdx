@@ -24,6 +24,7 @@
 #define PATTR_GUEST_DRIVER_FILTER	6	/* Guest Driver filter */
 #define PATTR_GUEST_SECURE_TIME		7	/* Guest Secure Time */
 #define PATTR_GUEST_CPUID_FILTER	8	/* Guest CPUID Filter */
+#define PATTR_GUEST_RAND_LOOP		9	/* Hardware RNG must succeed */
 
 /* 0x800 - 0x8ff reserved for AMD */
 #define PATTR_SME			0x800

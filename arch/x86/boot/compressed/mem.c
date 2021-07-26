@@ -12,7 +12,7 @@
  *
  * Enumerate TDX directly from the early users.
  */
-static bool early_is_tdx_guest(void)
+bool early_is_tdx_guest(void)
 {
 	static bool once;
 	static bool is_tdx;

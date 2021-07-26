@@ -10,12 +10,23 @@
 #ifndef ASM_X86_ARCHRANDOM_H
 #define ASM_X86_ARCHRANDOM_H
 
+#include <linux/protected_guest.h>
 #include <asm/processor.h>
 #include <asm/cpufeature.h>
 
 #define RDRAND_RETRY_LOOPS	10
 
 /* Unconditional execution of RDRAND and RDSEED */
+
+static inline bool rd_loop(void)
+{
+#if defined(BOOT_COMPRESSED_MISC_H) && defined(CONFIG_INTEL_TDX_GUEST)
+	/* In decompression code */
+	return early_is_tdx_guest();
+#else
+	return prot_guest_has(PATTR_GUEST_RAND_LOOP);
+#endif
+}
 
 static inline bool __must_check rdrand_long(unsigned long *v)
 {
@@ -27,7 +38,7 @@ static inline bool __must_check rdrand_long(unsigned long *v)
 			     : CC_OUT(c) (ok), [out] "=r" (*v));
 		if (ok)
 			return true;
-	} while (--retry);
+	} while (--retry || rd_loop());
 	return false;
 }
 
@@ -41,26 +52,34 @@ static inline bool __must_check rdrand_int(unsigned int *v)
 			     : CC_OUT(c) (ok), [out] "=r" (*v));
 		if (ok)
 			return true;
-	} while (--retry);
+	} while (--retry || rd_loop());
 	return false;
 }
 
 static inline bool __must_check rdseed_long(unsigned long *v)
 {
 	bool ok;
-	asm volatile("rdseed %[out]"
-		     CC_SET(c)
-		     : CC_OUT(c) (ok), [out] "=r" (*v));
-	return ok;
+	do {
+		asm volatile("rdseed %[out]"
+			     CC_SET(c)
+			     : CC_OUT(c) (ok), [out] "=r" (*v));
+		if (ok)
+			return ok;
+	} while (rd_loop());
+	return false;
 }
 
 static inline bool __must_check rdseed_int(unsigned int *v)
 {
 	bool ok;
-	asm volatile("rdseed %[out]"
-		     CC_SET(c)
-		     : CC_OUT(c) (ok), [out] "=r" (*v));
-	return ok;
+	do {
+		asm volatile("rdseed %[out]"
+			     CC_SET(c)
+			     : CC_OUT(c) (ok), [out] "=r" (*v));
+		if (ok)
+			return ok;
+	} while (rd_loop());
+	return false;
 }
 
 /*

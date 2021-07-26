@@ -118,6 +118,17 @@ enum cc_attr {
 	 * Examples include TDX guest.
 	 */
 	CC_ATTR_GUEST_CPUID_FILTER,
+
+	/**
+	 * @CC_ATTR_GUEST_RAND_LOOP: Make RDRAND/RDSEED loop forever to
+	 * harden the random number generation.
+	 *
+	 * The platform/OS is running as a guest/virtual machine and
+	 * harden the random number generation.
+	 *
+	 * Examples include TDX guest.
+	 */
+	CC_ATTR_GUEST_RAND_LOOP,
 };
 
 #ifdef CONFIG_ARCH_HAS_CC_PLATFORM

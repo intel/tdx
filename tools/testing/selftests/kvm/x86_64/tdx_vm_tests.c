@@ -88,6 +88,112 @@ void  verify_td_lifecycle(void)
 	kvm_vm_free(vm);
 	printf("\t ... PASSED\n");
 }
+
+/*
+ * Verifies IO functionality by writing a |value| to a predefined port.
+ * Verifies that the read value is |value| + 1 from the same port.
+ * If all the tests are passed then write a value to port TDX_TEST_PORT
+ */
+TDX_GUEST_FUNCTION(guest_io_exit)
+{
+	uint64_t data_out, data_in, delta;
+
+	data_out = 0xAB;
+	tdvmcall_io(TDX_TEST_PORT, 1, 1, &data_out);
+	tdvmcall_io(TDX_TEST_PORT, 1, 0, &data_in);
+	delta = data_in - data_out - 1;
+	tdvmcall_io(TDX_TEST_PORT, 1, 1, &delta);
+}
+
+void  verify_td_ioexit(void)
+{
+	struct kvm_vm *vm;
+	struct kvm_run *run;
+	uint32_t port_data;
+
+	printf("Verifying TD IO Exit:\n");
+	/* Create a TD VM with no memory.*/
+	vm = __vm_create(VM_MODE_DEFAULT, 0, O_RDWR, KVM_X86_TDX_VM);
+
+	/* Allocate TD guest memory and initialize the TD.*/
+	initialize_td(vm);
+
+	/* Initialize the TD vcpu and copy the test code to the guest memory.*/
+	vm_vcpu_add_tdx(vm, 0);
+
+	/* Setup and initialize VM memory */
+	prepare_source_image(vm, guest_io_exit,
+			     TDX_FUNCTION_SIZE(guest_io_exit), 0);
+	finalize_td_memory(vm);
+
+	run = vcpu_state(vm, 0);
+
+	/* Wait for guest to do a IO write */
+	vcpu_run(vm, 0);
+	TEST_ASSERT(run->exit_reason == KVM_EXIT_IO,
+		    "Got exit_reason other than KVM_EXIT_IO: %u (%s)\n",
+		    run->exit_reason,
+		    exit_reason_str(run->exit_reason));
+
+	TEST_ASSERT((run->exit_reason == KVM_EXIT_IO)
+		    && (run->io.port == TDX_TEST_PORT)
+		    && (run->io.size == 1)
+		    && (run->io.direction == 1),
+		    "Got an unexpected IO exit values: %u (%s) %d %d %d\n",
+		    run->exit_reason,
+		    exit_reason_str(run->exit_reason),
+		    run->io.port, run->io.size, run->io.direction);
+	port_data = *(uint8_t *)((void *)run + run->io.data_offset);
+
+	printf("\t ... IO WRITE: OK\n");
+	/*
+	 * Wait for the guest to do a IO read. Provide the previos written data
+	 * + 1 back to the guest
+	 */
+	vcpu_run(vm, 0);
+	TEST_ASSERT(run->exit_reason == KVM_EXIT_IO,
+		    "Got exit_reason other than KVM_EXIT_IO: %u (%s)\n",
+		    run->exit_reason,
+		    exit_reason_str(run->exit_reason));
+
+	TEST_ASSERT(run->exit_reason == KVM_EXIT_IO &&
+		    run->io.port == TDX_TEST_PORT &&
+		    run->io.size == 1 &&
+		    run->io.direction == 0,
+		    "Got an unexpected IO exit values: %u (%s) %d %d %d\n",
+		    run->exit_reason,
+		    exit_reason_str(run->exit_reason),
+		    run->io.port, run->io.size, run->io.direction);
+	*(uint8_t *)((void *)run + run->io.data_offset) = port_data + 1;
+
+	printf("\t ... IO READ: OK\n");
+	/*
+	 * Wait for the guest to do a IO write to the TDX_TEST_PORT with the
+	 * value of 0. Any value other than 0 means, the guest has not able to
+	 * read/write values correctly.
+	 */
+	vcpu_run(vm, 0);
+	TEST_ASSERT(run->exit_reason == KVM_EXIT_IO,
+		    "KVM_EXIT_IO is expected but got an exit_reason: %u (%s)\n",
+		    run->exit_reason,
+		    exit_reason_str(run->exit_reason));
+
+	TEST_ASSERT(run->exit_reason == KVM_EXIT_IO &&
+		    run->io.port == TDX_TEST_PORT &&
+		    run->io.size == 1 &&
+		    run->io.direction == 1 &&
+		    *(uint32_t *)((void *)run + run->io.data_offset) == 0,
+		    "Got an unexpected IO exit values: %u (%s) %d %d %d %d\n",
+		    run->exit_reason,
+		    exit_reason_str(run->exit_reason),
+		    run->io.port, run->io.size, run->io.direction,
+		    *(uint32_t *)((void *)run + run->io.data_offset));
+
+	printf("\t ... IO verify read/write values: OK\n");
+	kvm_vm_free(vm);
+	printf("\t ... PASSED\n");
+}
+
 int main(int argc, char **argv)
 {
 	if (!is_tdx_enabled()) {
@@ -97,6 +203,7 @@ int main(int argc, char **argv)
 	}
 
 	run_in_new_process(&verify_td_lifecycle);
+	run_in_new_process(&verify_td_ioexit);
 
 	return 0;
 }

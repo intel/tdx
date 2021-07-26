@@ -28,7 +28,8 @@
 #define PR_GUEST_CPUID_FILTER			0x1007
 /* Limit PCI probing to simple virtual cases */
 #define PR_GUEST_LIMIT_PCI			0x1008
-
+/* Hardware RNG must succeed */
+#define PR_GUEST_RAND_LOOP			0x1009
 
 #ifdef CONFIG_ARCH_HAS_PROTECTED_GUEST
 #include <asm/protected_guest.h>

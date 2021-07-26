@@ -153,6 +153,7 @@ bool tdx_prot_guest_has(unsigned long flag)
 	case PR_GUEST_SECURE_TIME:
 	case PR_GUEST_CPUID_FILTER:
 	case PR_GUEST_LIMIT_PCI:
+	case PR_GUEST_RAND_LOOP:
 		return tdx_guest_enabled;
 	case PR_GUEST_DRIVER_FILTER:
 		return tdg_filter_enabled() && tdx_guest_enabled;

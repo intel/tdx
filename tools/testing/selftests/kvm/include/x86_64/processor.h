@@ -756,6 +756,11 @@ void vm_install_exception_handler(struct kvm_vm *vm, int vector,
 /* If a toddler were to say "abracadabra". */
 #define KVM_EXCEPTION_MAGIC 0xabacadabaull
 
+void vm_vcpu_add_tdx(struct kvm_vm *vm, uint32_t vcpuid);
+
+#define __stringify_1(x) #x
+#define __stringify(x)  __stringify_1(x)
+
 /*
  * KVM selftest exception fixup uses registers to coordinate with the exception
  * handler, versus the kernel's in-memory tables and KVM-Unit-Tests's in-memory

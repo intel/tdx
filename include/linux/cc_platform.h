@@ -115,6 +115,17 @@ enum cc_attr {
 	CC_ATTR_GUEST_CPUID_FILTER,
 
 	/**
+	 * @CC_ATTR_GUEST_RAND_LOOP: Make RDRAND/RDSEED loop forever to
+	 * harden the random number generation.
+	 *
+	 * The platform/OS is running as a guest/virtual machine and
+	 * harden the random number generation.
+	 *
+	 * Examples include TDX guest.
+	 */
+	CC_ATTR_GUEST_RAND_LOOP,
+
+	/**
 	 * @CC_ATTR_GUEST_TDX: Trust Domain Extension Support
 	 *
 	 * The platform/OS is running as a TDX guest/virtual machine.

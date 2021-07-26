@@ -40,5 +40,7 @@ u64 __tdx_hypercall_ret(struct tdx_hypercall_args *args);
 /* Called from __tdx_hypercall() for unrecoverable failure */
 void __tdx_hypercall_failed(void);
 
+bool early_is_tdx_guest(void);
+
 #endif /* !__ASSEMBLY__ */
 #endif /* _ASM_X86_SHARED_TDX_H */

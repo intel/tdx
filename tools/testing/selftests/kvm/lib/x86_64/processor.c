@@ -7,6 +7,7 @@
 
 #include "test_util.h"
 #include "kvm_util.h"
+#include "tdx.h"
 #include "processor.h"
 
 #ifndef NUM_INTERRUPTS
@@ -610,6 +611,28 @@ void __vm_xsave_require_permission(int bit, const char *name)
 	TEST_ASSERT(bitmask & (1ULL << bit),
 		    "prctl(ARCH_REQ_XCOMP_GUEST_PERM) failure bitmask=0x%lx",
 		    bitmask);
+}
+
+/*
+ * Adds a vCPU to a TD (Trusted Domain) with minimum  defaults. It will not set
+ * up any general purpose registers as they will be initialized by the TDX. In
+ * TDX, vCPUs RIP is set to 0xFFFFFFF0. See Intel TDX EAS Section "Initial State
+ * of Guest GPRs" for more information on vCPUs initial register values when
+ * entering the TD first time.
+ *
+ * Input Args:
+ *   vm - Virtual Machine
+ *   vcpuid - The id of the VCPU to add to the VM.
+ */
+void vm_vcpu_add_tdx(struct kvm_vm *vm, uint32_t vcpuid)
+{
+	struct kvm_mp_state mp_state;
+
+	vm_vcpu_add(vm, vcpuid);
+	initialize_td_vcpu(vm, vcpuid);
+
+	mp_state.mp_state = 0;
+	vcpu_set_mp_state(vm, vcpuid, &mp_state);
 }
 
 struct kvm_vcpu *vm_arch_vcpu_add(struct kvm_vm *vm, uint32_t vcpu_id,

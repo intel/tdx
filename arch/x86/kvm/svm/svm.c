@@ -25,6 +25,7 @@
 #include <linux/pagemap.h>
 #include <linux/swap.h>
 #include <linux/rwsem.h>
+#include <linux/protected_guest.h>
 
 #include <asm/apic.h>
 #include <asm/perf_event.h>
@@ -457,7 +458,7 @@ static int has_svm(void)
 		return 0;
 	}
 
-	if (sev_active()) {
+	if (prot_guest_has(PATTR_SEV)) {
 		pr_info("KVM is unsupported when running as an SEV guest\n");
 		return 0;
 	}

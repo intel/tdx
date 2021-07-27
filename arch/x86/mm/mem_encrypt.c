@@ -20,6 +20,7 @@
 #include <linux/bitops.h>
 #include <linux/dma-mapping.h>
 #include <linux/virtio_config.h>
+#include <linux/protected_guest.h>
 
 #include <asm/tlbflush.h>
 #include <asm/fixmap.h>
@@ -388,6 +389,30 @@ bool noinstr sev_es_active(void)
 {
 	return sev_status & MSR_AMD64_SEV_ES_ENABLED;
 }
+
+bool amd_prot_guest_has(unsigned int attr)
+{
+	switch (attr) {
+	case PATTR_MEM_ENCRYPT:
+		return sme_me_mask != 0;
+
+	case PATTR_SME:
+	case PATTR_HOST_MEM_ENCRYPT:
+		return sme_active();
+
+	case PATTR_SEV:
+	case PATTR_GUEST_MEM_ENCRYPT:
+		return sev_active();
+
+	case PATTR_SEV_ES:
+	case PATTR_GUEST_PROT_STATE:
+		return sev_es_active();
+
+	default:
+		return false;
+	}
+}
+EXPORT_SYMBOL(amd_prot_guest_has);
 
 /* Override for DMA direct allocation check - ARCH_HAS_FORCE_DMA_UNENCRYPTED */
 bool force_dma_unencrypted(struct device *dev)

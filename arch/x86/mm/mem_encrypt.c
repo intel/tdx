@@ -194,7 +194,7 @@ void __init sme_early_init(void)
 	for (i = 0; i < ARRAY_SIZE(protection_map); i++)
 		protection_map[i] = pgprot_encrypted(protection_map[i]);
 
-	if (sev_active())
+	if (amd_prot_guest_has(PATTR_SEV))
 		swiotlb_force = SWIOTLB_FORCE;
 }
 
@@ -203,7 +203,7 @@ void __init sev_setup_arch(void)
 	phys_addr_t total_mem = memblock_phys_mem_size();
 	unsigned long size;
 
-	if (!sev_active())
+	if (!amd_prot_guest_has(PATTR_SEV))
 		return;
 
 	/*
@@ -373,7 +373,7 @@ int __init early_set_memory_encrypted(unsigned long vaddr, unsigned long size)
  * up under SME the trampoline area cannot be encrypted, whereas under SEV
  * the trampoline area must be encrypted.
  */
-bool sev_active(void)
+static bool sev_active(void)
 {
 	return sev_status & MSR_AMD64_SEV_ENABLED;
 }
@@ -382,7 +382,6 @@ static bool sme_active(void)
 {
 	return sme_me_mask && !sev_active();
 }
-EXPORT_SYMBOL_GPL(sev_active);
 
 /* Needs to be called from non-instrumentable code */
 bool noinstr sev_es_active(void)
@@ -420,7 +419,7 @@ bool force_dma_unencrypted(struct device *dev)
 	/*
 	 * For SEV, all DMA must be to unencrypted addresses.
 	 */
-	if (sev_active())
+	if (amd_prot_guest_has(PATTR_SEV))
 		return true;
 
 	/*
@@ -479,7 +478,7 @@ static void print_mem_encrypt_feature_info(void)
 	}
 
 	/* Secure Encrypted Virtualization */
-	if (sev_active())
+	if (amd_prot_guest_has(PATTR_SEV))
 		pr_cont(" SEV");
 
 	/* Encrypted Register State */
@@ -502,7 +501,7 @@ void __init mem_encrypt_init(void)
 	 * With SEV, we need to unroll the rep string I/O instructions,
 	 * but SEV-ES supports them through the #VC handler.
 	 */
-	if (sev_active() && !sev_es_active())
+	if (amd_prot_guest_has(PATTR_SEV) && !sev_es_active())
 		static_branch_enable(&sev_enable_key);
 
 	print_mem_encrypt_feature_info();
@@ -510,6 +509,6 @@ void __init mem_encrypt_init(void)
 
 int arch_has_restricted_virtio_memory_access(void)
 {
-	return sev_active();
+	return amd_prot_guest_has(PATTR_SEV);
 }
 EXPORT_SYMBOL_GPL(arch_has_restricted_virtio_memory_access);

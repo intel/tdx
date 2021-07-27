@@ -55,7 +55,7 @@ void tdx_keyid_free(int keyid)
 /* Capabilities of KVM + TDX-SEAM. */
 struct tdx_capabilities tdx_caps;
 
-static struct mutex *tdx_phymem_cache_wb_lock;
+static DEFINE_MUTEX(tdx_lock);
 static struct mutex *tdx_mng_key_config_lock;
 
 /*
@@ -286,17 +286,13 @@ static void tdx_flush_vp_on_cpu(struct kvm_vcpu *vcpu)
 
 static int tdx_do_tdh_phymem_cache_wb(void *param)
 {
-	int cpu, cur_pkg;
 	u64 err = 0;
 
-	cpu = raw_smp_processor_id();
-	cur_pkg = topology_physical_package_id(cpu);
-
-	mutex_lock(&tdx_phymem_cache_wb_lock[cur_pkg]);
+	mutex_lock(&tdx_lock);
 	do {
 		err = tdh_phymem_cache_wb(!!err);
 	} while (err == TDX_INTERRUPTED_RESUMABLE);
-	mutex_unlock(&tdx_phymem_cache_wb_lock[cur_pkg]);
+	mutex_unlock(&tdx_lock);
 
 	if (TDX_ERR(err, TDH_PHYMEM_CACHE_WB, NULL))
 		return -EIO;
@@ -317,14 +313,18 @@ static void tdx_vm_teardown(struct kvm *kvm)
 	if (!is_td_created(kvm_tdx))
 		goto free_hkid;
 
+	mutex_lock(&tdx_lock);
 	err = tdh_mng_key_reclaimid(kvm_tdx->tdr.pa);
+	mutex_unlock(&tdx_lock);
 	if (TDX_ERR(err, TDH_MNG_KEY_RECLAIMID, NULL))
 		return;
 
 	kvm_for_each_vcpu(i, vcpu, (&kvm_tdx->kvm))
 		tdx_flush_vp_on_cpu(vcpu);
 
+	mutex_lock(&tdx_lock);
 	err = tdh_mng_vpflushdone(kvm_tdx->tdr.pa);
+	mutex_unlock(&tdx_lock);
 	if (TDX_ERR(err, TDH_MNG_VPFLUSHDONE, NULL))
 		return;
 
@@ -333,7 +333,9 @@ static void tdx_vm_teardown(struct kvm *kvm)
 	if (unlikely(err))
 		return;
 
+	mutex_lock(&tdx_lock);
 	err = tdh_mng_key_freeid(kvm_tdx->tdr.pa);
+	mutex_unlock(&tdx_lock);
 	if (TDX_ERR(err, TDH_MNG_KEY_FREEID, NULL))
 		return;
 
@@ -425,7 +427,9 @@ static int tdx_vm_init(struct kvm *kvm)
 	}
 
 	ret = -EIO;
+	mutex_lock(&tdx_lock);
 	err = tdh_mng_create(kvm_tdx->tdr.pa, kvm_tdx->hkid);
+	mutex_unlock(&tdx_lock);
 	if (TDX_ERR(err, TDH_MNG_CREATE, NULL))
 		goto free_tdcs;
 	tdx_add_td_page(&kvm_tdx->tdr);
@@ -2214,19 +2218,15 @@ static int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	x86_ops->free_private_sp = tdx_sept_free_private_sp;
 
 	max_pkgs = topology_max_packages();
-	tdx_phymem_cache_wb_lock = kcalloc(max_pkgs, sizeof(*tdx_phymem_cache_wb_lock),
-				 GFP_KERNEL);
-	tdx_mng_key_config_lock = kcalloc(max_pkgs, sizeof(*tdx_phymem_cache_wb_lock),
+
+	tdx_mng_key_config_lock = kcalloc(max_pkgs, sizeof(*tdx_mng_key_config_lock),
 				   GFP_KERNEL);
-	if (!tdx_phymem_cache_wb_lock || !tdx_mng_key_config_lock) {
-		kfree(tdx_phymem_cache_wb_lock);
+	if (!tdx_mng_key_config_lock) {
 		kfree(tdx_mng_key_config_lock);
 		return -ENOMEM;
 	}
-	for (i = 0; i < max_pkgs; i++) {
-		mutex_init(&tdx_phymem_cache_wb_lock[i]);
+	for (i = 0; i < max_pkgs; i++)
 		mutex_init(&tdx_mng_key_config_lock[i]);
-	}
 
 	max_pa = cpuid_eax(0x80000008) & 0xff;
 	hkid_start_pos = boot_cpu_data.x86_phys_bits;

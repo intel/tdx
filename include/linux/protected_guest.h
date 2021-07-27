@@ -17,6 +17,11 @@
 #define PATTR_GUEST_MEM_ENCRYPT		2	/* Guest encrypted memory */
 #define PATTR_GUEST_PROT_STATE		3	/* Guest encrypted state */
 
+/* 0x800 - 0x8ff reserved for AMD */
+#define PATTR_SME			0x800
+#define PATTR_SEV			0x801
+#define PATTR_SEV_ES			0x802
+
 #ifdef CONFIG_ARCH_HAS_PROTECTED_GUEST
 
 #include <asm/protected_guest.h>

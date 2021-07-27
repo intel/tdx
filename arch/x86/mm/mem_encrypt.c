@@ -383,8 +383,7 @@ static bool sme_active(void)
 	return sme_me_mask && !sev_active();
 }
 
-/* Needs to be called from non-instrumentable code */
-bool noinstr sev_es_active(void)
+static bool sev_es_active(void)
 {
 	return sev_status & MSR_AMD64_SEV_ES_ENABLED;
 }
@@ -482,7 +481,7 @@ static void print_mem_encrypt_feature_info(void)
 		pr_cont(" SEV");
 
 	/* Encrypted Register State */
-	if (sev_es_active())
+	if (amd_prot_guest_has(PATTR_SEV_ES))
 		pr_cont(" SEV-ES");
 
 	pr_cont("\n");
@@ -501,7 +500,7 @@ void __init mem_encrypt_init(void)
 	 * With SEV, we need to unroll the rep string I/O instructions,
 	 * but SEV-ES supports them through the #VC handler.
 	 */
-	if (amd_prot_guest_has(PATTR_SEV) && !sev_es_active())
+	if (amd_prot_guest_has(PATTR_SEV) && !amd_prot_guest_has(PATTR_SEV_ES))
 		static_branch_enable(&sev_enable_key);
 
 	print_mem_encrypt_feature_info();

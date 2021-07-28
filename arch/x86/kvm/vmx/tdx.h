@@ -7,6 +7,8 @@
 #include <linux/kvm_host.h>
 #include <uapi/asm/kvm.h>
 
+#include "tdx_arch.h"
+
 #ifdef CONFIG_INTEL_TDX_HOST
 struct kvm_tdx {
 	struct kvm kvm;

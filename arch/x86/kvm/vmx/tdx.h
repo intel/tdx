@@ -4,6 +4,8 @@
 #include <linux/kvm_host.h>
 #include <uapi/asm/kvm.h>
 
+#include "tdx_arch.h"
+
 #ifdef CONFIG_INTEL_TDX_HOST
 void tdx_bringup(void);
 void tdx_cleanup(void);

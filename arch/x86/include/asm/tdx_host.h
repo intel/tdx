@@ -38,6 +38,44 @@ struct tdx_ex_ret {
 			u64 prev;
 			u64 next;
 		} sys_tdmr_init;
+		/* TDH_SYS_INIT returns CPUID info on error. */
+		struct {
+			u32 leaf;
+			u32 subleaf;
+			u32 eax_mask;
+			u32 ebx_mask;
+			u32 ecx_mask;
+			u32 edx_mask;
+			u32 eax_val;
+			u32 ebx_val;
+			u32 ecx_val;
+			u32 edx_val;
+		} sys_init;
+		/* TDH_MNG_INIT returns CPUID info on error. */
+		struct {
+			u32 leaf;
+			u32 subleaf;
+		} mng_init;
+		/* Functions that walk SEPT */
+		struct {
+			u64 septe;
+			struct {
+				u64 level		:3;
+				u64 sept_reserved_0	:5;
+				u64 state		:8;
+				u64 sept_reserved_1	:48;
+			};
+		} sept_walk;
+		/* TDH_MNG_{RD,WR} return the field value. */
+		struct {
+			u64 field_val;
+		} mng_rdwr;
+		/* TDH_PHYMEM_PAGE_RDMD and TDH_PHYMEM_PAGE_RECLAIM return page metadata. */
+		struct {
+			u64 page_type;
+			u64 owner;
+			u64 page_size;
+		} phymem_page_md;
 	};
 };
 

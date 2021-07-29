@@ -21,6 +21,7 @@
 #define PATTR_GUEST_PROT_STATE		3	/* Guest encrypted state */
 #define PATTR_GUEST_UNROLL_STRING_IO	4	/* Unrolled string IO */
 #define PATTR_GUEST_SHARED_MAPPING_INIT	5	/* Late shared mapping init*/
+#define PATTR_GUEST_DEVICE_FILTER	6	/* Guest Device filter */
 
 /* 0x800 - 0x8ff reserved for AMD */
 #define PATTR_SME			0x800

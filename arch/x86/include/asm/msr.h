@@ -232,9 +232,9 @@ static inline unsigned long long native_read_pmc(int counter)
 	return EAX_EDX_VAL(val, low, high);
 }
 
-#ifdef CONFIG_PARAVIRT_XXL
 #include <asm/paravirt.h>
-#else
+
+#ifndef CONFIG_PARAVIRT_XXL
 #include <linux/errno.h>
 /*
  * Access to machine-specific registers (available on 586 and better only)
@@ -256,11 +256,6 @@ static inline void wrmsr(unsigned int msr, u32 low, u32 high)
 
 #define rdmsrl(msr, val)			\
 	((val) = native_read_msr((msr)))
-
-static inline void wrmsrl(unsigned int msr, u64 val)
-{
-	native_write_msr(msr, (u32)(val & 0xffffffffULL), (u32)(val >> 32));
-}
 
 /* wrmsr with exception handling */
 static inline int wrmsr_safe(unsigned int msr, u32 low, u32 high)

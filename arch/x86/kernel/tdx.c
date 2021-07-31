@@ -469,8 +469,33 @@ static bool tdx_read_msr(unsigned int msr, u64 *val)
 	return true;
 }
 
-static bool tdx_write_msr(unsigned int msr, unsigned int low,
-			       unsigned int high)
+/*
+ * TDX has context switched MSRs and emulated MSRs. The emulated MSRs
+ * normally trigger a #VE, but that is expensive, which can be avoided
+ * by doing a direct TDCALL. Unfortunately, this cannot be done for all
+ * because some MSRs are "context switched" and need WRMSR.
+ *
+ * The list for this is unfortunately quite long. To avoid maintaining
+ * very long switch statements just do a fast path for the few critical
+ * MSRs that need TDCALL, currently only TSC_DEADLINE.
+ *
+ * More can be added as needed.
+ *
+ * The others will be handled by the #VE handler as needed.
+ * See 18.1 "MSR virtualization" in the TDX Module EAS
+ */
+static bool tdx_fast_tdcall_path_msr(unsigned int msr)
+{
+	switch (msr) {
+	case MSR_IA32_TSC_DEADLINE:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static bool __tdx_write_msr(unsigned int msr, unsigned int low,
+			    unsigned int high)
 {
 	u64 ret;
 
@@ -483,6 +508,14 @@ static bool tdx_write_msr(unsigned int msr, unsigned int low,
 				   (u64)high << 32 | low, 0, 0, NULL);
 
 	return ret ? false : true;
+}
+
+static void notrace tdx_write_msr(unsigned int msr, u32 low, u32 high)
+{
+	if (tdx_fast_tdcall_path_msr(msr))
+		__tdx_write_msr(msr, low, high);
+	else
+		native_write_msr(msr, low, high);
 }
 
 static bool tdx_handle_cpuid(struct pt_regs *regs)
@@ -750,7 +783,7 @@ static bool tdx_virt_exception_kernel(struct pt_regs *regs, struct ve_info *ve)
 		}
 		break;
 	case EXIT_REASON_MSR_WRITE:
-		ret = tdx_write_msr(regs->cx, regs->ax, regs->dx);
+		ret = __tdx_write_msr(regs->cx, regs->ax, regs->dx);
 		break;
 	case EXIT_REASON_CPUID:
 		ret = tdx_handle_cpuid(regs);
@@ -849,6 +882,8 @@ void __init tdx_early_init(void)
 	tdx_filter_init();
 
 	swiotlb_force = SWIOTLB_FORCE;
+
+	pv_ops.cpu.write_msr = tdx_write_msr;
 
 	legacy_pic = &null_legacy_pic;
 

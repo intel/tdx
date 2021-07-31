@@ -18,6 +18,8 @@
 #include <linux/static_call_types.h>
 #include <asm/frame.h>
 
+struct mm_struct;
+
 u64 dummy_steal_clock(int cpu);
 u64 dummy_sched_clock(void);
 
@@ -101,6 +103,17 @@ static inline void notify_page_enc_status_changed(unsigned long pfn,
 						  int npages, bool enc)
 {
 	PVOP_VCALL3(mmu.notify_page_enc_status_changed, pfn, npages, enc);
+}
+
+static inline void paravirt_write_msr(unsigned msr,
+				      unsigned low, unsigned high)
+{
+	PVOP_VCALL3(cpu.write_msr, msr, low, high);
+}
+
+static inline void wrmsrl(unsigned msr, u64 val)
+{
+	paravirt_write_msr(msr, (u32)val, (u32)(val>>32));
 }
 
 #ifdef CONFIG_PARAVIRT_XXL
@@ -188,12 +201,6 @@ static inline u64 paravirt_read_msr(unsigned msr)
 	return PVOP_CALL1(u64, cpu.read_msr, msr);
 }
 
-static inline void paravirt_write_msr(unsigned msr,
-				      unsigned low, unsigned high)
-{
-	PVOP_VCALL3(cpu.write_msr, msr, low, high);
-}
-
 static inline u64 paravirt_read_msr_safe(unsigned msr, int *err)
 {
 	return PVOP_CALL2(u64, cpu.read_msr_safe, msr, err);
@@ -221,11 +228,6 @@ do {						\
 do {						\
 	val = paravirt_read_msr(msr);		\
 } while (0)
-
-static inline void wrmsrl(unsigned msr, u64 val)
-{
-	wrmsr(msr, (u32)val, (u32)(val>>32));
-}
 
 #define wrmsr_safe(msr, a, b)	paravirt_write_msr_safe(msr, a, b)
 
@@ -771,6 +773,9 @@ extern void default_banner(void);
 #endif /* !CONFIG_PARAVIRT */
 
 #ifndef __ASSEMBLY__
+
+struct mm_struct;
+
 #ifndef CONFIG_PARAVIRT_XXL
 static inline void paravirt_arch_dup_mmap(struct mm_struct *oldmm,
 					  struct mm_struct *mm)
@@ -781,6 +786,11 @@ static inline void paravirt_arch_dup_mmap(struct mm_struct *oldmm,
 #ifndef CONFIG_PARAVIRT
 static inline void paravirt_arch_exit_mmap(struct mm_struct *mm)
 {
+}
+
+static inline void wrmsrl(unsigned msr, u64 val)
+{
+	native_write_msr(msr, (u32)val, (u32)(val>>32));
 }
 #endif
 

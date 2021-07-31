@@ -18,6 +18,7 @@
 #include <linux/string.h>
 #include <linux/mutex.h>
 #include <linux/sysfs.h>
+#include <linux/protected_guest.h>
 #include "base.h"
 #include "power/power.h"
 
@@ -651,6 +652,13 @@ int bus_add_driver(struct device_driver *drv)
 	}
 
 	if (driver_filter_enabled()) {
+		/*
+		 * For protected guest, don't permit allowed status change.
+		 * So make it read only.
+		 */
+		if (prot_guest_has(PATTR_GUEST_DRIVER_FILTER))
+			driver_attr_allowed.attr.mode = 0444;
+
 		error = driver_create_file(drv, &driver_attr_allowed);
 		if (error) {
 			printk(KERN_ERR "%s: allowed attr (%s) failed\n",

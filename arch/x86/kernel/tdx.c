@@ -404,12 +404,18 @@ static int tdg_write_msr_safe(unsigned int msr, unsigned int low,
 {
 	u64 ret;
 
-	WARN_ON_ONCE(tdg_is_context_switched_msr(msr));
-
 	ret = _trace_tdx_hypercall(EXIT_REASON_MSR_WRITE, msr,
 				   (u64)high << 32 | low, 0, 0, NULL);
 
 	return ret ? -EIO : 0;
+}
+
+void notrace tdg_write_msr(unsigned int msr, u32 low, u32 high)
+{
+	if (tdg_is_context_switched_msr(msr))
+		native_write_msr(msr, low, high);
+	else
+		tdg_write_msr_safe(msr, low, high);
 }
 
 static void tdg_handle_cpuid(struct pt_regs *regs)
@@ -735,6 +741,7 @@ void __init tdx_early_init(void)
 
 	pv_ops.irq.safe_halt = tdg_safe_halt;
 	pv_ops.irq.halt = tdg_halt;
+	pv_ops.cpu.write_msr = tdg_write_msr;
 
 	legacy_pic = &null_legacy_pic;
 

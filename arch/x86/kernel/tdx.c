@@ -445,6 +445,31 @@ static bool tdx_read_msr_safe(unsigned int msr, u64 *val)
 	return true;
 }
 
+/*
+ * TDX has context switched MSRs and emulated MSRs. The emulated MSRs
+ * normally trigger a #VE, but that is expensive, which can be avoided
+ * by doing a direct TDCALL. Unfortunately, this cannot be done for all
+ * because some MSRs are "context switched" and need WRMSR.
+ *
+ * The list for this is unfortunately quite long. To avoid maintaining
+ * very long switch statements just do a fast path for the few critical
+ * MSRs that need TDCALL, currently only TSC_DEADLINE.
+ *
+ * More can be added as needed.
+ *
+ * The others will be handled by the #VE handler as needed.
+ * See 18.1 "MSR virtualization" in the TDX Module EAS
+ */
+static bool tdx_fast_tdcall_path_msr(unsigned int msr)
+{
+	switch (msr) {
+	case MSR_IA32_TSC_DEADLINE:
+		return true;
+	default:
+		return false;
+	}
+}
+
 static bool tdx_write_msr_safe(unsigned int msr, unsigned int low,
 			       unsigned int high)
 {
@@ -459,6 +484,14 @@ static bool tdx_write_msr_safe(unsigned int msr, unsigned int low,
 				   (u64)high << 32 | low, 0, 0, NULL);
 
 	return ret ? false : true;
+}
+
+void notrace tdx_write_msr(unsigned int msr, u32 low, u32 high)
+{
+	if (tdx_fast_tdcall_path_msr(msr))
+		tdx_write_msr_safe(msr, low, high);
+	else
+		native_write_msr(msr, low, high);
 }
 
 static bool tdx_handle_cpuid(struct pt_regs *regs)
@@ -810,6 +843,7 @@ void __init tdx_early_init(void)
 
 	pv_ops.irq.safe_halt = tdx_safe_halt;
 	pv_ops.irq.halt = tdx_halt;
+	pv_ops.cpu.write_msr = tdx_write_msr;
 
 	legacy_pic = &null_legacy_pic;
 	swiotlb_force = SWIOTLB_FORCE;

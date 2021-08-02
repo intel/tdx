@@ -512,11 +512,11 @@ static inline void intel_pt_handle_vmx(int on)
 
 }
 
-static void intel_pmu_save(void)
+static inline void intel_pmu_save(void)
 {
 }
 
-static void intel_pmu_restore(void)
+static inline void intel_pmu_restore(void)
 {
 }
 #endif

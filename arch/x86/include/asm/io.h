@@ -368,6 +368,8 @@ static inline bool phys_mem_access_encrypted(unsigned long phys_addr,
 }
 #endif
 
+extern bool ioremap_force_shared;
+
 /**
  * iosubmit_cmds512 - copy data to single MMIO location, in 512-bit units
  * @dst: destination, in MMIO space (must be 512-bit aligned)

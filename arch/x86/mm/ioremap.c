@@ -28,6 +28,7 @@
 #include <asm/memtype.h>
 #include <asm/setup.h>
 #include <asm/tdx.h>
+#include <asm/cmdline.h>
 
 #include "physaddr.h"
 
@@ -163,6 +164,17 @@ static void __ioremap_check_mem(resource_size_t addr, unsigned long size,
 }
 
 /*
+ * Normally only drivers that are hardened for use in confidential guests
+ * force shared mappings. But if device filtering is disabled other
+ * devices can be loaded, and these need shared mappings too. This
+ * variable is set to true if these filters are disabled.
+ *
+ * Note this has some side effects, e.g. various BIOS tables
+ * get shared too which is risky.
+ */
+bool ioremap_force_shared;
+
+/*
  * Remap an arbitrary physical address space into the kernel virtual
  * address space. It transparently creates kernel huge I/O mapping when
  * the physical address is aligned by a huge page size (1GB or 2MB) and
@@ -249,7 +261,7 @@ __ioremap_caller(resource_size_t phys_addr, unsigned long size,
 	prot = PAGE_KERNEL_IO;
 	if ((io_desc.flags & IORES_MAP_ENCRYPTED) || encrypted)
 		prot = pgprot_encrypted(prot);
-	else if (shared)
+	else if (shared || ioremap_force_shared)
 		prot = pgprot_protected_guest(prot);
 
 	switch (pcm) {
@@ -846,6 +858,11 @@ void __init early_ioremap_init(void)
 #else
 	WARN_ON((fix_to_virt(0) + PAGE_SIZE) & ((1 << PMD_SHIFT) - 1));
 #endif
+
+	/* Parse cmdline params for ioremap_force_shared */
+	if (cmdline_find_option_bool(boot_command_line,
+				     "ioremap_force_shared"))
+		ioremap_force_shared = 1;
 
 	early_ioremap_setup();
 

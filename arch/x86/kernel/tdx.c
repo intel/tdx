@@ -78,6 +78,9 @@ bool tdx_prot_guest_has(unsigned long flag)
 	switch (flag) {
 	case PATTR_GUEST_TDX:
 	case PATTR_GUEST_UNROLL_STRING_IO:
+	case PATTR_GUEST_MEM_ENCRYPT:
+	case PATTR_GUEST_SHARED_MAPPING_INIT:
+	case PATTR_MEM_ENCRYPT:
 		return cpu_feature_enabled(X86_FEATURE_TDX_GUEST);
 	}
 

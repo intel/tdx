@@ -2062,6 +2062,18 @@
 			1 - Bypass the IOMMU for DMA.
 			unset - Use value of CONFIG_IOMMU_DEFAULT_PASSTHROUGH.
 
+	ioremap_force_shared= [X86_64, PG]
+			Force the kernel to use shared memory mappings which do
+			not use ioremap_shared/pcimap_shared to opt-in to shared
+			mappings with the host. This feature is mainly used by
+			a protected guest when enabling new drivers without
+			proper shared memory related changes. Please note that
+			this option might also allow other non explicitly enabled
+			drivers to interact with the host in protected guest,
+			which could cause other security risks. This option will
+			also cause BIOS data structures to be shared with the host,
+			which might open security holes.
+
 	io7=		[HW] IO7 for Marvel-based Alpha systems
 			See comment before marvel_specify_io7 in
 			arch/alpha/kernel/core_marvel.c.

@@ -102,6 +102,7 @@ parameter is applicable::
 	ARM	ARM architecture is enabled.
 	ARM64	ARM64 architecture is enabled.
 	AX25	Appropriate AX.25 support is enabled.
+	CCG	Confidential Computing guest is enabled.
 	CLK	Common clock infrastructure is enabled.
 	CMA	Contiguous Memory Area support is enabled.
 	DRM	Direct Rendering Management support is enabled.

@@ -84,14 +84,14 @@ static inline u64 tdh_mng_wr(hpa_t tdr, u64 field, u64 val, u64 mask,
 	return seamcall(TDH_MNG_WR, tdr, field, val, mask, 0, ex);
 }
 
-static inline u64 tdh_phymem_page_rd(hpa_t addr, struct tdx_ex_ret *ex)
+static inline u64 tdh_mem_rd(hpa_t addr, struct tdx_ex_ret *ex)
 {
-	return seamcall(TDH_PHYMEM_PAGE_RD, addr, 0, 0, 0, 0, ex);
+	return seamcall(TDH_MEM_RD, addr, 0, 0, 0, 0, ex);
 }
 
-static inline u64 tdh_phymem_page_wr(hpa_t addr, u64 val, struct tdx_ex_ret *ex)
+static inline u64 tdh_mem_wr(hpa_t addr, u64 val, struct tdx_ex_ret *ex)
 {
-	return seamcall(TDH_PHYMEM_PAGE_WR, addr, val, 0, 0, 0, ex);
+	return seamcall(TDH_MEM_WR, addr, val, 0, 0, 0, ex);
 }
 
 static inline u64 tdh_mem_page_demote(hpa_t tdr, gpa_t gpa, int level, hpa_t page,

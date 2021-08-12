@@ -2,6 +2,7 @@
 #include <linux/moduleparam.h>
 #include <linux/errno.h>
 
+#include <asm/kvm_host.h>
 #include <asm/tdx_host.h>
 
 static struct kvm_x86_ops vt_x86_ops __initdata;

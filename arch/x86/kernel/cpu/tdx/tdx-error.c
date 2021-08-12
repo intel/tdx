@@ -6,6 +6,7 @@
 
 #include <asm/tdx_errno.h>
 #include <asm/tdx_arch.h>
+#include <asm/tdx_host.h>
 
 #include "p-seamldr.h"
 

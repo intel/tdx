@@ -7,15 +7,15 @@
 
 #include <linux/tracepoint.h>
 
-#if IS_ENABLED(CONFIG_INTEL_TDX_HOST)
-
 #ifdef SEAMLDR_SEAMCALLS
 #define SEAMCALLS		\
 	SEAMLDR_SEAMCALLS,	\
 	TDX_SEAMCALLS
-#else
+#elif defined(TDX_SEAMCALLS)
 #define SEAMCALLS		\
 	TDX_SEAMCALLS
+#else
+#define SEAMCALLS {}
 #endif
 
 TRACE_EVENT(seamcall_enter,
@@ -115,7 +115,6 @@ TRACE_EVENT(seamcall_exit,
 		__entry->r11
 	    )
 );
-#endif /* CONFIG_INTEL_TDX_HOST */
 
 #undef TRACE_INCLUDE_PATH
 #define TRACE_INCLUDE_PATH ../../arch/x86/include/asm/trace/

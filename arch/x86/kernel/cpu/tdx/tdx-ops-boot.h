@@ -43,7 +43,7 @@ static inline u64 tdh_sys_tdmr_config(hpa_t tdmr, int nr_entries, int hkid)
 
 static inline u64 tdh_trace_seamcalls_boot(u64 level)
 {
-	u64 err;
+	u64 err = 0;
 
 	if (is_debug_seamcall_available) {
 		err = seamcall_boot(SEAMCALL_TDDEBUGCONFIG,

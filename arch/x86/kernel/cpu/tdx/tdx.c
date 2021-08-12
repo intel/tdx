@@ -135,10 +135,10 @@ enum TDX_MODULE_STATE {
 /* TODO: export the state via sysfs. */
 static enum TDX_MODULE_STATE tdx_module_state __ro_after_init;
 
-bool is_debug_seamcall_available __ro_after_init = true;
+bool is_debug_seamcall_available __read_mostly = true;
 EXPORT_SYMBOL_GPL(is_debug_seamcall_available);
 
-bool is_nonarch_seamcall_available __ro_after_init = true;
+bool is_nonarch_seamcall_available __read_mostly = true;
 EXPORT_SYMBOL_GPL(is_nonarch_seamcall_available);
 
 /* TDX system information returned by TDH_SYS_INFO. */

@@ -31,7 +31,7 @@ static int trace_seamcalls_initialized;
 /* TDX KeyID pool */
 static DEFINE_IDA(tdx_keyid_pool);
 
-int tdx_keyid_alloc(void)
+static int tdx_keyid_alloc(void)
 {
 	if (!boot_cpu_has(X86_FEATURE_TDX))
 		return -EINVAL;
@@ -45,7 +45,7 @@ int tdx_keyid_alloc(void)
 			       GFP_KERNEL);
 }
 
-void tdx_keyid_free(int keyid)
+static void tdx_keyid_free(int keyid)
 {
 	if (!keyid || keyid < 0)
 		return;

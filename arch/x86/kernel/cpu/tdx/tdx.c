@@ -110,10 +110,10 @@ bool is_tdx_module_enabled(void)
 }
 EXPORT_SYMBOL_GPL(is_tdx_module_enabled);	/* kvm_intel will use this. */
 
-bool is_debug_seamcall_available __ro_after_init = true;
+bool is_debug_seamcall_available __read_mostly = true;
 EXPORT_SYMBOL_GPL(is_debug_seamcall_available);
 
-bool is_nonarch_seamcall_available __ro_after_init = true;
+bool is_nonarch_seamcall_available __read_mostly = true;
 EXPORT_SYMBOL_GPL(is_nonarch_seamcall_available);
 
 /* TDX system information returned by TDH_SYS_INFO. */

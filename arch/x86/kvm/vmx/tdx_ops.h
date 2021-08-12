@@ -12,6 +12,7 @@
 
 #include "seamcall.h"
 
+#ifdef CONFIG_INTEL_TDX_HOST
 static inline void tdx_clflush_page(hpa_t addr)
 {
 	clflush_cache_range(__va(addr), PAGE_SIZE);
@@ -252,5 +253,6 @@ static inline void tdxmode(bool intercept_vmexits, u64 intercept_bitmap)
 		}
 	}
 }
+#endif /* CONFIG_INTEL_TDX_HOST */
 
 #endif /* __KVM_X86_TDX_OPS_H */

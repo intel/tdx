@@ -34,6 +34,11 @@ static inline bool is_tdx_module_enabled(void)
 	return false;
 }
 
+static inline bool range_is_tdx_memory(phys_addr_t start, phys_addr_t end)
+{
+	return false;
+}
+
 static inline const char *tdx_seamcall_error_name(u64 error_code)
 {
 	return NULL;

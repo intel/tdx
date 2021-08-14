@@ -1791,9 +1791,9 @@ void usb_deauthorize_interface(struct usb_interface *intf)
 
 	device_lock(dev->parent);
 
-	if (intf->authorized) {
+	if (intf->dev.authorized == true) {
 		device_lock(dev);
-		intf->authorized = 0;
+		intf->dev.authorized = false;
 		device_unlock(dev);
 
 		usb_forced_unbind_intf(intf);
@@ -1811,9 +1811,9 @@ void usb_authorize_interface(struct usb_interface *intf)
 {
 	struct device *dev = &intf->dev;
 
-	if (!intf->authorized) {
+	if (intf->dev.authorized == false) {
 		device_lock(dev);
-		intf->authorized = 1; /* authorize interface */
+		intf->dev.authorized = true;
 		device_unlock(dev);
 	}
 }
@@ -1962,7 +1962,7 @@ int usb_set_configuration(struct usb_device *dev, int configuration)
 	struct usb_hcd *hcd = bus_to_hcd(dev->bus);
 	int n, nintf;
 
-	if (dev->authorized == 0 || configuration == -1)
+	if (dev->dev.authorized == false || configuration == -1)
 		configuration = 0;
 	else {
 		for (i = 0; i < dev->descriptor.bNumConfigurations; i++) {
@@ -2069,7 +2069,6 @@ free_interfaces:
 		intfc = cp->intf_cache[i];
 		intf->altsetting = intfc->altsetting;
 		intf->num_altsetting = intfc->num_altsetting;
-		intf->authorized = !!HCD_INTF_AUTHORIZED(hcd);
 		kref_get(&intfc->ref);
 
 		alt = usb_altnum_to_altsetting(intf, 0);
@@ -2101,6 +2100,7 @@ free_interfaces:
 		INIT_WORK(&intf->reset_ws, __usb_queue_reset_device);
 		intf->minor = -1;
 		device_initialize(&intf->dev);
+		intf->dev.authorized = !!HCD_INTF_AUTHORIZED(hcd);
 		pm_runtime_no_callbacks(&intf->dev);
 		dev_set_name(&intf->dev, "%d-%s:%d.%d", dev->bus->busnum,
 				dev->devpath, configuration, ifnum);

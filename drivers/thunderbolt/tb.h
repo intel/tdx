@@ -148,7 +148,6 @@ enum tb_clx {
  * @safe_mode: The switch is in safe-mode
  * @boot: Whether the switch was already authorized on boot or not
  * @rpm: The switch supports runtime PM
- * @authorized: Whether the switch is authorized by user or policy
  * @security_level: Switch supported security level
  * @debugfs_dir: Pointer to the debugfs structure
  * @key: Contains the key used to challenge the device or %NULL if not
@@ -201,7 +200,6 @@ struct tb_switch {
 	bool safe_mode;
 	bool boot;
 	bool rpm;
-	unsigned int authorized;
 	enum tb_security_level security_level;
 	struct dentry *debugfs_dir;
 	u8 *key;

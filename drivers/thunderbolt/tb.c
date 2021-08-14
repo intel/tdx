@@ -1346,7 +1346,7 @@ static int tb_scan_finalize_switch(struct device *dev, void *data)
 		 * send uevent to userspace.
 		 */
 		if (sw->boot)
-			sw->authorized = 1;
+			sw->dev.authorized = true;
 
 		dev_set_uevent_suppress(dev, false);
 		kobject_uevent(&dev->kobj, KOBJ_ADD);

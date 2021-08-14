@@ -768,7 +768,7 @@ icm_fr_device_connected(struct tb *tb, const struct icm_pkg_header *hdr)
 		 * sure our book keeping matches that.
 		 */
 		if (sw->depth == depth && sw_phy_port == phy_port &&
-		    !!sw->authorized == authorized) {
+		    sw->dev.authorized == authorized) {
 			/*
 			 * It was enumerated through another link so update
 			 * route string accordingly.
@@ -849,7 +849,7 @@ icm_fr_device_connected(struct tb *tb, const struct icm_pkg_header *hdr)
 		sw->connection_key = pkg->connection_key;
 		sw->link = link;
 		sw->depth = depth;
-		sw->authorized = authorized;
+		sw->dev.authorized = authorized;
 		sw->security_level = security_level;
 		sw->boot = boot;
 		sw->link_speed = speed_gen3 ? 20 : 10;
@@ -1235,7 +1235,8 @@ __icm_tr_device_connected(struct tb *tb, const struct icm_pkg_header *hdr,
 	sw = tb_switch_find_by_uuid(tb, &pkg->ep_uuid);
 	if (sw) {
 		/* Update the switch if it is still in the same place */
-		if (tb_route(sw) == route && !!sw->authorized == authorized) {
+		if (tb_route(sw) == route &&
+		    sw->dev.authorized == authorized) {
 			parent_sw = tb_to_switch(sw->dev.parent);
 			update_switch(parent_sw, sw, route, pkg->connection_id,
 				      0, 0, 0, boot);
@@ -1272,7 +1273,7 @@ __icm_tr_device_connected(struct tb *tb, const struct icm_pkg_header *hdr,
 	sw = alloc_switch(parent_sw, route, &pkg->ep_uuid);
 	if (!IS_ERR(sw)) {
 		sw->connection_id = pkg->connection_id;
-		sw->authorized = authorized;
+		sw->dev.authorized = authorized;
 		sw->security_level = security_level;
 		sw->boot = boot;
 		sw->link_speed = speed_gen3 ? 20 : 10;

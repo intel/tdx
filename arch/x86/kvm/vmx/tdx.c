@@ -1487,12 +1487,16 @@ static void tdx_sept_set_private_spte(struct kvm_vcpu *vcpu, gfn_t gfn,
 
 	trace_kvm_sept_seamcall(SEAMCALL_TDH_MEM_PAGE_ADD, gpa, hpa, level);
 
+	WARN_ON(kvm_tdx->source_pa == INVALID_PAGE);
 	source_pa = kvm_tdx->source_pa & ~KVM_TDX_MEASURE_MEMORY_REGION;
 
-	err = tdh_mem_page_add(kvm_tdx->tdr.pa,  gpa, hpa, source_pa, &ex_ret);
+	WARN_ON(hpa == source_pa);
+	err = tdh_mem_page_add(kvm_tdx->tdr.pa, gpa, hpa, source_pa, &ex_ret);
 	if (!SEPT_ERR(err, &ex_ret, TDH_MEM_PAGE_ADD, vcpu->kvm) &&
 	    (kvm_tdx->source_pa & KVM_TDX_MEASURE_MEMORY_REGION))
 		tdx_measure_page(kvm_tdx, gpa);
+
+	kvm_tdx->source_pa = INVALID_PAGE;
 }
 
 static void tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn, int level,

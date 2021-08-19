@@ -33,6 +33,7 @@
 #include <clocksource/hyperv_timer.h>
 #include <asm/numa.h>
 #include <asm/svm.h>
+#include <linux/cc_platform.h>
 
 /* Is Linux running as the root partition? */
 bool hv_root_partition;
@@ -230,6 +231,12 @@ static uint32_t  __init ms_hyperv_platform(void)
 	u32 hyp_signature[3];
 
 	if (!boot_cpu_has(X86_FEATURE_HYPERVISOR))
+		return 0;
+
+	/*
+	 * Temporary until the HyperV code is properly hardened and enabled.
+	 */
+	if (cc_platform_has(CC_ATTR_GUEST_CPUID_FILTER))
 		return 0;
 
 	cpuid(HYPERV_CPUID_VENDOR_AND_MAX_FUNCTIONS,

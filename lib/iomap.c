@@ -36,6 +36,76 @@
 #define PIO_RESERVED	0x40000UL
 #endif
 
+#ifdef CONFIG_IOMAP_IND_MMIO
+
+/*
+ * Out of line optimized access functions for iomap.  These might be
+ * faster for specific cases, like running in a guest that needs
+ * hypercalls for MMIO, which can save a round trip through an
+ * exception handler.  But it's not worth bloating all drivers' inline
+ * mmio everywhere, which will never run in those guests. But iomap is
+ * out of line and can be larger, and actually critical (e.g. used by
+ * virtio), and can afford an extra check in code size. For normal
+ * MMIO the extra pointer check is in the noise compared to the cost
+ * of an uncached access.
+ */
+
+__read_mostly const struct iomap_mmio *iomap_mmio;
+
+#define COND_MMIO_READ(func, addr)			\
+	(iomap_mmio ? iomap_mmio->i ## func(addr) : func(addr))
+
+#define COND_MMIO_WRITE(func, val, addr)		\
+	(iomap_mmio ? iomap_mmio->i ## func(val, addr) : func(val, addr))
+
+static inline unsigned char iomap_readb(void __iomem *addr)
+{
+	return COND_MMIO_READ(readb, addr);
+}
+
+static inline unsigned short iomap_readw(void __iomem *addr)
+{
+	return COND_MMIO_READ(readw, addr);
+}
+
+static inline unsigned int iomap_readl(void __iomem *addr)
+{
+	return COND_MMIO_READ(readl, addr);
+}
+
+static inline unsigned long iomap_readq(void __iomem *addr)
+{
+	return COND_MMIO_READ(readq, addr);
+}
+
+static inline void iomap_writeb(unsigned char val, void __iomem *addr)
+{
+	COND_MMIO_WRITE(writeb, val, addr);
+}
+
+static inline void iomap_writew(unsigned short val, void __iomem *addr)
+{
+	COND_MMIO_WRITE(writew, val, addr);
+}
+
+static inline void iomap_writel(unsigned int val, void __iomem *addr)
+{
+	COND_MMIO_WRITE(writel, val, addr);
+}
+
+static inline void iomap_writeq(unsigned long val, void __iomem *addr)
+{
+	COND_MMIO_WRITE(writeq, val, addr);
+}
+#endif
+
+#ifndef CONFIG_IOMAP_IND_MMIO
+#define iomap_readb(addr) readb(addr)
+#define iomap_readw(addr) readw(addr)
+#define iomap_readl(addr) readl(addr)
+#define iomap_readq(addr) readq(addr)
+#endif
+
 static void bad_io_access(unsigned long port, const char *access)
 {
 	static int count = 10;
@@ -175,24 +245,31 @@ EXPORT_SYMBOL(ioread64be_hi_lo);
 
 #endif /* readq */
 
+#ifndef CONFIG_IOMAP_IND_MMIO
+#define iomap_writeb(val, addr) writeb(val, addr)
+#define iomap_writew(val, addr) writew(val, addr)
+#define iomap_writel(val, addr) writel(val, addr)
+#define iomap_writeq(val, addr) writeq(val, addr)
+#endif
+
 #ifndef pio_write16be
 #define pio_write16be(val,port) outw(swab16(val),port)
 #define pio_write32be(val,port) outl(swab32(val),port)
 #endif
 
 #ifndef mmio_write16be
-#define mmio_write16be(val,port) writew(swab16(val),port)
-#define mmio_write32be(val,port) writel(swab32(val),port)
-#define mmio_write64be(val,port) writeq(swab64(val),port)
+#define mmio_write16be(val,port) iomap_writew(swab16(val),port)
+#define mmio_write32be(val,port) iomap_writel(swab32(val),port)
+#define mmio_write64be(val,port) iomap_writeq(swab64(val),port)
 #endif
 
 void iowrite8(u8 val, void __iomem *addr)
 {
-	IO_COND(addr, outb(val,port), writeb(val, addr));
+	IO_COND(addr, outb(val,port), iomap_writeb(val, addr));
 }
 void iowrite16(u16 val, void __iomem *addr)
 {
-	IO_COND(addr, outw(val,port), writew(val, addr));
+	IO_COND(addr, outw(val,port), iomap_writew(val, addr));
 }
 void iowrite16be(u16 val, void __iomem *addr)
 {
@@ -200,7 +277,7 @@ void iowrite16be(u16 val, void __iomem *addr)
 }
 void iowrite32(u32 val, void __iomem *addr)
 {
-	IO_COND(addr, outl(val,port), writel(val, addr));
+	IO_COND(addr, outl(val,port), iomap_writel(val, addr));
 }
 void iowrite32be(u32 val, void __iomem *addr)
 {
@@ -240,13 +317,13 @@ static void pio_write64be_hi_lo(u64 val, unsigned long port)
 void iowrite64_lo_hi(u64 val, void __iomem *addr)
 {
 	IO_COND(addr, pio_write64_lo_hi(val, port),
-		writeq(val, addr));
+		iomap_writeq(val, addr));
 }
 
 void iowrite64_hi_lo(u64 val, void __iomem *addr)
 {
 	IO_COND(addr, pio_write64_hi_lo(val, port),
-		writeq(val, addr));
+		iomap_writeq(val, addr));
 }
 
 void iowrite64be_lo_hi(u64 val, void __iomem *addr)

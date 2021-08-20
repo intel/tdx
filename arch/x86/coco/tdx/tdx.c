@@ -567,6 +567,102 @@ static int handle_mmio(struct pt_regs *regs, struct ve_info *ve)
 	return insn.length;
 }
 
+static unsigned long tdx_virt_mmio(int size, bool write, unsigned long vaddr,
+	unsigned long* val)
+{
+	pte_t* pte;
+	int level;
+
+	pte = lookup_address(vaddr, &level);
+	if (!pte)
+		return -EIO;
+
+	return write ? 
+		mmio_write(size,
+			(pte_pfn(*pte) << PAGE_SHIFT) +
+			(vaddr & ~page_level_mask(level)),
+			*val) :
+		mmio_read(size,
+			(pte_pfn(*pte) << PAGE_SHIFT) +
+			(vaddr & ~page_level_mask(level)),
+			val);
+}
+
+static unsigned char tdx_mmio_readb(void __iomem* addr)
+{
+	unsigned long val;
+
+	if (tdx_virt_mmio(1, false, (unsigned long)addr, &val))
+		return 0xff;
+	return val;
+}
+
+static unsigned short tdx_mmio_readw(void __iomem* addr)
+{
+	unsigned long val;
+
+	if (tdx_virt_mmio(2, false, (unsigned long)addr, &val))
+		return 0xffff;
+	return val;
+}
+
+static unsigned int tdx_mmio_readl(void __iomem* addr)
+{
+	unsigned long val;
+
+	if (tdx_virt_mmio(4, false, (unsigned long)addr, &val))
+		return 0xffffffff;
+	return val;
+}
+
+static unsigned long tdx_mmio_readq(void __iomem* addr)
+{
+	unsigned long val;
+
+	if (tdx_virt_mmio(8, false, (unsigned long)addr, &val))
+		return 0xffffffffffffffff;
+	return val;
+}
+
+static void tdx_mmio_writeb(unsigned char v, void __iomem* addr)
+{
+	unsigned long val = v;
+
+	tdx_virt_mmio(1, true, (unsigned long)addr, &val);
+}
+
+static void tdx_mmio_writew(unsigned short v, void __iomem* addr)
+{
+	unsigned long val = v;
+
+	tdx_virt_mmio(2, true, (unsigned long)addr, &val);
+}
+
+static void tdx_mmio_writel(unsigned int v, void __iomem* addr)
+{
+	unsigned long val = v;
+
+	tdx_virt_mmio(4, true, (unsigned long)addr, &val);
+}
+
+static void tdx_mmio_writeq(unsigned long v, void __iomem* addr)
+{
+	unsigned long val = v;
+
+	tdx_virt_mmio(8, true, (unsigned long)addr, &val);
+}
+
+static const struct iomap_mmio tdx_iomap_mmio = {
+	.ireadb = tdx_mmio_readb,
+	.ireadw = tdx_mmio_readw,
+	.ireadl = tdx_mmio_readl,
+	.ireadq = tdx_mmio_readq,
+	.iwriteb = tdx_mmio_writeb,
+	.iwritew = tdx_mmio_writew,
+	.iwritel = tdx_mmio_writel,
+	.iwriteq = tdx_mmio_writeq,
+};
+
 static bool handle_in(struct pt_regs *regs, int size, int port)
 {
 	struct tdx_hypercall_args args = {
@@ -910,6 +1006,8 @@ void __init tdx_early_init(void)
 	 * mix in the CPU hardware random number generator too.
 	 */
 	random_enable_trust_cpu();
+
+	iomap_mmio = &tdx_iomap_mmio;
 
 	/*
 	 * Make sure there is a panic if something goes wrong,

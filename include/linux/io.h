@@ -16,6 +16,22 @@
 struct device;
 struct resource;
 
+#ifdef CONFIG_IOMAP_IND_MMIO
+
+struct iomap_mmio {
+	unsigned char	(*ireadb)(void __iomem *addr);
+	unsigned short	(*ireadw)(void __iomem *addr);
+	unsigned int	(*ireadl)(void __iomem *addr);
+	unsigned long	(*ireadq)(void __iomem *addr);
+	void		(*iwriteb)(unsigned char val,  void __iomem *addr);
+	void		(*iwritew)(unsigned short val, void __iomem *addr);
+	void		(*iwritel)(unsigned int val,   void __iomem *addr);
+	void		(*iwriteq)(unsigned long val,  void __iomem *addr);
+};
+
+extern const struct iomap_mmio *iomap_mmio;
+#endif
+
 __visible void __iowrite32_copy(void __iomem *to, const void *from, size_t count);
 void __ioread32_copy(void *to, const void __iomem *from, size_t count);
 void __iowrite64_copy(void __iomem *to, const void *from, size_t count);

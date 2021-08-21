@@ -321,6 +321,7 @@ struct bus_type tb_bus_type = {
 	.probe = tb_service_probe,
 	.remove = tb_service_remove,
 	.shutdown = tb_service_shutdown,
+	.has_probe_authorization = true,
 };
 
 static void tb_domain_release(struct device *dev)

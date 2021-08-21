@@ -544,6 +544,11 @@ static int really_probe(struct device *dev, struct device_driver *drv)
 			   !drv->suppress_bind_attrs;
 	int ret;
 
+	if (!dev->authorized && !dev->bus->has_probe_authorization) {
+		dev_dbg(dev, "Device is not authorized\n");
+		return -ENODEV;
+	}
+
 	if (defer_all_probes) {
 		/*
 		 * Value of defer_all_probes can be set only by

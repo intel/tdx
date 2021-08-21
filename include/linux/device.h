@@ -966,6 +966,8 @@ int devtmpfs_mount(void);
 static inline int devtmpfs_mount(void) { return 0; }
 #endif
 
+extern bool dev_default_authorization;
+
 /* drivers/base/power/shutdown.c */
 void device_shutdown(void);
 

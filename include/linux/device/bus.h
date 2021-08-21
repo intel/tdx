@@ -69,6 +69,9 @@ struct fwnode_handle;
  * @lock_key:	Lock class key for use by the lock validator
  * @need_parent_lock:	When probing or removing a device on this bus, the
  *			device core should lock the device's parent.
+ * @has_probe_authorization: Set true to indicate to the driver-core to skip
+ *			     the authorization checks and let bus drivers
+ *			     handle it locally.
  *
  * A bus is a channel between the processor and one or more devices. For the
  * purposes of the device model, all devices are connected via a bus, even if
@@ -112,6 +115,7 @@ struct bus_type {
 	struct lock_class_key lock_key;
 
 	bool need_parent_lock;
+	bool has_probe_authorization;
 };
 
 extern int __must_check bus_register(struct bus_type *bus);

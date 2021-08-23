@@ -10,6 +10,23 @@
 #define TDMR_ALIGNMENT		BIT(30)
 #define TDMR_PFN_ALIGNMENT	(TDMR_ALIGNMENT >> PAGE_SHIFT)
 
+enum tdx_page_sz {
+	TDX_PG_4K = 0,
+	TDX_PG_2M,
+	TDX_PG_1G,
+	TDX_PG_MAX,
+};
+
+/*
+ * TDX module description.  Those are global characteristics of TDX module,
+ * which will impact constructing TDMRs.
+ */
+struct tdx_module_descriptor {
+	int max_tdmr_num;
+	int pamt_entry_size[TDX_PG_MAX];
+	int max_tdmr_rsvd_area_num;
+};
+
 struct tdx_memblock;
 struct tdx_tdmr_range;
 struct tdx_memory;
@@ -182,5 +199,15 @@ int __init tdx_memory_merge(struct tdx_memory *tmem_dst,
 /* Sanity check whether all TDX memory blocks are fully covered by CMRs. */
 int __init tdx_memory_sanity_check_cmrs(struct tdx_memory *tmem,
 		struct cmr_info *cmr_array, int cmr_num);
+
+/*
+ * Construct final TDMRs to cover all TDX memory blocks in final TDX memory,
+ * based on CMR info and TDX module descriptor.  The final TDMRs can be used
+ * to configure TDX module.
+ */
+int __init tdx_memory_construct_tdmrs(struct tdx_memory *tmem,
+		struct cmr_info *cmr_array, int cmr_num,
+		struct tdx_module_descriptor *desc,
+		struct tdmr_info *tdmr_array, int *tdmr_num);
 
 #endif

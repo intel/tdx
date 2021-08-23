@@ -668,3 +668,55 @@ int __init tdx_memory_sanity_check_cmrs(struct tdx_memory *tmem,
 				iter.tmb->start, iter.tmb->end);
 	return -EFAULT;
 }
+
+/**
+ * tdx_memory_construct_tdmrs:	Construct final TDMRs to cover all TDX memory
+ *				blocks in final TDX memory
+ *
+ * @tmem:	The final TDX memory
+ * @cmr_array:	Arrry of CMR entries
+ * @cmr_num:	Number of CMR entries
+ * @desc:	TDX module descriptor for constructing final TMDRs
+ * @tdmr_array:	Array of constructed final TDMRs
+ * @tdmr_num:	Number of final TDMRs
+ *
+ * Construct final TDMRs to cover all TDX memory blcoks in final TDX memory,
+ * based on CMR info and TDX module descriptor.  Caller is responsible for
+ * allocating enough space for array of final TDMRs @tdmr_array (i.e. by
+ * allocating enough space based on @desc.max_tdmr_num).
+ *
+ * Upon success, all final TDMRs will be stored in @tdmr_array, and @tdmr_num
+ * will have the actual number of TDMRs.
+ */
+int __init tdx_memory_construct_tdmrs(struct tdx_memory *tmem,
+		struct cmr_info *cmr_array, int cmr_num,
+		struct tdx_module_descriptor *desc,
+		struct tdmr_info *tdmr_array, int *tdmr_num)
+{
+	/*
+	 * Sanity check TDX module descriptor.  TDX module should have the
+	 * archtectural values in TDX spec.
+	 */
+	if (WARN_ON_ONCE((desc->max_tdmr_num != TDX_MAX_NR_TDMRS) ||
+		(desc->max_tdmr_rsvd_area_num != TDX_MAX_NR_RSVD_AREAS) ||
+		(desc->pamt_entry_size[TDX_PG_4K] != TDX_PAMT_ENTRY_SIZE) ||
+		(desc->pamt_entry_size[TDX_PG_2M] != TDX_PAMT_ENTRY_SIZE) ||
+		(desc->pamt_entry_size[TDX_PG_1G] != TDX_PAMT_ENTRY_SIZE)))
+		return -EINVAL;
+
+	/*
+	 * Sanity check number of CMR entries.  It should not exceed maximum
+	 * value defined by TDX spec.
+	 */
+	if (WARN_ON_ONCE((cmr_num > TDX_MAX_NR_CMRS) || (cmr_num <= 0)))
+		return -EINVAL;
+
+	/*
+	 * Caller should make sure number of TDMR ranges doesn't exceed maximum
+	 * number of TDMRs supported by TDX.
+	 */
+	if (tdx_memory_minimal_tdmrs(tmem) > desc->max_tdmr_num)
+		return -EINVAL;
+
+	return 0;
+}

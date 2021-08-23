@@ -29,6 +29,10 @@ static struct tdx_tdmr_range * __init tdmr_range_create(
 		tr->end_pfn = ALIGN(tmb->end, TDMR_ALIGNMENT) >> PAGE_SHIFT;
 
 		list_add_tail(&tmb->list, &tr->tmb_list);
+		/*
+		 * PAMT is not allocated here, but must be allocated after
+		 * all TDMR ranges are finalized.
+		 */
 	}
 
 	return tr;
@@ -39,7 +43,10 @@ static void __init tdmr_range_free(struct tdx_tdmr_range *tr)
 	if (!tr)
 		return;
 
-	/* Free all TDX memory blocks within the TDMR range. */
+	/*
+	 * Free all TDX memory blocks within the TDMR range.  PAMTs are freed
+	 * in tdx_memory_destroy() before freeing all TDMR ranges.
+	 */
 	while (!list_empty(&tr->tmb_list)) {
 		struct tdx_memblock *tmb = list_first_entry(&tr->tmb_list,
 				struct tdx_memblock, list);
@@ -172,6 +179,10 @@ static int __init tdx_memory_add_tdmr_range(struct tdx_memory *tmem,
 {
 	struct tdx_tdmr_range *first_tr, *last_tr;
 	int ret = 0;
+
+	/* PAMT is only allocated after final TDMR ranges are finalized. */
+	if (WARN_ON_ONCE(!list_empty(&tmem->pamt_list) || new_tr->pamt))
+		return -EFAULT;
 
 	/* Skip lower TDMR ranges that don't overlap with @new_tr */
 	list_for_each_entry(first_tr, &tmem->tr_list, list)
@@ -350,6 +361,11 @@ static int __init tdx_memory_merge_preserve(struct tdx_memory *tmem_dst,
 	struct tdx_memory tmemdup_dst, tmemdup_src;
 	int ret = 0;
 
+	/* PAMT is only allocated after final TDMR ranges are finalized. */
+	if (WARN_ON_ONCE(!list_empty(&tmem_dst->pamt_list) ||
+				!list_empty(&tmem_src->pamt_list)))
+		return -EFAULT;
+
 	/*
 	 * Preserve @tmem_dst and @tmem_src by duplicating them.  Further merge
 	 * will be done against duplicated ones.
@@ -446,6 +462,20 @@ void __init tdx_memory_init(struct tdx_memory *tmem)
  */
 void __init tdx_memory_destroy(struct tdx_memory *tmem)
 {
+	/*
+	 * Destroy PAMT before destroying TDMR ranges (and memory blocks), since
+	 * PAMT is allocated on basis of TDMR range.
+	 */
+	while (!list_empty(&tmem->pamt_list)) {
+		struct tdx_pamt *pamt = list_first_entry(&tmem->pamt_list,
+				struct tdx_pamt, list);
+
+		list_del(&pamt->list);
+		pamt->tmb->ops->pamt_free(pamt->tmb, pamt->pamt_pfn,
+				pamt->total_pages);
+		kfree(pamt);
+	}
+
 	while (!list_empty(&tmem->tr_list)) {
 		struct tdx_tdmr_range *tr = list_first_entry(&tmem->tr_list,
 				struct tdx_tdmr_range, list);

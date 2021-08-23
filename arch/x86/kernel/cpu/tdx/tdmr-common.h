@@ -16,6 +16,15 @@ struct tdx_memory;
 
 struct tdx_memtype_ops {
 	void (*tmb_free)(struct tdx_memblock *tmb);
+	/*
+	 * Allocate @npages TDX memory as PAMT.  @tmb can be where PAMT is
+	 * allocated from, or just a hit.
+	 */
+	unsigned long (*pamt_alloc)(struct tdx_memblock *tmb,
+			unsigned long npages);
+	/* Free PAMT allocated by pamt_alloc. */
+	void (*pamt_free)(struct tdx_memblock *tmb, unsigned long pamt_pfn,
+			unsigned long npages);
 };
 
 /*
@@ -34,6 +43,21 @@ struct tdx_memblock {
 };
 
 /*
+ * TDX PAMT.
+ *
+ * PAMT is physical contiguous memory used by TDX module to track each page in
+ * TDMR and crypto-protected by TDX module, and it (or part) needs to be put
+ * into TDMR's reserved area when it (or part) falls into TDMR.
+ */
+struct tdx_pamt {
+	struct list_head list;
+	unsigned long pamt_pfn;
+	unsigned long total_pages;
+	unsigned long free_pages;
+	struct tdx_memblock *tmb;	/* @tmb used in pamt_alloc */
+};
+
+/*
  * Structure to describe address range to cover one or more TDMRs.  Final TDMRs
  * used to configure TDX module are generated on basis of this structure,
  * meaning one TDMR won't cross two 'struct tdx_tdmr_range's.
@@ -41,11 +65,15 @@ struct tdx_memblock {
  * @start_pfn and @end_pfn must be TDMR_PFN_ALIGNMENT aligned, due to TDMR's
  * requirement. @tmb_list is a list of 'struct tdx_memblock's that the TDMR
  * range covers.
+ *
+ * One large PAMT is allocated to cover the entire TDMR range.  PAMT for each
+ * TDMR within this range is divided frorm the large one.
  */
 struct tdx_tdmr_range {
 	struct list_head list;
 	unsigned long start_pfn;
 	unsigned long end_pfn;
+	struct tdx_pamt *pamt;
 	struct list_head tmb_list;
 };
 
@@ -56,6 +84,7 @@ struct tdx_tdmr_range {
  */
 struct tdx_memory {
 	struct list_head tr_list;
+	struct list_head pamt_list;
 };
 
 /*

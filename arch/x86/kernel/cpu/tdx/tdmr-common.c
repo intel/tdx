@@ -92,6 +92,36 @@ static int __init tdmr_range_add_block(struct tdx_tdmr_range *tr,
 }
 
 /*
+ * Merge second TDMR range @tr2 to the first one @tr1, with assumption they
+ * don't overlap.
+ */
+#define MERGE_NON_CONTIG_TR_MSG	\
+	"Merge TDMR ranges with hole: [0x%lx, 0x%lx], [0x%lx, 0x%lx] -> [0x%lx, 0x%lx].  PAMT may be wasted for the hole.\n"
+static void __init tdmr_range_merge_non_overlapping(struct tdx_tdmr_range *tr1,
+		struct tdx_tdmr_range *tr2)
+{
+	/* Expecting non-overlapping TDMR ranges */
+	WARN_ON_ONCE(tr1->end_pfn > tr2->start_pfn);
+	/*
+	 * Merging TDMR ranges with address hole may result in PAMT being
+	 * allocated for the hole (which is wasteful), i.e. when there's one
+	 * TDMR covers entire TDMR range.  Give a msg to let user know.
+	 */
+	if (unlikely(tr1->end_pfn < tr2->start_pfn))
+		pr_info(MERGE_NON_CONTIG_TR_MSG, tr1->start_pfn << PAGE_SHIFT,
+				tr1->end_pfn << PAGE_SHIFT,
+				tr2->start_pfn << PAGE_SHIFT,
+				tr2->end_pfn << PAGE_SHIFT,
+				tr1->start_pfn << PAGE_SHIFT,
+				tr2->end_pfn << PAGE_SHIFT);
+
+	/* Move TDX memory blocks in @tr2 to @tr1, and empty @tr2. */
+	list_splice_tail_init(&tr2->tmb_list, &tr1->tmb_list);
+	/* Extend @tr1's address range */
+	tr1->end_pfn = tr2->end_pfn;
+}
+
+/*
  * Merge second TDMR range @tr2 to the first one @tr1.
  *
  * Note on failure, some memory blocks (possibly even different memory type)
@@ -276,4 +306,75 @@ int __init tdx_memory_add_block(struct tdx_memory *tmem,
 		tdmr_range_free(tr);
 
 	return ret;
+}
+
+/**
+ * tdx_memory_merge_tdmr_ranges:	Merge TDMR ranges within TDX memory
+ *
+ * @tmem:		TDX memory
+ * @merge_non_contig:	Whether to merge non-contiguous TDMR ranges
+ * @merge_all:		Whether to merge all concerned TDMR ranges
+ *
+ * Merge TDMR ranges within TDX memory.  This can be used to reduce number of
+ * TDMR ranges within one TDX memory, when otherwise the number of final TDMRs
+ * may exceed maximum number TDX can support (one TDMR cannot cross two TDMR
+ * ranges).  @merge_non_contig indicates whether to merge non-contiguous TDMR
+ * ranges, which are only supposed to be merged after merging all contiguous
+ * TDMR ranges, because merging non-contiguous TDMR ranges will result in
+ * including big address hole (one or multiple GBs) into final TDMRs and
+ * allocating unnecessary PAMT to cover it.  @merge_all indicate whether to
+ * only merge all concerned TDMRs (contiguous only, or all), or just merge
+ * once.
+ *
+ * Note this function doesn't deal with NUMA locality, but simply loop over
+ * all TDMRs and merge.
+ */
+void __init tdx_memory_merge_tdmr_ranges(struct tdx_memory *tmem,
+		bool merge_non_contig, bool merge_all)
+{
+	struct tdx_tdmr_range *tr, *prev_tr;
+
+	list_for_each_entry_safe_reverse(tr, prev_tr, &tmem->tr_list, list) {
+		/* If there's only one TDMR range left, just return */
+		if (list_entry_is_head(prev_tr, &tmem->tr_list, list))
+			return;
+
+		/* TDMR range cannot overlap.  Just try to catch bug.*/
+		WARN_ON_ONCE(prev_tr->end_pfn > tr->start_pfn);
+
+		/*
+		 * Skip non-contiguous TDMR ranges when @merge_non_contig is
+		 * not true.
+		 */
+		if (!merge_non_contig && (prev_tr->end_pfn < tr->start_pfn))
+			continue;
+
+		list_del(&tr->list);
+		tdmr_range_merge_non_overlapping(prev_tr, tr);
+		tdmr_range_free(tr);
+
+		if (!merge_all)
+			return;
+	}
+}
+
+/**
+ * tdx_memory_minimal_tdmrs:	Minimal number of TDMRs that the TDX memory
+ *				can generate.
+ *
+ * @tmem:	The TDX memory
+ *
+ * Return minimal number of TDMRs that TDX memory can generate in best way.
+ *
+ * Return 0, which means TDX memory is empty, or any positive integer.
+ */
+int __init tdx_memory_minimal_tdmrs(struct tdx_memory *tmem)
+{
+	struct tdx_tdmr_range *tr;
+	int tr_num = 0;
+
+	list_for_each_entry(tr, &tmem->tr_list, list)
+		tr_num++;
+
+	return tr_num;
 }

@@ -133,4 +133,11 @@ void __init tdx_memory_destroy(struct tdx_memory *tmem);
 int __init tdx_memory_add_block(struct tdx_memory *tmem,
 		struct tdx_memblock *tmb);
 
+/* Merge TDMR ranges within TDX memory. */
+void __init tdx_memory_merge_tdmr_ranges(struct tdx_memory *tmem,
+		bool merge_non_contig, bool merge_all);
+
+/* Return minimal number of TDMRs that TDX memory can generate in best way */
+int __init tdx_memory_minimal_tdmrs(struct tdx_memory *tmem);
+
 #endif

@@ -1659,6 +1659,17 @@ config X86_PMEM_LEGACY
 
 	  Say Y if unsure.
 
+config ENABLE_TDX_FOR_X86_PMEM_LEGACY
+	bool "Enable TDX support for non-standard NVDIMMs and ADR protected memory"
+	depends on X86_PMEM_LEGACY
+	depends on INTEL_TDX_HOST
+	select NUMA_KEEP_MEMINFO if NUMA
+	help
+	  Convert non-standard NVDIMMs and ADR protected memory to TDX memory.
+	  This allows using non-standard NVDIMMs as TD guest memory.
+
+	  Say N if unsure.
+
 config HIGHPTE
 	bool "Allocate 3rd-level pagetables from highmem"
 	depends on HIGHMEM

@@ -28,8 +28,104 @@ static void __init legacy_pmem_tmb_free(struct tdx_memblock *tmb)
 	kfree(legacy_pmem);
 }
 
+static unsigned long __init legacy_pmem_pamt_alloc(struct tdx_memblock *tmb,
+		unsigned long nr_pages)
+{
+	struct tdx_memblock_legacy_pmem *legacy_pmem =
+		(struct tdx_memblock_legacy_pmem *)tmb->data;
+	struct resource *res = &legacy_pmem->res;
+	struct resource *real_res;
+	phys_addr_t new_end;
+	unsigned long start_pfn, end_pfn;
+	unsigned long pamt_pfn, pamt_npages;
+	int ret;
+
+	/* Sanity check alignment. */
+	if (WARN_ON_ONCE(!IS_ALIGNED(legacy_pmem->res.start | legacy_pmem->end,
+					memremap_compat_align())))
+		return 0;
+
+	/*
+	 * For legacy PMEM, just reserve PAMT at its end, so basically the
+	 * *owner* driver will see a trimmed resource.
+	 */
+	/* Round up PAMT size to meet alignment requirement. */
+	pamt_npages = ALIGN(nr_pages, memremap_compat_align() >> PAGE_SHIFT);
+	start_pfn = legacy_pmem->res.start >> PAGE_SHIFT;
+	end_pfn = legacy_pmem->end >> PAGE_SHIFT;
+	pamt_pfn = end_pfn - pamt_npages;
+
+	/*
+	 * FIXME: should we define some *minimal* remaining pages?
+	 */
+	if (pamt_pfn <= start_pfn)
+		return 0;
+
+	new_end = pamt_pfn << PAGE_SHIFT;
+
+	/*
+	 * The @res kept in 'struct tdx_memblock_legacy_pmem' is just a copy.  In
+	 * order to make driver be able to detect the trimmed size, need to
+	 * update the original one in &legacy_pmem_resource.
+	 */
+	real_res = lookup_resource(&iomem_resource, res->start);
+	/*
+	 * Since constructing TDMRs happens during kernel boot, we are not
+	 * expecting resource being disappeared.
+	 */
+	if (WARN_ON_ONCE(!real_res))
+		return 0;
+
+	ret = adjust_resource(real_res, res->start, new_end - res->start);
+	if (ret)
+		return 0;
+
+	/* Update the end by taking out PAMT. */
+	legacy_pmem->end = new_end;
+
+	return pamt_pfn;
+}
+
+static void __init legacy_pmem_pamt_free(struct tdx_memblock *tmb,
+		unsigned long pamt_pfn, unsigned long nr_pages)
+{
+	struct tdx_memblock_legacy_pmem *legacy_pmem =
+		(struct tdx_memblock_legacy_pmem *)tmb->data;
+	struct resource *res = &legacy_pmem->res;
+	struct resource *real_res;
+	unsigned long pamt_npages;
+	phys_addr_t new_end;
+	int ret;
+
+	/* Round up to meet alignment */
+	pamt_npages = ALIGN(nr_pages, memremap_compat_align() >> PAGE_SHIFT);
+
+	new_end = legacy_pmem->end + (pamt_npages << PAGE_SHIFT);
+
+	/* The new end should never exceed resource's end */
+	if (WARN_ON_ONCE(new_end > (legacy_pmem->res.end + 1)))
+		return;
+
+	/* Recover the real resource */
+	real_res = lookup_resource(&iomem_resource, res->start);
+	/*
+	 * Since constructing TDMRs happens during kernel boot, we are not
+	 * expecting resource being disappeared.
+	 */
+	if (WARN_ON_ONCE(!real_res))
+		return;
+
+	ret = adjust_resource(real_res, res->start, new_end - res->start);
+	if (ret)
+		return;
+
+	legacy_pmem->end = new_end;
+}
+
 static struct tdx_memtype_ops legacy_pmem_ops = {
 	.tmb_free = legacy_pmem_tmb_free,
+	.pamt_alloc = legacy_pmem_pamt_alloc,
+	.pamt_free = legacy_pmem_pamt_free,
 };
 
 static bool x86_legacy_pmem_found __initdata;

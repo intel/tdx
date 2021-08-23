@@ -179,4 +179,8 @@ int __init tdx_memory_minimal_tdmrs(struct tdx_memory *tmem);
 int __init tdx_memory_merge(struct tdx_memory *tmem_dst,
 		struct tdx_memory *tmem_src);
 
+/* Sanity check whether all TDX memory blocks are fully covered by CMRs. */
+int __init tdx_memory_sanity_check_cmrs(struct tdx_memory *tmem,
+		struct cmr_info *cmr_array, int cmr_num);
+
 #endif

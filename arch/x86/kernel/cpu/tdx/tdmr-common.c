@@ -10,6 +10,30 @@
 #include <linux/gfp.h>
 #include "tdmr-common.h"
 
+/* Check whether first range is fully covered by second */
+static bool __init is_range_fully_covered(u64 r1_start, u64 r1_end,
+		u64 r2_start, u64 r2_end)
+{
+	return (r1_start >= r2_start && r1_end <= r2_end) ? true : false;
+}
+
+/* Check whether physical address range is covered by CMR or not. */
+static bool __init phys_range_covered_by_cmrs(struct cmr_info *cmr_array,
+		int cmr_num, phys_addr_t start, phys_addr_t end)
+{
+	int i;
+
+	for (i = 0; i < cmr_num; i++) {
+		struct cmr_info *cmr = &cmr_array[i];
+
+		if (is_range_fully_covered((u64)start, (u64)end,
+					cmr->base, cmr->base + cmr->size))
+			return true;
+	}
+
+	return false;
+}
+
 /*
  * Create one TDMR range to cover given TDX memory block.  Initially one TDMR
  * range covers one TDX memory block.  More TDX memory blocks can be added to
@@ -602,4 +626,45 @@ int __init tdx_memory_merge(struct tdx_memory *tmem_dst,
 		struct tdx_memory *tmem_src)
 {
 	return tdx_memory_merge_preserve(tmem_dst, tmem_src);
+}
+
+/**
+ * tdx_memory_sanity_check_cmrs:	Sanity check whether all TDX memory
+ *					blocks are fully covered by CMRs
+ *
+ * @tmem:	TDX memory
+ * @cmr_array:	CMR array
+ * @cmr_num:	Number of CMRs
+ *
+ * Sanity check whether all TDX memory blocks in TDX memory are fully covered by
+ * CMRs.  Only memory covered by CMRs can truely be used by TDX.
+ *
+ * Return 0 on success, otherwise failure.
+ */
+int __init tdx_memory_sanity_check_cmrs(struct tdx_memory *tmem,
+		struct cmr_info *cmr_array, int cmr_num)
+{
+	struct tdx_memblock_iter iter;
+
+	/*
+	 * Check CMRs against entire TDX memory, rather than against individual
+	 * TDX memory block to allow more flexibility, i.e. to allow adding TDX
+	 * memory block before CMR info is available.
+	 */
+	for_each_tdx_memblock(&iter, tmem)
+		if (!phys_range_covered_by_cmrs(cmr_array, cmr_num,
+				iter.tmb->start, iter.tmb->end))
+			break;
+
+	/* All blocks are checked, thus all blocks are covered by CMRs. */
+	if (!tdx_memblock_iter_valid(&iter))
+		return 0;
+
+	/*
+	 * TDX cannot be enabled in this case.  Explicitly give a message
+	 * so user can know the reason of failure.
+	 */
+	pr_info("Memory [0x%llx, 0x%llx] not fully covered by CMR\n",
+				iter.tmb->start, iter.tmb->end);
+	return -EFAULT;
 }

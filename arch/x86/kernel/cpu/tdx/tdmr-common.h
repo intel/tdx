@@ -30,6 +30,7 @@ struct tdx_memblock {
 	int nid;
 	void *data;	/* Type specific data */
 	struct tdx_memtype_ops *ops;
+	bool duplicated;
 };
 
 /*
@@ -139,5 +140,14 @@ void __init tdx_memory_merge_tdmr_ranges(struct tdx_memory *tmem,
 
 /* Return minimal number of TDMRs that TDX memory can generate in best way */
 int __init tdx_memory_minimal_tdmrs(struct tdx_memory *tmem);
+
+/*
+ * Merge TDX memory @tmem_src to @tmem_dst.  This allows caller to build
+ * multiple intermediate TDX memory instances, for instance, based on memory
+ * type and/or NUMA locality, and merge them together as final TDX memory to
+ * generate final TDMRs.
+ */
+int __init tdx_memory_merge(struct tdx_memory *tmem_dst,
+		struct tdx_memory *tmem_src);
 
 #endif

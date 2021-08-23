@@ -207,6 +207,178 @@ static int __init tdx_memory_add_tdmr_range(struct tdx_memory *tmem,
 	return 0;
 }
 
+/*
+ * Mark TDX memory as @duplicated.  Destroying a duplicated TDX memory will
+ * only free common data structures, but will not call memory type specific
+ * callbacks to truely free TDX memory block, etc.
+ */
+static void __init tdx_memory_set_duplicated(struct tdx_memory *tmem,
+		bool duplicated)
+{
+	struct tdx_memblock_iter iter;
+
+	for_each_tdx_memblock(&iter, tmem)
+		iter.tmb->duplicated = duplicated;
+}
+
+/*
+ * Create a duplicated TDX memory based on @tmem.  This is only supposed to be
+ * used to preserve an intermediate TDX memory instance during TDX memory merge
+ * so any merge failure won't impact original one.
+ */
+static int __init tdx_memory_duplicate(struct tdx_memory *tmem,
+		struct tdx_memory *tmemdup)
+{
+	struct tdx_tdmr_range *tr;
+	struct tdx_memblock *tmb;
+	int ret = 0;
+
+	tdx_memory_init(tmemdup);
+
+	list_for_each_entry(tr, &tmem->tr_list, list) {
+		struct tdx_tdmr_range *new_tr;
+
+		new_tr = kzalloc(sizeof(*new_tr), GFP_KERNEL);
+		if (!new_tr) {
+			ret = -ENOMEM;
+			goto err;
+		}
+
+		new_tr->start_pfn = tr->start_pfn;
+		new_tr->end_pfn = tr->end_pfn;
+		INIT_LIST_HEAD(&new_tr->tmb_list);
+		/*
+		 * Add @new_tr to @tmemdup so it can be properly freed
+		 * when adding memory blocks to it fails.
+		 */
+		list_add_tail(&new_tr->list, &tmemdup->tr_list);
+
+		/* Add memory blocks to it */
+		list_for_each_entry(tmb, &tr->tmb_list, list) {
+			struct tdx_memblock *new_tmb =
+				kzalloc(sizeof(*new_tmb), GFP_KERNEL);
+
+			if (!new_tmb) {
+				ret = -ENOMEM;
+				goto err;
+			}
+
+			memcpy(new_tmb, tmb, sizeof(*tmb));
+			INIT_LIST_HEAD(&new_tmb->list);
+			/* Mark it as duplicated one */
+			new_tmb->duplicated = true;
+			list_add_tail(&new_tmb->list, &new_tr->tmb_list);
+		}
+	}
+
+	return 0;
+err:
+	tdx_memory_destroy(tmemdup);
+	return ret;
+}
+
+/*
+ * Destroy TDX memory @tmem_dst and replace it with @tmem_src.  It is only
+ * supposed to be used when @tmem_dst is a duplicated TDX memory during merging
+ * multiple TDX memory instances, and is not required anymore.
+ */
+static void __init tdx_memory_replace(struct tdx_memory *tmem_dst,
+		struct tdx_memory *tmem_src)
+{
+	/* Free all memory blocks and TDMR ranges in @tmem_dst */
+	tdx_memory_destroy(tmem_dst);
+
+	list_splice_tail_init(&tmem_src->tr_list, &tmem_dst->tr_list);
+}
+
+/*
+ * Commit changes made to duplication @tmemdup to original @tmem.  It is done
+ * by mark @tmem as duplicated, mark @tmemdup as non-duplicated, and replace
+ * @tmem as @tmemdup
+ */
+static void __init tdx_memory_commit_duplicated(struct tdx_memory *tmem,
+		struct tdx_memory *tmemdup)
+{
+	tdx_memory_set_duplicated(tmem, true);
+	tdx_memory_set_duplicated(tmemdup, false);
+	tdx_memory_replace(tmem, tmemdup);
+}
+
+
+/*
+ * Merge TDX memory @tmem_src to @tmem_dst without preserving @tmem_dst and
+ * @tmem_src when merge fails.  This is only supposed to be used for two
+ * duplicated TDX memory instances.
+ */
+static int __init tdx_memory_merge_no_preserve(struct tdx_memory *tmem_dst,
+		struct tdx_memory *tmem_src)
+{
+	int ret = 0;
+
+	/*
+	 * Cannot do simple list_splice_tail_init() since although TDMR ranges
+	 * in each TDX memory instance are already in ascending order, but
+	 * cannot guarantee all TDMR ranges in @tmem_src are above those in
+	 * @tmem_dst.
+	 */
+	while (!list_empty(&tmem_src->tr_list)) {
+		struct tdx_tdmr_range *tr = list_first_entry(&tmem_src->tr_list,
+				struct tdx_tdmr_range, list);
+
+		list_del(&tr->list);
+
+		ret = tdx_memory_add_tdmr_range(tmem_dst, tr);
+		if (ret) {
+			/* Add @tr back so it can be properly freed */
+			list_add(&tr->list, &tmem_src->tr_list);
+			return ret;
+		}
+	}
+
+	return 0;
+}
+
+/*
+ * Merge TDX memory @tmem_src to @tmem_dst with both properly preserved.
+ *
+ * On success, @tmem_src will be empty.  In case of error, both @tmem_dst and
+ * @tmem_src remain unchanged.
+ */
+static int __init tdx_memory_merge_preserve(struct tdx_memory *tmem_dst,
+		struct tdx_memory *tmem_src)
+{
+	struct tdx_memory tmemdup_dst, tmemdup_src;
+	int ret = 0;
+
+	/*
+	 * Preserve @tmem_dst and @tmem_src by duplicating them.  Further merge
+	 * will be done against duplicated ones.
+	 */
+	ret = tdx_memory_duplicate(tmem_dst, &tmemdup_dst);
+	if (ret)
+		goto out;
+
+	ret = tdx_memory_duplicate(tmem_src, &tmemdup_src);
+	if (ret)
+		goto out;
+
+	ret = tdx_memory_merge_no_preserve(&tmemdup_dst, &tmemdup_src);
+	if (ret)
+		goto out;
+
+	tdx_memory_commit_duplicated(tmem_dst, &tmemdup_dst);
+
+	/* Destroy @tmem_src since it has been successfully merged */
+	tdx_memory_set_duplicated(tmem_src, true);
+	tdx_memory_destroy(tmem_src);
+
+	return 0;
+out:
+	tdx_memory_destroy(&tmemdup_src);
+	tdx_memory_destroy(&tmemdup_dst);
+	return ret;
+}
+
 /******************************* External APIs *****************************/
 
 /**
@@ -249,7 +421,10 @@ void __init tdx_memblock_free(struct tdx_memblock *tmb)
 	if (!tmb)
 		return;
 
-	tmb->ops->tmb_free(tmb);
+	/* Don't truely free a duplicated TDX memory block */
+	if (!tmb->duplicated)
+		tmb->ops->tmb_free(tmb);
+
 	kfree(tmb);
 }
 
@@ -377,4 +552,24 @@ int __init tdx_memory_minimal_tdmrs(struct tdx_memory *tmem)
 		tr_num++;
 
 	return tr_num;
+}
+
+/**
+ * tdx_memory_merge:	Merge two TDX memory instances to one
+ *
+ * @tmem_dst:	The first TDX memory as destination
+ * @tmem_src:	The second TDX memory as source
+ *
+ * Merge TDX memory @tmem_src to @tmem_dst.  This allows caller to build
+ * multiple intermediate TDX memory instances, for instance, based on memory
+ * type and/or NUMA locality, and merge them together as final TDX memory to
+ * generate final TDMRs.
+ *
+ * On success, @tmem_src will be empty.  In case of any error, both @tmem_src
+ * and @tmem_dst remain unchanged.
+ */
+int __init tdx_memory_merge(struct tdx_memory *tmem_dst,
+		struct tdx_memory *tmem_src)
+{
+	return tdx_memory_merge_preserve(tmem_dst, tmem_src);
 }

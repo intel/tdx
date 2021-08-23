@@ -789,6 +789,373 @@ static int __init setup_pamts_across_tdmrs(struct tdx_memory *tmem,
 			pamt_entry_sz_array);
 }
 
+/************************Fill up TDMR reserved areas ************************/
+
+/* Temporary context used to insert PAMTs to TDMR's reserved areas */
+struct rsvd_pamt {
+	struct list_head list;
+	u64 base;
+	u64 sz;
+	bool inserted;
+};
+
+struct rsvd_pamt_ctx {
+	struct list_head pamt_list;
+};
+
+static void __init rsvd_pamt_ctx_init(struct rsvd_pamt_ctx *pamt_ctx)
+{
+	INIT_LIST_HEAD(&pamt_ctx->pamt_list);
+}
+
+/* Insert new PAMT into context and keep all PAMTs in ascending order */
+static int __init rsvd_pamt_ctx_insert(struct rsvd_pamt_ctx *pamt_ctx,
+		u64 base, u64 sz)
+{
+	struct rsvd_pamt *pamt, *p;
+
+	/* Find entry which is lower than base */
+	list_for_each_entry_reverse(p, &pamt_ctx->pamt_list, list) {
+		if (p->base < base)
+			break;
+	}
+
+	/* PAMTs cannot overlap */
+	if (WARN_ON_ONCE(!list_entry_is_head(p, &pamt_ctx->pamt_list, list) &&
+			((p->base + p->sz) > base)))
+		return -EFAULT;
+
+	pamt = kzalloc(sizeof(*pamt), GFP_KERNEL);
+	if (!pamt)
+		return -ENOMEM;
+
+	pamt->base = base;
+	pamt->sz = sz;
+
+	list_add(&pamt->list, &p->list);
+
+	return 0;
+}
+
+/*
+ * Prepare all PAMT ranges that need to be put into TDMR, by walking through
+ * all allocated PAMTs in global tdx_pamt_list, and finding those PAMT ranges
+ * that fall into TDMR range.  Note the PAMTs found here are not the PAMTs
+ * allocated for 'struct tdx_tdmr_range', because PAMTs won't necessarily reside
+ * within 'struct tdx_tdmr_range'.
+ */
+static int __init prepare_rsvd_pamt_ctx(struct tdx_memory *tmem,
+		unsigned long tdmr_start_pfn, unsigned long tdmr_end_pfn,
+		struct rsvd_pamt_ctx *pamt_ctx)
+{
+	struct tdx_pamt *pamt;
+	int ret;
+
+	rsvd_pamt_ctx_init(pamt_ctx);
+
+	list_for_each_entry(pamt, &tmem->pamt_list, list) {
+		unsigned long pamt_start_pfn = pamt->pamt_pfn;
+		unsigned long pamt_end_pfn = pamt_start_pfn + pamt->total_pages;
+		u64 base, sz;
+
+		/* Skip PAMT which doesn't overlap with TDMR */
+		if (pamt_start_pfn >= tdmr_end_pfn ||
+				pamt_end_pfn < tdmr_start_pfn)
+			continue;
+
+		/*
+		 * PAMT overlaps with TDMR range.  The overlap part
+		 * needs to be include into TDMR's reserved area
+		 */
+		if (pamt_start_pfn < tdmr_start_pfn)
+			pamt_start_pfn = tdmr_start_pfn;
+		if (pamt_end_pfn > tdmr_end_pfn)
+			pamt_end_pfn = tdmr_end_pfn;
+
+		base = pamt_start_pfn << PAGE_SHIFT;
+		sz = (pamt_end_pfn - pamt_start_pfn) << PAGE_SHIFT;
+
+		ret = rsvd_pamt_ctx_insert(pamt_ctx, base, sz);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+/*
+ * Fill up one reserved area at index @p_idx with @addr and @size.  Return
+ * -E2BIG if @p_idx has already reached maximum reserved areas, or -EFAULT
+ * for other errors, otherwise setup the reserved area, and increase @p_idx
+ * by 1.
+ */
+static int __init fillup_tdmr_reserved_area(struct tdmr_info *tdmr,
+		int *p_idx, u64 addr, u64 size, int max_tdmr_rsvd_area_num)
+{
+	struct tdmr_reserved_area *rsvd_areas = tdmr->reserved_areas;
+	int idx = *p_idx;
+
+	/* Reserved area must be 4K aligned in offset and size */
+	if (WARN_ON_ONCE(addr & ~PAGE_MASK || size & ~PAGE_MASK))
+		return -EFAULT;
+
+	/* Cannot exceed maximum reserved areas supported by TDX */
+	if (idx >= max_tdmr_rsvd_area_num)
+		return -E2BIG;
+
+	rsvd_areas[idx].offset = addr - tdmr->base;	/* offset */
+	rsvd_areas[idx].size = size;
+
+	*p_idx = idx + 1;
+
+	return 0;
+}
+
+/*
+ * Fill up TDMR's one reserved area at index @p_idx, with @addr and @size.
+ * Also fill up PAMTs to reserved area too, if they are at lower position than
+ * target range.  PAMTs in @pamts_sorted[] array must already have been in
+ * ascending order.  Upon success, update @p_idx to next free reserved area,
+ * and @pamts_sorted entries also get updated to reflect whether they have been
+ * inserted or not.
+ *
+ * Return 0 upon success, or -E2BIG if maximum reserved area is reached, or
+ * -EFAULT for other errors.
+ */
+static int __init fillup_tdmr_reserved_area_with_pamt(struct tdmr_info *tdmr,
+		int *p_idx, u64 addr, u64 size, struct rsvd_pamt_ctx *pamt_ctx,
+		int max_tdmr_rsvd_area_num)
+{
+	struct rsvd_pamt *pamt;
+
+	/*
+	 * Loop over all PAMTs, and fill up all PAMTs that are at lower position
+	 * than target range, since all reserved area need to be in ascending
+	 * order.
+	 */
+	list_for_each_entry(pamt, &pamt_ctx->pamt_list, list) {
+		/* Skip PAMT which is already reserved area */
+		if (pamt->inserted)
+			continue;
+
+		/* Caller must guarantee PAMT and target range is different */
+		if (WARN_ON_ONCE(pamt->base == addr))
+			return -EFAULT;
+
+		if (pamt->base < addr) {
+			/* Reserved area cannot overlap */
+			if (WARN_ON_ONCE(pamt->base + pamt->sz > addr))
+				return -EFAULT;
+
+			/*
+			 * Merge PAMT with target range to save reserved area
+			 * if possible, otherwise just fillup PAMT first.
+			 */
+			if (pamt->base + pamt->sz == addr) {
+				addr = pamt->base;
+				size += pamt->sz;
+			} else {
+				if (fillup_tdmr_reserved_area(tdmr, p_idx,
+							pamt->base, pamt->sz,
+							max_tdmr_rsvd_area_num))
+					return -E2BIG;
+			}
+			pamt->inserted = true;
+			/* Loop to next PAMT */
+			continue;
+		}
+
+		/* Reserved area cannot overlap */
+		if (WARN_ON_ONCE(addr + size > pamt->base))
+			return -EFAULT;
+		/*
+		 * Merge PAMT with target range if possible, otherwise break
+		 * to fillup target range.
+		 */
+		if (addr + size == pamt->base) {
+			size += pamt->sz;
+			pamt->inserted = true;
+		}
+		/* Break to fillup target range */
+		break;
+	}
+
+	return fillup_tdmr_reserved_area(tdmr, p_idx, addr, size,
+			max_tdmr_rsvd_area_num);
+}
+
+/*
+ * Fill up TDMR's reserved areas with holes between TDX memory blocks, and
+ * PAMTs that are within TDMR address range, in ascending order.  @tdmr's
+ * base, size must already been set.
+ *
+ * Return 0 upon success, or -E2BIG if maximum reserved area is reached, or
+ * other fatal errors.
+ */
+static int __init fillup_tdmr_reserved_areas(struct tdx_memory *tmem,
+		struct tdmr_info *tdmr, int max_tdmr_rsvd_area_num)
+{
+	struct tdx_memblock *tmb, *prev_tmb;
+	struct tdx_memblock_iter iter;
+	struct rsvd_pamt_ctx pamt_ctx;
+	struct rsvd_pamt *pamt;
+	u64 tdmr_start, tdmr_end;
+	u64 addr, size;
+	int rsvd_idx = 0;
+	int ret = 0;
+
+	if (WARN_ON_ONCE(max_tdmr_rsvd_area_num != TDX_MAX_NR_RSVD_AREAS))
+		return -EINVAL;
+
+	/* TDMR_INFO's base and size must have been setup */
+	tdmr_start = tdmr->base;
+	tdmr_end = tdmr->base + tdmr->size;
+
+	/*
+	 * Prepare all the PAMT ranges that need to be put into TDMR's reserved
+	 * areas.  Note the PAMT ranges in reserved area are not the PAMTs that
+	 * are used to cover all pages in the TDMR.  It doesn't guarantee PAMTs
+	 * are allocated within the 'struct tdx_tdmr_range'.
+	 */
+	ret = prepare_rsvd_pamt_ctx(tmem, tdmr_start >> PAGE_SHIFT,
+				tdmr_end >> PAGE_SHIFT, &pamt_ctx);
+	if (ret)
+		goto out;
+
+	/* Find the first memory block that has overlap with TDMR */
+	for_each_tdx_memblock(&iter, tmem)
+		if (iter.tmb->end > tdmr_start)
+			break;
+
+	/* Unable to find? Something is wrong here. */
+	if (WARN_ON_ONCE(!tdx_memblock_iter_valid(&iter))) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	tmb = iter.tmb;
+
+	/*
+	 * If memory block's start is beyond TDMR start, put [tdmr_start,
+	 * tmb_start] into reserved area.
+	 */
+	if (tmb->start > tdmr_start) {
+		addr = tdmr_start;
+		/*
+		 * TODO:
+		 *
+		 * A rare case is that the entire TDMR may fall in address
+		 * hole between two TDX memory blocks, when the TDMR range
+		 * structure is merged from two adjacent ones with address
+		 * hole between them.  It's not entirely impossible to avoid
+		 * generating TDMR within address hole when distributing
+		 * TDMRs, but it brings a lot more code complexity, so for
+		 * now it's still possible one TDMR may fall in address hole
+		 * between two TDX memory blcoks.  In this case, put TDMR's
+		 * range into reserved area.
+		 */
+		size = tmb->start > tdmr_end ? (tdmr_end - tdmr_start) :
+			(tmb->start - tdmr_start);
+		if (fillup_tdmr_reserved_area_with_pamt(tdmr, &rsvd_idx,
+					addr, size, &pamt_ctx,
+					max_tdmr_rsvd_area_num)) {
+			ret = -E2BIG;
+			goto out;
+		}
+	}
+
+	/* If this memory block has already covered entire TDMR, it's done. */
+	if (tmb->end >= tdmr_end)
+		goto done;
+
+	/*
+	 * Keep current block as previous block, and continue to walk through
+	 * all blcoks to check whether there's anya holes between them within
+	 * TDMR, and if there's any, put to reserved areas.
+	 */
+	prev_tmb = tmb;
+	for_each_tdx_memblock_continue(&iter, tmem) {
+		tmb = iter.tmb;
+
+		/*
+		 * If next block's start is beyond TDMR range, then the loop is
+		 * done, and only need to put [prev_tr->end, tdmr_end] to
+		 * reserved area. Just break out to handle.
+		 */
+		if (tmb->start >= tdmr_end)
+			break;
+
+		/*
+		 * Otherwise put hole between previous block and current one
+		 * into reserved area.
+		 */
+		addr = prev_tmb->end;
+		size = tmb->start - addr;
+		if (fillup_tdmr_reserved_area_with_pamt(tdmr, &rsvd_idx, addr,
+					size, &pamt_ctx,
+					max_tdmr_rsvd_area_num)) {
+			ret = -E2BIG;
+			goto out;
+		}
+
+		/* Update previous block and keep looping */
+		prev_tmb = tmb;
+	}
+
+	/*
+	 * When above loop never happened (when memory block is the last one),
+	 * or when it hit memory block's start is beyond TDMR range, add
+	 * [prev_tmb->end, tdmr_end] to reserved area, when former is less.
+	 */
+	if (prev_tmb->end >= tdmr_end)
+		goto done;
+
+	addr = prev_tmb->end;
+	size = tdmr_end - addr;
+	if (fillup_tdmr_reserved_area_with_pamt(tdmr, &rsvd_idx, addr, size,
+				&pamt_ctx, max_tdmr_rsvd_area_num)) {
+		ret = -E2BIG;
+		goto out;
+	}
+
+done:
+	/* PAMTs may not have been handled, handle them here */
+	list_for_each_entry(pamt, &pamt_ctx.pamt_list, list) {
+		if (pamt->inserted)
+			continue;
+		if (fillup_tdmr_reserved_area(tdmr, &rsvd_idx, pamt->base,
+					pamt->sz, max_tdmr_rsvd_area_num)) {
+			ret = -E2BIG;
+			goto out;
+		}
+	}
+out:
+	return ret;
+}
+
+/*
+ * Last step of constructing final TDMRs, when all TDMR ranges are ready in
+ * array:
+ *
+ * Fill up reserved areas for all TDMRs based on CMR info and PAMTs.
+ */
+static int __init fillup_reserved_areas_across_tdmrs(struct tdx_memory *tmem,
+		struct tdmr_info *tdmr_array, int tdmr_num,
+		int max_tdmr_rsvd_area_num)
+{
+	int i, ret;
+
+	for (i = 0; i < tdmr_num; i++) {
+		ret = fillup_tdmr_reserved_areas(tmem, &tdmr_array[i],
+				max_tdmr_rsvd_area_num);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+
 /******************************* External APIs *****************************/
 
 /**
@@ -1097,6 +1464,11 @@ int __init tdx_memory_construct_tdmrs(struct tdx_memory *tmem,
 
 	ret = setup_pamts_across_tdmrs(tmem, tdmr_array, *tdmr_num,
 			desc->pamt_entry_size);
+	if (ret)
+		goto err;
+
+	ret = fillup_reserved_areas_across_tdmrs(tmem, tdmr_array,
+			*tdmr_num, desc->max_tdmr_rsvd_area_num);
 	if (ret)
 		goto err;
 

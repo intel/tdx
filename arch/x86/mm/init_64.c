@@ -56,6 +56,8 @@
 #include <asm/setup.h>
 #include <asm/ftrace.h>
 
+#include <asm/tdx_host.h>
+
 #include "mm_internal.h"
 
 #include "ident_map.c"
@@ -970,6 +972,13 @@ int arch_add_memory(int nid, u64 start, u64 size,
 	init_memory_mapping(start, start + size, params->pgprot);
 
 	return add_pages(nid, start_pfn, nr_pages, params);
+}
+
+int arch_check_hotplug_memory_range(u64 start, u64 size)
+{
+	if (!is_tdx_module_enabled())
+		return 0;
+	return range_is_tdx_memory(start, start + size) ? 0 : -EINVAL;
 }
 
 static void __meminit free_pagetable(struct page *page, int order)

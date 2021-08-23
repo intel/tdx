@@ -7,13 +7,15 @@
 
 #include <linux/types.h>
 #include <linux/errno.h>
+#include <linux/bug.h>
+#include <asm/tdx_host.h>
 #include "tdx-tdmr.h"
 
 /*
  * Final TDX memory which contains all memory blocks that can be used by TDX.
  * Use this to generate final TDMRs which are used to configure TDX module.
  */
-static struct tdx_memory tmem_all __initdata;
+static struct tdx_memory tmem_all;
 
 /*
  * Merge subtype TDX memory to final TDX memory.  In case of merge failure,
@@ -154,9 +156,42 @@ int __init construct_tdx_tdmrs(struct cmr_info *cmr_array, int cmr_num,
 
 out:
 	/*
-	 * Always discard @tmem_all no matter whether constructing TDMRs
-	 * was successful or not, since it is not needed anymore.
+	 * Keep @tmem_all if constructing TDMRs was successfully done, since
+	 * memory hotplug needs it to check whether new memory can be added
+	 * or not.
 	 */
-	tdx_memory_destroy(&tmem_all);
+	if (ret)
+		tdx_memory_destroy(&tmem_all);
 	return ret;
+}
+
+/**
+ * range_is_tdx_memory:		Check whether range is TDX memory
+ *
+ * @start:	Range start physical address
+ * @end:	Range end physical address
+ *
+ * Check whether given range is TDX memory.  This can be helpful when caller
+ * wants to see the memory range was originally covered by TDX TDMRs and make
+ * properly decision (such as whether to allow memory online/offline).
+ *
+ * This function should be called after TDX module is properly initialized.
+ */
+bool range_is_tdx_memory(phys_addr_t start, phys_addr_t end)
+{
+	struct tdx_memblock_iter iter;
+
+	/*
+	 * Use TDX memory blocks in tmem_all to check whether target range is
+	 * covered by TDMR, instead of using TDMRs, since former is a lot easier
+	 * due to: 1) target range may cross multiple TDMRs; 2) need to check
+	 * target range against reserved areas in TDMRs to see whether target
+	 * range is truely TDX memory.
+	 */
+	for_each_tdx_memblock(&iter, &tmem_all) {
+		if (iter.tmb->start <= start && iter.tmb->end >= end)
+			return true;
+	}
+
+	return false;
 }

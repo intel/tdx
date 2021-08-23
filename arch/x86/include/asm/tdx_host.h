@@ -13,6 +13,8 @@ int tdx_seamcall_on_each_pkg(int (*fn)(void *), void *param);
 extern u32 tdx_keyids_start __read_mostly;
 extern u32 tdx_nr_keyids __read_mostly;
 extern u32 tdx_seam_keyid __read_mostly;
+
+bool range_is_tdx_memory(phys_addr_t start, phys_addr_t end);
 #else
 static inline bool is_tdx_module_enabled(void)
 {

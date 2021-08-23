@@ -419,6 +419,139 @@ out:
 	return ret;
 }
 
+/* @_npages must be 1G aligned */
+#define NPAGES_TO_1G_AREAS(_npages)	((_npages) / TDMR_PFN_ALIGNMENT)
+
+static unsigned long __init tdx_memory_total_tdmr_pages(struct tdx_memory *tmem)
+{
+	unsigned long total_pfns = 0;
+	struct tdx_tdmr_range *tr;
+
+	list_for_each_entry(tr, &tmem->tr_list, list)
+		total_pfns += (tr->end_pfn - tr->start_pfn);
+
+	return total_pfns;
+}
+
+/*
+ * Distribute TDMR range into number of TDMRs specified by @tdmr_num.  To
+ * distribute TDMRs as evenly as possible, each TDMR's size is total TDMR
+ * range size divided by @tdmr_num.  If there's remainder, the remainder
+ * is evenly distributed to first @remainder number of TDMRs.
+ *
+ * The result TDMRs will be stored in @tdmr_array.  Caller must guarantee
+ * storage for @tdmr_array has already been allocated.
+ */
+static void __init distribute_tdmrs_within_range(struct tdx_tdmr_range *tr,
+		int tdmr_num, struct tdmr_info *tdmr_array)
+{
+	unsigned long tr_1g_areas, tdmr_1g_areas;
+	unsigned long remainder;
+	unsigned long last_end_pfn;
+	int i;
+
+	/*
+	 * Calcualte total 1G areas of TDMR range, TDMR's 1G areas, and
+	 * remainder.  The remainder will be distributed to first TDMRs
+	 * evenly.
+	 */
+	tr_1g_areas = NPAGES_TO_1G_AREAS(tr->end_pfn - tr->start_pfn);
+	tdmr_1g_areas = tr_1g_areas / tdmr_num;
+	remainder = tr_1g_areas % tdmr_num;
+	last_end_pfn = tr->start_pfn;
+	for (i = 0; i < tdmr_num; i++) {
+		unsigned long areas_1g = tdmr_1g_areas;
+		struct tdmr_info *tdmr;
+
+		tdmr = &tdmr_array[i];
+
+		/* Distribute remainder 1G areas evenly to first TDMRs */
+		if (remainder > 0) {
+			areas_1g++;
+			remainder--;
+		}
+
+		tdmr->base = last_end_pfn << PAGE_SHIFT;
+		tdmr->size = areas_1g * TDMR_ALIGNMENT;
+		last_end_pfn = last_end_pfn + (tdmr->size >> PAGE_SHIFT);
+	}
+}
+
+/*
+ * Fist step of constructing final TDMRs:
+ *
+ * Distribute TDMRs on TDMR ranges saved in array as evan as possible.  It walks
+ * through all TDMR ranges, and calculate number of TDMRs for given TDMR range
+ * by comparing TDMR range's size and total size of all TDMR ranges.  Upon
+ * success, the distributed TDMRs' address ranges will be updated to each entry
+ * in @tdmr_array.
+ */
+static int __init distribute_tdmrs_across_tdmr_ranges(struct tdx_memory *tmem,
+		struct tdmr_info *tdmr_array, int *actual_tdmr_num,
+		int max_tdmr_num)
+{
+	struct tdx_tdmr_range *tr;
+	unsigned long remain_1g_areas;
+	int remain_tdmr_num;
+	int last_tdmr_idx;
+
+	/*
+	 * Distribute TDMRs on basis of 'struct tdx_tdmr_range' one by one.
+	 * This also handles 'max_tdmr_num == tmem->tr_num' case.
+	 */
+	remain_1g_areas = NPAGES_TO_1G_AREAS(tdx_memory_total_tdmr_pages(tmem));
+	remain_tdmr_num = max_tdmr_num;
+	last_tdmr_idx = 0;
+	list_for_each_entry(tr, &tmem->tr_list, list) {
+		unsigned long tr_1g_areas;
+		int tdmr_num_tr;
+
+		/*
+		 * Always calaculate number of TDMRs for this TDMR range using
+		 * remaining number of TDMRs, and remaining total range of TDMR
+		 * ranges, so that number of all TDMRs for all TDMR ranges won't
+		 * exceed @max_tdmr_num.
+		 */
+		tr_1g_areas = NPAGES_TO_1G_AREAS(tr->end_pfn - tr->start_pfn);
+		tdmr_num_tr = tr_1g_areas * remain_tdmr_num / remain_1g_areas;
+
+		/*
+		 * It's possible @tdmr_num_tr can be 0, when this TDMR range is
+		 * too small, comparing to total TDMR ranges.  In this case,
+		 * just use one TDMR to cover it.
+		 */
+		if (!tdmr_num_tr)
+			tdmr_num_tr = 1;
+
+		/*
+		 * When number of all TDMR range's total 1G areas is smaller
+		 * than maximum TDMR number, the TDMR number distributed to one
+		 * TDMR range will be larger than its 1G areas.  Reduce TDMR
+		 * number to number of 1G areas in this case.
+		 */
+		if (tdmr_num_tr > tr_1g_areas)
+			tdmr_num_tr = tr_1g_areas;
+
+		/* Distribute @tdmr_num_tr TDMRs for this TDMR range */
+		distribute_tdmrs_within_range(tr, tdmr_num_tr,
+				tdmr_array + last_tdmr_idx);
+
+		last_tdmr_idx += tdmr_num_tr;
+
+		remain_1g_areas -= tr_1g_areas;
+		remain_tdmr_num -= tdmr_num_tr;
+	}
+
+	WARN_ON_ONCE(last_tdmr_idx > max_tdmr_num);
+	WARN_ON_ONCE(remain_1g_areas);
+
+	*actual_tdmr_num = last_tdmr_idx;
+
+	return 0;
+}
+
+
+
 /******************************* External APIs *****************************/
 
 /**
@@ -693,6 +826,8 @@ int __init tdx_memory_construct_tdmrs(struct tdx_memory *tmem,
 		struct tdx_module_descriptor *desc,
 		struct tdmr_info *tdmr_array, int *tdmr_num)
 {
+	int ret;
+
 	/*
 	 * Sanity check TDX module descriptor.  TDX module should have the
 	 * archtectural values in TDX spec.
@@ -718,5 +853,12 @@ int __init tdx_memory_construct_tdmrs(struct tdx_memory *tmem,
 	if (tdx_memory_minimal_tdmrs(tmem) > desc->max_tdmr_num)
 		return -EINVAL;
 
+	ret = distribute_tdmrs_across_tdmr_ranges(tmem, tdmr_array, tdmr_num,
+			desc->max_tdmr_num);
+	if (ret)
+		goto err;
+
 	return 0;
+err:
+	return ret;
 }

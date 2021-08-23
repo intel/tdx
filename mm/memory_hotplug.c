@@ -990,8 +990,16 @@ int try_online_node(int nid)
 	return ret;
 }
 
+/* Architecture to provide replacement version if required */
+int __weak arch_check_hotplug_memory_region(u64 start, u64 size)
+{
+	return 0;
+}
+
 static int check_hotplug_memory_range(u64 start, u64 size)
 {
+	int ret;
+
 	/* memory range must be block size aligned */
 	if (!size || !IS_ALIGNED(start, memory_block_size_bytes()) ||
 	    !IS_ALIGNED(size, memory_block_size_bytes())) {
@@ -999,6 +1007,10 @@ static int check_hotplug_memory_range(u64 start, u64 size)
 		       memory_block_size_bytes(), start, size);
 		return -EINVAL;
 	}
+
+	ret = arch_check_hotplug_memory_region(start, size);
+	if (ret)
+		return ret;
 
 	return 0;
 }

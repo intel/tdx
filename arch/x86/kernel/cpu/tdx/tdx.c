@@ -5,12 +5,17 @@
 
 #include <linux/init.h>
 #include "p-seamldr.h"
+#include "tdmr-sysmem.h"
 
 static int __init tdx_early_init(void)
 {
 	int ret;
 
 	ret = load_p_seamldr();
+	if (ret)
+		return ret;
+
+	ret = tdx_sysmem_build();
 
 	return ret;
 }

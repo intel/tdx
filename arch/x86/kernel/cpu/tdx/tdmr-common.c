@@ -208,6 +208,10 @@ static int __init tdx_memory_add_tdmr_range(struct tdx_memory *tmem,
 	if (WARN_ON_ONCE(!list_empty(&tmem->pamt_list) || new_tr->pamt))
 		return -EFAULT;
 
+	/* PAMT is only allocated after final TDMR ranges are finalized. */
+	if (WARN_ON_ONCE(!list_empty(&tmem->pamt_list) || new_tr->pamt))
+		return -EFAULT;
+
 	/* Skip lower TDMR ranges that don't overlap with @new_tr */
 	list_for_each_entry(first_tr, &tmem->tr_list, list)
 		if (first_tr->end_pfn > new_tr->start_pfn)
@@ -390,6 +394,11 @@ static int __init tdx_memory_merge_preserve(struct tdx_memory *tmem_dst,
 				!list_empty(&tmem_src->pamt_list)))
 		return -EFAULT;
 
+	/* PAMT is only allocated after final TDMR ranges are finalized. */
+	if (WARN_ON_ONCE(!list_empty(&tmem_dst->pamt_list) ||
+				!list_empty(&tmem_src->pamt_list)))
+		return -EFAULT;
+
 	/*
 	 * Preserve @tmem_dst and @tmem_src by duplicating them.  Further merge
 	 * will be done against duplicated ones.
@@ -550,7 +559,235 @@ static int __init distribute_tdmrs_across_tdmr_ranges(struct tdx_memory *tmem,
 	return 0;
 }
 
+static unsigned long __init get_pamt_sz(unsigned long start_pfn,
+		unsigned long end_pfn, enum tdx_page_sz pgsz,
+		int pamt_entry_sz)
+{
+	unsigned long pamt_sz;
 
+	pamt_sz = ((end_pfn - start_pfn) >> (9 * pgsz)) * pamt_entry_sz;
+	/* PAMT size must be 4K aligned */
+	pamt_sz = ALIGN(pamt_sz, PAGE_SIZE);
+
+	return pamt_sz;
+}
+
+/* Find the largest memory block with TDMR range for PAMT allocation. */
+static struct tdx_memblock * __init tdmr_range_find_largest_block(
+		struct tdx_tdmr_range *tr)
+{
+	struct tdx_memblock *tmb = NULL, *p;
+	phys_addr_t tmb_sz = 0;
+
+	/* All memory blocks are in ascending order, and don't overlap. */
+	list_for_each_entry(p, &tr->tmb_list, list) {
+		phys_addr_t sz = p->end - p->start;
+
+		if (tmb_sz < sz) {
+			tmb_sz = sz;
+			tmb = p;
+		}
+	}
+
+	return tmb;
+}
+
+/*
+ * Allocate PAMT for given TDMR range.  To reduce number of non-contiguous
+ * PAMTs, PAMT is allocated at once with large enough size to cover entire TDMR
+ * range.  PAMT for each individual TDMR within TDMR range is divided from the
+ * large PAMT.
+ */
+static int __init tdmr_range_alloc_pamt(struct tdx_tdmr_range *tr,
+		int *pamt_entry_sz_array)
+{
+	unsigned long areas_1g, pamt_pfn, pamt_sz;
+	enum tdx_page_sz pgsz;
+	struct tdx_memblock *tmb;
+	struct tdx_pamt *pamt;
+
+	pamt = kzalloc(sizeof(*pamt), GFP_KERNEL);
+	if (!pamt)
+		return -ENOMEM;
+
+	/*
+	 * Calcuate large enough PAMT size to cover entire TDMR range.
+	 *
+	 * FIXME:
+	 *
+	 * So far there's no data structure to track which TDMRs are within TDMR
+	 * range, so just treat all TDMRs are 1G.  This would waste small memory
+	 * (roughly 1MB per 1TB), since PAMT size for one big TDMR and many
+	 * small TDMRs may not be the same due to PAMT size needs to be page
+	 * (4K) aligned for each TDMR (this is especially true for PAMT size for
+	 * 1G page -- for instance, "one 10G TDMR" would have one 4K page as
+	 * PAMT, but "10 1G TDMRs" would end up with 10 4K pages as PAMT).
+	 */
+	areas_1g = NPAGES_TO_1G_AREAS(tr->end_pfn - tr->start_pfn);
+	pamt_sz = 0;
+	for (pgsz = TDX_PG_4K; pgsz < TDX_PG_MAX; pgsz++) {
+		pamt_sz += get_pamt_sz(0, TDMR_PFN_ALIGNMENT, pgsz,
+				pamt_entry_sz_array[pgsz]) * areas_1g;
+	}
+
+	/* Try to allocate PAMT from largest memory block */
+	tmb = tdmr_range_find_largest_block(tr);
+	if (WARN_ON_ONCE(!tmb)) {
+		kfree(pamt);
+		return -EFAULT;
+	}
+
+	pamt_pfn = tmb->ops->pamt_alloc(tmb, pamt_sz >> PAGE_SHIFT);
+	if (pamt_pfn)
+		goto done;
+
+	/*
+	 * If allocation from largest block wasn't successful, just try all
+	 * blocks until allocation is done.
+	 */
+	list_for_each_entry(tmb, &tr->tmb_list, list) {
+		pamt_pfn = tmb->ops->pamt_alloc(tmb, pamt_sz >> PAGE_SHIFT);
+		if (pamt_pfn)
+			goto done;
+	}
+
+	kfree(pamt);
+	return -ENOMEM;
+
+done:
+	pamt->pamt_pfn = pamt_pfn;
+	pamt->total_pages = pamt_sz >> PAGE_SHIFT;
+	pamt->free_pages = pamt_sz >> PAGE_SHIFT;
+	pamt->tmb = tmb;
+
+	tr->pamt = pamt;
+
+	return 0;
+}
+
+static int __init tdx_memory_allocate_pamts(struct tdx_memory *tmem,
+		int *pamt_entry_sz_array)
+{
+	struct tdx_tdmr_range *tr;
+	int ret;
+
+	list_for_each_entry(tr, &tmem->tr_list, list) {
+		ret = tdmr_range_alloc_pamt(tr,  pamt_entry_sz_array);
+		if (ret)
+			return ret;
+
+		list_add_tail(&tr->pamt->list, &tmem->pamt_list);
+	}
+
+	return ret;
+}
+
+/* Simple alloc helpers for getting PAMT from TDMR's large PAMT pool. */
+static unsigned long __init pamt_pool_alloc(struct tdx_pamt *pamt,
+		unsigned long npages)
+{
+	unsigned long pamt_pfn;
+
+	if (WARN_ON_ONCE(npages > pamt->free_pages))
+		return 0;
+
+	pamt_pfn = pamt->pamt_pfn + (pamt->total_pages - pamt->free_pages);
+	pamt->free_pages -= npages;
+
+	return pamt_pfn;
+}
+
+static void __init tdmr_setup_pamt(struct tdmr_info *tdmr,
+		struct tdx_pamt *pamt, int *pamt_entry_sz_array)
+{
+	unsigned long pamt_pfn[TDX_PG_MAX];
+	unsigned long pamt_sz[TDX_PG_MAX];
+	unsigned long start_pfn, end_pfn;
+	enum tdx_page_sz pgsz;
+
+	start_pfn = tdmr->base >> PAGE_SHIFT;
+	end_pfn = (tdmr->base + tdmr->size) >> PAGE_SHIFT;
+	for (pgsz = TDX_PG_4K; pgsz < TDX_PG_MAX; pgsz++) {
+		unsigned long sz = get_pamt_sz(start_pfn, end_pfn, pgsz,
+				pamt_entry_sz_array[pgsz]);
+
+		pamt_pfn[pgsz] = pamt_pool_alloc(pamt, sz >> PAGE_SHIFT);
+		pamt_sz[pgsz] = sz;
+	}
+
+	tdmr->pamt_4k_base = pamt_pfn[TDX_PG_4K] << PAGE_SHIFT;
+	tdmr->pamt_4k_size = pamt_sz[TDX_PG_4K];
+	tdmr->pamt_2m_base = pamt_pfn[TDX_PG_2M] << PAGE_SHIFT;
+	tdmr->pamt_2m_size = pamt_sz[TDX_PG_2M];
+	tdmr->pamt_1g_base = pamt_pfn[TDX_PG_1G] << PAGE_SHIFT;
+	tdmr->pamt_1g_size = pamt_sz[TDX_PG_1G];
+}
+
+static struct tdx_tdmr_range * __init tdx_memory_find_tdmr_range(
+		struct tdx_memory *tmem, struct tdmr_info *tdmr)
+{
+	unsigned long start_pfn, end_pfn;
+	struct tdx_tdmr_range *tr;
+
+	start_pfn = tdmr->base >> PAGE_SHIFT;
+	end_pfn = (tdmr->base + tdmr->size) >> PAGE_SHIFT;
+
+	list_for_each_entry(tr, &tmem->tr_list, list) {
+		if (start_pfn >= tr->start_pfn && end_pfn <= tr->end_pfn)
+			return tr;
+	}
+
+	return NULL;
+}
+
+
+static int __init tdx_memory_setup_pamts(struct tdx_memory *tmem,
+		struct tdmr_info *tdmr_array, int tdmr_num,
+		int *pamt_entry_sz_array)
+{
+	int i;
+
+	for (i = 0; i < tdmr_num; i++) {
+		struct tdmr_info *tdmr = &tdmr_array[i];
+		struct tdx_tdmr_range *tr;
+
+		/*
+		 * FIXME:
+		 *
+		 * This isn't nice, but we don't have data structure to
+		 * track TDMRs within one TDMR range.
+		 */
+		tr = tdx_memory_find_tdmr_range(tmem, tdmr);
+		if (WARN_ON_ONCE(!tr))
+			return -EFAULT;
+
+		tdmr_setup_pamt(tdmr, tr->pamt, pamt_entry_sz_array);
+	}
+
+	return 0;
+}
+
+/*
+ * Second step of constructing final TDMRs:
+ *
+ * Allocate and setup all PAMTs for all distributed TDMRs.  PAMT must be
+ * allocated after distributing all TDMRs on final TDX memory, since PAMT size
+ * depends on this.
+ */
+static int __init setup_pamts_across_tdmrs(struct tdx_memory *tmem,
+		struct tdmr_info *tdmr_array, int tdmr_num,
+		int *pamt_entry_sz_array)
+{
+	int ret;
+
+	ret = tdx_memory_allocate_pamts(tmem, pamt_entry_sz_array);
+	if (ret)
+		return ret;
+
+	/* In case of error, PAMT is freed in tdx_memory_destroy() */
+	return tdx_memory_setup_pamts(tmem, tdmr_array, tdmr_num,
+			pamt_entry_sz_array);
+}
 
 /******************************* External APIs *****************************/
 
@@ -855,6 +1092,11 @@ int __init tdx_memory_construct_tdmrs(struct tdx_memory *tmem,
 
 	ret = distribute_tdmrs_across_tdmr_ranges(tmem, tdmr_array, tdmr_num,
 			desc->max_tdmr_num);
+	if (ret)
+		goto err;
+
+	ret = setup_pamts_across_tdmrs(tmem, tdmr_array, *tdmr_num,
+			desc->pamt_entry_size);
 	if (ret)
 		goto err;
 

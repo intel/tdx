@@ -213,6 +213,7 @@ int __init seam_load_module(void *seamldr, unsigned long seamldr_size,
 	int enteraccs_attempts = 10;
 	u32 icr_busy;
 	int ret;
+	u64 err;
 
 	if (!is_seamrr_enabled())
 		return -EOPNOTSUPP;
@@ -246,12 +247,14 @@ int __init seam_load_module(void *seamldr, unsigned long seamldr_size,
 	mb();
 
 retry_enteraccs:
-	ret = launch_seamldr(seamldr_pa, seamldr_size, params ? __pa(params) : 0);
-	if (ret == -EFAULT && !WARN_ON(!enteraccs_attempts--)) {
+	err = launch_seamldr(seamldr_pa, seamldr_size, params ? __pa(params) : 0);
+#define SEAMLDR_EUNSPECERR  0x8000000000010003ULL
+	if ((err == SEAMLDR_EUNSPECERR || err == -EFAULT) &&
+	    !WARN_ON(!enteraccs_attempts--)) {
 		udelay(1 * USEC_PER_MSEC);
 		goto retry_enteraccs;
 	}
-	pr_info("Launch SEAMLDR returned %d\n", ret);
+	pr_info("Launch SEAMLDR returned 0x%llx\n", err);
 
 free:
 	if (seamldr_pa != __pa(seamldr))

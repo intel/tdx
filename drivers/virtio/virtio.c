@@ -4,6 +4,7 @@
 #include <linux/virtio_config.h>
 #include <linux/module.h>
 #include <linux/idr.h>
+#include <linux/protected_guest.h>
 #include <uapi/linux/virtio_ids.h>
 
 /* Unique numbering for virtio devices. */
@@ -346,6 +347,10 @@ int register_virtio_device(struct virtio_device *dev)
 	spin_lock_init(&dev->config_lock);
 	dev->config_enabled = false;
 	dev->config_change_pending = false;
+
+	if (prot_guest_has(PATTR_GUEST_DEVICE_FILTER))
+		dev->dev.authorized = prot_guest_authorized(&dev->dev,
+						(char *)dev_name(&dev->dev));
 
 	/* We always start by resetting the device, in case a previous
 	 * driver messed it up.  This also tests that code path a little. */

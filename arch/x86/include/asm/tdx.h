@@ -93,6 +93,8 @@ extern phys_addr_t tdg_shared_mask(void);
 extern int tdx_hcall_gpa_intent(phys_addr_t gpa, int numpages,
 				enum tdx_map_type map_type);
 
+extern void tdx_accept_memory(phys_addr_t start, phys_addr_t end);
+
 int tdx_mcall_tdreport(u64 data, u64 reportdata);
 
 int tdx_hcall_get_quote(u64 data);

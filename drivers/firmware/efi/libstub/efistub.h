@@ -1003,4 +1003,10 @@ struct efi_smbios_type1_record {
 
 const u8 *__efi_get_smbios_string(u8 type, int offset, int recsize);
 
+efi_status_t allocate_unaccepted_bitmap(__u32 nr_desc,
+					struct efi_boot_memmap *map);
+void process_unaccepted_memory(u64 start, u64 end);
+void accept_memory(phys_addr_t start, phys_addr_t end);
+void arch_accept_memory(phys_addr_t start, phys_addr_t end);
+
 #endif

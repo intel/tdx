@@ -6,11 +6,13 @@
 #include "../cpuflags.h"
 #include "../string.h"
 #include "../io.h"
+#include "error.h"
 
 #include <vdso/limits.h>
 #include <uapi/asm/vmx.h>
 
 #include <asm/shared/tdx.h>
+#include <asm/page_types.h>
 
 static bool tdx_guest_detected;
 
@@ -85,4 +87,29 @@ void early_tdx_detect(void)
 	pio_ops.outb = tdx_outb;
 	pio_ops.outw = tdx_outw;
 	pio_ops.outl = tdx_outl;
+}
+
+#define TDACCEPTPAGE		6
+#define TDVMCALL_MAP_GPA	0x10001
+
+void tdx_accept_memory(phys_addr_t start, phys_addr_t end)
+{
+	struct tdx_hypercall_output outl = {0};
+	int i;
+
+	if (__tdx_hypercall(TDX_HYPERCALL_STANDARD, TDVMCALL_MAP_GPA,
+			    start, end, 0, 0, &outl)) {
+		error("Cannot accept memory: MapGPA failed\n");
+	}
+
+	/*
+	 * For shared->private conversion, accept the page using TDACCEPTPAGE
+	 * TDX module call.
+	 */
+	for (i = 0; i < (end - start) / PAGE_SIZE; i++) {
+		if (__tdx_module_call(TDACCEPTPAGE, start + i * PAGE_SIZE,
+				      0, 0, 0, NULL)) {
+			error("Cannot accept memory: page accept failed\n");
+		}
+	}
 }

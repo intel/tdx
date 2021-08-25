@@ -5,6 +5,7 @@
 
 #include <asm/io.h>
 #include <asm/setup.h>
+#include <asm/shared/tdx.h>
 #include <asm/unaccepted_memory.h>
 
 static DEFINE_SPINLOCK(unaccepted_memory_lock);
@@ -22,7 +23,10 @@ static void __accept_memory(phys_addr_t start, phys_addr_t end)
 	for_each_set_bitrange_from(rs, re, unaccepted_memory,
 				   DIV_ROUND_UP(end, PMD_SIZE)) {
 		/* Platform-specific memory-acceptance call goes here */
-		panic("Cannot accept memory");
+		if (cc_platform_has(CC_ATTR_GUEST_TDX))
+			tdx_accept_memory(rs * PMD_SIZE, re * PMD_SIZE);
+		else
+			panic("Cannot accept memory");
 		bitmap_clear(unaccepted_memory, rs, re - rs);
 	}
 }

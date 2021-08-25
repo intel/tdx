@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
+#include <asm/shared/tdx.h>
 #include "error.h"
 #include "misc.h"
+#include "tdx.h"
 
 static inline void __accept_memory(phys_addr_t start, phys_addr_t end)
 {
 	/* Platform-specific memory-acceptance call goes here */
-	error("Cannot accept memory");
+	if (early_is_tdx_guest())
+		tdx_accept_memory(start, end);
+	else
+		error("Cannot accept memory");
 }
 
 void mark_unaccepted(struct boot_params *params, u64 start, u64 end)
@@ -17,6 +22,9 @@ void mark_unaccepted(struct boot_params *params, u64 start, u64 end)
 	 * PMD_SIZE-aligned, simply accept the memory now since it can not be
 	 * *marked* as unaccepted.
 	 */
+
+	/* __accept_memory() needs to know if kernel runs in TDX environment */
+	early_tdx_detect();
 
 	/* Immediately accept whole range if it is within a PMD_SIZE block: */
 	if ((start & PMD_MASK) == (end & PMD_MASK)) {

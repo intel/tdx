@@ -783,6 +783,10 @@ PAGE_TYPE_OPS(Buddy, buddy)
  * any further access to page content. PFN walkers that read content of random
  * pages should check PageOffline() and synchronize with such drivers using
  * page_offline_freeze()/page_offline_thaw().
+ *
+ * If a PageOffline() page encountered on a buddy allocator's free list it has
+ * to be "accepted" before it can be used.
+ * See accept_and_clear_page_offline() and CONFIG_UNACCEPTED_MEMORY.
  */
 PAGE_TYPE_OPS(Offline, offline)
 

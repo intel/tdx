@@ -372,6 +372,14 @@ int tdx_hcall_gpa_intent(phys_addr_t gpa, int numpages,
 	return 0;
 }
 
+void tdx_accept_memory(phys_addr_t start, phys_addr_t end)
+{
+	if (tdx_hcall_gpa_intent(start, (end - start) / PAGE_SIZE,
+				 TDX_MAP_PRIVATE)) {
+		panic("Accepting memory failed\n");
+	}
+}
+
 static __cpuidle void _tdx_halt(const bool irq_disabled, const bool do_sti)
 {
 	u64 ret;

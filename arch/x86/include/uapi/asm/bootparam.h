@@ -217,7 +217,8 @@ struct boot_params {
 	struct boot_e820_entry e820_table[E820_MAX_ENTRIES_ZEROPAGE]; /* 0x2d0 */
 	__u8  _pad8[48];				/* 0xcd0 */
 	struct edd_info eddbuf[EDDMAXNR];		/* 0xd00 */
-	__u8  _pad9[276];				/* 0xeec */
+	__u64 unaccepted_memory;			/* 0xeec */
+	__u8  _pad9[268];				/* 0xef4 */
 } __attribute__((packed));
 
 /**

@@ -121,6 +121,12 @@ typedef int __bitwise fpi_t;
  */
 #define FPI_SKIP_KASAN_POISON	((__force fpi_t)BIT(2))
 
+/*
+* Check if the page needs to be marked as PageUnaccepted().
+ * Used for the new pages added to the buddy allocator for the first time.
+ */
+#define FPI_UNACCEPTED		((__force fpi_t)BIT(3))
+
 /* prevent >1 _updater_ of zone percpu pageset ->high and ->batch fields */
 static DEFINE_MUTEX(pcp_batch_high_lock);
 #define MIN_PERCPU_PAGELIST_HIGH_FRACTION (8)
@@ -1077,6 +1083,7 @@ static inline void __free_one_page(struct page *page,
 	unsigned int max_order;
 	struct page *buddy;
 	bool to_tail;
+	bool unaccepted = PageUnaccepted(page);
 
 	max_order = min_t(unsigned int, MAX_ORDER - 1, pageblock_order);
 
@@ -1110,6 +1117,10 @@ continue_merging:
 			clear_page_guard(zone, buddy, order, migratetype);
 		else
 			del_page_from_free_list(buddy, zone, order);
+
+		if (PageUnaccepted(buddy))
+			unaccepted = true;
+
 		combined_pfn = buddy_pfn & pfn;
 		page = page + (combined_pfn - pfn);
 		pfn = combined_pfn;
@@ -1143,6 +1154,18 @@ continue_merging:
 done_merging:
 	set_buddy_order(page, order);
 
+	if (unaccepted) {
+		/* Mark page unaccepted if any of merged pages were unaccepted */
+		__SetPageUnaccepted(page);
+	} else if (fpi_flags & FPI_UNACCEPTED) {
+		/*
+		 * Check if the page needs to be marked as PageUnaccepted().
+		 * Used for the new pages added to the buddy allocator for the
+		 * first time.
+		 */
+		maybe_mark_page_unaccepted(page, order);
+	}
+
 	if (fpi_flags & FPI_TO_TAIL)
 		to_tail = true;
 	else if (is_shuffle_order(order))
@@ -1168,7 +1191,8 @@ done_merging:
 static inline bool page_expected_state(struct page *page,
 					unsigned long check_flags)
 {
-	if (unlikely(atomic_read(&page->_mapcount) != -1))
+	if (unlikely(atomic_read(&page->_mapcount) != -1) &&
+	    !PageUnaccepted(page))
 		return false;
 
 	if (unlikely((unsigned long)page->mapping |
@@ -1689,7 +1713,8 @@ void __free_pages_core(struct page *page, unsigned int order)
 	 * Bypass PCP and place fresh pages right to the tail, primarily
 	 * relevant for memory onlining.
 	 */
-	__free_pages_ok(page, order, FPI_TO_TAIL | FPI_SKIP_KASAN_POISON);
+	__free_pages_ok(page, order,
+			FPI_TO_TAIL | FPI_SKIP_KASAN_POISON | FPI_UNACCEPTED);
 }
 
 #ifdef CONFIG_NUMA
@@ -1842,6 +1867,7 @@ static void __init deferred_free_range(unsigned long pfn,
 		return;
 	}
 
+	accept_memory(pfn << PAGE_SHIFT, (pfn + nr_pages) << PAGE_SHIFT);
 	for (i = 0; i < nr_pages; i++, page++, pfn++) {
 		if ((pfn & (pageblock_nr_pages - 1)) == 0)
 			set_pageblock_migratetype(page, MIGRATE_MOVABLE);
@@ -2312,6 +2338,10 @@ static inline void expand(struct zone *zone, struct page *page,
 		if (set_page_guard(zone, &page[size], high, migratetype))
 			continue;
 
+		/* Transfer PageUnaccepted() to the newly split pages */
+		if (PageUnaccepted(page))
+			__SetPageUnaccepted(&page[size]);
+
 		add_to_free_list(&page[size], zone, high, migratetype);
 		set_buddy_order(&page[size], high);
 	}
@@ -2407,6 +2437,9 @@ inline void post_alloc_hook(struct page *page, unsigned int order,
 	 * allocations and the page unpoisoning code will complain.
 	 */
 	kernel_unpoison_pages(page, 1 << order);
+
+	if (PageUnaccepted(page))
+		accept_page(page, order);
 
 	/*
 	 * As memory initialization might be integrated into KASAN,

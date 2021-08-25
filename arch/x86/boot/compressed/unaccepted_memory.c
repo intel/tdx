@@ -20,8 +20,7 @@ void mark_unaccepted(struct boot_params *params, u64 start, u64 end)
 
 	/* Immediately accept whole range if it is within a PMD_SIZE block: */
 	if ((start & PMD_MASK) == (end & PMD_MASK)) {
-		npages = (end - start) / PAGE_SIZE;
-		__accept_memory(start, start + npages * PAGE_SIZE);
+		__accept_memory(start, end);
 		return;
 	}
 

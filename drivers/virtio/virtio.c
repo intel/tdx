@@ -5,6 +5,8 @@
 #include <linux/module.h>
 #include <linux/idr.h>
 #include <linux/of.h>
+#include <linux/cc_platform.h>
+#include <linux/device.h>
 #include <uapi/linux/virtio_ids.h>
 
 /* Unique numbering for virtio devices. */
@@ -411,6 +413,13 @@ int register_virtio_device(struct virtio_device *dev)
 	spin_lock_init(&dev->config_lock);
 	dev->config_enabled = false;
 	dev->config_change_pending = false;
+
+	/*
+	 * For Confidential guest (like TDX), virtio devices are
+	 * trusted. So set authorized status as true.
+	 */
+	if (cc_platform_has(CC_ATTR_GUEST_DEVICE_FILTER))
+		dev->dev.authorized = true;
 
 	/* We always start by resetting the device, in case a previous
 	 * driver messed it up.  This also tests that code path a little. */

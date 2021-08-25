@@ -42,4 +42,5 @@ Offset/Size	Proto	Name			Meaning
 2D0/A00		ALL	e820_table		E820 memory map table
 						(array of struct e820_entry)
 D00/1EC		ALL	eddbuf			EDD data (array of struct edd_info)
+ECC/008		ALL	unaccepted_memory	Bitmap of unaccepted memory (1bit == 2M)
 ===========	=====	=======================	=================================================

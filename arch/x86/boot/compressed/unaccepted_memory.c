@@ -3,10 +3,16 @@
 #include "error.h"
 #include "misc.h"
 
+extern void tdx_accept_memory(phys_addr_t start, phys_addr_t end);
+extern bool early_is_tdx_guest(void);
+
 static inline void __accept_memory(phys_addr_t start, phys_addr_t end)
 {
 	/* Platform-specific memory-acceptance call goes here */
-	error("Cannot accept memory");
+	if (early_is_tdx_guest())
+		tdx_accept_memory(start, end);
+	else
+		error("Cannot accept memory");
 }
 
 void mark_unaccepted(struct boot_params *params, u64 start, u64 end)

@@ -347,6 +347,10 @@ int register_virtio_device(struct virtio_device *dev)
 	dev->config_enabled = false;
 	dev->config_change_pending = false;
 
+	if (prot_guest_has(PATTR_GUEST_DEVICE_FILTER))
+		dev->dev.authorized = prot_guest_authorized(&dev->dev,
+						(char *)dev_name(&dev->dev));
+
 	/* We always start by resetting the device, in case a previous
 	 * driver messed it up.  This also tests that code path a little. */
 	dev->config->reset(dev);

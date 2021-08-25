@@ -243,6 +243,20 @@ config EFI_DISABLE_PCI_DMA
 	  options "efi=disable_early_pci_dma" or "efi=no_disable_early_pci_dma"
 	  may be used to override this option.
 
+config UNACCEPTED_MEMORY
+	bool
+	depends on EFI_STUB
+	help
+	   Some Virtual Machine platforms, such as Intel TDX, introduce
+	   the concept of memory acceptance, requiring memory to be accepted
+	   before it can be used by the guest. This protects against a class of
+	   attacks by the virtual machine platform.
+
+	   UEFI specification v2.9 introduced EFI_UNACCEPTED_MEMORY memory type.
+
+	   This option adds support for unaccepted memory and makes such memory
+	   usable by kernel.
+
 endmenu
 
 config EFI_EMBEDDED_FIRMWARE

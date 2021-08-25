@@ -19,6 +19,7 @@
 #include <linux/hypervisor.h>
 #include <linux/irqdomain.h>
 #include <linux/pm_runtime.h>
+#include <linux/protected_guest.h>
 #include "pci.h"
 
 #define CARDBUS_LATENCY_TIMER	176	/* secondary latency timer */
@@ -2480,10 +2481,15 @@ static void pci_set_msi_domain(struct pci_dev *dev)
 void pci_device_add(struct pci_dev *dev, struct pci_bus *bus)
 {
 	int ret;
+	char dev_str[16];
 
 	pci_configure_device(dev);
 
 	device_initialize(&dev->dev);
+	if (prot_guest_has(PATTR_GUEST_DEVICE_FILTER)) {
+		sprintf(dev_str, "0x%x:0x%x", dev->vendor, dev->device);
+		dev->dev.authorized = prot_guest_authorized(&dev->dev, dev_str);
+	}
 	dev->dev.release = pci_release_dev;
 
 	set_dev_node(&dev->dev, pcibus_to_node(bus));

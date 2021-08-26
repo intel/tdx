@@ -1563,7 +1563,7 @@ static void set_pcie_thunderbolt(struct pci_dev *dev)
 	}
 }
 
-static void set_pcie_untrusted(struct pci_dev *dev)
+static void set_pcie_unauthorized(struct pci_dev *dev)
 {
 	struct pci_dev *parent;
 
@@ -1572,8 +1572,8 @@ static void set_pcie_untrusted(struct pci_dev *dev)
 	 * untrusted as well.
 	 */
 	parent = pci_upstream_bridge(dev);
-	if (parent && (parent->untrusted || parent->external_facing))
-		dev->untrusted = true;
+	if (parent && (!parent->dev.authorized || parent->external_facing))
+		dev->dev.authorized = false;
 }
 
 static void pci_set_removable(struct pci_dev *dev)
@@ -1835,7 +1835,7 @@ int pci_setup_device(struct pci_dev *dev)
 	/* Need to have dev->cfg_size ready */
 	set_pcie_thunderbolt(dev);
 
-	set_pcie_untrusted(dev);
+	set_pcie_unauthorized(dev);
 
 	/* "Unknown power state" */
 	dev->current_state = PCI_UNKNOWN;

@@ -1512,7 +1512,7 @@ static int iommu_get_def_domain_type(struct device *dev)
 {
 	const struct iommu_ops *ops = dev->bus->iommu_ops;
 
-	if (dev_is_pci(dev) && to_pci_dev(dev)->untrusted)
+	if (dev_is_pci(dev) && !dev->authorized)
 		return IOMMU_DOMAIN_DMA;
 
 	if (ops->def_domain_type)

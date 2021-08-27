@@ -267,8 +267,11 @@ static void tdx_get_info(void)
 	physical_mask &= ~tdg_shared_mask();
 }
 
-static u64 tdg_accept_page(phys_addr_t gpa)
+static u64 tdg_accept_page(phys_addr_t gpa, bool page_2mb)
 {
+	if (page_2mb)
+		gpa |= 1;
+
 	return __trace_tdx_module_call(TDACCEPTPAGE, gpa, 0, 0, 0, NULL);
 }
 
@@ -300,7 +303,14 @@ int tdx_hcall_gpa_intent(phys_addr_t start, phys_addr_t end,
 	 * TDX module call.
 	 */
 	while (start < end) {
-		if (tdg_accept_page(start))
+		/* Try 2M page accept first if possible */
+		if (!(start & ~PMD_MASK) && end - start >= PMD_SIZE &&
+		    !tdg_accept_page(start, true)) {
+			start += PMD_SIZE;
+			continue;
+		}
+
+		if (tdg_accept_page(start, false))
 			return -EIO;
 		start += PAGE_SIZE;
 	}

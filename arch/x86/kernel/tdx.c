@@ -316,7 +316,7 @@ static void tdx_get_info(void)
 	physical_mask &= ~tdx_shared_mask();
 }
 
-static u64 tdx_accept_page(phys_addr_t gpa)
+static u64 tdx_accept_page(phys_addr_t gpa, bool page_2mb)
 {
 	/*
 	 * Pass the page physical address and size (0-4KB) to the
@@ -324,6 +324,9 @@ static u64 tdx_accept_page(phys_addr_t gpa)
 	 * about ABI can be found in TDX Guest-Host-Communication
 	 * Interface (GHCI), sec 2.4.7.
 	 */
+	if (page_2mb)
+		gpa |= 1;
+
 	return __trace_tdx_module_call(TDX_ACCEPT_PAGE, gpa, 0, 0, 0, NULL);
 }
 
@@ -360,7 +363,14 @@ int tdx_hcall_gpa_intent(phys_addr_t start, phys_addr_t end,
 	 * TDX_ACCEPT_PAGE TDX module call.
 	 */
 	while (start < end) {
-		if (tdx_accept_page(start))
+		/* Try 2M page accept first if possible */
+		if (!(start & ~PMD_MASK) && end - start >= PMD_SIZE &&
+		    !tdx_accept_page(start, true)) {
+			start += PMD_SIZE;
+			continue;
+		}
+
+		if (tdx_accept_page(start, false))
 			return -EIO;
 		start += PAGE_SIZE;
 	}

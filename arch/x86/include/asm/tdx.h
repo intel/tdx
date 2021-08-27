@@ -90,7 +90,7 @@ bool tdx_allowed_port(short int port);
 
 extern phys_addr_t tdg_shared_mask(void);
 
-extern int tdx_hcall_gpa_intent(phys_addr_t gpa, int numpages,
+extern int tdx_hcall_gpa_intent(phys_addr_t start, phys_addr_t end,
 				enum tdx_map_type map_type);
 
 extern void tdx_accept_memory(phys_addr_t start, phys_addr_t end);
@@ -173,8 +173,8 @@ static inline bool tdg_early_handle_ve(struct pt_regs *regs) { return false; }
 
 static inline phys_addr_t tdg_shared_mask(void) { return 0; }
 
-static inline int tdx_hcall_gpa_intent(phys_addr_t gpa, int numpages,
-				       enum tdx_map_type map_type)
+static inline int tdx_hcall_gpa_intent(phys_addr_t start, phys_addr_t end,
+				enum tdx_map_type map_type)
 {
 	return -ENODEV;
 }

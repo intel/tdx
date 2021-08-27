@@ -267,13 +267,9 @@ static void tdx_get_info(void)
 	physical_mask &= ~tdg_shared_mask();
 }
 
-static void tdg_accept_page(phys_addr_t gpa)
+static u64 tdg_accept_page(phys_addr_t gpa)
 {
-	u64 ret;
-
-	ret = __trace_tdx_module_call(TDACCEPTPAGE, gpa, 0, 0, 0, NULL);
-
-	BUG_ON(ret && TDCALL_RETURN_CODE(ret) != TDX_PAGE_ALREADY_ACCEPTED);
+	return __trace_tdx_module_call(TDACCEPTPAGE, gpa, 0, 0, 0, NULL);
 }
 
 /*
@@ -281,16 +277,17 @@ static void tdg_accept_page(phys_addr_t gpa)
  * shared with the VMM or private to the guest.  The VMM is
  * expected to change its mapping of the page in response.
  */
-int tdx_hcall_gpa_intent(phys_addr_t gpa, int numpages,
+int tdx_hcall_gpa_intent(phys_addr_t start, phys_addr_t end,
 			 enum tdx_map_type map_type)
 {
 	u64 ret = 0;
-	int i;
 
-	if (map_type == TDX_MAP_SHARED)
-		gpa |= tdg_shared_mask();
+	if (map_type == TDX_MAP_SHARED) {
+		start |= tdg_shared_mask();
+		end |= tdg_shared_mask();
+	}
 
-	ret = _tdx_hypercall(TDVMCALL_MAP_GPA, gpa, PAGE_SIZE * numpages, 0, 0,
+	ret = _tdx_hypercall(TDVMCALL_MAP_GPA, start, end - start, 0, 0,
 			     NULL);
 	if (ret)
 		ret = -EIO;
@@ -302,18 +299,19 @@ int tdx_hcall_gpa_intent(phys_addr_t gpa, int numpages,
 	 * For shared->private conversion, accept the page using TDACCEPTPAGE
 	 * TDX module call.
 	 */
-	for (i = 0; i < numpages; i++)
-		tdg_accept_page(gpa + i * PAGE_SIZE);
+	while (start < end) {
+		if (tdg_accept_page(start))
+			return -EIO;
+		start += PAGE_SIZE;
+	}
 
 	return 0;
 }
 
 void tdx_accept_memory(phys_addr_t start, phys_addr_t end)
 {
-	if (tdx_hcall_gpa_intent(start, (end - start) / PAGE_SIZE,
-				 TDX_MAP_PRIVATE)) {
+	if (tdx_hcall_gpa_intent(start, end, TDX_MAP_PRIVATE))
 		panic("Accepting memory failed\n");
-	}
 }
 
 static __cpuidle void tdg_halt(void)

@@ -2049,8 +2049,11 @@ static int __set_memory_protect(unsigned long addr, int numpages, bool protect)
 	 */
 	cpa_flush(&cpa, 0);
 
-	if (!ret && cc_platform_has(CC_ATTR_GUEST_SHARED_MAPPING_INIT))
-		ret = tdx_hcall_gpa_intent(__pa(addr), numpages, map_type);
+	if (!ret && cc_platform_has(CC_ATTR_GUEST_SHARED_MAPPING_INIT)) {
+		ret = tdx_hcall_gpa_intent(__pa(addr),
+					   __pa(addr) + PAGE_SIZE * numpages,
+					   map_type);
+	}
 
 	return ret;
 }

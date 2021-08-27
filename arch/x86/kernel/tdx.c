@@ -316,23 +316,15 @@ static void tdx_get_info(void)
 	physical_mask &= ~tdx_shared_mask();
 }
 
-static void tdx_accept_page(phys_addr_t gpa)
+static u64 tdx_accept_page(phys_addr_t gpa)
 {
-	u64 ret;
-
 	/*
 	 * Pass the page physical address and size (0-4KB) to the
 	 * TDX module to accept the pending, private page. More info
 	 * about ABI can be found in TDX Guest-Host-Communication
 	 * Interface (GHCI), sec 2.4.7.
 	 */
-	ret = __trace_tdx_module_call(TDX_ACCEPT_PAGE, gpa, 0, 0, 0, NULL);
-
-	/*
-	 * Non zero return value means buggy TDX module (which is
-	 * fatal for TDX guest). So panic here.
-	 */
-	BUG_ON(ret && TDCALL_RETURN_CODE(ret) != TDX_PAGE_ALREADY_ACCEPTED);
+	return __trace_tdx_module_call(TDX_ACCEPT_PAGE, gpa, 0, 0, 0, NULL);
 }
 
 /*
@@ -340,21 +332,22 @@ static void tdx_accept_page(phys_addr_t gpa)
  * shared with the VMM or private to the guest.  The VMM is
  * expected to change its mapping of the page in response.
  */
-int tdx_hcall_gpa_intent(phys_addr_t gpa, int numpages,
+int tdx_hcall_gpa_intent(phys_addr_t start, phys_addr_t end,
 			 enum tdx_map_type map_type)
 {
 	u64 ret = 0;
-	int i;
 
-	if (map_type == TDX_MAP_SHARED)
-		gpa |= tdx_shared_mask();
+	if (map_type == TDX_MAP_SHARED) {
+		start |= tdx_shared_mask();
+		end |= tdx_shared_mask();
+	}
 
 	/*
 	 * Notify VMM about page mapping conversion. More info
 	 * about ABI can be found in TDX Guest-Host-Communication
 	 * Interface (GHCI), sec 3.2.
 	 */
-	ret = _tdx_hypercall(TDVMCALL_MAP_GPA, gpa, PAGE_SIZE * numpages, 0, 0,
+	ret = _tdx_hypercall(TDVMCALL_MAP_GPA, start, end - start, 0, 0,
 			     NULL);
 	if (ret)
 		ret = -EIO;
@@ -366,18 +359,19 @@ int tdx_hcall_gpa_intent(phys_addr_t gpa, int numpages,
 	 * For shared->private conversion, accept the page using
 	 * TDX_ACCEPT_PAGE TDX module call.
 	 */
-	for (i = 0; i < numpages; i++)
-		tdx_accept_page(gpa + i * PAGE_SIZE);
+	while (start < end) {
+		if (tdx_accept_page(start))
+			return -EIO;
+		start += PAGE_SIZE;
+	}
 
 	return 0;
 }
 
 void tdx_accept_memory(phys_addr_t start, phys_addr_t end)
 {
-	if (tdx_hcall_gpa_intent(start, (end - start) / PAGE_SIZE,
-				 TDX_MAP_PRIVATE)) {
+	if (tdx_hcall_gpa_intent(start, end, TDX_MAP_PRIVATE))
 		panic("Accepting memory failed\n");
-	}
 }
 
 static __cpuidle void _tdx_halt(const bool irq_disabled, const bool do_sti)

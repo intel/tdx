@@ -928,8 +928,20 @@ struct kvm_lpage_info {
 	int disallow_lpage;
 };
 
+enum kvm_page_type {
+	KVM_PAGE_TYPE_INVALID,
+	KVM_PAGE_TYPE_SHARED,
+	KVM_PAGE_TYPE_PRIVATE,
+	KVM_PAGE_TYPE_MIXED,
+};
+
+struct kvm_page_attr {
+	enum kvm_page_type type;
+};
+
 struct kvm_arch_memory_slot {
 	struct kvm_rmap_head *rmap[KVM_NR_PAGE_SIZES];
+	struct kvm_page_attr *page_attr[KVM_NR_PAGE_SIZES];
 	struct kvm_lpage_info *lpage_info[KVM_NR_PAGE_SIZES - 1];
 	unsigned short *gfn_track[KVM_PAGE_TRACK_MAX];
 };

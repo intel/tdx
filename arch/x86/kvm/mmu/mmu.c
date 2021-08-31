@@ -1477,6 +1477,7 @@ static bool __kvm_mmu_zap_private_spte(struct kvm *kvm, u64 *sptep)
 
 static bool kvm_mmu_zap_private_spte(struct kvm *kvm, u64 *sptep)
 {
+	u64 clear_bits;
 	kvm_pfn_t pfn;
 	bool ret;
 
@@ -1485,8 +1486,9 @@ static bool kvm_mmu_zap_private_spte(struct kvm *kvm, u64 *sptep)
 		return ret;
 
 	pfn = spte_to_pfn(*sptep);
-	__mmu_spte_clear_track_bits(kvm, sptep,
-				SPTE_PRIVATE_ZAPPED | pfn << PAGE_SHIFT);
+	clear_bits = SPTE_PRIVATE_ZAPPED | (pfn << PAGE_SHIFT) |
+		(is_large_pte(*sptep) ? PT_PAGE_SIZE_MASK : 0);
+	__mmu_spte_clear_track_bits(kvm, sptep, clear_bits);
 	return ret;
 }
 

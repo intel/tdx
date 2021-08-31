@@ -441,6 +441,481 @@ out:
 	return ret;
 }
 
+static DEFINE_MUTEX(tdx_module_mutex);
+
+/*
+ * tdx_module_lock - lock to protect state of seam module related stuff.
+ *
+ * Locking order is
+ * cpu_maps_update_begin() -> cpus_read/write_lock() -> tdx_module_lock().
+ * Note tdx_module_lock() can be gained by cpuhp callback which is triggered
+ * under cpu lock.
+ */
+static void tdx_module_lock(void)
+{
+	mutex_lock(&tdx_module_mutex);
+}
+
+static void tdx_module_unlock(void)
+{
+	mutex_unlock(&tdx_module_mutex);
+}
+
+/* Array of all TDMR info array. */
+static struct tdmr_info *tdmr_info_alloc __initdata;   /* pointer for kfree. */
+static struct tdmr_info *tdmr_info __initdata; /* aligned to TDX_TDMR_INFO_ALIGNMENT. */
+/* Number of actual TDMRs */
+static int tdx_nr_tdmrs __initdata;
+
+static int *tdx_package_masters __read_mostly;
+
+static enum cpuhp_state cpuhp_state __read_mostly = CPUHP_INVALID;
+
+static int tdx_starting_cpu(unsigned int cpu)
+{
+	int pkg = topology_physical_package_id(cpu);
+
+	tdx_module_lock();
+	/*
+	 * If this package doesn't have a master CPU for IPI operation, use this
+	 * CPU as package master.
+	 */
+	if (tdx_package_masters && tdx_package_masters[pkg] == -1)
+		tdx_package_masters[pkg] = cpu;
+	tdx_module_unlock();
+
+	return 0;
+}
+
+static int tdx_dying_cpu(unsigned int cpu)
+{
+	int pkg = topology_physical_package_id(cpu);
+	int other;
+
+	tdx_module_lock();
+	if (!tdx_package_masters || tdx_package_masters[pkg] != cpu)
+		goto out;
+
+	/*
+	 * If offlining cpu that is used as package master, find other online
+	 * cpu on this package.
+	 */
+	tdx_package_masters[pkg] = -1;
+	for_each_online_cpu(other) {
+		if (other == cpu)
+			continue;
+		if (topology_physical_package_id(other) != pkg)
+			continue;
+
+		tdx_package_masters[pkg] = other;
+		break;
+	}
+
+out:
+	wbinvd();
+	tdx_module_unlock();
+	return 0;
+}
+
+static int __init tdx_init_cpuhp(void)
+{
+	int ret;
+
+	/* first initialization is done by init_package_masters later. */
+	ret = cpuhp_setup_state_nocalls(CPUHP_AP_ONLINE_DYN, "tdx/cpu:starting",
+					tdx_starting_cpu, tdx_dying_cpu);
+	if (ret >= 0)
+		cpuhp_state = ret;
+	return ret;
+}
+
+/*
+ * Setup one-cpu-per-pkg array to do package-scoped SEAMCALLs. The array is
+ * only necessary if there are multiple packages.
+ */
+static int __init init_package_masters(void)
+{
+	int cpu, pkg, nr_filled, nr_pkgs;
+
+	nr_pkgs = topology_max_packages();
+	if (nr_pkgs == 1)
+		return 0;
+
+	/* Already initialized. */
+	if (tdx_package_masters)
+		return 0;
+
+	tdx_package_masters = kcalloc(nr_pkgs, sizeof(int), GFP_KERNEL);
+	if (!tdx_package_masters)
+		return -ENOMEM;
+
+	memset(tdx_package_masters, -1, nr_pkgs * sizeof(int));
+
+	nr_filled = 0;
+	for_each_online_cpu(cpu) {
+		pkg = topology_physical_package_id(cpu);
+		if (tdx_package_masters[pkg] >= 0)
+			continue;
+
+		tdx_package_masters[pkg] = cpu;
+		if (++nr_filled == nr_pkgs)
+			break;
+	}
+
+	if (WARN_ON(nr_filled != nr_pkgs)) {
+		kfree(tdx_package_masters);
+		tdx_package_masters = NULL;
+		return -EIO;
+	}
+
+	return 0;
+}
+
+/*
+ * tdx_seamcall_on_each_pkg - run function on each packages.
+ * @fn: function to be called on each packages in blocking manner.
+ * @param: parameter for fn
+ *
+ * fn is called by workqueue context so that fn can block with mutex.
+ * some TDX SEAMCALLs are required to run on all packages, not all CPUs.
+ * e.g. tdh_sys_key_config, tdh_phymem_cache_wb.
+ */
+int tdx_seamcall_on_each_pkg(int (*fn)(void *), void *param)
+{
+	int ret, i;
+
+	tdx_module_lock();
+	if (!tdx_package_masters) {
+		tdx_module_unlock();
+		return fn(param);
+	}
+
+	ret = 0;
+	for (i = 0; i < topology_max_packages(); i++) {
+		if (tdx_package_masters[i] < 0)
+			continue;
+
+		ret = smp_call_on_cpu(tdx_package_masters[i], fn, param, 1);
+		if (ret)
+			break;
+	}
+
+	tdx_module_unlock();
+	return ret;
+}
+/* kvm_intel will use this function to invoke SEAMCALL on each package. */
+EXPORT_SYMBOL_GPL(tdx_seamcall_on_each_pkg);
+
+static int __init tdx_init_lp(void)
+{
+	u32 keyids_start, nr_keyids;
+	struct tdx_ex_ret ex_ret;
+	u64 err;
+
+	WARN_ON(!irqs_disabled());
+
+	/*
+	 * MSR_IA32_MKTME_KEYID_PART is core-scoped, disable TDX if this CPU's
+	 * partitioning doesn't match the BSP's partitioning.
+	 */
+	tdx_get_keyids(&keyids_start, &nr_keyids);
+	if (keyids_start != tdx_keyids_start || nr_keyids != tdx_nr_keyids) {
+		pr_err("MKTME KeyID partioning inconsistent on CPU %u\n",
+		       smp_processor_id());
+		return -EIO;
+	}
+
+	err = tdh_sys_lp_init(&ex_ret);
+	/*
+	 * Because tdh_init_system() called tdh_sys_lp_init() already, it's
+	 * possible that LP is already initialized.
+	 */
+	if (err != TDX_SYSINITLP_DONE && TDX_ERR(err, TDH_SYS_LP_INIT, &ex_ret))
+		return err;
+
+	return 0;
+}
+
+static void __init tdx_init_cpu(void *data)
+{
+	atomic_t *error = data;
+	int ret = tdx_init_lp();
+
+	if (ret)
+		atomic_set(error, ret);
+}
+
+/*
+ * Invoke TDH.SYS.LP.INIT on all CPUs to perform processor-wide initialization.
+ */
+static int __init tdx_init_cpus(void)
+{
+	atomic_t error;
+
+	/* Call per-CPU initialization function on all CPUs. */
+	atomic_set(&error, 0);
+	on_each_cpu(tdx_init_cpu, &error, 1);
+	return atomic_read(&error);
+}
+
+/* data structure for tdx_init_tdmrs() */
+struct tdx_tdmr_init_data {
+	struct mutex lock;
+	int next_tdmr_index;
+	int nr_initialized_tdmrs;
+	int failed;
+	int nr_completed;
+	int nr_works;
+	struct completion completion;
+};
+
+struct tdx_tdmr_init_request {
+	struct work_struct work;
+	struct tdx_tdmr_init_data *data;
+};
+
+/*
+ * __tdx_init_tdmrs - worker to initialize TDMRs
+ * @work: work_struct to work queue which embedded in tdx_tdmr_init_request.
+ *
+ * Get an uninitialized TDMR, initialize it and loop until all TDMRs are
+ * initialized.
+ */
+static void __init __tdx_init_tdmrs(struct work_struct *work)
+{
+	struct tdx_tdmr_init_request *req = container_of(
+		work, struct tdx_tdmr_init_request, work);
+	struct tdx_tdmr_init_data *data = req->data;
+	int i;
+	u64 base, size;
+	struct tdx_ex_ret ex_ret;
+	u64 err = 0;
+	bool completed;
+
+	mutex_lock(&data->lock);
+again:
+	i = data->next_tdmr_index;
+	while (i < tdx_nr_tdmrs) {
+		data->next_tdmr_index++;
+		base = tdmr_info[i].base;
+		size = tdmr_info[i].size;
+
+		do {
+			/* Abort if a different CPU failed. */
+			if (data->failed)
+				goto out;
+
+			mutex_unlock(&data->lock);
+			err = tdh_sys_tdmr_init(base, &ex_ret);
+			if (TDX_ERR(err, TDH_SYS_TDMR_INIT, &ex_ret)) {
+				mutex_lock(&data->lock);
+				err = -EIO;
+				goto out;
+			}
+			cond_resched();
+			mutex_lock(&data->lock);
+
+			/*
+			 * Note, "next" is simply an indicator, base is passed
+			 * to TDH.SYS.TDMR.INIT on every iteration.
+			 */
+		} while (ex_ret.next < (base + size));
+
+		data->nr_initialized_tdmrs++;
+		goto again;
+	}
+
+out:
+	if (err)
+		data->failed++;
+	data->nr_completed++;
+	completed = (data->nr_completed == data->nr_works);
+	mutex_unlock(&data->lock);
+
+	if (completed)
+		complete(&data->completion);
+}
+
+/*
+ * tdx_init_tdmrs - Initializes TDMRs in parallel way.
+ * @return: 0 on success, error code on failure.
+ *
+ * It may take long time to initialize TDMRs by TDH.SYS.TDMR.INIT that clears
+ * Physical Address Metadata Table(PAMT) which is something similar to Linux
+ * struct page.  Parallelize it to shorten boot time by work queue.
+ */
+static int __init tdx_init_tdmrs(void)
+{
+	int i;
+	/*
+	 * One TDMR can be initialized only by one thread.  No point to have
+	 * threads more than the number of TDMRs.
+	 */
+	int nr_works = min_t(int, num_online_cpus(), tdx_nr_tdmrs);
+	struct tdx_tdmr_init_data data = {
+		.lock = __MUTEX_INITIALIZER(data.lock),
+		.next_tdmr_index = 0,
+		.nr_initialized_tdmrs = 0,
+		.failed = 0,
+		.nr_completed = 0,
+		.nr_works = nr_works,
+		.completion = COMPLETION_INITIALIZER_ONSTACK(data.completion),
+	};
+
+	struct tdx_tdmr_init_request *reqs = kcalloc(nr_works, sizeof(*reqs),
+						     GFP_KERNEL);
+	if (!reqs)
+		return -ENOMEM;
+
+	for (i = 0; i < nr_works; i++) {
+		reqs[i].data = &data;
+		INIT_WORK(&reqs[i].work, __tdx_init_tdmrs);
+		queue_work(system_unbound_wq, &reqs[i].work);
+	}
+	wait_for_completion(&data.completion);
+
+	kfree(reqs);
+	mutex_lock(&data.lock);
+	if (data.failed || data.nr_initialized_tdmrs < tdx_nr_tdmrs) {
+		mutex_unlock(&data.lock);
+		return -EIO;
+	}
+	mutex_unlock(&data.lock);
+	return 0;
+}
+
+static int __init do_tdh_sys_key_config(void *param)
+{
+	u64 err;
+
+	do {
+		err = tdh_sys_key_config();
+	} while (err == TDX_KEY_GENERATION_FAILED);
+	if (TDX_ERR(err, TDH_SYS_KEY_CONFIG, NULL))
+		return -EIO;
+
+	return 0;
+}
+
+/*
+ * __tdx_init_module - finial initialization of TDX module so that it can be
+ *                     workable.
+ */
+static int __init __tdx_init_module(void)
+{
+	u64 *tdmr_addrs;
+	u64 err;
+	int ret = 0;
+	int i;
+
+	/*
+	 * tdmr_addrs must be aligned to TDX_TDMR_ADDR_ALIGNMENT(512).
+	 * kmalloc() returns size-aligned when size is power of 2.
+	 */
+	BUILD_BUG_ON(!is_power_of_2(sizeof(*tdmr_addrs) * TDX_MAX_NR_TDMRS));
+	BUILD_BUG_ON(!IS_ALIGNED(sizeof(*tdmr_addrs) * TDX_MAX_NR_TDMRS,
+				 TDX_TDMR_ADDR_ALIGNMENT));
+	tdmr_addrs = kmalloc(sizeof(*tdmr_addrs) * TDX_MAX_NR_TDMRS, GFP_KERNEL);
+	if (!tdmr_addrs)
+		return -ENOMEM;
+
+	for (i = 0; i < tdx_nr_tdmrs; i++)
+		tdmr_addrs[i] = __pa(&tdmr_info[i]);
+
+	/*
+	 * tdh_sys_tdmr_config() calls TDH.SYS.CONFIG to tell TDX module about
+	 * TDMRs, PAMTs and HKID for TDX module to use.  Use the first keyID as
+	 * TDX-SEAM's global key.
+	 */
+	err = tdh_sys_tdmr_config(__pa(tdmr_addrs), tdx_nr_tdmrs,
+				  tdx_keyids_start);
+	if (TDX_ERR(err, TDH_SYS_CONFIG, NULL)) {
+		ret = -EIO;
+		goto out;
+	}
+	tdx_seam_keyid = tdx_keyids_start;
+
+	/*
+	 * Cache Flush is required as
+	 * TDX module spec: Chapter 12 Intel TDX Module Lifecycle Table 12.1
+	 */
+	wbinvd_on_all_cpus();
+
+	ret = tdx_seamcall_on_each_pkg(do_tdh_sys_key_config, NULL);
+	if (ret)
+		goto out;
+
+	ret = tdx_init_tdmrs();
+out:
+	kfree(tdmr_addrs);
+	return ret;
+}
+
+static int __init tdx_init_module(void)
+{
+	struct tdx_module_descriptor desc;
+	size_t tdmr_info_size;
+	int ret = 0;
+
+	ret = tdx_init_cpuhp();
+	if (ret < 0)
+		goto out;
+
+	ret = init_package_masters();
+	if (ret)
+		goto out;
+
+	tdx_legacy_pmem_build();
+	/*
+	 * TDX memory for system memory has been built after loading P-SEAMLDR.
+	 * All sub-types TDX memory are ready.  Built the final TDX memory.
+	 */
+	build_final_tdx_memory();
+
+	/*
+	 * tdmr_info must be aligned to TDX_TDMR_INFO_ALIGNMENT(512).
+	 * NOTE: kmalloc() returns size-aligned when size of power of 2.
+	 */
+	tdmr_info_size = sizeof(*tdmr_info) * tdx_tdsysinfo->max_tdmrs;
+	if (!is_power_of_2(tdmr_info_size) ||
+	    !IS_ALIGNED(tdmr_info_size, TDX_TDMR_INFO_ALIGNMENT))
+		tdmr_info_size += TDX_TDMR_INFO_ALIGNMENT;
+	tdmr_info_alloc = kmalloc(tdmr_info_size, GFP_KERNEL);
+	if (!tdmr_info_alloc) {
+		ret = -ENOMEM;
+		goto out;
+	}
+	tdmr_info = PTR_ALIGN(tdmr_info_alloc, TDX_TDMR_INFO_ALIGNMENT);
+
+	/* clear the TDMR array */
+	memset(tdmr_info, 0, tdmr_info_size);
+
+	/* construct all TDMRs */
+	desc.max_tdmr_num = tdx_tdsysinfo->max_tdmrs;
+	desc.pamt_entry_size[TDX_PG_4K] = tdx_tdsysinfo->pamt_entry_size;
+	desc.pamt_entry_size[TDX_PG_2M] = tdx_tdsysinfo->pamt_entry_size;
+	desc.pamt_entry_size[TDX_PG_1G] = tdx_tdsysinfo->pamt_entry_size;
+	desc.max_tdmr_rsvd_area_num = tdx_tdsysinfo->max_reserved_per_tdmr;
+
+	ret = construct_tdx_tdmrs(tdx_cmrs, tdx_nr_cmrs, &desc, tdmr_info,
+			&tdx_nr_tdmrs);
+	if (ret)
+		goto out;
+
+	/* per-CPU initialization. */
+	ret = tdx_init_cpus();
+	if (ret)
+		goto out;
+
+	/* finial initialization to make TDX module workable. */
+	ret = __tdx_init_module();
+	if (ret)
+		goto out;
+
+out:
+	return ret;
+}
+
 /*
  * Look for seam module binary in built-in firmware and initrd, and load it on
  * all CPUs through P-SEAMLDR.
@@ -450,6 +925,7 @@ static int __init __no_sanitize_address tdx_init(void)
 {
 	struct cpio_data module, sigstruct;
 	int ret = 0;
+	int cpu;
 	int vmxoff;
 
 	if (!boot_cpu_has(X86_FEATURE_SEAM))
@@ -506,10 +982,16 @@ static int __init __no_sanitize_address tdx_init(void)
 	pr_info("Loaded TDX module via P-SEAMLDR.\n");
 	tdx_module_state = TDX_MODULE_LOADED;
 
-out:
-	if (ret)
-		tdx_module_state = TDX_MODULE_ERROR;
+	pr_info("Initializing TDX module.\n");
+	ret = tdx_init_module();
+	if (ret) {
+		pr_info("Failed to initialize TDX module.\n");
+		goto out;
+	}
+	pr_info("Initialized TDX module\n");
+	tdx_module_state = TDX_MODULE_INITIALIZED;
 
+out:
 	vmxoff = seam_vmxoff();
 	if (vmxoff) {
 		pr_info("Failed to VMXOFF.\n");
@@ -518,11 +1000,23 @@ out:
 	}
 	if (ret)
 		tdx_module_state = TDX_MODULE_ERROR;
+	if (tdx_module_state == TDX_MODULE_INITIALIZED) {
+		setup_force_cpu_cap(X86_FEATURE_TDX);
+		for_each_online_cpu(cpu)
+			set_cpu_cap(&cpu_data(cpu), X86_FEATURE_TDX);
+	}
 	cpus_read_unlock();
 	cpu_maps_update_done();
 
 out_free:
 	seam_free_vmcs();
+	if (ret && cpuhp_state != CPUHP_INVALID) {
+		cpuhp_remove_state_nocalls(cpuhp_state);
+		cpuhp_state = CPUHP_INVALID;
+	}
+	kfree(tdmr_info_alloc);
+	kfree(tdx_cmrs);
+	cleanup_subtype_tdx_memory();
 	return ret;
 }
 /*

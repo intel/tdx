@@ -189,10 +189,12 @@ void tdx_hardware_disable(void)
 		tdx_disassociate_vp(&tdx->vcpu);
 }
 
-static void tdx_clear_page(unsigned long page)
+static void tdx_clear_page(unsigned long page, int size)
 {
 	const void *zero_page = (const void *) __va(page_to_phys(ZERO_PAGE(0)));
 	unsigned long i;
+
+	WARN_ON_ONCE(size % 64);
 
 	/*
 	 * Zeroing the page is only necessary for systems with MKTME-i:
@@ -203,7 +205,7 @@ static void tdx_clear_page(unsigned long page)
 	 * The cache line could be poisoned (even without MKTME-i), clear the
 	 * poison bit.
 	 */
-	for (i = 0; i < PAGE_SIZE; i += 64)
+	for (i = 0; i < size; i += 64)
 		movdir64b((void *)(page + i), zero_page);
 	/*
 	 * MOVDIR64B store uses WC buffer.  Prevent following memory reads
@@ -212,7 +214,8 @@ static void tdx_clear_page(unsigned long page)
 	__mb();
 }
 
-static int tdx_reclaim_page(unsigned long va, hpa_t pa, bool do_wb, u16 hkid)
+static int tdx_reclaim_page(unsigned long va, hpa_t pa, enum pg_level level,
+			    bool do_wb, u16 hkid)
 {
 	struct tdx_module_output out;
 	u64 err;
@@ -222,8 +225,11 @@ static int tdx_reclaim_page(unsigned long va, hpa_t pa, bool do_wb, u16 hkid)
 		pr_tdx_error(TDH_PHYMEM_PAGE_RECLAIM, err, &out);
 		return -EIO;
 	}
+	/* out.r8 == tdx sept page level */
+	WARN_ON_ONCE(out.r8 != pg_level_to_tdx_sept_level(level));
 
-	if (do_wb) {
+	/* only TDR page gets into this path */
+	if (do_wb && level == PG_LEVEL_4K) {
 		err = tdh_phymem_page_wbinvd(set_hkid_to_hpa(pa, hkid));
 		if (WARN_ON_ONCE(err)) {
 			pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
@@ -231,7 +237,7 @@ static int tdx_reclaim_page(unsigned long va, hpa_t pa, bool do_wb, u16 hkid)
 		}
 	}
 
-	tdx_clear_page(va);
+	tdx_clear_page(va, KVM_HPAGE_SIZE(level));
 	return 0;
 }
 
@@ -260,7 +266,7 @@ static void tdx_reclaim_td_page(struct tdx_td_page *page)
 		 * was already flushed by TDH.PHYMEM.CACHE.WB before here, So
 		 * cache doesn't need to be flushed again.
 		 */
-		if (tdx_reclaim_page(page->va, page->pa, false, 0))
+		if (tdx_reclaim_page(page->va, page->pa, PG_LEVEL_4K, false, 0))
 			return;
 
 		page->added = false;
@@ -413,8 +419,8 @@ void tdx_vm_free(struct kvm *kvm)
 	 * TDX global HKID is needed.
 	 */
 	if (kvm_tdx->tdr.added &&
-		tdx_reclaim_page(kvm_tdx->tdr.va, kvm_tdx->tdr.pa, true,
-				tdx_global_keyid))
+		tdx_reclaim_page(kvm_tdx->tdr.va, kvm_tdx->tdr.pa, PG_LEVEL_4K,
+				 true, tdx_global_keyid))
 		return;
 
 	free_page(kvm_tdx->tdr.va);
@@ -1414,7 +1420,8 @@ static void tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		 * The HKID assigned to this TD was already freed and cache
 		 * was already flushed. We don't have to flush again.
 		 */
-		err = tdx_reclaim_page((unsigned long)__va(hpa), hpa, false, 0);
+		err = tdx_reclaim_page((unsigned long)__va(hpa), hpa, level,
+				       false, 0);
 
 unlock:
 	spin_unlock(&kvm_tdx->seamcall_lock);
@@ -1533,7 +1540,8 @@ static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 	 * already flushed. We don't have to flush again.
 	 */
 	spin_lock(&kvm_tdx->seamcall_lock);
-	ret = tdx_reclaim_page((unsigned long)private_spt, __pa(private_spt), false, 0);
+	ret = tdx_reclaim_page((unsigned long)private_spt, __pa(private_spt),
+			       PG_LEVEL_4K, false, 0);
 	spin_unlock(&kvm_tdx->seamcall_lock);
 
 	return ret;

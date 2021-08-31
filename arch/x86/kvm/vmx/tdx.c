@@ -184,14 +184,17 @@ void tdx_hardware_disable(void)
 		tdx_disassociate_vp(&tdx->vcpu);
 }
 
-static void tdx_clear_page(unsigned long page_pa)
+static void tdx_clear_page(unsigned long page_pa, int size)
 {
 	const void *zero_page = (const void *) __va(page_to_phys(ZERO_PAGE(0)));
 	void *page = __va(page_pa);
 	unsigned long i;
 
+	WARN_ON_ONCE(size % PAGE_SIZE);
+
 	if (!static_cpu_has(X86_FEATURE_MOVDIR64B)) {
-		clear_page(page);
+		for (i = 0; i < size; i += PAGE_SIZE)
+			clear_page(page + i);
 		return;
 	}
 
@@ -205,7 +208,7 @@ static void tdx_clear_page(unsigned long page_pa)
 	 * The cache line could be poisoned (even without MKTME-i), clear the
 	 * poison bit.
 	 */
-	for (i = 0; i < PAGE_SIZE; i += 64)
+	for (i = 0; i < size; i += 64)
 		movdir64b(page + i, zero_page);
 	/*
 	 * MOVDIR64B store uses WC buffer.  Prevent following memory reads
@@ -214,7 +217,8 @@ static void tdx_clear_page(unsigned long page_pa)
 	__mb();
 }
 
-static int tdx_reclaim_page(hpa_t pa, bool do_wb, u16 hkid)
+static int tdx_reclaim_page(hpa_t pa, enum pg_level level,
+			    bool do_wb, u16 hkid)
 {
 	struct tdx_module_output out;
 	u64 err;
@@ -232,8 +236,10 @@ static int tdx_reclaim_page(hpa_t pa, bool do_wb, u16 hkid)
 		pr_tdx_error(TDH_PHYMEM_PAGE_RECLAIM, err, &out);
 		return -EIO;
 	}
+	/* out.r8 == tdx sept page level */
+	WARN_ON_ONCE(out.r8 != pg_level_to_tdx_sept_level(level));
 
-	if (do_wb) {
+	if (do_wb && level == PG_LEVEL_4K) {
 		/*
 		 * Only TDR page gets into this path.  No contention is expected
 		 * because of the last page of TD.
@@ -245,7 +251,7 @@ static int tdx_reclaim_page(hpa_t pa, bool do_wb, u16 hkid)
 		}
 	}
 
-	tdx_clear_page(pa);
+	tdx_clear_page(pa, KVM_HPAGE_SIZE(level));
 	return 0;
 }
 
@@ -259,7 +265,7 @@ static void tdx_reclaim_td_page(unsigned long td_page_pa)
 	 * was already flushed by TDH.PHYMEM.CACHE.WB before here, So
 	 * cache doesn't need to be flushed again.
 	 */
-	if (WARN_ON(tdx_reclaim_page(td_page_pa, false, 0)))
+	if (WARN_ON(tdx_reclaim_page(td_page_pa, PG_LEVEL_4K, false, 0)))
 		/* If reclaim failed, leak the page. */
 		return;
 	free_page((unsigned long)__va(td_page_pa));
@@ -436,7 +442,7 @@ void tdx_vm_free(struct kvm *kvm)
 	 * while operating on TD (Especially reclaiming TDCS).  Cache flush with
 	 * TDX global HKID is needed.
 	 */
-	if (tdx_reclaim_page(kvm_tdx->tdr_pa, true, tdx_global_keyid))
+	if (tdx_reclaim_page(kvm_tdx->tdr_pa, PG_LEVEL_4K, true, tdx_global_keyid))
 		return;
 
 	free_page((unsigned long)__va(kvm_tdx->tdr_pa));
@@ -1427,7 +1433,7 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		 * The HKID assigned to this TD was already freed and cache
 		 * was already flushed. We don't have to flush again.
 		 */
-		err = tdx_reclaim_page(hpa, false, 0);
+		err = tdx_reclaim_page(hpa, level, false, 0);
 		if (KVM_BUG_ON(err, kvm))
 			return -EIO;
 		tdx_unpin(kvm, pfn);
@@ -1566,7 +1572,7 @@ static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 	 * already flushed. We don't have to flush again.
 	 */
 	if (!is_hkid_assigned(kvm_tdx))
-		return tdx_reclaim_page(__pa(private_spt), false, 0);
+		return tdx_reclaim_page(__pa(private_spt), PG_LEVEL_4K, false, 0);
 
 	/*
 	 * free_private_spt() is (obviously) called when a shadow page is being

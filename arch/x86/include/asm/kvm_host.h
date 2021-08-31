@@ -1452,6 +1452,8 @@ struct kvm_x86_ops {
 			       void *private_sp);
 	int (*free_private_sp)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 			       void *private_sp);
+	int (*split_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+				  void *private_sp);
 
 	bool (*has_wbinvd_exit)(void);
 

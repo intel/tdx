@@ -4845,6 +4845,11 @@ EXPORT_SYMBOL_GPL(kvm_handle_page_fault);
 
 int kvm_tdp_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 {
+	u8 err_level = (fault->error_code & PFERR_LEVEL_MASK) >> PFERR_LEVEL_START_BIT;
+
+	if (err_level)
+		fault->max_level = min(fault->max_level, err_level);
+
 	while (fault->max_level > PG_LEVEL_4K) {
 		int page_num = KVM_PAGES_PER_HPAGE(fault->max_level);
 		gfn_t base = (fault->addr >> PAGE_SHIFT) & ~(page_num - 1);

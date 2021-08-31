@@ -2015,6 +2015,39 @@ static int tdx_sept_link_private_sp(struct kvm *kvm, gfn_t gfn,
 	return 0;
 }
 
+static int __tdx_sept_split_private_spte(struct kvm *kvm, gfn_t gfn,
+					enum pg_level level, void *sept_page)
+{
+	int tdx_level = pg_level_to_tdx_sept_level(level);
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	gpa_t gpa = gfn << PAGE_SHIFT;
+	hpa_t hpa = __pa(sept_page);
+	struct tdx_module_output out;
+	u64 err;
+
+	err = tdh_mem_page_demote(kvm_tdx->tdr.pa, gpa, tdx_level, hpa, &out);
+	if (KVM_BUG_ON(err, kvm)) {
+		pr_tdx_error(TDH_MEM_PAGE_DEMOTE, err, &out);
+		return -EIO;
+	}
+
+	return 0;
+}
+
+static int tdx_sept_split_private_spte(struct kvm *kvm, gfn_t gfn,
+				enum pg_level level, void *sept_page)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	int ret;
+
+	/* See comment in tdx_sept_set_private_spte() */
+	spin_lock(&kvm_tdx->seamcall_lock);
+	ret = __tdx_sept_split_private_spte(kvm, gfn, level, sept_page);
+	spin_unlock(&kvm_tdx->seamcall_lock);
+
+	return ret;
+}
+
 static void tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn,
 				      enum pg_level level)
 {
@@ -3942,6 +3975,7 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	x86_ops->tlb_remote_flush_with_range = tdx_sept_tlb_remote_flush_with_range;
 	x86_ops->tlb_remote_flush = tdx_sept_tlb_remote_flush;
 	x86_ops->free_private_sp = tdx_sept_free_private_sp;
+	x86_ops->split_private_spte = tdx_sept_split_private_spte;
 	x86_ops->handle_private_zapped_spte = tdx_handle_private_zapped_spte;
 	x86_ops->handle_changed_private_spte = tdx_handle_changed_private_spte;
 	x86_ops->set_private_spte = tdx_sept_set_private_spte;

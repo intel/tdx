@@ -3552,6 +3552,22 @@ static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 	if (!is_private && vcpu->kvm->arch.gfn_shared_mask)
 		pte_access &= ~ACC_EXEC_MASK;
 
+	/*
+	 * Cannot map a private page to higher level if smaller level mapping
+	 * exists. It can be promoted to larger mapping later when all the
+	 * smaller mapping are there.
+	 */
+	if (is_private) {
+		for_each_shadow_entry(vcpu, gpa, it) {
+			if (is_shadow_present_pte(*it.sptep)) {
+				if (!is_last_spte(*it.sptep, it.level) && max_level >= it.level)
+					max_level = it.level - 1;
+			} else {
+				break;
+			}
+		}
+	}
+
 	level = kvm_mmu_hugepage_adjust(vcpu, gfn, max_level, &pfn,
 					huge_page_disallowed, &req_level);
 

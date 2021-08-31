@@ -585,18 +585,24 @@ static int __must_check handle_changed_private_spte(struct kvm *kvm, gfn_t gfn,
 
 	lockdep_assert_held(&kvm->mmu_lock);
 	if (is_present) {
-		/* TDP MMU doesn't change present -> present */
-		KVM_BUG_ON(was_present, kvm);
+		void *private_spt;
 
-		/*
-		 * Use different call to either set up middle level
-		 * private page table, or leaf.
-		 */
-		if (is_leaf)
+		if (level > PG_LEVEL_4K && was_leaf && !is_leaf) {
+			/*
+			 * splitting large page into 4KB.
+			 * tdp_mmu_split_huage_page() => tdp_mmu_link_sp()
+			 */
+			private_spt = get_private_spt(gfn, new_spte, level);
+			KVM_BUG_ON(!private_spt, kvm);
+			ret = static_call(kvm_x86_zap_private_spte)(kvm, gfn, level);
+			kvm_flush_remote_tlbs(kvm);
+			if (!ret)
+				ret = static_call(kvm_x86_split_private_spt)(kvm, gfn,
+									     level, private_spt);
+		} else if (is_leaf)
 			ret = static_call(kvm_x86_set_private_spte)(kvm, gfn, level, new_pfn);
 		else {
-			void *private_spt = get_private_spt(gfn, new_spte, level);
-
+			private_spt = get_private_spt(gfn, new_spte, level);
 			KVM_BUG_ON(!private_spt, kvm);
 			ret = static_call(kvm_x86_link_private_spt)(kvm, gfn, level, private_spt);
 		}

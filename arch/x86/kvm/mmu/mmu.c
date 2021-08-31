@@ -4696,11 +4696,14 @@ int kvm_tdp_page_fault(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 		       bool prefault)
 {
 	kvm_pfn_t pfn;
-	int max_level;
+	int max_level, err_level;
 
-	for (max_level = vcpu->kvm->arch.tdp_max_page_level;
-	     max_level > PG_LEVEL_4K;
-	     max_level--) {
+	max_level = vcpu->kvm->arch.tdp_max_page_level;
+	err_level = (error_code & PFERR_LEVEL_MASK) >> PFERR_LEVEL_START_BIT;
+	if (err_level)
+		max_level = min(max_level, err_level);
+
+	for (; max_level > PG_LEVEL_4K; max_level--) {
 		int page_num = KVM_PAGES_PER_HPAGE(max_level);
 		gfn_t base = vcpu_gpa_to_gfn_unalias(vcpu, gpa) & ~(page_num - 1);
 

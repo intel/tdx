@@ -16,6 +16,11 @@
 
 #ifdef CONFIG_INTEL_TDX_HOST
 
+static __always_inline enum pg_level tdx_sept_level_to_pg_level(int level)
+{
+	return level + 1;
+}
+
 static inline void tdx_clflush_page(hpa_t addr, enum pg_level level)
 {
 	clflush_cache_range(__va(addr), KVM_HPAGE_SIZE(level));
@@ -27,11 +32,11 @@ static inline u64 tdh_mng_addcx(hpa_t tdr, hpa_t addr)
 	return seamcall(TDH_MNG_ADDCX, addr, tdr, 0, 0, 0, NULL);
 }
 
-static inline u64 tdh_mem_page_add(hpa_t tdr, gpa_t gpa, hpa_t hpa, hpa_t source,
-			    struct tdx_ex_ret *ex)
+static inline u64 tdh_mem_page_add(hpa_t tdr, gpa_t gpa, int level, hpa_t hpa,
+				   hpa_t source, struct tdx_ex_ret *ex)
 {
-	tdx_clflush_page(hpa, PG_LEVEL_4K);
-	return seamcall(TDH_MEM_PAGE_ADD, gpa, tdr, hpa, source, 0, ex);
+	tdx_clflush_page(hpa, tdx_sept_level_to_pg_level(level));
+	return seamcall(TDH_MEM_PAGE_ADD, gpa | level, tdr, hpa, source, 0, ex);
 }
 
 static inline u64 tdh_mem_sept_add(hpa_t tdr, gpa_t gpa, int level, hpa_t page,
@@ -47,11 +52,11 @@ static inline u64 tdh_vp_addcx(hpa_t tdvpr, hpa_t addr)
 	return seamcall(TDH_VP_ADDCX, addr, tdvpr, 0, 0, 0, NULL);
 }
 
-static inline u64 tdh_mem_page_aug(hpa_t tdr, gpa_t gpa, hpa_t hpa,
+static inline u64 tdh_mem_page_aug(hpa_t tdr, gpa_t gpa, int level, hpa_t hpa,
 			    struct tdx_ex_ret *ex)
 {
-	tdx_clflush_page(hpa, PG_LEVEL_4K);
-	return seamcall(TDH_MEM_PAGE_AUG, gpa, tdr, hpa, 0, 0, ex);
+	tdx_clflush_page(hpa, tdx_sept_level_to_pg_level(level));
+	return seamcall(TDH_MEM_PAGE_AUG, gpa | level, tdr, hpa, 0, 0, ex);
 }
 
 static inline u64 tdh_mem_range_block(hpa_t tdr, gpa_t gpa, int level,

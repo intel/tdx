@@ -1370,6 +1370,7 @@ static void tdx_unpin(struct kvm *kvm, kvm_pfn_t pfn)
 static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 				     enum pg_level level, kvm_pfn_t pfn)
 {
+	int tdx_level = pg_level_to_tdx_sept_level(level);
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	hpa_t hpa = pfn_to_hpa(pfn);
 	gpa_t gpa = gfn_to_gpa(gfn);
@@ -1394,7 +1395,7 @@ static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 		if (KVM_BUG_ON(level != PG_LEVEL_4K, kvm))
 			return -EINVAL;
 
-		err = tdh_mem_page_aug(kvm_tdx->tdr_pa, gpa, hpa, &out);
+		err = tdh_mem_page_aug(kvm_tdx->tdr_pa, gpa, tdx_level, hpa, &out);
 		if (unlikely(err == TDX_ERROR_SEPT_BUSY)) {
 			tdx_unpin(kvm, pfn);
 			return -EAGAIN;
@@ -1433,8 +1434,8 @@ static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	kvm_tdx->source_pa = INVALID_PAGE;
 
 	do {
-		err = tdh_mem_page_add(kvm_tdx->tdr_pa, gpa, hpa, source_pa,
-				       &out);
+		err = tdh_mem_page_add(kvm_tdx->tdr_pa, gpa, tdx_level, hpa,
+				       source_pa, &out);
 		/*
 		 * This path is executed during populating initial guest memory
 		 * image. i.e. before running any vcpu.  Race is rare.

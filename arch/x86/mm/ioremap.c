@@ -861,8 +861,10 @@ void __init early_ioremap_init(void)
 
 	/* Parse cmdline params for ioremap_force_shared */
 	if (cmdline_find_option_bool(boot_command_line,
-				     "ioremap_force_shared"))
+				     "ioremap_force_shared")) {
 		ioremap_force_shared = 1;
+		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);
+	}
 
 	early_ioremap_setup();
 

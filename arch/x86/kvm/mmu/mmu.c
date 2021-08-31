@@ -1325,12 +1325,23 @@ static void drop_spte(struct kvm *kvm, u64 *sptep)
 		rmap_remove(kvm, sptep, old_spte);
 }
 
+static bool kvm_mmu_zap_private_spte(struct kvm *kvm, u64 *sptep);
+static void split_private_spte(struct kvm_vcpu *vcpu, u64 *sptep, u64 old_spte);
 
-static bool __drop_large_spte(struct kvm *kvm, u64 *sptep)
+static bool __drop_large_spte(struct kvm_vcpu *vcpu, u64 *sptep)
 {
+	u64 old_spte;
+
 	if (is_large_pte(*sptep)) {
 		WARN_ON(sptep_to_sp(sptep)->role.level == PG_LEVEL_4K);
-		drop_spte(kvm, sptep);
+
+		if (is_private_sptep(sptep)) {
+			old_spte = *sptep;
+			kvm_mmu_zap_private_spte(vcpu->kvm, sptep);
+			split_private_spte(vcpu, sptep, old_spte);
+		} else {
+			drop_spte(vcpu->kvm, sptep);
+		}
 		return true;
 	}
 
@@ -1339,7 +1350,7 @@ static bool __drop_large_spte(struct kvm *kvm, u64 *sptep)
 
 static void drop_large_spte(struct kvm_vcpu *vcpu, u64 *sptep)
 {
-	if (__drop_large_spte(vcpu->kvm, sptep)) {
+	if (__drop_large_spte(vcpu, sptep)) {
 		struct kvm_mmu_page *sp = sptep_to_sp(sptep);
 
 		kvm_flush_remote_tlbs_with_address(vcpu->kvm, sp->gfn,
@@ -3491,6 +3502,13 @@ static int __direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	}
 
 	__direct_populate_nonleaf(vcpu, fault, &it, &base_gfn);
+	/*
+	 * For private page, if spte is already present. It must be one large
+	 * page split into smaller page. In this case, split_private_spte() in
+	 * drop_large_spte() already set up the private spte and AUG'ED page.
+	 */
+	if (is_private && is_shadow_present_pte(*it.sptep))
+		return  RET_PF_FIXED;
 	if (WARN_ON_ONCE(it.level != fault->goal_level))
 		return -EFAULT;
 

@@ -3400,6 +3400,52 @@ static void kvm_mmu_link_private_sp(struct kvm_vcpu *vcpu,
 		free_page((unsigned long)p);
 }
 
+static void split_private_spte(struct kvm_vcpu *vcpu, u64 *sptep, u64 old_spte)
+{
+	bool host_writable = !!(old_spte & EPT_SPTE_HOST_WRITABLE);
+	struct kvm_mmu_page *sp = sptep_to_sp(sptep);
+	kvm_pfn_t pfn = spte_to_pfn(old_spte);
+	struct kvm_rmap_head *rmap_head;
+	struct kvm_memory_slot *slot;
+	int level = sp->role.level;
+	gfn_t gfn;
+	void *p;
+	int i;
+
+	if (!is_zapped_private_pte(*sptep))
+		return;
+
+	if (WARN_ON_ONCE(level < PG_LEVEL_2M || !is_private_gfn(vcpu, sp->gfn_stolen_bits)))
+		return;
+
+	gfn = kvm_mmu_page_get_gfn(sp, sptep - sp->spt);
+	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
+	rmap_head = gfn_to_rmap(gfn, sp->role.level, slot);
+	__pte_list_remove(sptep, rmap_head);
+
+	level--;
+	sp = __kvm_mmu_get_page(vcpu, gfn, sp->gfn_stolen_bits,
+				gfn >> PAGE_SHIFT, level, true, ACC_ALL);
+
+	link_shadow_page(vcpu, sptep, sp);
+	kvm_update_page_stats(vcpu->kvm, PG_LEVEL_4K, -1);
+
+	for (i = 0; i < PT64_ENT_PER_PAGE; i++) {
+		mmu_set_spte(vcpu, sp->spt + i, ACC_ALL, false, level, gfn, pfn,
+			     false, host_writable);
+		gfn += KVM_PAGES_PER_HPAGE(level);
+		pfn += KVM_PAGES_PER_HPAGE(level);
+	}
+	if (level > PG_LEVEL_4K)
+		kvm_update_page_stats(vcpu->kvm, level, 1);
+
+	p = kvm_mmu_memory_cache_alloc(&vcpu->arch.mmu_private_sp_cache);
+	if (!static_call(kvm_x86_split_private_spte)(vcpu->kvm, sp->gfn, level + 1, p))
+		sp->private_sp = p;
+	else
+		free_page((unsigned long)p);
+}
+
 static void kvm_mmu_zap_alias_spte(struct kvm_vcpu *vcpu, gfn_t gfn,
 				   gpa_t gpa_alias)
 {
@@ -3413,6 +3459,7 @@ static void kvm_mmu_zap_alias_spte(struct kvm_vcpu *vcpu, gfn_t gfn,
 	u64 *sptep;
 	u64 spte;
 
+re_start:
 	for_each_shadow_entry(vcpu, gpa_alias, it) {
 		if (!is_shadow_present_pte(*it.sptep))
 			break;
@@ -3456,6 +3503,12 @@ static void kvm_mmu_zap_alias_spte(struct kvm_vcpu *vcpu, gfn_t gfn,
 
 	if (!is_private_gfn(vcpu, sp->gfn_stolen_bits))
 		return;
+
+	if (is_large_pte(spte) &&
+	    !kvm_page_type_valid_on_level(gfn, slot, it.level)) {
+		split_private_spte(vcpu, it.sptep, spte);
+		goto re_start;
+	}
 
 	for_each_rmap_spte(rmap_head, &iter, sptep) {
 		if (!is_zapped_private_pte(*sptep))

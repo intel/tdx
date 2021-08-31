@@ -11656,7 +11656,12 @@ void kvm_arch_free_memslot(struct kvm *kvm, struct kvm_memory_slot *slot)
 
 	memslot_rmap_free(slot);
 
-	for (i = 1; i < KVM_NR_PAGE_SIZES; ++i) {
+	for (i = 0; i < KVM_NR_PAGE_SIZES; ++i) {
+		kvfree(slot->arch.page_attr[i]);
+		slot->arch.page_attr[i] = NULL;
+		if (i == 0)
+			continue;
+
 		kvfree(slot->arch.lpage_info[i - 1]);
 		slot->arch.lpage_info[i - 1] = NULL;
 	}
@@ -11750,13 +11755,25 @@ static int kvm_alloc_memslot_metadata(struct kvm *kvm,
 			return r;
 	}
 
-	for (i = 1; i < KVM_NR_PAGE_SIZES; ++i) {
+	for (i = 0; i < KVM_NR_PAGE_SIZES; ++i) {
+		struct kvm_page_attr *page_attr;
 		struct kvm_lpage_info *linfo;
-		unsigned long ugfn;
+		unsigned long ugfn, j;
 		int lpages;
 		int level = i + 1;
 
 		lpages = __kvm_mmu_slot_lpages(slot, npages, level);
+
+		page_attr = kvcalloc(lpages, sizeof(*page_attr), GFP_KERNEL_ACCOUNT);
+		if (!page_attr)
+			goto out_free;
+		slot->arch.page_attr[i] = page_attr;
+
+		for (j = 0; j < lpages; j++)
+			page_attr[j].type = KVM_PAGE_TYPE_PRIVATE;
+
+		if (i == 0)
+			continue;
 
 		linfo = kvcalloc(lpages, sizeof(*linfo), GFP_KERNEL_ACCOUNT);
 		if (!linfo)
@@ -11764,18 +11781,20 @@ static int kvm_alloc_memslot_metadata(struct kvm *kvm,
 
 		slot->arch.lpage_info[i - 1] = linfo;
 
-		if (slot->base_gfn & (KVM_PAGES_PER_HPAGE(level) - 1))
+		if (slot->base_gfn & (KVM_PAGES_PER_HPAGE(level) - 1)) {
+			page_attr[0].type = KVM_PAGE_TYPE_INVALID;
 			linfo[0].disallow_lpage = 1;
-		if ((slot->base_gfn + npages) & (KVM_PAGES_PER_HPAGE(level) - 1))
+		}
+		if ((slot->base_gfn + npages) & (KVM_PAGES_PER_HPAGE(level) - 1)) {
+			page_attr[lpages - 1].type = KVM_PAGE_TYPE_INVALID;
 			linfo[lpages - 1].disallow_lpage = 1;
+		}
 		ugfn = slot->userspace_addr >> PAGE_SHIFT;
 		/*
 		 * If the gfn and userspace address are not aligned wrt each
 		 * other, disable large page support for this slot.
 		 */
 		if ((slot->base_gfn ^ ugfn) & (KVM_PAGES_PER_HPAGE(level) - 1)) {
-			unsigned long j;
-
 			for (j = 0; j < lpages; ++j)
 				linfo[j].disallow_lpage = 1;
 		}
@@ -11789,7 +11808,12 @@ static int kvm_alloc_memslot_metadata(struct kvm *kvm,
 out_free:
 	memslot_rmap_free(slot);
 
-	for (i = 1; i < KVM_NR_PAGE_SIZES; ++i) {
+	for (i = 0; i < KVM_NR_PAGE_SIZES; ++i) {
+		kvfree(slot->arch.page_attr[i]);
+		slot->arch.page_attr[i] = NULL;
+		if (i == 0)
+			continue;
+
 		kvfree(slot->arch.lpage_info[i - 1]);
 		slot->arch.lpage_info[i - 1] = NULL;
 	}

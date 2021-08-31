@@ -505,8 +505,15 @@ int tdx_vm_init(struct kvm *kvm)
 	 */
 	kvm_mmu_set_mmio_spte_mask(kvm, 0, VMX_EPT_RWX_MASK, 0);
 
-	/* TODO: Enable 2mb and 1gb large page support. */
-	kvm->arch.tdp_max_page_level = PG_LEVEL_4K;
+	/*
+	 * So far legacy MMU supports 4K and 2M pages, but TDP MMU doesn't
+	 * support large page at all.
+	 * TODO: 2MB support for TDP MMU.
+	 */
+	if (!kvm->arch.tdp_mmu_enabled)
+		kvm->arch.tdp_max_page_level = PG_LEVEL_2M;
+	else
+		kvm->arch.tdp_max_page_level = PG_LEVEL_4K;
 
 	/* vCPUs can't be created until after KVM_TDX_INIT_VM. */
 	kvm->max_vcpus = 0;

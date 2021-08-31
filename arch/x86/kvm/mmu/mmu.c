@@ -3381,11 +3381,9 @@ static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 			direct_pte_prefetch(vcpu, it.sptep);
 	} else if (!WARN_ON_ONCE(ret != RET_PF_FIXED)) {
 		if (is_zapped_pte)
-			static_call(kvm_x86_unzap_private_spte)(vcpu->kvm, gfn,
-								level);
+			static_call(kvm_x86_unzap_private_spte)(vcpu->kvm, base_gfn, level);
 		else
-			static_call(kvm_x86_set_private_spte)(vcpu, gfn, level,
-							      pfn);
+			static_call(kvm_x86_set_private_spte)(vcpu, base_gfn, level, pfn);
 	}
 
 	++vcpu->stat.pf_fixed;

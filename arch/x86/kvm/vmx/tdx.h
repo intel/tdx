@@ -263,6 +263,12 @@ static __always_inline u64 td_tdcs_exec_read64(struct kvm_tdx *kvm_tdx, u32 fiel
 /* Export for caller in common.h */
 __always_inline unsigned long tdexit_exit_qual(struct kvm_vcpu *vcpu);
 
+static __always_inline int pg_level_to_tdx_sept_level(enum pg_level level)
+{
+	WARN_ON(level == PG_LEVEL_NONE);
+	return level - 1;
+}
+
 #else
 
 struct kvm_tdx;

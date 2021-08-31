@@ -3109,8 +3109,11 @@ int tdx_gmem_max_level(struct kvm *kvm, kvm_pfn_t pfn, gfn_t gfn,
 	if (!is_private)
 		return 0;
 
-	/* TODO: Enable 2mb and 1gb large page support. */
-	*max_level = min(*max_level, PG_LEVEL_4K);
+	/*
+	 * TDH.MEM.PAGE.AUG supports up to 2MB page.
+	 * TODO: Enable 1gb large page support.
+	 */
+	*max_level = min(*max_level, PG_LEVEL_2M);
 	return 0;
 }
 

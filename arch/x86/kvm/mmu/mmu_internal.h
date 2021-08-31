@@ -395,7 +395,7 @@ static inline int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 			is_nx_huge_page_enabled(vcpu->kvm),
 		.is_private = kvm_is_private_gpa(vcpu->kvm, cr2_or_gpa),
 
-		.max_level = vcpu->kvm->arch.tdp_max_page_level,
+		.max_level = KVM_MAX_HUGEPAGE_LEVEL,
 		.req_level = PG_LEVEL_4K,
 		.goal_level = PG_LEVEL_4K,
 	};

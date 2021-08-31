@@ -3330,10 +3330,10 @@ static int __direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	} else if (!WARN_ON_ONCE(ret != RET_PF_FIXED)) {
 		if (is_zapped_pte)
 			static_call(kvm_x86_unzap_private_spte)(
-				vcpu->kvm, gfn, it.level);
+				vcpu->kvm, base_gfn, it.level);
 		else
 			static_call(kvm_x86_set_private_spte)(
-				vcpu, gfn, it.level, fault->pfn);
+				vcpu, base_gfn, it.level, fault->pfn);
 	}
 
 	++vcpu->stat.pf_fixed;

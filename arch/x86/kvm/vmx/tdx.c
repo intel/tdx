@@ -1870,6 +1870,7 @@ static void tdx_unpin(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn)
 static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 					enum pg_level level, kvm_pfn_t pfn)
 {
+	int tdx_level = pg_level_to_tdx_sept_level(level);
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	hpa_t hpa = pfn_to_hpa(pfn);
 	gpa_t gpa = gfn_to_gpa(gfn);
@@ -1889,7 +1890,7 @@ static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 
 	/* Build-time faults are induced and handled via TDH_MEM_PAGE_ADD. */
 	if (likely(is_td_finalized(kvm_tdx))) {
-		err = tdh_mem_page_aug(kvm_tdx->tdr.pa, gpa, hpa, &out);
+		err = tdh_mem_page_aug(kvm_tdx->tdr.pa, gpa, tdx_level, hpa, &out);
 		if (KVM_BUG_ON(err, kvm)) {
 			pr_tdx_error(TDH_MEM_PAGE_AUG, err, &out);
 			tdx_unpin(kvm, gfn, pfn);
@@ -1913,12 +1914,12 @@ static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 
 	source_pa = kvm_tdx->source_pa & ~KVM_TDX_MEASURE_MEMORY_REGION;
 
-	err = tdh_mem_page_add(kvm_tdx->tdr.pa, gpa, hpa, source_pa, &out);
+	err = tdh_mem_page_add(kvm_tdx->tdr.pa, gpa, tdx_level, hpa, source_pa, &out);
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_MEM_PAGE_ADD, err, &out);
 		tdx_unpin(kvm, gfn, pfn);
 	} else if ((kvm_tdx->source_pa & KVM_TDX_MEASURE_MEMORY_REGION))
-		tdx_measure_page(kvm_tdx, gpa);
+		tdx_measure_page(kvm_tdx, gpa); /* TODO: handle page size > 4KB */
 
 	kvm_tdx->source_pa = INVALID_PAGE;
 }

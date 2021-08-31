@@ -1597,16 +1597,18 @@ static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	struct tdx_ex_ret ex_ret;
 	hpa_t source_pa;
 	u64 err;
+	int i;
 
 	if (WARN_ON_ONCE(is_error_noslot_pfn(pfn) || kvm_is_reserved_pfn(pfn)))
 		return;
 
-	/* TODO: handle large pages. */
-	if (KVM_BUG_ON(level != PG_LEVEL_4K, kvm))
+	/* Only support 4KB and 2MB pages */
+	if (KVM_BUG_ON(level > PG_LEVEL_2M, kvm))
 		return;
 
 	/* Pin the page, KVM doesn't yet support page migration. */
-	get_page(pfn_to_page(pfn));
+	for (i = 0; i < KVM_PAGES_PER_HPAGE(level); i++)
+		get_page(pfn_to_page(pfn + i));
 
 	/* Build-time faults are induced and handled via TDH_MEM_PAGE_ADD. */
 	if (is_td_finalized(kvm_tdx)) {
@@ -1668,9 +1670,10 @@ static void __tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn, enum pg_lev
 	hpa_t hpa_with_hkid;
 	struct tdx_ex_ret ex_ret;
 	u64 err;
+	int i;
 
-	/* TODO: handle large pages. */
-	if (KVM_BUG_ON(level != PG_LEVEL_4K, kvm))
+	/* Only support 4KB and 2MB pages */
+	if (KVM_BUG_ON(level > PG_LEVEL_2M, kvm))
 		return;
 
 	if (is_hkid_assigned(kvm_tdx)) {
@@ -1682,17 +1685,21 @@ static void __tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn, enum pg_lev
 			return;
 		}
 
-		hpa_with_hkid = set_hkid_to_hpa(hpa, (u16)kvm_tdx->hkid);
-		err = tdh_phymem_page_wbinvd(hpa_with_hkid);
-		if (WARN_ON_ONCE(err)) {
-			pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
-			return;
+		for (i = 0; i < KVM_PAGES_PER_HPAGE(level); i++) {
+			hpa_with_hkid = set_hkid_to_hpa(hpa, (u16)kvm_tdx->hkid);
+			err = tdh_phymem_page_wbinvd(hpa_with_hkid);
+			if (WARN_ON_ONCE(err)) {
+				pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
+				return;
+			}
+			hpa += PAGE_SIZE;
 		}
 	} else if (tdx_reclaim_page((unsigned long)__va(hpa), hpa, level)) {
 		return;
 	}
 
-	put_page(pfn_to_page(pfn));
+	for (i = 0; i < KVM_PAGES_PER_HPAGE(level); i++)
+		put_page(pfn_to_page(pfn + i));
 }
 
 static void tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn, enum pg_level level,

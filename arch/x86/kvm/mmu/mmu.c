@@ -51,6 +51,7 @@
 #include <asm/set_memory.h>
 #include <asm/vmx.h>
 #include <asm/kvm_page_track.h>
+#include <asm/kvm_host.h>
 #include "trace.h"
 
 #include "paging.h"
@@ -856,6 +857,47 @@ static inline bool kvm_page_type_valid(struct kvm_page_attr *attr)
 {
 	return attr->type == KVM_PAGE_TYPE_SHARED ||
 	       attr->type == KVM_PAGE_TYPE_PRIVATE;
+}
+
+/*
+ * True means the (large) page at @level contains the given @gfn has consistent
+ * page type, either private or shared.
+ *
+ * False means the (large) page at @level contains the given @gfn has both
+ * priavte and shared smaller pages. Thus have to go to query next level.
+ */
+
+static inline bool kvm_page_type_valid_on_level(gfn_t gfn,
+						struct kvm_memory_slot *slot,
+						int level)
+{
+	struct kvm_page_attr *page_attr;
+
+	if (WARN_ON_ONCE(level > PG_LEVEL_1G))
+		return false;
+
+	page_attr = page_attr_slot(gfn, slot, level);
+
+	return kvm_page_type_valid(page_attr);
+}
+
+static u8 max_level_of_valid_page_type(struct kvm_vcpu *vcpu, gfn_t gfn)
+{
+	struct kvm_memory_slot *slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
+	u8 level = PG_LEVEL_1G;
+
+	if (WARN_ON(!slot))
+		return PG_LEVEL_4K;
+
+	for (; level > PG_LEVEL_NONE; level--) {
+		if (kvm_page_type_valid_on_level(gfn, slot, level))
+			break;
+	}
+
+	if (WARN_ON_ONCE(level == PG_LEVEL_NONE))
+		return PG_LEVEL_4K;
+
+	return level;
 }
 
 static void try_merge_page_type(struct kvm_vcpu *vcpu, gfn_t gfn,
@@ -3307,6 +3349,10 @@ static void __direct_populate_nonleaf(struct kvm_vcpu *vcpu,
 	struct kvm_mmu_page *sp;
 	gfn_t base_gfn;
 
+	if (kvm_gfn_shared_mask(vcpu->kvm))
+		fault->max_level = min(
+			fault->max_level,
+			max_level_of_valid_page_type(vcpu, fault->gfn));
 	kvm_mmu_hugepage_adjust(vcpu, fault);
 
 	trace_kvm_mmu_spte_requested(fault);

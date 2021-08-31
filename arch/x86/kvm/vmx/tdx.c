@@ -1458,20 +1458,18 @@ static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	struct tdx_module_output out;
 	hpa_t source_pa;
 	u64 err;
+	int i;
 
 	if (WARN_ON_ONCE(is_error_noslot_pfn(pfn) ||
 			 !kvm_pfn_to_refcounted_page(pfn)))
 		return;
 
 	/* To prevent page migration, do nothing on mmu notifier. */
-	get_page(pfn_to_page(pfn));
+	for (i = 0; i < KVM_PAGES_PER_HPAGE(level); i++)
+		get_page(pfn_to_page(pfn + i));
 
 	/* Build-time faults are induced and handled via TDH_MEM_PAGE_ADD. */
 	if (likely(is_td_finalized(kvm_tdx))) {
-		/* TODO: handle large pages. */
-		if (KVM_BUG_ON(level != PG_LEVEL_4K, kvm))
-			return;
-
 		err = tdh_mem_page_aug(kvm_tdx->tdr.pa, gpa, tdx_level, hpa, &out);
 		if (KVM_BUG_ON(err, kvm)) {
 			pr_tdx_error(TDH_MEM_PAGE_AUG, err, &out);
@@ -1530,38 +1528,40 @@ static void tdx_sept_drop_private_spte(
 	hpa_t hpa_with_hkid;
 	struct tdx_module_output out;
 	u64 err = 0;
+	int i;
 
-	/* TODO: handle large pages. */
-	if (KVM_BUG_ON(level != PG_LEVEL_4K, kvm))
-		return;
-
-	spin_lock(&kvm_tdx->seamcall_lock);
 	if (is_hkid_assigned(kvm_tdx)) {
+		spin_lock(&kvm_tdx->seamcall_lock);
 		err = tdh_mem_page_remove(kvm_tdx->tdr.pa, gpa, tdx_level, &out);
+		spin_unlock(&kvm_tdx->seamcall_lock);
 		if (KVM_BUG_ON(err, kvm)) {
 			pr_tdx_error(TDH_MEM_PAGE_REMOVE, err, &out);
-			goto unlock;
+			return;
 		}
 
-		hpa_with_hkid = set_hkid_to_hpa(hpa, (u16)kvm_tdx->hkid);
-		err = tdh_phymem_page_wbinvd(hpa_with_hkid);
-		if (WARN_ON_ONCE(err)) {
-			pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
-			goto unlock;
+		for (i = 0; i < KVM_PAGES_PER_HPAGE(level); i++) {
+			hpa_with_hkid = set_hkid_to_hpa(hpa, (u16)kvm_tdx->hkid);
+			spin_lock(&kvm_tdx->seamcall_lock);
+			err = tdh_phymem_page_wbinvd(hpa_with_hkid);
+			spin_unlock(&kvm_tdx->seamcall_lock);
+			if (WARN_ON_ONCE(err))
+				pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
+			else
+				tdx_unpin(kvm, gfn + i, pfn + i);
+			hpa += PAGE_SIZE;
 		}
-	} else
+	} else {
 		/*
 		 * The HKID assigned to this TD was already freed and cache
 		 * was already flushed. We don't have to flush again.
 		 */
+		spin_lock(&kvm_tdx->seamcall_lock);
 		err = tdx_reclaim_page((unsigned long)__va(hpa), hpa, level,
 				       false, 0);
-
-unlock:
-	spin_unlock(&kvm_tdx->seamcall_lock);
-
-	if (!err)
-		tdx_unpin_pfn(kvm, pfn);
+		spin_unlock(&kvm_tdx->seamcall_lock);
+		if (!err)
+			tdx_unpin(kvm, gfn, pfn);
+	}
 }
 
 static int tdx_sept_link_private_sp(struct kvm *kvm, gfn_t gfn,

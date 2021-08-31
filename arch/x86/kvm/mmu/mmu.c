@@ -3288,7 +3288,13 @@ static void kvm_mmu_zap_alias_spte(struct kvm_vcpu *vcpu, gfn_t gfn,
 	slot = __gfn_to_memslot(slots, gfn);
 	rmap_head = gfn_to_rmap(gfn, sp->role.level, slot);
 	if (__kvm_zap_rmapp(kvm, rmap_head))
-		kvm_flush_remote_tlbs_with_address(kvm, gfn, 1);
+		kvm_flush_remote_tlbs_with_address(kvm,
+			/*
+			 * Because the page to zap can be large page, get the
+			 * base gfn instead of gfn that may not be aligned.
+			 */
+			kvm_mmu_page_get_gfn(sp, it.sptep - sp->spt),
+			KVM_PAGES_PER_HPAGE(sp->role.level));
 
 	if (!is_private_gfn(vcpu, sp->gfn_stolen_bits))
 		return;

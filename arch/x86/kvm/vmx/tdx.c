@@ -1454,13 +1454,15 @@ static void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa,
 	__ret;						\
 })
 
-static void tdx_measure_page(struct kvm_tdx *kvm_tdx, hpa_t gpa)
+static void tdx_measure_page(struct kvm_tdx *kvm_tdx, hpa_t gpa, int size)
 {
 	struct tdx_ex_ret ex_ret;
 	u64 err;
 	int i;
 
-	for (i = 0; i < PAGE_SIZE; i += TDX_EXTENDMR_CHUNKSIZE) {
+	WARN_ON_ONCE(size % TDX_EXTENDMR_CHUNKSIZE);
+
+	for (i = 0; i < size; i += TDX_EXTENDMR_CHUNKSIZE) {
 		err = tdh_mr_extend(kvm_tdx->tdr.pa, gpa + i, &ex_ret);
 		if (SEPT_ERR(err, &ex_ret, TDH_MR_EXTEND, &kvm_tdx->kvm))
 			break;
@@ -1506,7 +1508,7 @@ static void tdx_sept_set_private_spte(struct kvm_vcpu *vcpu, gfn_t gfn,
 	err = tdh_mem_page_add(kvm_tdx->tdr.pa, gpa, tdx_level, hpa, source_pa, &ex_ret);
 	if (!SEPT_ERR(err, &ex_ret, TDH_MEM_PAGE_ADD, vcpu->kvm) &&
 	    (kvm_tdx->source_pa & KVM_TDX_MEASURE_MEMORY_REGION))
-		tdx_measure_page(kvm_tdx, gpa);
+		tdx_measure_page(kvm_tdx, gpa, KVM_HPAGE_SIZE(level));
 
 	kvm_tdx->source_pa = INVALID_PAGE;
 }

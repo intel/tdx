@@ -1448,6 +1448,28 @@ static int tdx_sept_link_private_sp(struct kvm *kvm, gfn_t gfn,
 	return 0;
 }
 
+static int tdx_sept_split_private_spte(struct kvm *kvm, gfn_t gfn,
+				       enum pg_level level, void *private_spt)
+{
+	int tdx_level = pg_level_to_tdx_sept_level(level);
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	gpa_t gpa = gfn << PAGE_SHIFT;
+	hpa_t hpa = __pa(private_spt);
+	struct tdx_module_output out;
+	u64 err;
+
+	/* See comment in tdx_sept_set_private_spte() */
+	spin_lock(&kvm_tdx->seamcall_lock);
+	err = tdh_mem_page_demote(kvm_tdx->tdr.pa, gpa, tdx_level, hpa, &out);
+	spin_unlock(&kvm_tdx->seamcall_lock);
+	if (KVM_BUG_ON(err, kvm)) {
+		pr_tdx_error(TDH_MEM_PAGE_DEMOTE, err, &out);
+		return -EIO;
+	}
+
+	return 0;
+}
+
 static void tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn,
 				      enum pg_level level)
 {
@@ -1457,8 +1479,6 @@ static void tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn,
 	struct tdx_module_output out;
 	u64 err;
 
-	/* For now large page isn't supported yet. */
-	WARN_ON_ONCE(level != PG_LEVEL_4K);
 	spin_lock(&kvm_tdx->seamcall_lock);
 	err = tdh_mem_range_block(kvm_tdx->tdr.pa, gpa, tdx_level, &out);
 	spin_unlock(&kvm_tdx->seamcall_lock);
@@ -1570,13 +1590,11 @@ static void tdx_handle_changed_private_spte(
 	lockdep_assert_held(&kvm->mmu_lock);
 
 	if (change->new.is_present) {
-		/* TDP MMU doesn't change present -> present */
-		WARN_ON(change->old.is_present);
-		/*
-		 * Use different call to either set up middle level
-		 * private page table, or leaf.
-		 */
-		if (is_leaf)
+		if (level > PG_LEVEL_4K && was_leaf && !is_leaf) {
+			tdx_sept_zap_private_spte(kvm, gfn, level);
+			tdx_sept_tlb_remote_flush(kvm);
+			tdx_sept_split_private_spte(kvm, gfn, level, change->private_spt);
+		} else if (is_leaf)
 			tdx_sept_set_private_spte(
 				kvm, gfn, level, change->new.pfn);
 		else {

@@ -1430,15 +1430,15 @@ struct kvm_x86_ops {
 	void (*load_mmu_pgd)(struct kvm_vcpu *vcpu, hpa_t root_hpa,
 			     int root_level);
 
-	void (*set_private_spte)(struct kvm_vcpu *vcpu, gfn_t gfn, int level,
+	void (*set_private_spte)(struct kvm_vcpu *vcpu, gfn_t gfn, enum pg_level level,
 				 kvm_pfn_t pfn);
-	void (*drop_private_spte)(struct kvm *kvm, gfn_t gfn, int level,
+	void (*drop_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 				  kvm_pfn_t pfn);
-	void (*zap_private_spte)(struct kvm *kvm, gfn_t gfn, int level);
-	void (*unzap_private_spte)(struct kvm *kvm, gfn_t gfn, int level);
-	int (*link_private_sp)(struct kvm_vcpu *vcpu, gfn_t gfn, int level,
+	void (*zap_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level);
+	void (*unzap_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level);
+	int (*link_private_sp)(struct kvm_vcpu *vcpu, gfn_t gfn, enum pg_level level,
 			       void *private_sp);
-	int (*free_private_sp)(struct kvm *kvm, gfn_t gfn, int level,
+	int (*free_private_sp)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 			       void *private_sp);
 
 	bool (*has_wbinvd_exit)(void);

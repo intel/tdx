@@ -1503,6 +1503,7 @@ static bool rmap_write_protect(struct kvm_vcpu *vcpu, u64 gfn)
 static bool kvm_mmu_zap_private_spte(struct kvm *kvm, u64 *sptep)
 {
 	struct kvm_mmu_page *sp;
+	u64 clear_bits;
 	kvm_pfn_t pfn;
 	gfn_t gfn;
 
@@ -1519,8 +1520,9 @@ static bool kvm_mmu_zap_private_spte(struct kvm *kvm, u64 *sptep)
 
 	static_call(kvm_x86_zap_private_spte)(kvm, gfn, sp->role.level);
 
-	__mmu_spte_clear_track_bits(kvm, sptep,
-				    SPTE_PRIVATE_ZAPPED | pfn << PAGE_SHIFT);
+	clear_bits = SPTE_PRIVATE_ZAPPED | pfn << PAGE_SHIFT |
+		     (is_large_pte(*sptep) ? PT_PAGE_SIZE_MASK : 0);
+	__mmu_spte_clear_track_bits(kvm, sptep, clear_bits);
 	return true;
 }
 

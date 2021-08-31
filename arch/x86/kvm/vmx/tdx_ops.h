@@ -51,6 +51,11 @@ static inline int pg_level_to_tdx_sept_level(enum pg_level level)
 	return level - 1;
 }
 
+static inline enum pg_level tdx_sept_level_to_pg_level(int tdx_level)
+{
+	return tdx_level + 1;
+}
+
 static inline void tdx_clflush_page(hpa_t addr, enum pg_level level)
 {
 	clflush_cache_range(__va(addr), KVM_HPAGE_SIZE(level));
@@ -100,6 +105,7 @@ static inline u64 tdh_mng_addcx(hpa_t tdr, hpa_t addr)
 static inline u64 tdh_mem_page_add(hpa_t tdr, gpa_t gpa, hpa_t hpa, hpa_t source,
 				   struct tdx_module_args *out)
 {
+	/* TDH.MEM.PAGE.ADD() suports only 4K page. tdx 4K page level = 0 */
 	struct tdx_module_args in = {
 		.rcx = gpa,
 		.rdx = tdr,
@@ -170,16 +176,16 @@ static inline u64 tdh_mem_page_relocate(hpa_t tdr, gpa_t gpa, hpa_t hpa,
 	return tdx_seamcall_sept(TDH_MEM_PAGE_RELOCATE, &in, out);
 }
 
-static inline u64 tdh_mem_page_aug(hpa_t tdr, gpa_t gpa, hpa_t hpa,
+static inline u64 tdh_mem_page_aug(hpa_t tdr, gpa_t gpa, int level, hpa_t hpa,
 				   struct tdx_module_args *out)
 {
 	struct tdx_module_args in = {
-		.rcx = gpa,
+		.rcx = gpa | level,
 		.rdx = tdr,
 		.r8 = hpa,
 	};
 
-	tdx_clflush_page(hpa, PG_LEVEL_4K);
+	tdx_clflush_page(hpa, tdx_sept_level_to_pg_level(level));
 	return tdx_seamcall_sept(TDH_MEM_PAGE_AUG, &in, out);
 }
 

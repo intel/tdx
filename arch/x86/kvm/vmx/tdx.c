@@ -1597,7 +1597,7 @@ static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	if (is_td_finalized(kvm_tdx)) {
 		trace_kvm_sept_seamcall(TDH_MEM_PAGE_AUG, gpa, hpa, tdx_level);
 
-		err = tdh_mem_page_aug(kvm_tdx->tdr.pa, gpa, hpa, &ex_ret);
+		err = tdh_mem_page_aug(kvm_tdx->tdr.pa, gpa, tdx_level, hpa, &ex_ret);
 		if (KVM_BUG_ON(err, kvm))
 			pr_tdx_error(TDH_MEM_PAGE_AUG, err, &ex_ret);
 		return;
@@ -1617,7 +1617,7 @@ static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	WARN_ON(kvm_tdx->source_pa == INVALID_PAGE);
 	source_pa = kvm_tdx->source_pa & ~KVM_TDX_MEASURE_MEMORY_REGION;
 
-	err = tdh_mem_page_add(kvm_tdx->tdr.pa, gpa, hpa, source_pa, &ex_ret);
+	err = tdh_mem_page_add(kvm_tdx->tdr.pa, gpa, tdx_level, hpa, source_pa, &ex_ret);
 	if (KVM_BUG_ON(err, kvm))
 		pr_tdx_error(TDH_MEM_PAGE_ADD, err, &ex_ret);
 	else if ((kvm_tdx->source_pa & KVM_TDX_MEASURE_MEMORY_REGION))

@@ -1470,7 +1470,7 @@ static int tdx_mem_page_aug(struct kvm *kvm, gfn_t gfn,
 	union tdx_sept_entry entry;
 	u64 err;
 
-	err = tdh_mem_page_aug(kvm_tdx->tdr_pa, gpa, hpa, &out);
+	err = tdh_mem_page_aug(kvm_tdx->tdr_pa, gpa, tdx_level, hpa, &out);
 	if (unlikely(err == TDX_ERROR_SEPT_BUSY)) {
 		tdx_unpin(kvm, pfn);
 		return -EAGAIN;

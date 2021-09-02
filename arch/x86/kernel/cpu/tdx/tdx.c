@@ -185,6 +185,180 @@ static int __init tdx_init_cpus(void)
 }
 
 /*
+ * free_seamldr_params - free allocated for seamldr_params including referenced
+ *			 pages by params.
+ * @params: virtual address of struct seamldr_params to free
+ */
+static void __init free_seamldr_params(struct seamldr_params *params)
+{
+	int i;
+
+	if (!params)
+		return;
+
+	for (i = 0; i < params->num_module_pages; i++)
+		if (params->mod_pages_pa_list[i])
+			free_page((unsigned long)__va(params->mod_pages_pa_list[i]));
+	if (params->sigstruct_pa)
+		free_page((unsigned long)__va(params->sigstruct_pa));
+	free_page((unsigned long)params);
+}
+
+/*
+ * alloc_seamldr_params - initialize parameters for P-SEAMLDR to load TDX module.
+ * @module: virtual address of TDX module.
+ * @module_size: size of module.
+ * @sigstruct: virtual address of sigstruct of TDX module.
+ * @sigstruct_size: size of sigstruct of TDX module.
+ * @scenario: SEAMLDR_SCENARIO_LOAD or SEAMLDR_SCENARIO_UPDATE.
+ * @return: pointer to struct seamldr_params on success, error code on failure.
+ *
+ * Allocate and initialize struct seamldr_params for P-SEAMLDR to load TDX
+ * module.  Memory for seamldr_params and members is required to be 4K
+ * page-aligned.  Use free_seamldr_params() to free allocated pages including
+ * referenced by params.
+ *
+ * KASAN thinks memcpy from initrd image via cpio image invalid access.
+ * Here module and sigstruct come from initrd image, not from memory allocator.
+ * Annotate it with __no_sanitize_address to apiece KASAN.
+ */
+static struct seamldr_params * __init __no_sanitize_address alloc_seamldr_params(
+	const void *module, unsigned long module_size, const void *sigstruct,
+	unsigned long sigstruct_size, u64 scenario)
+{
+	struct seamldr_params *params = NULL;
+	void *sigstruct_page = NULL;
+	void *module_page = NULL;
+	int i;
+
+	BUILD_BUG_ON(SEAMLDR_SIGSTRUCT_SIZE > PAGE_SIZE);
+
+	/*
+	 * SEAM module must be equal or less than
+	 * SEAMLDR_MAX_NR_MODULE_PAGES(496) pages.
+	 */
+	if (!module_size ||
+	    module_size > SEAMLDR_MAX_NR_MODULE_PAGES * PAGE_SIZE) {
+		pr_err("Invalid SEAM module size 0x%lx\n", module_size);
+		return ERR_PTR(-EINVAL);
+	}
+	/*
+	 * SEAM signature structure must be SEAMLDR_SIGSTRUCT_SIZE(2048) bytes.
+	 */
+	if (sigstruct_size != SEAMLDR_SIGSTRUCT_SIZE) {
+		pr_err("Invalid SEAM signature structure size 0x%lx\n",
+		       sigstruct_size);
+		return ERR_PTR(-EINVAL);
+	}
+
+	/*
+	 * Allocate and initialize the SEAMLDR params.  Pages are passed in as
+	 * a list of physical addresses.
+	 *
+	 * params must be 4K aligned.
+	 */
+	params = (struct seamldr_params *)get_zeroed_page(GFP_KERNEL);
+	if (!params) {
+		pr_err("Unable to allocate memory for SEAMLDR_PARAMS\n");
+		goto out;
+	}
+	params->scenario = scenario;
+
+	/* SEAMLDR requires the sigstruct to be 4K aligned. */
+	sigstruct_page = (void *)__get_free_page(GFP_KERNEL);
+	if (!sigstruct_page) {
+		pr_err("Unable to allocate memory to copy sigstruct\n");
+		goto out;
+	}
+	memcpy(sigstruct_page, sigstruct, sigstruct_size);
+	params->sigstruct_pa = __pa(sigstruct_page);
+
+	params->num_module_pages = PFN_UP(module_size);
+	for (i = 0; i < params->num_module_pages; i++) {
+		module_page = (void *)__get_free_page(GFP_KERNEL);
+		if (!module_page) {
+			pr_err("Unable to allocate memory to copy SEAM module\n");
+			goto out;
+		}
+		params->mod_pages_pa_list[i] = __pa(module_page);
+		memcpy(module_page, module + i * PAGE_SIZE,
+		       min(module_size, PAGE_SIZE));
+		if (module_size < PAGE_SIZE)
+			memset(module_page + module_size, 0,
+			       PAGE_SIZE - module_size);
+		module_size -= PAGE_SIZE;
+	}
+
+	return params;
+
+out:
+	free_seamldr_params(params);
+	return ERR_PTR(-ENOMEM);
+}
+
+struct tdx_install_module_data {
+	struct seamldr_params *params;
+	atomic_t error;
+};
+
+/* Load seam module on one CPU */
+static void __init tdx_install_module_cpu(void *data)
+{
+	struct tdx_install_module_data *install_module = data;
+	int ret = seamldr_install(__pa(install_module->params));
+
+	if (ret)
+		atomic_set(&install_module->error, ret);
+}
+
+#define TDX_MODULE_NAME		"kernel/x86/tdx/libtdx.bin"
+#define TDX_SIGSTRUCT_NAME	"kernel/x86/tdx/libtdx.bin.sigstruct"
+
+/* load TDX module on all CPUs through P-SEAMLDR */
+static int __init tdx_load_module(void)
+{
+	struct tdx_install_module_data install_module;
+	struct cpio_data module, sigstruct;
+	struct seamldr_params *params;
+	int ret = 0;
+	int cpu;
+
+	pr_info("Loading TDX module via P-SEAMLDR with %s and %s\n",
+		TDX_MODULE_NAME, TDX_SIGSTRUCT_NAME);
+
+	if (!seam_get_firmware(&module, TDX_MODULE_NAME) ||
+		!seam_get_firmware(&sigstruct, TDX_SIGSTRUCT_NAME)) {
+		return -ENOENT;
+	}
+
+	params = alloc_seamldr_params(module.data, module.size, sigstruct.data,
+				sigstruct.size, SEAMLDR_SCENARIO_LOAD);
+	if (IS_ERR(params))
+		return -ENOMEM;
+
+	install_module.params = params;
+	atomic_set(&install_module.error, 0);
+	/*
+	 * SEAMLDR.INSTALL requires serialization.  Call the function on each
+	 * CPUs one by one to avoid NMI watchdog instead of contending for
+	 * a spinlock.  If there are many CPUs (hundreds of CPUs is enough),
+	 * tdx_install_module_cpu() may contend for long time to trigger NMI
+	 * watchdog.
+	 */
+	for_each_online_cpu(cpu) {
+		smp_call_function_single(cpu, tdx_install_module_cpu,
+					&install_module, 1);
+		ret = atomic_read(&install_module.error);
+		if (ret)
+			goto out;
+	}
+
+out:
+	free_seamldr_params(params);
+	return ret;
+}
+
+/*
  * tdx_init_system - early system wide initialization of TDX module.
  * @return: 0 on success, error code on failure.
  *
@@ -207,11 +381,18 @@ static int __init tdx_init_system(void)
 
 	/* System wide early initialization for TDX module. */
 	err = tdh_sys_init(0, &ex_ret);
+	if (err == TDX_SEAMCALL_VMFAILINVALID) {
+		pr_info("No TDX module loaded by BIOS, load it via kernel\n");
+
+		if (tdx_load_module()) {
+			pr_info("Failed to load TDX module.\n");
+			return -EIO;
+		}
+		pr_info("Loaded TDX module via P-SEAMLDR.\n");
+		err = tdh_sys_init(0, &ex_ret);
+	}
 	if (err) {
-		if (err == TDX_SEAMCALL_VMFAILINVALID)
-			pr_info("No TDX module loaded by BIOS, skip TDX initialization\n");
-		else
-			pr_seamcall_error(SEAMCALL_TDH_SYS_INIT, err, &ex_ret);
+		pr_seamcall_error(SEAMCALL_TDH_SYS_INIT, err, &ex_ret);
 		return -EIO;
 	}
 

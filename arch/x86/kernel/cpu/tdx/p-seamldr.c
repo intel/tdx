@@ -37,6 +37,19 @@ static int seamldr_info(phys_addr_t seamldr_info)
 	return 0;
 }
 
+int seamldr_install(phys_addr_t seamldr_params)
+{
+	u64 ret;
+
+	ret = seamcall(SEAMCALL_SEAMLDR_INSTALL, seamldr_params, 0, 0, 0, NULL);
+	if (ret) {
+		pr_err_ratelimited(
+			"SEAMCALL[SEAMLDR_INSTALL] failed 0x%llx\n", ret);
+		return -EIO;
+	}
+	return 0;
+}
+
 static struct p_seamldr_info *p_seamldr_info;
 
 int __init p_seamldr_get_info(void)

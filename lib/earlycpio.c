@@ -139,3 +139,40 @@ struct cpio_data find_cpio_data(const char *path, void *data,
 quit:
 	return cd;
 }
+
+/**
+ * find_cpio_file - Search for a filename in an uncompressed cpio
+ * @path:       The filename to search for without a slash at the end.
+ * @data:       Pointer to the cpio archive or a header inside
+ * @len:        Remaining length of the cpio based on data pointer
+ *
+ * Return:      struct cpio_data containing the address, length. The filename
+ *              is set to empty filename string.
+ *              If the file is not found, set the address to NULL.
+ */
+struct cpio_data find_cpio_file(const char *path, void *data, size_t len)
+{
+	struct cpio_data blob;
+	long offset;
+
+	while (len > 0) {
+		blob = find_cpio_data(path, data, len, &offset);
+
+		/*
+		 * find the filename, the returned blob name is empty.  See the
+		 * comment of the return value of find_cpio_data().
+		 */
+		if (blob.data && blob.name[0] == '\0')
+			return blob;
+
+		if (!blob.data)
+			break;
+
+		/* match the item with the same path prefix, skip it */
+		data += offset;
+		len -= offset;
+	}
+
+	/* The file was not found. */
+	return (struct cpio_data) { .data = NULL, .size = 0, .name = "" };
+}

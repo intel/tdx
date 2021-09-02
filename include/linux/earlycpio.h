@@ -14,5 +14,6 @@ struct cpio_data {
 
 struct cpio_data find_cpio_data(const char *path, void *data, size_t len,
 				long *offset);
+struct cpio_data find_cpio_file(const char *path, void *data, size_t len);
 
 #endif /* _LINUX_EARLYCPIO_H */

@@ -5613,6 +5613,20 @@
 			Default value is "off".  Unknown value is treated
 			as "off".
 
+	tdx_module=     [X86-64, TDX]
+			Name of TDX module to load.
+			Default value is "intel-seam/libtdx.so".
+                        It searches for <filename> in builtin firmwares and if
+                        it failed, it searches in initrd for
+                        lib/firmware/<filename> and usr/lib/firmware/<filename>.
+
+	tdx_sigstruct=  [X86-64, TDX]
+			Name of sigstruct of TDX module to load.
+			Default value is "intel-seam/libtdx.so.sigstruct".
+                        It searches for <filename> in builtin firmwares and if
+                        it failed, it searches in initrd for
+                        lib/firmware/<filename> and usr/lib/firmware/<filename>.
+
 	test_suspend=	[SUSPEND][,N]
 			Specify "mem" (for Suspend-to-RAM) or "standby" (for
 			standby suspend) or "freeze" (for suspend type freeze)

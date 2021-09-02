@@ -51,6 +51,20 @@ int seamldr_info(phys_addr_t seamldr_info)
 	return 0;
 }
 
+int seamldr_install(phys_addr_t seamldr_params)
+{
+	u64 ret;
+
+	ret = seamcall(SEAMCALL_SEAMLDR_INSTALL, seamldr_params, 0, 0, 0, NULL);
+	if (ret) {
+		pr_err_ratelimited(
+			"SEAMCALL[SEAMLDR_INSTALL] failed %s (0x%llx)\n",
+			p_seamldr_error_name(ret), ret);
+		return -EIO;
+	}
+	return 0;
+}
+
 /*
  * is_seamrr_enabled - check if seamrr is supported.
  */
@@ -431,6 +445,7 @@ int __init load_p_seamldr(void)
 		return err;
 	}
 
+	setup_force_cpu_cap(X86_FEATURE_SEAM);
 	pr_info("Successfully loaded TDX P-SEAMLDR.\n");
 	return 0;
 }

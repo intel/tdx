@@ -32,6 +32,7 @@ const char *p_seamldr_error_name(u64 error_code);
  */
 #define SEAMCALL_SEAMLDR_BASE		BIT_ULL(63)
 #define SEAMCALL_SEAMLDR_INFO		SEAMCALL_SEAMLDR_BASE
+#define SEAMCALL_SEAMLDR_INSTALL	(SEAMCALL_SEAMLDR_BASE | 1)
 
 struct tee_tcb_svn {
 	u16 seam;
@@ -70,8 +71,26 @@ struct p_seamldr_info {
 	u8 reserved2[88];
 } __packed __aligned(P_SEAMLDR_INFO_ALIGNMENT);
 
+#define SEAMLDR_PARAMS_ALIGNMENT	PAGE_SIZE
+/* SEAM signature structure must be 0x200 DWORDS, which is 2048 bytes. */
+#define SEAMLDR_SIGSTRUCT_SIZE		2048
+
+#define SEAMLDR_SCENARIO_LOAD		0	/* Load TDX module */
+#define SEAMLDR_SCENARIO_UPDATE		1	/* Update a previously loaded module */
+
+#define SEAMLDR_MAX_NR_MODULE_PAGES	496
+
+struct seamldr_params {
+	u32 version;
+	u32 scenario;
+	u64 sigstruct_pa;
+	u8 reserved[104];
+	u64 num_module_pages;
+	u64 mod_pages_pa_list[SEAMLDR_MAX_NR_MODULE_PAGES];
+} __packed __aligned(SEAMLDR_PARAMS_ALIGNMENT);
 
 int seamldr_info(phys_addr_t seamldr_info);
+int seamldr_install(phys_addr_t seamldr_params);
 
 int __init load_p_seamldr(void);
 

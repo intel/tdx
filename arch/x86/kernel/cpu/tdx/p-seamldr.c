@@ -14,6 +14,7 @@
 #include <asm/virtext.h>
 #include <asm/trapnr.h>
 #include <asm/perf_event.h>
+#include <asm/trace/seam.h>
 
 #include "../../events/perf_event.h"
 #include "p-seamldr.h"

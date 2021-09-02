@@ -34,6 +34,12 @@ const char *p_seamldr_error_name(u64 error_code);
 #define SEAMCALL_SEAMLDR_INFO		SEAMCALL_SEAMLDR_BASE
 #define SEAMCALL_SEAMLDR_INSTALL	(SEAMCALL_SEAMLDR_BASE | 1)
 
+#define SEAMLDR_SEAMCALL(name)	{ SEAMCALL_##name, #name }
+
+#define SEAMLDR_SEAMCALLS			\
+	SEAMLDR_SEAMCALL(SEAMLDR_INFO),		\
+	SEAMLDR_SEAMCALL(SEAMLDR_INSTALL)
+
 struct tee_tcb_svn {
 	u16 seam;
 	u8 reserved[14];

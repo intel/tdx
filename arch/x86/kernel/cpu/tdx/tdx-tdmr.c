@@ -7,6 +7,8 @@
 
 #include <linux/types.h>
 #include <linux/errno.h>
+#include <linux/cache.h>
+#include <asm/page_types.h>
 #include <asm/tdx_host.h>
 #include <asm/page_types.h>
 #include "tdx-tdmr.h"
@@ -101,6 +103,8 @@ int __init construct_tdx_tdmrs(struct cmr_info *cmr_array, int cmr_num,
 		struct tdmr_info *tdmr_info_array, int *tdmr_num)
 {
 	int ret = 0;
+	int i;
+	struct tdx_memblock *tmb;
 
 	/* No TDX memory available */
 	if (list_empty(&tmem_all.tmb_list))
@@ -111,6 +115,18 @@ int __init construct_tdx_tdmrs(struct cmr_info *cmr_array, int cmr_num,
 	if (ret) {
 		pr_err("Failed to construct TDMRs\n");
 		goto out;
+	}
+
+	i = 0;
+	list_for_each_entry(tmb, &tmem_all.tmb_list, list) {
+		pr_info("TDX TDMR[%2d]: base 0x%016lx size 0x%016lx\n",
+			i, tmb->start_pfn << PAGE_SHIFT,
+			tmb->end_pfn << PAGE_SHIFT);
+		if (tmb->pamt)
+			pr_info("TDX PAMT[%2d]: base 0x%016lx size 0x%016lx\n",
+				i, tmb->pamt->pamt_pfn << PAGE_SHIFT,
+				tmb->pamt->total_pages << PAGE_SHIFT);
+		i++;
 	}
 
 out:

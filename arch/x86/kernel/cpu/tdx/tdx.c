@@ -626,6 +626,9 @@ static int __init tdx_get_system_info(void)
 
 	/* Keep tdx_tdsysinfo to export that info via sysfs. */
 
+	for (i = 0; i < tdx_nr_cmrs; i++)
+		pr_info("TDX CMR[%2d]: base 0x%016llx size 0x%016llx\n",
+			i, tdx_cmrs[i].base, tdx_cmrs[i].size);
 out:
 	return err;
 }

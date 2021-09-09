@@ -28,6 +28,7 @@ static void __accept_memory(phys_addr_t start, phys_addr_t end)
 		else
 			panic("Cannot accept memory");
 		bitmap_clear(unaccepted_memory, rs, re - rs);
+		count_vm_events(ACCEPT_MEMORY, PMD_SIZE / PAGE_SIZE);
 	}
 }
 

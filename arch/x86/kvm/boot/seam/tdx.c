@@ -250,7 +250,7 @@ static int __init __construct_tdmr_reserved_areas(struct tdmr_info *tdmr,
 			 * range before filling any CMR hole into reserved
 			 * area.
 			 */
-			if (pamt_base < tdmr_start + offset) {
+			if (!pamt_done && (pamt_base < tdmr_start + offset)) {
 				/*
 				 * PAMT won't overlap with any CMR hole
 				 * otherwise there's bug -- see comments below.

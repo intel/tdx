@@ -292,7 +292,7 @@ struct cpio_data find_microcode_in_initrd(const char *path, bool use_pa)
 			start = *rr;
 	}
 
-	return find_cpio_data(path, (void *)start, size, NULL);
+	return find_cpio_file(path, (void *)start, size);
 #else /* !CONFIG_BLK_DEV_INITRD */
 	return (struct cpio_data){ NULL, 0, "" };
 #endif

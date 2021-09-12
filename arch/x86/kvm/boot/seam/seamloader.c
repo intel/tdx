@@ -255,6 +255,8 @@ retry_enteraccs:
 		goto retry_enteraccs;
 	}
 	pr_info("Launch SEAMLDR returned 0x%llx\n", err);
+	if (!err)
+		ret = 0;
 
 free:
 	if (seamldr_pa != __pa(seamldr))

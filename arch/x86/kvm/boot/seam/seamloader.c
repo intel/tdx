@@ -202,7 +202,7 @@ void __init free_seamldr_params(struct seamldr_params *params)
 	seam_free_mem(__pa(params), PAGE_SIZE);
 }
 
-extern int __init launch_seamldr(unsigned long seamldr_pa,
+extern u64 __init launch_seamldr(unsigned long seamldr_pa,
 				 unsigned long seamldr_size,
 				 unsigned long params_pa);
 
@@ -248,7 +248,14 @@ int __init seam_load_module(void *seamldr, unsigned long seamldr_size,
 
 retry_enteraccs:
 	err = launch_seamldr(seamldr_pa, seamldr_size, params ? __pa(params) : 0);
-#define SEAMLDR_EUNSPECERR  0x8000000000010003ULL
+#define SEAMLDR_EMODBUSY	0x8000000000000001ULL
+#define SEAMLDR_EUNSPECERR	0x8000000000010003ULL
+	if (err == SEAMLDR_EMODBUSY) {
+		pr_warn("Found a SEAMLDR already loaded! Just reuse it\n");
+		ret = 0;
+		goto free;
+	}
+
 	if ((err == SEAMLDR_EUNSPECERR || err == -EFAULT) &&
 	    !WARN_ON(!enteraccs_attempts--)) {
 		udelay(1 * USEC_PER_MSEC);

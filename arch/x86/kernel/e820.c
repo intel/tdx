@@ -1290,6 +1290,16 @@ void __init e820__memory_setup(void)
 
 	pr_info("BIOS-provided physical RAM map:\n");
 	e820__print_table(who);
+
+	/* Mark unaccepted memory bitmap reserved */
+	if (boot_params.unaccepted_memory) {
+		unsigned long size;
+
+		/* One bit per 2MB */
+		size = DIV_ROUND_UP(e820__end_of_ram_pfn() * PAGE_SIZE,
+				    PMD_SIZE * BITS_PER_BYTE);
+		memblock_reserve(boot_params.unaccepted_memory, size);
+	}
 }
 
 void __init e820__memblock_setup(void)

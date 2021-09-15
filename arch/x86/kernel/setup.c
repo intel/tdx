@@ -713,6 +713,16 @@ static void __init early_reserve_memory(void)
 
 	early_reserve_initrd();
 
+	/* Mark unaccepted memory bitmap reserved */
+	if (boot_params.unaccepted_memory) {
+		unsigned long size;
+
+		/* One bit per 2MB */
+		size = DIV_ROUND_UP(e820__end_of_ram_pfn() * PAGE_SIZE,
+				    PMD_SIZE * BITS_PER_BYTE);
+		memblock_reserve(boot_params.unaccepted_memory, size);
+	}
+
 	if (efi_enabled(EFI_BOOT))
 		efi_memblock_x86_reserve_range();
 

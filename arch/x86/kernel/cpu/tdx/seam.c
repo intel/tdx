@@ -3,9 +3,33 @@
 
 #define pr_fmt(fmt) "seam: " fmt
 
+#include <linux/earlycpio.h>
+#include <linux/memblock.h>
+#include <linux/init.h>
+#include <linux/initrd.h>
+#include <linux/slab.h>
+
 #include <asm/virtext.h>
+#include <asm/cpu.h>
 
 #include "seam.h"
+
+/*
+ * In early boot phase before filesystem, request_firmware() isn't available yet
+ * which relies on filesystem to find a file.  Instead traverse CPIO image.
+ */
+bool __init seam_get_firmware(struct cpio_data *blob, const char *name)
+{
+#ifdef CONFIG_BLK_DEV_INITRD
+	if (initrd_start) {
+		*blob = find_cpio_file(name, (void *)initrd_start,
+				initrd_end - initrd_start);
+		if (blob->data)
+			return true;
+	}
+#endif
+	return false;
+}
 
 /*
  * is_seamrr_enabled - check if seamrr is supported.

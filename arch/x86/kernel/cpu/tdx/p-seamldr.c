@@ -38,6 +38,19 @@ static int __init seamldr_param(char *str)
 }
 early_param("np_seamldr", seamldr_param);
 
+int seamldr_info(phys_addr_t seamldr_info)
+{
+	u64 ret;
+
+	ret = seamcall(SEAMCALL_SEAMLDR_INFO, seamldr_info, 0, 0, 0, NULL);
+	if (ret) {
+		pr_err("SEAMCALL[SEAMLDR_INFO] failed %s (0x%llx)\n",
+		       p_seamldr_error_name(ret), ret);
+		return -EIO;
+	}
+	return 0;
+}
+
 /*
  * is_seamrr_enabled - check if seamrr is supported.
  */
@@ -320,6 +333,62 @@ out:
 	return ret;
 }
 
+static struct p_seamldr_info *p_seamldr_info;
+
+static int __init p_seamldr_get_info(void)
+{
+	struct vmcs *vmcs = NULL;
+	int vmxoff_err = 0;
+	int err = 0;
+
+	BUILD_BUG_ON((sizeof(*p_seamldr_info) % P_SEAMLDR_INFO_ALIGNMENT) != 0);
+	p_seamldr_info = kmalloc(sizeof(*p_seamldr_info), GFP_KERNEL);
+	if (!p_seamldr_info)
+		return -ENOMEM;
+
+	/* P-SEAMLDR executes in SEAM VMX-root that requires VMXON. */
+	vmcs = (struct vmcs *)get_zeroed_page(GFP_KERNEL);
+	if (!vmcs) {
+		err = -ENOMEM;
+		goto out;
+	}
+	seam_init_vmxon_vmcs(vmcs);
+
+	/* Because it's before kvm_init, VMX shouldn't be enabled. */
+	WARN_ON(__read_cr4() & X86_CR4_VMXE);
+	err = cpu_vmxon(__pa(vmcs));
+	if (err)
+		goto out;
+
+	err = seamldr_info(__pa(p_seamldr_info));
+
+	/*
+	 * Other initialization codes expect that no one else uses VMX and that
+	 * VMX is off.  Disable VMX to keep such assumptions.
+	 */
+	vmxoff_err = cpu_vmxoff();
+	if (!err && vmxoff_err)
+		err = vmxoff_err;
+	if (err)
+		goto out;
+
+	pr_info("TDX P-SEAMLDR: version 0x%0x attributes 0x%0x vendor_id 0x%x "
+		"build_date %d build_num 0x%x minor 0x%x major 0x%x.\n",
+		p_seamldr_info->version, p_seamldr_info->attributes,
+		p_seamldr_info->vendor_id, p_seamldr_info->build_date,
+		p_seamldr_info->build_num,
+		p_seamldr_info->minor, p_seamldr_info->major);
+out:
+	free_page((unsigned long)vmcs);	/* free_page() ignores NULL */
+
+	/* On success, keep p_seamldr_info to export the info via sysfs. */
+	if (err) {
+		kfree(p_seamldr_info);
+		p_seamldr_info = NULL;
+	}
+	return err;
+}
+
 /*
  * load_p_seamldr() - load P-SEAMLDR
  *
@@ -353,6 +422,12 @@ int __init load_p_seamldr(void)
 		memblock_free_late(__pa(np_seamldr_name), np_seamldr_len);
 	if (err) {
 		pr_err("failed to load TDX P-SEAMLDR\n");
+		return err;
+	}
+
+	err = p_seamldr_get_info();
+	if (err) {
+		pr_err("failed to get TDX P-SEAMLDR info\n");
 		return err;
 	}
 

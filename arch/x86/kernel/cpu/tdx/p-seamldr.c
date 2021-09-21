@@ -33,6 +33,36 @@ static int __init seamldr_param(char *str)
 early_param("np_seamldr", seamldr_param);
 
 /*
+ * is_seamrr_enabled - check if seamrr is supported.
+ */
+static bool __init is_seamrr_enabled(void)
+{
+	u64 mtrrcap, seamrr_base, seamrr_mask;
+
+	if (!boot_cpu_has(X86_FEATURE_MTRR))
+		return false;
+
+	/* MTRRcap.SEAMRR indicates the support of SEAMRR_PHYS_{BASE, MASK} */
+	rdmsrl(MSR_MTRRcap, mtrrcap);
+	if (!(mtrrcap & MTRRCAP_SEAMRR))
+		return false;
+
+	rdmsrl(MSR_IA32_SEAMRR_PHYS_BASE, seamrr_base);
+	if (!(seamrr_base & MSR_IA32_SEAMRR_PHYS_BASE_CONFIGURED)) {
+		pr_info("SEAMRR base is not configured by BIOS\n");
+		return false;
+	}
+
+	rdmsrl(MSR_IA32_SEAMRR_PHYS_MASK, seamrr_mask);
+	if (!(seamrr_mask & MSR_IA32_SEAMRR_PHYS_MASK_ENABLED)) {
+		pr_info("SEAMRR is not enabled by BIOS\n");
+		return false;
+	}
+
+	return true;
+}
+
+/*
  * load_p_seamldr() - load P-SEAMLDR
  *
  * Call this function
@@ -43,6 +73,16 @@ early_param("np_seamldr", seamldr_param);
 int __init load_p_seamldr(void)
 {
 	struct cpio_data np_seamldr;
+	int err;
+
+	/* TDX requires SEAM mode. */
+	if (!is_seamrr_enabled())
+		return -EOPNOTSUPP;
+
+	/* TDX requires VMX. */
+	err = seam_init_vmx_early();
+	if (err)
+		return err;
 
 	if (!seam_get_firmware(&np_seamldr, np_seamldr_name)) {
 		pr_err("no NP-SEAMLDR found %s\n", np_seamldr_name);

@@ -91,6 +91,28 @@ out:
 	return err;
 }
 
+#define NP_SEAMLDR	"kernel/x86/tdx/np-seamldr.acm"
+
+/*
+ * load_p_seamldr() - load P-SEAMLDR
+ *
+ * Call this function
+ *  - Interrupt Stack Table(IST) for NMI is set by trap_init().
+ *  - Only BSP is running before bringing up all APs by smp_init().
+ */
+int __init load_p_seamldr(void)
+{
+	struct cpio_data np_seamldr;
+
+	if (!seam_get_firmware(&np_seamldr, NP_SEAMLDR)) {
+		pr_err("No NP-SEAMLDR found. \"%s\"\n", NP_SEAMLDR);
+		return -ENOENT;
+	}
+
+	/* TODO: Launch NP-SEAMLDR */
+	return 0;
+}
+
 #ifdef CONFIG_SYSFS
 
 static struct kobject *p_seamldr_kobj;

@@ -44,7 +44,19 @@ static int __init tdx_arch_init(void)
 	if (ret)
 		return ret;
 
-	/* TODO more TDX arch initialization. */
+	/*
+	 * Check if P-SEAMLDR is available and log its version information for
+	 * the administrator of the machine.  Although the kernel don't use
+	 * P-SEAMLDR at the moment, it's a part of TCB.  It's worthwhile to
+	 * tell it to the administrator of the machine.
+	 */
+	ret = p_seamldr_get_info();
+	if (ret) {
+		pr_info("No P-SEAMLDR is available.\n");
+		return ret;
+	}
+	setup_force_cpu_cap(X86_FEATURE_SEAM);
+
 	return 0;
 }
 

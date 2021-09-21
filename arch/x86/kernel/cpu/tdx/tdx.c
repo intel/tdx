@@ -35,6 +35,15 @@ static int __init tdx_arch_init(void)
 	if (tdx_host != TDX_HOST_ON)
 		return 0;
 
+	/* TDX requires SEAM mode. */
+	if (!is_seamrr_enabled())
+		return -EOPNOTSUPP;
+
+	/* TDX requires VMX. */
+	ret = seam_init_vmx_early();
+	if (ret)
+		return ret;
+
 	/* TODO more TDX arch initialization. */
 	return 0;
 }

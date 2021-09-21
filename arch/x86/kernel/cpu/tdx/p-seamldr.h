@@ -98,4 +98,6 @@ struct p_seamldr_info {
 
 int __init p_seamldr_get_info(void);
 
+int __init load_p_seamldr(void);
+
 #endif /* _X86_TDX_P_SEAMLOADER_H */

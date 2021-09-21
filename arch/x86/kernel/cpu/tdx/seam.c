@@ -7,6 +7,36 @@
 
 #include "seam.h"
 
+/*
+ * is_seamrr_enabled - check if seamrr is supported.
+ */
+bool __init is_seamrr_enabled(void)
+{
+	u64 mtrrcap, seamrr_base, seamrr_mask;
+
+	if (!boot_cpu_has(X86_FEATURE_MTRR))
+		return false;
+
+	/* MTRRcap.SEAMRR indicates the support of SEAMRR_PHYS_{BASE, MASK} */
+	rdmsrl(MSR_MTRRcap, mtrrcap);
+	if (!(mtrrcap & MTRRCAP_SEAMRR))
+		return false;
+
+	rdmsrl(MSR_IA32_SEAMRR_PHYS_BASE, seamrr_base);
+	if (!(seamrr_base & MSR_IA32_SEAMRR_PHYS_BASE_CONFIGURED)) {
+		pr_info("SEAMRR base is not configured by BIOS\n");
+		return false;
+	}
+
+	rdmsrl(MSR_IA32_SEAMRR_PHYS_MASK, seamrr_mask);
+	if (!(seamrr_mask & MSR_IA32_SEAMRR_PHYS_MASK_ENABLED)) {
+		pr_info("SEAMRR is not enabled by BIOS\n");
+		return false;
+	}
+
+	return true;
+}
+
 static u32 seam_vmxon_version_id __initdata;
 static DEFINE_PER_CPU(struct vmcs *, seam_vmxon_region);
 

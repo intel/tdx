@@ -87,6 +87,7 @@
 #define SNB_C1_AUTO_UNDEMOTE		(1UL << 28)
 
 #define MSR_MTRRcap			0x000000fe
+#define MTRRCAP_SEAMRR			BIT(15)
 
 #define MSR_IA32_ARCH_CAPABILITIES	0x0000010a
 #define ARCH_CAP_RDCL_NO		BIT(0)	/* Not susceptible to Meltdown */
@@ -940,5 +941,13 @@
 #define MSR_VM_CR                       0xc0010114
 #define MSR_VM_IGNNE                    0xc0010115
 #define MSR_VM_HSAVE_PA                 0xc0010117
+
+/* Intel SEAMRR */
+#define MSR_IA32_SEAMRR_PHYS_BASE	0x00001400
+#define MSR_IA32_SEAMRR_PHYS_MASK	0x00001401
+
+#define MSR_IA32_SEAMRR_PHYS_BASE_CONFIGURED	BIT_ULL(3)
+#define MSR_IA32_SEAMRR_PHYS_MASK_ENABLED	BIT_ULL(11)
+#define MSR_IA32_SEAMRR_PHYS_MASK_LOCKED	BIT_ULL(10)
 
 #endif /* _ASM_X86_MSR_INDEX_H */

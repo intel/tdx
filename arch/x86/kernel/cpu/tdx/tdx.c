@@ -25,11 +25,13 @@ early_param("tdx_host", tdx_host_param);
 
 static int __init tdx_early_init(void)
 {
+	int ret;
+
 	/* Avoid TDX overhead when opt-in is not present. */
 	if (tdx_host != TDX_HOST_ON)
 		return 0;
 
-	/* TODO: Launch NP-SEAMLDR. */
-	return 0;
+	ret = load_p_seamldr();
+	return ret;
 }
 early_initcall(tdx_early_init);

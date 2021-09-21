@@ -18,4 +18,6 @@
 
 const char *p_seamldr_error_name(u64 error_code);
 
+int __init load_p_seamldr(void);
+
 #endif /* _X86_TDX_P_SEAMLOADER_H */

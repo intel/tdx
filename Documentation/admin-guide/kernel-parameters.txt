@@ -3589,6 +3589,13 @@
 			Format: integer between 1 and 255
 			Default: 255
 
+	np_seamldr=	[X86-64, TDX]
+			The name of NP-SEAMLDR to launch.
+			Default value is "intel-seam/np-seamldr.acm".
+                        It searches for <filename> in builtin firmwares and if
+                        it failed, it searches in initrd for
+                        lib/firmware/<filename> and usr/lib/firmware/<filename>.
+
 	nptcg=		[IA-64] Override max number of concurrent global TLB
 			purges which is reported from either PAL_VM_SUMMARY or
 			SAL PALO.

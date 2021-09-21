@@ -3,9 +3,56 @@
 
 #define pr_fmt(fmt) "seam: " fmt
 
+#include <linux/earlycpio.h>
+#include <linux/init.h>
+#include <linux/initrd.h>
+#include <linux/slab.h>
+
+#include <asm/microcode.h>
 #include <asm/virtext.h>
+#include <asm/cpu.h>
 
 #include "seam.h"
+
+bool __init seam_get_firmware(struct cpio_data *blob, const char *name)
+{
+	if (get_builtin_firmware(blob, name))
+		return true;
+
+#ifdef CONFIG_BLK_DEV_INITRD
+	if (initrd_start) {
+		static const char * const prepend[] = {
+			"lib/firmware",
+			/*
+			 * Some tools which generate initrd image, for example,
+			 * dracut, creates a symbolic link from lib/ to
+			 * usr/lib/.  In such case, search in lib/firmware/
+			 * doesn't find the file.  Search usr/lib too.
+			 */
+			"usr/lib/firmware",
+		};
+		int i;
+		size_t len = strlen(name) + 18;
+		char *path = kmalloc(len, GFP_KERNEL);
+
+		if (!path)
+			return false;
+
+		for (i = 0; i < ARRAY_SIZE(prepend); i++) {
+			sprintf(path, "%s/%s", prepend[i], name);
+			*blob = find_cpio_file(path, (void *)initrd_start,
+					       initrd_end - initrd_start);
+			if (blob->data) {
+				kfree(path);
+				return true;
+			}
+		}
+		kfree(path);
+	}
+#endif
+
+	return false;
+}
 
 static u32 seam_vmxon_version_id __initdata;
 static DEFINE_PER_CPU(struct vmcs *, seam_vmxon_region);

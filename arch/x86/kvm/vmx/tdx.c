@@ -1453,6 +1453,18 @@ static int tdx_handle_exit(struct kvm_vcpu *vcpu,
 		return tdx_handle_ept_misconfig(vcpu);
 	case EXIT_REASON_TRIPLE_FAULT:
 		return tdx_handle_triple_fault(vcpu);
+	case EXIT_REASON_OTHER_SMI:
+		/*
+		 * Unlike VMX, all the SMI in SEAM non-root mode (i.e. when
+		 * TD guest vcpu is running) will cause TD exit to TDX module,
+		 * then SEAMRET to KVM. Once it exits to KVM, SMI is delivered
+		 * and handled right away.
+		 *
+		 * - If it's an MSMI, it's handled above due to non_recoverable
+		 *   bit set.
+		 * - If it's not an MSMI, don't need to do anything here.
+		 */
+		return 1;
 	default:
 		break;
 	}

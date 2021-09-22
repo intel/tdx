@@ -199,6 +199,12 @@ void __init tdx_filter_init(void)
 	dev_default_authorization = false;
 
 	if (filter_overridden) {
+		/*
+		 * Since the default allow list is overridden to
+		 * make sure new drivers use ioremap_host_shared,
+		 * force it on all drivers.
+		 */
+		ioremap_force_shared = true;
 		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);
 		pr_debug("Device filter is overridden\n");
 	}

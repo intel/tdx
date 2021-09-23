@@ -10,11 +10,13 @@
 #include <linux/slab.h>
 #include <linux/cpu.h>
 
+#include <asm/tdx_arch.h>
 #include <asm/tdx_host.h>
 #include <asm/virtext.h>
 #include <asm/apic.h>
 
 #include "seamcall.h"
+#include "tdx-ops.h"
 #include "p-seamldr.h"
 #include "seam.h"
 
@@ -46,6 +48,15 @@ static int __init tdx_early_init(void)
 	return ret;
 }
 early_initcall(tdx_early_init);
+
+static void pr_seamcall_error(u64 op, const char *op_str,
+			      u64 err, struct tdx_ex_ret *ex)
+{
+	pr_err_ratelimited("SEAMCALL[%s] failed: %s (0x%llx)\n",
+			   op_str, tdx_seamcall_error_name(err), err);
+	if (ex)
+		pr_seamcall_ex_ret_info(op, err, ex);
+}
 
 static char *tdx_module_name __initdata = "intel-seam/libtdx.so";
 static size_t tdx_module_len __initdata;
@@ -103,6 +114,74 @@ enum TDX_MODULE_STATE {
 
 /* TODO: export the state via sysfs. */
 static enum TDX_MODULE_STATE tdx_module_state __ro_after_init;
+
+/* TDX system information returned by TDH_SYS_INFO. */
+static struct tdsysinfo_struct *tdx_tdsysinfo;
+
+/*
+ * Return pointer to TDX system info (TDSYSINFO_STRUCT) if TDX has been
+ * successfully initialized, or NULL.
+ */
+const struct tdsysinfo_struct *tdx_get_sysinfo(void)
+{
+	return tdx_tdsysinfo;
+}
+EXPORT_SYMBOL_GPL(tdx_get_sysinfo);	/* kvm_intel will use this. */
+
+/* CMR info array returned by TDH_SYS_INFO. */
+static struct cmr_info *tdx_cmrs __initdata;
+static int tdx_nr_cmrs __initdata;
+
+/* KeyID range reserved to TDX by BIOS */
+u32 tdx_keyids_start __read_mostly;
+EXPORT_SYMBOL_GPL(tdx_keyids_start);	/* kvm_intel will use this. */
+u32 tdx_nr_keyids __read_mostly;
+EXPORT_SYMBOL_GPL(tdx_nr_keyids);	/* kvm_intel will use this. */
+
+static void __init tdx_get_keyids(u32 *keyids_start, u32 *nr_keyids)
+{
+	u32 nr_mktme_ids;
+
+	rdmsr(MSR_IA32_MKTME_KEYID_PART, nr_mktme_ids, *nr_keyids);
+
+	/* KeyID 0 is reserved, i.e. KeyIDs are 1-based. */
+	*keyids_start = nr_mktme_ids + 1;
+}
+
+/*
+ * TDH_SYS_CONFIG requires that struct tdsysinfo_struct and the array of struct
+ * cmr_info have the alignment of TDX_TDSYSINFO_STRUCT_ALIGNEMNT(1024) and
+ * TDX_CMR_INFO_ARRAY_ALIGNMENT(512).
+ * sizeof(struct tdsysinfo_struct) = 1024
+ * sizeof(struct cmr_info) * TDX_MAX_NR_CMRS = 512
+ *
+ * NOTE: kmalloc() returns size-aligned when size of power of 2.
+ */
+static int __init tdx_sys_info_alloc(struct tdsysinfo_struct **tdsysinfo,
+				     struct cmr_info **cmrs)
+{
+	/* tdh_sys_info() requires special alignment. */
+	BUILD_BUG_ON(sizeof(struct tdsysinfo_struct) != 1024);
+	BUILD_BUG_ON(!is_power_of_2(sizeof(**tdsysinfo)));
+	BUILD_BUG_ON(!IS_ALIGNED(sizeof(**tdsysinfo),
+				 TDX_TDSYSINFO_STRUCT_ALIGNEMNT));
+	BUILD_BUG_ON(!is_power_of_2(sizeof(**cmrs) * TDX_MAX_NR_CMRS));
+	BUILD_BUG_ON(!IS_ALIGNED(sizeof(**cmrs) * TDX_MAX_NR_CMRS,
+				 TDX_CMR_INFO_ARRAY_ALIGNMENT));
+
+	*tdsysinfo = kzalloc(sizeof(**tdsysinfo), GFP_KERNEL);
+	*cmrs = kzalloc(sizeof(**cmrs) * TDX_MAX_NR_CMRS,
+			GFP_KERNEL | __GFP_ZERO);
+	if (!*tdsysinfo || !*cmrs) {
+		/* kfree() is NULL-safe. */
+		kfree(*tdsysinfo);
+		kfree(*cmrs);
+		*tdsysinfo = NULL;
+		*cmrs = NULL;
+		return -ENOMEM;
+	}
+	return 0;
+}
 
 /*
  * free_seamldr_params - free allocated for seamldr_params including referenced
@@ -227,8 +306,161 @@ static void __init tdx_install_module_cpu(void *data)
 		atomic_set(&install_module->error, ret);
 }
 
+static int __init tdx_init_lp(void)
+{
+	u32 keyids_start, nr_keyids;
+	struct tdx_ex_ret ex_ret;
+	u64 err;
+
+	WARN_ON(!irqs_disabled());
+
+	/*
+	 * MSR_IA32_MKTME_KEYID_PART is core-scoped, disable TDX if this CPU's
+	 * partitioning doesn't match the BSP's partitioning.
+	 */
+	tdx_get_keyids(&keyids_start, &nr_keyids);
+	if (keyids_start != tdx_keyids_start || nr_keyids != tdx_nr_keyids) {
+		pr_err("MKTME KeyID partioning inconsistent on CPU %u\n",
+		       smp_processor_id());
+		return -EIO;
+	}
+
+	err = tdh_sys_lp_init(&ex_ret);
+	if (WARN_ON_ONCE(err)) {
+		pr_seamcall_error(SEAMCALL_TDH_SYS_LP_INIT, "TDH_SYS_LP_INIT",
+				  err, &ex_ret);
+		return -EIO;
+	}
+
+	return 0;
+}
+
+static void __init tdx_init_cpu(void *data)
+{
+	atomic_t *error = data;
+	int ret = tdx_init_lp();
+
+	if (ret)
+		atomic_set(error, ret);
+}
+
 /*
- * tdx_install_module - load TDX module by P-SEAMLDR seam_install call.
+ * Invoke TDH.SYS.LP.INIT on all CPUs to perform processor-wide initialization.
+ */
+static int __init tdx_init_cpus(void)
+{
+	atomic_t error;
+
+	/* Call per-CPU initialization function on all CPUs. */
+	atomic_set(&error, 0);
+	on_each_cpu(tdx_init_cpu, &error, 1);
+	/* Don't care what exact errors occurred on which cpus. */
+	return atomic_read(&error);
+}
+
+/*
+ * tdx_init_system - early system wide initialization of TDX module.
+ * @return: 0 on success, error code on failure.
+ *
+ * Does system wide initialization of TDX module.
+ */
+static int __init tdx_init_system(void)
+{
+	struct tdx_ex_ret ex_ret;
+	int err;
+
+	/*
+	 * Detect HKID for TDX if initialization was successful.
+	 *
+	 * TDX provides core-scoped MSR for us to simply read out TDX start
+	 * keyID and number of keyIDs.
+	 */
+	tdx_get_keyids(&tdx_keyids_start, &tdx_nr_keyids);
+	if (!tdx_nr_keyids)
+		return -EOPNOTSUPP;
+
+	/* System wide initialization for TDX module. */
+	err = tdh_sys_init(0, &ex_ret);
+	if (WARN_ON_ONCE(err)) {
+		pr_seamcall_error(SEAMCALL_TDH_SYS_INIT, "TDH_SYS_INIT",
+				  err, &ex_ret);
+		return -EIO;
+	}
+
+	/*
+	 * Per-CPU initialization.  tdh_sys_info() below requires that LP is
+	 * initialized for TDX module.  Otherwise it results in an error,
+	 * TDX_SYSINITLP_NOT_DONE.
+	 */
+	return tdx_init_cpus();
+}
+
+/*
+ * tdx_get_system_info - store TDX system information into the following
+ *                       variables. tdx_keyid_start, tdx_nr_keyids,
+ *                       tdx_tdsysinfo, tdx_cmrs and tdx_nr_cmrs.
+ *
+ * @return: 0 on success, error code on failure.
+ *
+ * get info about system. i.e. info about TDX module and Convertible Memory
+ * Regions(CMRs).
+ */
+static int __init tdx_get_system_info(void)
+{
+	struct tdx_ex_ret ex_ret;
+	int err;
+	int i;
+
+	/*
+	 * Invoke TDH_SYS_INFO to collect the information needed to construct
+	 * TDMRs.
+	 */
+	err = tdh_sys_info(__pa(tdx_tdsysinfo), sizeof(*tdx_tdsysinfo),
+			   __pa(tdx_cmrs), TDX_MAX_NR_CMRS, &ex_ret);
+	if (WARN_ON(err)) {
+		pr_seamcall_error(SEAMCALL_TDH_SYS_INFO, "TDH_SYS_INFO",
+				  err, &ex_ret);
+		err = -EIO;
+		goto out;
+	}
+
+	/*
+	 * ex_ret.nr_cmr_entries is how many entries TDX module writes.  It may
+	 * contain 0-size entries at the end.  Count non 0-size entries.
+	 */
+	tdx_nr_cmrs = 0;
+	for (i = 0; i < ex_ret.sys_info.nr_cmr_entries; i++) {
+		if (!tdx_cmrs[i].size)
+			break;
+		tdx_nr_cmrs++;
+	}
+
+	/*
+	 * Sanity check TDSYSINFO.  TDX module should have the architectural
+	 * values in TDX spec.
+	 */
+	if (((tdx_tdsysinfo->max_reserved_per_tdmr != TDX_MAX_NR_RSVD_AREAS) ||
+		(tdx_tdsysinfo->max_tdmrs != TDX_MAX_NR_TDMRS) ||
+		(tdx_tdsysinfo->pamt_entry_size != TDX_PAMT_ENTRY_SIZE))) {
+		pr_err("Invalid TDSYSINFO.  Disable TDX.\n");
+		err = -EINVAL;
+		goto out;
+	}
+
+	pr_info("TDX SEAM module: attributes 0x%x vendor_id 0x%x build_date %d "
+		"build_num 0x%x minor_version 0x%x major_version 0x%x.\n",
+		tdx_tdsysinfo->attributes, tdx_tdsysinfo->vendor_id,
+		tdx_tdsysinfo->build_date, tdx_tdsysinfo->build_num,
+		tdx_tdsysinfo->minor_version, tdx_tdsysinfo->major_version);
+
+	/* Keep tdx_tdsysinfo to export that info via sysfs. */
+
+out:
+	return err;
+}
+
+/*
+ * tdx_load_module - load TDX module by P-SEAMLDR seam_install call.
  * @module: virtual address of TDX module.
  * @module_size: size of TDX module.
  * @sigstruct: virtual address of sigstruct of TDX module.
@@ -269,6 +501,14 @@ static int __init tdx_load_module(
 			goto out;
 	}
 
+	ret = tdx_init_system();
+	if (ret)
+		goto out;
+
+	ret = tdx_get_system_info();
+	if (ret)
+		goto out;
+
 	/* TODO: Early initialization. */
 
 out:
@@ -298,6 +538,10 @@ static int __init tdx_arch_init(void)
 		ret = -ENOENT;
 		goto out_free;
 	}
+
+	ret = tdx_sys_info_alloc(&tdx_tdsysinfo, &tdx_cmrs);
+	if (ret)
+		return -ENOMEM;
 
 	/*
 	 * Because smp is enabled, prevent potential concurrent cpu

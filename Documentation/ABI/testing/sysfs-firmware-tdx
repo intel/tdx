@@ -52,3 +52,49 @@ Description:
                                 with the "0x" prefix.
                 =============== ================================================
 Users:          libvirt
+
+What:           /sys/firmware/tdx_module/
+Date:           September 2021
+KernelVersion:  5.15
+Contact:        Isaku Yamahata <isaku.yamahata@intel.com>, kvm@vger.kernel.org
+Description:
+                The TDX requires firmware as known as the TDX module.  It comes
+                with its attributes, vendor_id, build_data, build_num,
+                minor_version, major_version, etc.
+
+                Provides the information about the TDX module loaded on the
+                platform.  It contains the following read-only files.  The
+                information corresponds to the data structure, TDSYSINFO_STRUCT.
+                The admins or VMM management software like libvirt can refer to
+                that information, determine if TDX is supported, and identify
+                the loaded the TDX module.
+
+                ================== ============================================
+                attributes         32bit flags of the TDX module attributes as
+                                   a hexadecimal number with the "0x" prefix.
+                                   Bits 31 - a production module(0) or
+                                             a debug module(1).
+                                   Bits 30:0 Reserved - set to 0.
+                vendor_id          vendor ID as a hexadecimal number with the
+                                   "0x" prefix.
+                build_date         build date in yyyymmdd BCD format.
+                build_num          build number as a hexadecimal number with
+                                   the "0x" prefix.
+                minor_version      minor version as a hexadecimal number with
+                                   the "0x" prefix.
+                major_version      major versionas a hexadecimal number with
+                                   the "0x" prefix.
+                attributes_fixed0  fixed-0 value for TD's attributes as a
+                                   hexadecimal number with the "0x" prefix.
+                attributes_fixed1  fixed-1 value for TD's attributes as a
+                                   hexadecimal number with the "0x" prefix.
+                xfam_fixed0        fixed-0 value for TD xfam value as a
+                                   hexadecimal number with the "0x" prefix.
+                xfam_fixed1        fixed-1 value for TD xfam value as a
+                                   hexadecimal number with the "0x" prefix.
+                tdx_module_status  the status of the TDX module.  one of the
+                                   following strings.
+                                   "not-loaded", "loaded", "initialized",
+                                   "error", and "unknown".
+                ================== ============================================
+Users:          libvirt

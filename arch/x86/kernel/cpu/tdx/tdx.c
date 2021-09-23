@@ -57,7 +57,7 @@ enum TDX_MODULE_STATE {
 	TDX_MODULE_ERROR,
 };
 
-static enum TDX_MODULE_STATE tdx_module_state __initdata;
+static enum TDX_MODULE_STATE tdx_module_state __ro_after_init;
 
 bool is_debug_seamcall_available __read_mostly = true;
 
@@ -810,4 +810,121 @@ int __init tdx_sysfs_init(void)
 
 	return 0;
 }
+
+static struct kobject *tdx_module_kobj;
+
+static ssize_t state_show(
+	struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+	static const char * const names[] = {
+		[TDX_MODULE_NOT_FOUND] = "not-found",
+		[TDX_MODULE_FOUND] = "found",
+		[TDX_MODULE_INITIALIZED] = "initialized",
+		[TDX_MODULE_ERROR] = "error"
+	};
+	const char *state = "unknown";
+
+	if (tdx_module_state < ARRAY_SIZE(names))
+		state = names[tdx_module_state];
+
+	return sprintf(buf, "%s\n", state);
+}
+
+static struct kobj_attribute tdx_module_state_attr = __ATTR_RO(state);
+
+static struct attribute *tdx_module_states[] = {
+	&tdx_module_state_attr.attr,
+	NULL,
+};
+
+static const struct attribute_group tdx_module_state_group = {
+	.attrs = tdx_module_states,
+};
+
+#define TDX_MODULE_ATTR_SHOW_FMT(name, fmt)				\
+static ssize_t name ## _show(						\
+	struct kobject *kobj, struct kobj_attribute *attr, char *buf)	\
+{									\
+	if (!tdx_tdsysinfo)						\
+		return 0;						\
+	return sprintf(buf, fmt, tdx_tdsysinfo->name);			\
+}									\
+static struct kobj_attribute tdx_module_##name = __ATTR_RO(name)
+
+#define TDX_MODULE_ATTR_SHOW_DEC(name)	TDX_MODULE_ATTR_SHOW_FMT(name, "%d\n")
+#define TDX_MODULE_ATTR_SHOW_HEX(name)	TDX_MODULE_ATTR_SHOW_FMT(name, "0x%x\n")
+#define TDX_MODULE_ATTR_SHOW_U64(name)	TDX_MODULE_ATTR_SHOW_FMT(name, "0x%016llx\n")
+
+TDX_MODULE_ATTR_SHOW_FMT(attributes, "0x%08x\n");
+TDX_MODULE_ATTR_SHOW_HEX(vendor_id);
+TDX_MODULE_ATTR_SHOW_DEC(build_date);
+TDX_MODULE_ATTR_SHOW_HEX(build_num);
+TDX_MODULE_ATTR_SHOW_HEX(minor_version);
+TDX_MODULE_ATTR_SHOW_HEX(major_version);
+TDX_MODULE_ATTR_SHOW_U64(attributes_fixed0);
+TDX_MODULE_ATTR_SHOW_U64(attributes_fixed1);
+TDX_MODULE_ATTR_SHOW_U64(xfam_fixed0);
+TDX_MODULE_ATTR_SHOW_U64(xfam_fixed1);
+
+static struct attribute *tdx_module_attrs[] = {
+	&tdx_module_attributes.attr,
+	&tdx_module_vendor_id.attr,
+	&tdx_module_build_date.attr,
+	&tdx_module_build_num.attr,
+	&tdx_module_minor_version.attr,
+	&tdx_module_major_version.attr,
+	&tdx_module_attributes_fixed0.attr,
+	&tdx_module_attributes_fixed1.attr,
+	&tdx_module_xfam_fixed0.attr,
+	&tdx_module_xfam_fixed1.attr,
+	NULL,
+};
+
+static const struct attribute_group tdx_module_attr_group = {
+	.attrs = tdx_module_attrs,
+};
+
+static int __init tdx_module_sysfs_init(void)
+{
+	int ret = 0;
+
+	if (!boot_cpu_has(X86_FEATURE_SEAM))
+		return 0;
+
+	ret = tdx_sysfs_init();
+	if (ret)
+		return ret;
+
+	tdx_module_kobj = kobject_create_and_add("tdx_module", tdx_kobj);
+	if (!tdx_module_kobj) {
+		pr_err("kobject_create_and_add tdx_module failed\n");
+		return -EINVAL;
+	}
+
+	ret = sysfs_create_group(tdx_module_kobj, &tdx_module_state_group);
+	if (ret) {
+		pr_err("Sysfs exporting tdx module state failed %d\n", ret);
+		goto err_kobj;
+	}
+
+	if (tdx_tdsysinfo) {
+		ret = sysfs_create_group(tdx_module_kobj,
+					 &tdx_module_attr_group);
+		if (ret) {
+			pr_err("Sysfs exporting tdx module attributes failed %d\n",
+			       ret);
+			goto err;
+		}
+	}
+
+	return 0;
+
+err:
+	sysfs_remove_group(tdx_module_kobj, &tdx_module_state_group);
+err_kobj:
+	kobject_put(tdx_module_kobj);
+	tdx_module_kobj = NULL;
+	return ret;
+}
+device_initcall(tdx_module_sysfs_init);
 #endif

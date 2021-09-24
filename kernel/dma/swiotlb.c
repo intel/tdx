@@ -218,7 +218,7 @@ static void swiotlb_init_io_tlb_mem(struct io_tlb_mem *mem, phys_addr_t start,
 	mem->nslabs = nslabs;
 	mem->start = start;
 	mem->end = mem->start + bytes;
-	mem->index = 0;
+	INIT_LIST_HEAD(&mem->free_slots);
 	mem->late_alloc = late_alloc;
 
 	if (swiotlb_force == SWIOTLB_FORCE)
@@ -229,6 +229,7 @@ static void swiotlb_init_io_tlb_mem(struct io_tlb_mem *mem, phys_addr_t start,
 		__set_bit(i, mem->bitmap);
 		mem->slots[i].orig_addr = INVALID_PHYS_ADDR;
 		mem->slots[i].alloc_size = 0;
+		list_add_tail(&mem->slots[i].node, &mem->free_slots);
 	}
 
 	/*
@@ -500,13 +501,6 @@ static inline unsigned long get_max_slots(unsigned long boundary_mask)
 	return nr_slots(boundary_mask + 1);
 }
 
-static unsigned int wrap_index(struct io_tlb_mem *mem, unsigned int index)
-{
-	if (index >= mem->nslabs)
-		return 0;
-	return index;
-}
-
 /*
  * Find a suitable number of IO TLB entries size that will fit this request and
  * allocate a buffer from that IO TLB pool.
@@ -515,47 +509,41 @@ static int swiotlb_find_slots(struct device *dev, phys_addr_t orig_addr,
 			      size_t alloc_size, unsigned int alloc_align_mask)
 {
 	struct io_tlb_mem *mem = dev->dma_io_tlb_mem;
+	struct io_tlb_slot *slot, *tmp;
 	unsigned long boundary_mask = dma_get_seg_boundary(dev);
 	dma_addr_t tbl_dma_addr =
 		phys_to_dma_unencrypted(dev, mem->start) & boundary_mask;
 	unsigned long max_slots = get_max_slots(boundary_mask);
 	unsigned int iotlb_align_mask =
 		dma_get_min_align_mask(dev) & ~(IO_TLB_SIZE - 1);
-	unsigned int nslots = nr_slots(alloc_size), stride;
-	unsigned int index, wrap, i;
+	unsigned int nslots = nr_slots(alloc_size);
+	unsigned int index, i;
 	unsigned int offset = swiotlb_align_offset(dev, orig_addr);
 	unsigned long flags;
 
 	BUG_ON(!nslots);
 
-	/*
-	 * For mappings with an alignment requirement don't bother looping to
-	 * unaligned slots once we found an aligned one.  For allocations of
-	 * PAGE_SIZE or larger only look for page aligned allocations.
-	 */
-	stride = (iotlb_align_mask >> IO_TLB_SHIFT) + 1;
-	if (alloc_size >= PAGE_SIZE)
-		stride = max(stride, stride << (PAGE_SHIFT - IO_TLB_SHIFT));
-	stride = max(stride, (alloc_align_mask >> IO_TLB_SHIFT) + 1);
-
 	spin_lock_irqsave(&mem->lock, flags);
 	if (unlikely(nslots > mem->nslabs - mem->used))
 		goto not_found;
 
-	index = wrap = wrap_index(mem, ALIGN(mem->index, stride));
-	do {
+	list_for_each_entry_safe(slot, tmp, &mem->free_slots, node) {
+		index = slot - mem->slots;
 		if (orig_addr &&
 		    (slot_addr(tbl_dma_addr, index) & iotlb_align_mask) !=
 			    (orig_addr & iotlb_align_mask)) {
-			index = wrap_index(mem, index + 1);
 			continue;
 		}
 
-		/* Start from the next segment if no enough free entries */
-		if (io_tlb_offset(index) + nslots > IO_TLB_SEGSIZE) {
-			index = wrap_index(mem, round_up(index, IO_TLB_SEGSIZE));
+		if (io_tlb_offset(index) + nslots > IO_TLB_SEGSIZE)
 			continue;
-		}
+
+		/*
+		 * If requested size is larger than a page, ensure allocated
+		 * memory to be page aligned.
+		 */
+		if (alloc_size >= PAGE_SIZE && (slot_addr(tbl_dma_addr, index) & ~PAGE_MASK))
+			continue;
 
 		/*
 		 * If we find a slot that indicates we have 'nslots' number of
@@ -569,8 +557,7 @@ static int swiotlb_find_slots(struct device *dev, phys_addr_t orig_addr,
 					index + nslots)
 				goto found;
 		}
-		index = wrap_index(mem, index + stride);
-	} while (index != wrap);
+	}
 
 not_found:
 	spin_unlock_irqrestore(&mem->lock, flags);
@@ -581,15 +568,9 @@ found:
 		__clear_bit(i, mem->bitmap);
 		mem->slots[i].alloc_size =
 			alloc_size - (offset + ((i - index) << IO_TLB_SHIFT));
+		list_del(&mem->slots[i].node);
 	}
 
-	/*
-	 * Update the indices to avoid searching in the next round.
-	 */
-	if (index + nslots < mem->nslabs)
-		mem->index = index + nslots;
-	else
-		mem->index = 0;
 	mem->used += nslots;
 
 	spin_unlock_irqrestore(&mem->lock, flags);
@@ -661,6 +642,7 @@ static void swiotlb_release_slots(struct device *dev, phys_addr_t tlb_addr)
 		__set_bit(i, mem->bitmap);
 		mem->slots[i].orig_addr = INVALID_PHYS_ADDR;
 		mem->slots[i].alloc_size = 0;
+		list_add(&mem->slots[i].node, &mem->free_slots);
 	}
 
 	mem->used -= nslots;

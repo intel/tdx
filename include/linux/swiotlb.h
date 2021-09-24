@@ -80,8 +80,6 @@ extern enum swiotlb_force swiotlb_force;
  *		@end. For default swiotlb, this is command line adjustable via
  *		setup_io_tlb_npages.
  * @used:	The number of used IO TLB block.
- * @list:	The free list describing the number of free entries available
- *		from each index.
  * @index:	The index to start searching in the next round.
  * @orig_addr:	The original address corresponding to a mapped entry.
  * @alloc_size:	Size of the allocated buffer.
@@ -91,6 +89,8 @@ extern enum swiotlb_force swiotlb_force;
  * @late_alloc:	%true if allocated using the page allocator
  * @force_bounce: %true if swiotlb bouncing is forced
  * @for_alloc:  %true if the pool is used for memory allocation
+ * @bitmap:	The bitmap used to track free entries. 1 in bit X means the slot
+ *		indexed by X is free.
  */
 struct io_tlb_mem {
 	phys_addr_t start;
@@ -107,8 +107,8 @@ struct io_tlb_mem {
 	struct io_tlb_slot {
 		phys_addr_t orig_addr;
 		size_t alloc_size;
-		unsigned int list;
 	} *slots;
+	unsigned long *bitmap;
 };
 extern struct io_tlb_mem io_tlb_default_mem;
 

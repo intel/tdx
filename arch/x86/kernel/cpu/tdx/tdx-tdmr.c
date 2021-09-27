@@ -20,7 +20,7 @@
  * Final TDX memory which contains all memory blocks that can be used by TDX.
  * Use this to construct final TDMRs.
  */
-struct tdx_memory tmem_all __initdata;
+struct tdx_memory tmem_all;
 
 /*
  * Merge subtype TDX memory to final TDX memory.
@@ -162,9 +162,49 @@ int __init construct_tdx_tdmrs(struct cmr_info *cmr_array, int cmr_num,
 
 out:
 	/*
-	 * Always discard @tmem_all no matter whether constructing TDMRs
-	 * was successful or not, since it is not needed anymore.
+	 * Keep @tmem_all if constructing TDMRs was successfully done, since
+	 * memory hotplug needs it to check whether new memory can be added
+	 * or not.
 	 */
-	tdx_memory_destroy(&tmem_all);
+	if (ret)
+		tdx_memory_destroy(&tmem_all);
 	return ret;
+}
+
+/**
+ * range_is_tdx_memory:		Check whether range is TDX memory
+ *
+ * @start:	Range start physical address
+ * @end:	Range end physical address
+ *
+ * Check whether given range is TDX memory.  This allows memory hotplug to
+ * fail when TDX is enabled, because TDX doesn't support memory hotplug.
+ *
+ * This function should be called after TDX module is properly initialized.
+ */
+bool range_is_tdx_memory(phys_addr_t start, phys_addr_t end)
+{
+	struct tdx_memblock *tmb;
+
+	/*
+	 * @tmem_all being empty means TDX is not enabled.  Return true
+	 * in this case to not impact normal memory hotplug behaviour.
+	 */
+	if (list_empty(&tmem_all.tmb_list))
+		return true;
+
+	/*
+	 * Target range is TDX memory if it is fully covered by one TDX
+	 * memory block in @tmem_all.
+	 */
+	list_for_each_entry(tmb, &tmem_all.tmb_list, list) {
+		phys_addr_t tmb_start, tmb_end;
+
+		tmb_start = tmb->start_pfn << PAGE_SHIFT;
+		tmb_end = tmb->end_pfn << PAGE_SHIFT;
+		if (tmb_start <= start && tmb_end >= end)
+			return true;
+	}
+
+	return false;
 }

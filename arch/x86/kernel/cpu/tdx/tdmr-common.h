@@ -92,18 +92,4 @@ int __init tdx_memory_construct_tdmrs(struct tdx_memory *tmem,
 		struct tdx_module_descriptor *desc,
 		struct tdmr_info *tdmr_info_array, int *tdmr_num);
 
-
-static inline unsigned long __init sysmem_pamt_alloc(struct tdx_memblock *tmb,
-						unsigned long nr_pages)
-{
-	/* TODO: allocate contiguous nr_pages. place holder for now. */
-	return 0;
-}
-
-static inline void __init sysmem_pamt_free(
-	struct tdx_memblock *tmb, unsigned long pamt_pfn, unsigned long nr_pages)
-{
-	/* TODO: place holder for now. */
-}
-
 #endif

@@ -3,6 +3,7 @@
 #define _X86_TDX_TDMR_H
 
 #include "tdmr-sysmem.h"
+#include "tdmr-legacy-pmem.h"
 
 extern struct tdx_memory tmem_all __initdata;
 

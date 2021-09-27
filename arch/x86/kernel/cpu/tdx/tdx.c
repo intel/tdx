@@ -17,6 +17,7 @@
 
 #include "tdmr-sysmem.h"
 #include "tdmr-legacy-pmem.h"
+#include "tdx-tdmr.h"
 #include "seamcall.h"
 #include "tdx-ops.h"
 #include "p-seamldr.h"
@@ -768,6 +769,8 @@ arch_initcall(tdx_arch_init);
 
 static int __init tdx_late_init(void)
 {
+	int ret;
+
 	if (tdx_module_state != TDX_MODULE_LOADED)
 		return -ENODEV;
 
@@ -776,6 +779,14 @@ static int __init tdx_late_init(void)
 	 * after e820__reserve_resources_late() is done, since it uses
 	 * walk_iomem_res_desc() to find legacy PMEMs
 	 */
-	return tdx_legacy_pmem_build();
+	ret = tdx_legacy_pmem_build();
+	if (ret)
+		return ret;
+
+	/*
+	 * Both TDX memory instances for system memory and legacy PMEMs are
+	 * ready.  Merge them into final TDX memory for constructing TDMRs.
+	 */
+	return build_final_tdx_memory();
 }
 subsys_initcall_sync(tdx_late_init);

@@ -45,6 +45,12 @@ struct tdx_memblock {
 	struct tdx_memblock_ops *ops;
 };
 
+/* Structure to describe one TDX TDMR. */
+struct tdx_tdmr {
+	phys_addr_t start_1g;
+	phys_addr_t end_1g;
+};
+
 /*
  * Structure to describe a set of TDX memory blocks.  Basically it represents
  * memory which will be used by TDX.  Final TDMRs used to configure TDX module
@@ -52,6 +58,8 @@ struct tdx_memblock {
  */
 struct tdx_memory {
 	struct list_head tmb_list;
+	struct tdx_tdmr *tdmr_array;
+	int tdmr_num;
 };
 
 struct tdx_memblock * __init tdx_memblock_create(unsigned long start_pfn,

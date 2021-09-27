@@ -15,6 +15,7 @@
 #include <asm/virtext.h>
 #include <asm/apic.h>
 
+#include "tdmr-sysmem.h"
 #include "seamcall.h"
 #include "tdx-ops.h"
 #include "p-seamldr.h"
@@ -45,7 +46,10 @@ static int __init tdx_early_init(void)
 		return 0;
 
 	ret = load_p_seamldr();
-	return ret;
+	if (ret)
+		return ret;
+
+	return tdx_sysmem_build();
 }
 early_initcall(tdx_early_init);
 

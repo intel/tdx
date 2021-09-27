@@ -13,6 +13,7 @@
 #include <asm/cmdline.h>
 #include <asm/virtext.h>
 
+#include "tdx-tdmr.h"
 #include "seamcall.h"
 #include "tdx-ops.h"
 #include "p-seamldr.h"
@@ -382,3 +383,45 @@ out_err:
  * - After SMP initialization.
  */
 arch_initcall(tdx_arch_init);
+
+/*
+ * The final initialization of the TDX module and make it ready to use.
+ */
+static int __init tdx_late_init(void)
+{
+	int vmxoff_err;
+	int ret = 0;
+
+	if (tdx_module_state != TDX_MODULE_FOUND)
+		return -ENODEV;
+
+	pr_info("Initializing TDX module.\n");
+
+	ret = build_tdx_memory();
+	if (ret)
+		goto out_err;
+
+	pr_info("Successfully initialized TDX module\n");
+	tdx_module_state = TDX_MODULE_INITIALIZED;
+
+out_err:
+	if (ret) {
+		pr_info("Failed to initialize TDX module %d\n", ret);
+		tdx_module_state = TDX_MODULE_ERROR;
+	}
+	cleanup_subtype_tdx_memory();
+
+	return ret;
+}
+/*
+ * subsys_initcall_sync() is chosen to satisfy the following conditions.
+ *   e820_reserve_resources() called by setup_arch().  Because
+ * - After reserved memory region is polulated in iomem_resource by
+ *   e820__reserve_resources_late(), which is called by
+ *   subsys_initcall(pci_subsys_init).
+ * - After numa node is initialized by pgdata_init() and alloc_contig_pages() is
+ *   available.
+ * - Before kvm_intel.  module_init() is mapped to device_initcall() when
+ *   it's built into the kernel.
+ */
+subsys_initcall_sync(tdx_late_init);

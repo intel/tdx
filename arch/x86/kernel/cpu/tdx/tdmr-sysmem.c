@@ -5,6 +5,7 @@
 #define pr_fmt(fmt) "tdx: " fmt
 
 #include <linux/memblock.h>
+#include <linux/sizes.h>
 #include "tdmr-sysmem.h"
 
 /* TDX memory instance which contains all system memory blocks */
@@ -15,6 +16,24 @@ static int __init tdx_sysmem_add_block(struct tdx_memory *tmem,
 {
 	struct tdx_memblock *tmb;
 	int ret;
+
+	/*
+	 * Before constructing TDMRs to convert convertible memory as TDX
+	 * memory, kernel checks whether all TDX memory blocks are fully
+	 * covered by BIOS provided convertible memory regions (CMRs),
+	 * and refuses to convert if any is not.
+	 *
+	 * The BIOS generated CMRs won't contain memory below 1MB.  To avoid
+	 * above check failure, explicitly skip memory below 1MB as TDX
+	 * memory block.  This is fine since memory below 1MB is already
+	 * reserved in setup_arch(), and won't be managed by page allocator
+	 * anyway.
+	 */
+	if (start_pfn < (SZ_1M >> PAGE_SHIFT))
+		start_pfn = (SZ_1M >> PAGE_SHIFT);
+
+	if (start_pfn >= end_pfn)
+		return 0;
 
 	tmb = tdx_memblock_create(start_pfn, end_pfn, nid, NULL);
 	if (!tmb)

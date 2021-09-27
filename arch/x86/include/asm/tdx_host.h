@@ -54,6 +54,7 @@ extern u32 tdx_keyids_start __read_mostly;
 extern u32 tdx_nr_keyids __read_mostly;
 extern u32 tdx_seam_keyid __read_mostly;
 
+bool range_is_tdx_memory(phys_addr_t start, phys_addr_t end);
 #else
 static inline const char *tdx_seamcall_error_name(u64 error_code)
 {
@@ -75,6 +76,11 @@ static inline const struct tdsysinfo_struct *tdx_get_sysinfo(void)
 static inline int tdx_seamcall_on_each_pkg(int (*fn)(void *), void *param)
 {
 	return 0;
+}
+
+static inline bool range_is_tdx_memory(phys_addr_t start, phys_addr_t end)
+{
+	return false;
 }
 #endif
 

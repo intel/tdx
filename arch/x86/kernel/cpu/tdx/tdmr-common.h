@@ -28,6 +28,21 @@ struct tdx_memblock;
 struct tdx_memory;
 
 /*
+ * Structure to describe TDX PAMT.
+ *
+ * PAMT is physical contiguous memory used by TDX module to track each page in
+ * TDMR and crypto-protected by TDX module, and it (or part) needs to be put
+ * into TDMR's reserved area when it (or part) falls into TDMR.
+ */
+struct tdx_pamt {
+	struct list_head list;
+	unsigned long pamt_pfn;
+	unsigned long total_pages;
+	unsigned long free_pages;
+	struct tdx_memblock *tmb;
+};
+
+/*
  * Structure to describe common TDX memory block which can be covered by TDMRs.
  */
 struct tdx_memblock {
@@ -36,12 +51,15 @@ struct tdx_memblock {
 	unsigned long end_pfn;
 	int nid;
 	void *data;	/* TDX memory block type specific data */
+	struct tdx_pamt *pamt;
 };
 
 /* Structure to describe one TDX TDMR. */
 struct tdx_tdmr {
 	phys_addr_t start_1g;
 	phys_addr_t end_1g;
+	unsigned long pamt_pfn;
+	struct tdx_memblock *tmb;	/* For PAMT allocation */
 };
 
 /*
@@ -53,6 +71,7 @@ struct tdx_memory {
 	struct list_head tmb_list;
 	struct tdx_tdmr *tdmr_array;
 	int tdmr_num;
+	struct list_head pamt_list;
 };
 
 struct tdx_memblock * __init tdx_memblock_create(unsigned long start_pfn,
@@ -72,5 +91,19 @@ int __init tdx_memory_construct_tdmrs(struct tdx_memory *tmem,
 		struct cmr_info *cmr_array, int cmr_num,
 		struct tdx_module_descriptor *desc,
 		struct tdmr_info *tdmr_info_array, int *tdmr_num);
+
+
+static inline unsigned long __init sysmem_pamt_alloc(struct tdx_memblock *tmb,
+						unsigned long nr_pages)
+{
+	/* TODO: allocate contiguous nr_pages. place holder for now. */
+	return 0;
+}
+
+static inline void __init sysmem_pamt_free(
+	struct tdx_memblock *tmb, unsigned long pamt_pfn, unsigned long nr_pages)
+{
+	/* TODO: place holder for now. */
+}
 
 #endif

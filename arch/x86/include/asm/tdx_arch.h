@@ -39,6 +39,24 @@ struct cmr_info {
 	u64 size;
 } __packed;
 
+struct tdmr_reserved_area {
+	u64 offset;
+	u64 size;
+} __packed;
+
+#define TDX_TDMR_INFO_ALIGNMENT	512
+struct tdmr_info {
+	u64 base;
+	u64 size;
+	u64 pamt_1g_base;
+	u64 pamt_1g_size;
+	u64 pamt_2m_base;
+	u64 pamt_2m_size;
+	u64 pamt_4k_base;
+	u64 pamt_4k_size;
+	struct tdmr_reserved_area reserved_areas[TDX_MAX_NR_RSVD_AREAS];
+} __packed __aligned(TDX_TDMR_INFO_ALIGNMENT);
+
 #define TDX_TDSYSINFO_STRUCT_ALIGNMENT	1024
 struct tdsysinfo_struct {
 	/* TDX-SEAM Module Info */

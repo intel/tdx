@@ -10,6 +10,66 @@
 #include <linux/gfp.h>
 #include "tdmr-common.h"
 
+/* Check whether first range is fully covered by second */
+static bool __init is_range_fully_covered(u64 r1_start, u64 r1_end,
+		u64 r2_start, u64 r2_end)
+{
+	return (r1_start >= r2_start && r1_end <= r2_end) ? true : false;
+}
+
+/* Check whether physical address range is covered by CMR or not. */
+static bool __init phys_range_covered_by_cmrs(struct cmr_info *cmr_array,
+		int cmr_num, phys_addr_t start, phys_addr_t end)
+{
+	int i;
+
+	for (i = 0; i < cmr_num; i++) {
+		struct cmr_info *cmr = &cmr_array[i];
+
+		if (is_range_fully_covered((u64)start, (u64)end,
+					cmr->base, cmr->base + cmr->size))
+			return true;
+	}
+
+	return false;
+}
+
+/*
+ * Sanity check whether all TDX memory blocks are fully covered by CMRs.
+ * Only convertible memory can truly be used by TDX.
+ */
+static int __init sanity_check_cmrs(struct tdx_memory *tmem,
+		struct cmr_info *cmr_array, int cmr_num)
+{
+	struct tdx_memblock *tmb;
+
+	/*
+	 * Check CMRs against entire TDX memory, rather than against individual
+	 * TDX memory block to allow more flexibility, i.e. to allow adding TDX
+	 * memory block before CMR info is available.
+	 */
+	list_for_each_entry(tmb, &tmem->tmb_list, list)
+		if (!phys_range_covered_by_cmrs(cmr_array, cmr_num,
+				tmb->start_pfn << PAGE_SHIFT,
+				tmb->end_pfn << PAGE_SHIFT))
+			break;
+
+	/* Return success if all blocks have passed CMR check */
+	if (list_entry_is_head(tmb, &tmem->tmb_list, list))
+		return 0;
+
+	/*
+	 * TDX cannot be enabled in this case.  Explicitly give a message
+	 * so user can know the reason of failure.
+	 */
+	pr_info("Memory [0x%lx, 0x%lx] not fully covered by CMR\n",
+				tmb->start_pfn << PAGE_SHIFT,
+				tmb->end_pfn << PAGE_SHIFT);
+	return -EFAULT;
+}
+
+/******************************* External APIs *****************************/
+
 /**
  * tdx_memblock_create:	Create one TDX memory block
  *
@@ -152,4 +212,56 @@ int __init tdx_memory_merge(struct tdx_memory *tmem_dst,
 	}
 
 	return 0;
+}
+
+/**
+ * tdx_memory_construct_tdmrs:	Construct final TDMRs to cover all TDX memory
+ *				blocks in final TDX memory
+ *
+ * @tmem:		The final TDX memory
+ * @cmr_array:		Array of CMR entries
+ * @cmr_num:		Number of CMR entries
+ * @desc:		TDX module descriptor for constructing final TMDRs
+ * @tdmr_info_array:	Array of constructed final TDMRs
+ * @tdmr_num:		Number of final TDMRs
+ *
+ * Construct final TDMRs to cover all TDX memory blocks in final TDX memory,
+ * based on CMR info and TDX module descriptor.  Caller is responsible for
+ * allocating enough space for array of final TDMRs @tdmr_info_array (i.e. by
+ * allocating enough space based on @desc.max_tdmr_num).
+ *
+ * Upon success, all final TDMRs will be stored in @tdmr_info_array, and
+ * @tdmr_num will have the actual number of TDMRs.  On failure, @tmem internal
+ * state is cleared, and caller is responsible for destroying it.
+ */
+int __init tdx_memory_construct_tdmrs(struct tdx_memory *tmem,
+		struct cmr_info *cmr_array, int cmr_num,
+		struct tdx_module_descriptor *desc,
+		struct tdmr_info *tdmr_info_array, int *tdmr_num)
+{
+	int ret;
+
+	BUILD_BUG_ON(sizeof(struct tdmr_info) != 512);
+
+	/*
+	 * Sanity check TDX module descriptor.  TDX module should have the
+	 * architectural values in TDX spec.
+	 */
+	if (WARN_ON_ONCE((desc->max_tdmr_num != TDX_MAX_NR_TDMRS) ||
+		(desc->max_tdmr_rsvd_area_num != TDX_MAX_NR_RSVD_AREAS) ||
+		(desc->pamt_entry_size[TDX_PG_4K] != TDX_PAMT_ENTRY_SIZE) ||
+		(desc->pamt_entry_size[TDX_PG_2M] != TDX_PAMT_ENTRY_SIZE) ||
+		(desc->pamt_entry_size[TDX_PG_1G] != TDX_PAMT_ENTRY_SIZE)))
+		return -EINVAL;
+
+	/*
+	 * Sanity check number of CMR entries.  It should not exceed maximum
+	 * value defined by TDX spec.
+	 */
+	if (WARN_ON_ONCE((cmr_num > TDX_MAX_NR_CMRS) || (cmr_num <= 0)))
+		return -EINVAL;
+
+	ret = sanity_check_cmrs(tmem, cmr_array, cmr_num);
+
+	return ret;
 }

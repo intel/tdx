@@ -79,6 +79,15 @@ int __init build_tdx_memory(void)
 		goto out;
 
 	/*
+	 * Build legacy PMEMs as TDX memory in subsys_initcall_sync() here,
+	 * after e820__reserve_resources_late() is done, since it uses
+	 * walk_iomem_res_desc() to find legacy PMEMs
+	 */
+	ret = tdx_legacy_pmem_build();
+	if (ret)
+		goto out;
+
+	/*
 	 * Both TDX memory instances for system memory and legacy PMEMs are
 	 * ready.  Merge them into final TDX memory for constructing TDMRs.
 	 */
@@ -101,6 +110,7 @@ out:
 void __init cleanup_subtype_tdx_memory(void)
 {
 	tdx_sysmem_cleanup();
+	tdx_legacy_pmem_cleanup();
 }
 
 /**

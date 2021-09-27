@@ -5,6 +5,9 @@
 
 #define pr_fmt(fmt) "tdx: " fmt
 
+#include <linux/printk.h>
+#include <linux/types.h>
+#include <linux/errno.h>
 #include "tdx-tdmr.h"
 #include "tdmr-sysmem.h"
 
@@ -31,4 +34,46 @@ out:
 void __init cleanup_subtype_tdx_memory(void)
 {
 	tdx_sysmem_cleanup();
+}
+
+/**
+ * construct_tdx_tdmrs:	Construct final TDMRs to cover all TDX memory
+ *
+ * @cmr_array:		Arrry of CMR entries
+ * @cmr_num:		Number of CMR entries
+ * @desc:		TDX module descriptor for constructing final TMDRs
+ * @tdmr_info_array:	Array of final TDMRs
+ * @tdmr_num:		Number of final TDMRs
+ *
+ * Construct final TDMRs to cover all TDX memory blocks in @tmem_sysmem.
+ * Caller needs to allocate enough storage for @tdmr_info_array, i.e. by
+ * allocating enough entries indicated by desc->max_tdmr_num.
+ *
+ * Upon success, all TDMRs are stored in @tdmr_info_array, with @tdmr_num
+ * indicting the actual TDMR number.
+ */
+int __init construct_tdx_tdmrs(struct cmr_info *cmr_array, int cmr_num,
+		struct tdx_module_descriptor *desc,
+		struct tdmr_info *tdmr_info_array, int *tdmr_num)
+{
+	int ret = 0;
+
+	/* No TDX memory available */
+	if (list_empty(&tmem_sysmem.tmb_list))
+		return -EFAULT;
+
+	ret = tdx_memory_construct_tdmrs(&tmem_sysmem, cmr_array, cmr_num,
+			desc, tdmr_info_array, tdmr_num);
+	if (ret) {
+		pr_err("Failed to construct TDMRs\n");
+		goto out;
+	}
+
+out:
+	/*
+	 * Always discard @tmem_sysmem no matter whether constructing TDMRs
+	 * was successful or not, since it is not needed anymore.
+	 */
+	tdx_memory_destroy(&tmem_sysmem);
+	return ret;
 }

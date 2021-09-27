@@ -13,4 +13,12 @@ int __init build_final_tdx_memory(void);
 /* Clean up TDX memory in case of any error before build_final_tdx_memory(). */
 void __init cleanup_subtype_tdx_memory(void);
 
+/*
+ * Construct final TDMRs based on CMR info and TDX module info, to cover
+ * final TDX memory @tmem_all (built by build_final_tdx_memory()).
+ */
+int __init construct_tdx_tdmrs(struct cmr_info *cmr_array, int cmr_num,
+		struct tdx_module_descriptor *desc,
+		struct tdmr_info *tdmr_info_array, int *tdmr_num);
+
 #endif

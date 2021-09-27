@@ -16,6 +16,7 @@
 #include <asm/apic.h>
 
 #include "tdmr-sysmem.h"
+#include "tdmr-legacy-pmem.h"
 #include "seamcall.h"
 #include "tdx-ops.h"
 #include "p-seamldr.h"
@@ -764,3 +765,17 @@ out_free:
  * - After SMP initialization.
  */
 arch_initcall(tdx_arch_init);
+
+static int __init tdx_late_init(void)
+{
+	if (tdx_module_state != TDX_MODULE_LOADED)
+		return -ENODEV;
+
+	/*
+	 * Build legacy PMEMs as TDX memory in subsys_initcall_sync() here,
+	 * after e820__reserve_resources_late() is done, since it uses
+	 * walk_iomem_res_desc() to find legacy PMEMs
+	 */
+	return tdx_legacy_pmem_build();
+}
+subsys_initcall_sync(tdx_late_init);

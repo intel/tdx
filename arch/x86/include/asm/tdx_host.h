@@ -15,6 +15,8 @@ void pr_seamcall_error(u64 op, u64 error_code, const struct tdx_ex_ret *ex_ret);
 struct tdsysinfo_struct;
 const struct tdsysinfo_struct *tdx_get_sysinfo(void);
 
+bool range_is_tdx_memory(phys_addr_t start, phys_addr_t end);
+
 #else
 struct tdx_ex_ret;
 static inline void pr_seamcall_ex_ret_info(u64 op, u64 error_code,
@@ -31,6 +33,11 @@ struct tdsysinfo_struct;
 static inline const struct tdsysinfo_struct *tdx_get_sysinfo(void)
 {
 	return NULL;
+}
+
+static inline bool range_is_tdx_memory(phys_addr_t start, phys_addr_t end)
+{
+	return false;
 }
 #endif
 

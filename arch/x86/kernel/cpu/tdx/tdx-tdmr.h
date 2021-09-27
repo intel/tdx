@@ -5,7 +5,7 @@
 #include "tdmr-sysmem.h"
 #include "tdmr-legacy-pmem.h"
 
-extern struct tdx_memory tmem_all __initdata;
+extern struct tdx_memory tmem_all;
 
 /* Build TDX memory with all TDX capable memory blocks */
 int __init build_tdx_memory(void);

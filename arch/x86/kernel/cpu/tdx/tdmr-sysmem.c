@@ -11,6 +11,26 @@
 /* TDX memory instance which contains all system memory blocks */
 struct tdx_memory tmem_sysmem __initdata;
 
+unsigned long __init sysmem_pamt_alloc(struct tdx_memblock *tmb,
+				unsigned long nr_pages)
+{
+	struct page *page;
+
+	page = alloc_contig_pages(nr_pages, GFP_KERNEL, tmb->nid,
+			NULL);
+	if (!page)
+		page = alloc_contig_pages(nr_pages, GFP_KERNEL, tmb->nid,
+				&node_online_map);
+
+	return page ? page_to_pfn(page) : 0;
+}
+
+void __init sysmem_pamt_free(struct tdx_memblock *tmb,
+			unsigned long pamt_pfn, unsigned long nr_pages)
+{
+	free_contig_range(pamt_pfn, nr_pages);
+}
+
 static int __init tdx_sysmem_add_block(struct tdx_memory *tmem,
 		unsigned long start_pfn, unsigned long end_pfn, int nid)
 {

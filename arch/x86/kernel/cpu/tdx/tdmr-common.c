@@ -9,6 +9,7 @@
 #include <linux/slab.h>
 #include <linux/gfp.h>
 #include "tdmr-common.h"
+#include "tdmr-sysmem.h"
 
 /* Check whether first range is fully covered by second */
 static bool __init is_range_fully_covered(u64 r1_start, u64 r1_end,

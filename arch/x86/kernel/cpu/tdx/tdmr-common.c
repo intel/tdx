@@ -254,6 +254,144 @@ static int __init generate_tdmr_ranges(struct tdmr_range_ctx *tr_ctx)
 	return 0;
 }
 
+/*
+ * Merge second TDMR range @tr2 to the first one @tr1, with assumption they
+ * don't overlap.
+ */
+#define MERGE_NON_CONTIG_TR_MSG	\
+	"Merge TDMR ranges with hole: [0x%llx, 0x%llx], [0x%llx, 0x%llx] -> [0x%llx, 0x%llx].  PAMT may be wasted for the hole.\n"
+
+static void __init tdmr_range_merge(struct tdmr_range *tr1,
+		struct tdmr_range *tr2)
+{
+	/*
+	 * Merging TDMR ranges with address hole may result in PAMT being
+	 * allocated for the hole (which is wasteful), i.e. when there's one
+	 * TDMR covers entire TDMR range.  Give a message to let user know.
+	 */
+	if (tr1->end_1g < tr2->start_1g)
+		pr_info(MERGE_NON_CONTIG_TR_MSG, tr1->start_1g, tr1->end_1g,
+				tr2->start_1g, tr2->end_1g,
+				tr1->start_1g, tr2->end_1g);
+
+	/* Extend @tr1's address range */
+	tr1->end_1g = tr2->end_1g;
+	tr1->last_tmb = tr2->last_tmb;
+}
+
+/* Merge non-contiguous TDMR ranges */
+#define TR_MERGE_NON_CONTIG	BIT(0)
+
+/*
+ * Try to merge two adjacent TDMR ranges into single one.  @nid indicates only
+ * merge ranges on particular node, or on all nodes if @nid is NUMA_NO_NODE.
+ * @merge_flags controls how to merge.
+ *
+ * Return true if merge happened, or false if not.
+ */
+static bool __init merge_tdmr_ranges_node(struct tdmr_range_ctx *tr_ctx,
+		int nid, int merge_flags)
+{
+	struct tdmr_range *tr, *prev_tr;
+
+	list_for_each_entry_safe_reverse(tr, prev_tr, &tr_ctx->tr_list, list) {
+
+		/* Skip other nodes if merge only one node */
+		if (nid != NUMA_NO_NODE && tr->nid != nid)
+			continue;
+
+		/* Return if @tr is the last range */
+		if (list_entry_is_head(prev_tr, &tr_ctx->tr_list, list))
+			return false;
+
+		/*
+		 * Return if two ranges belong to different nodes, and merge
+		 * on the same node is intended.
+		 */
+		if (nid != NUMA_NO_NODE && prev_tr->nid != tr->nid)
+			return false;
+
+		/*
+		 * Don't merge non-contiguous ranges when TR_MERGE_NON_CONTIG
+		 * is not specified.
+		 */
+		if (!(merge_flags & TR_MERGE_NON_CONTIG) &&
+			(prev_tr->end_1g < tr->start_1g))
+			continue;
+
+		/* Merge two ranges */
+		list_del(&tr->list);
+		tdmr_range_merge(prev_tr, tr);
+		tdmr_range_free(tr);
+		tr_ctx->tr_num--;
+
+		return true;
+	}
+
+	return false;
+}
+
+/*
+ * Try to shrink TDMR ranges to @target_tr_num by merging TDMR ranges on @nid.
+ * If @nid is NUMA_NO_NODE then try all nodes.a
+ *
+ * Return true if @target_tr_num is reached, or false.
+ */
+static bool __init shrink_tdmr_ranges_node(struct tdmr_range_ctx *tr_ctx,
+		int nid, int target_tr_num)
+{
+	int merge_flags = 0;
+	bool merged;
+again:
+	do {
+		merged = merge_tdmr_ranges_node(tr_ctx, nid,
+			merge_flags);
+	} while (merged && tr_ctx->tr_num > target_tr_num);
+
+	if (tr_ctx->tr_num <= target_tr_num)
+		return true;
+
+	/* Then try to merge non-contiguous ranges */
+	if (!(merge_flags & TR_MERGE_NON_CONTIG)) {
+		merge_flags |= TR_MERGE_NON_CONTIG;
+		goto again;
+	}
+
+	return false;
+}
+
+static int __init shrink_tdmr_ranges(struct tdmr_range_ctx *tr_ctx,
+		int target_tr_num)
+{
+	int nid;
+
+	if (target_tr_num <= 0)
+		return -EINVAL;
+
+	if (tr_ctx->tr_num <= target_tr_num)
+		return 0;
+
+	/* Firstly, try to merge ranges within the same NUMA node */
+	for_each_online_node(nid) {
+		if (shrink_tdmr_ranges_node(tr_ctx, nid, target_tr_num))
+			return 0;
+	}
+
+	/*
+	 * Now there should be only one TDMR range on each node.
+	 * Continue to merge cross nodes.
+	 */
+	if (shrink_tdmr_ranges_node(tr_ctx, NUMA_NO_NODE, target_tr_num))
+		return 0;
+
+	/*
+	 * This should not happen, since TDMR ranges can be merged
+	 * until there's only one.
+	 */
+	WARN_ON_ONCE(1);
+	return -EFAULT;
+}
+
 /******************************* External APIs *****************************/
 
 /**
@@ -455,6 +593,14 @@ int __init tdx_memory_construct_tdmrs(struct tdx_memory *tmem,
 	/* Generate a list of TDMR ranges to cover all TDX memory blocks */
 	tdmr_range_ctx_init(&tr_ctx, tmem);
 	ret = generate_tdmr_ranges(&tr_ctx);
+	if (ret)
+		goto tr_ctx_err;
+
+	/*
+	 * Shrink number of TDMR ranges in case it exceeds maximum
+	 * number of TDMRs that TDX can support.
+	 */
+	ret = shrink_tdmr_ranges(&tr_ctx, desc->max_tdmr_num);
 	if (ret)
 		goto tr_ctx_err;
 

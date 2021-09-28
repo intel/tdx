@@ -1075,8 +1075,7 @@ void __init tdh_seam_init(void)
 	if (is_np_seamldr_supported()) {
 		if (!tdx_get_firmware(&seamldr, tdx_npseamldr_name)) {
 			pr_err("Cannot found np-seamldr:%s\n", tdx_npseamldr_name);
-			pr_info("falls back to old seamldr.\n");
-			goto fallback;
+			goto error;
 		}
 
 		ret = seam_load_module(seamldr.data, seamldr.size, NULL);
@@ -1125,7 +1124,6 @@ void __init tdh_seam_init(void)
 	}
 
 	pr_info("np-seamldr isn't supported. Fall back to the old loading method\n");
-fallback:
 	if (!tdx_get_firmware(&module, tdx_module_name))
 		goto error;
 

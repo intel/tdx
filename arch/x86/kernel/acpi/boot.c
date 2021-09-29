@@ -22,6 +22,7 @@
 #include <linux/efi-bgrt.h>
 #include <linux/serial_core.h>
 #include <linux/pgtable.h>
+#include <linux/swiotlb.h>
 
 #include <asm/e820/api.h>
 #include <asm/irqdomain.h>
@@ -1156,6 +1157,9 @@ static int __init acpi_parse_madt_lapic_entries(void)
 		/* TBD: Cleanup to allow fallback to MPS */
 		return count;
 	}
+
+	/* This does not take overrides into consideration */
+	swiotlb_hint_cpus(max(count, x2count));
 
 	x2count = acpi_table_parse_madt(ACPI_MADT_TYPE_LOCAL_X2APIC_NMI,
 					acpi_parse_x2apic_nmi, 0);

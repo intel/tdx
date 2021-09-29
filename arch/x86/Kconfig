@@ -901,6 +901,13 @@ config INTEL_TDX_FIXES
 	bool "Platform specific fixes"
 	depends on INTEL_TDX_GUEST
 
+config TDX_FUZZ
+	bool "Fuzzing support for TDX"
+	depends on INTEL_TDX_GUEST
+	select FAULT_INJECTION
+	help
+	  Support fuzzing of TDX guests against attacks from hosts
+
 endif #HYPERVISOR_GUEST
 
 source "arch/x86/Kconfig.cpu"

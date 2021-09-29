@@ -96,6 +96,11 @@ static inline u32 prandom_u32_max(u32 ep_ro)
 	return (u32)(((u64) prandom_u32() * ep_ro) >> 32);
 }
 
+static inline u32 prandom_u32_max_state(struct rnd_state *state, u32 ep_ro)
+{
+	return (u32)(((u64) prandom_u32_state(state) * ep_ro) >> 32);
+}
+
 /*
  * Handle minimum values for seeds
  */

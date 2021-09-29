@@ -33,6 +33,11 @@ struct tdx_ex_ret {
 			u64 cmr_info;
 			u64 nr_cmr_entries;
 		} sys_info;
+		/* TDH_SYS_TDMR_INIT returns the input PA and next PA. */
+		struct {
+			u64 prev;
+			u64 next;
+		} sys_tdmr_init;
 	};
 };
 
@@ -47,6 +52,8 @@ int tdx_seamcall_on_each_pkg(int (*fn)(void *), void *param);
 
 extern u32 tdx_keyids_start __read_mostly;
 extern u32 tdx_nr_keyids __read_mostly;
+extern u32 tdx_seam_keyid __read_mostly;
+
 #else
 static inline const char *tdx_seamcall_error_name(u64 error_code)
 {

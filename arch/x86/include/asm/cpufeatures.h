@@ -231,6 +231,7 @@
 #define X86_FEATURE_EPT			( 8*32+ 3) /* Intel Extended Page Table */
 #define X86_FEATURE_VPID		( 8*32+ 4) /* Intel Virtual Processor ID */
 #define X86_FEATURE_SEAM		( 8*32+ 5) /* "" Secure Arbitration Mode */
+#define X86_FEATURE_TDX			( 8*32+ 6) /* Intel Trusted Domain eXtensions */
 
 #define X86_FEATURE_VMMCALL		( 8*32+15) /* Prefer VMMCALL to VMCALL */
 #define X86_FEATURE_XENPV		( 8*32+16) /* "" Xen paravirtual guest */

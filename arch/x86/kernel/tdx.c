@@ -368,7 +368,7 @@ int tdx_hcall_request_gpa_type(phys_addr_t start, phys_addr_t end, bool enc)
 	 */
 	ret = _trace_tdx_hypercall(TDVMCALL_MAP_GPA, start, end - start,
 				   0, 0, NULL);
-	if (ret)
+	if (ret || tdx_fuzz_err(TDX_FUZZ_MAP_ERR))
 		ret = -EIO;
 
 	if (ret || !enc)
@@ -458,13 +458,15 @@ void __cpuidle tdx_safe_halt(void)
 static bool tdx_read_msr(unsigned int msr, u64 *val)
 {
 	struct tdx_hypercall_output out;
+	u64 ret;
 
 	/*
 	 * Emulate the MSR read via hypercall. More info about ABI
 	 * can be found in TDX Guest-Host-Communication Interface
 	 * (GHCI), sec titled "TDG.VP.VMCALL<Instruction.RDMSR>".
 	 */
-	if (_trace_tdx_hypercall(EXIT_REASON_MSR_READ, msr, 0, 0, 0, &out))
+	ret = _trace_tdx_hypercall(EXIT_REASON_MSR_READ, msr, 0, 0, 0, &out);
+	if (ret || tdx_fuzz_err(TDX_FUZZ_MSR_READ_ERR))
 		return false;
 
 	/* Should filter the MSRs to only fuzz host controlled */
@@ -511,7 +513,7 @@ static bool __tdx_write_msr(unsigned int msr, unsigned int low,
 	ret = _trace_tdx_hypercall(EXIT_REASON_MSR_WRITE, msr,
 				   (u64)high << 32 | low, 0, 0, NULL);
 
-	return ret ? false : true;
+	return ret || tdx_fuzz_err(TDX_FUZZ_MSR_WRITE_ERR) ? false : true;
 }
 
 static void notrace tdx_write_msr(unsigned int msr, u32 low, u32 high)
@@ -786,7 +788,8 @@ static bool tdx_handle_io(struct pt_regs *regs, u32 exit_qual)
 		return !ret;
 
 	regs->ax &= ~mask;
-	regs->ax |= tdx_fuzz(ret ? UINT_MAX : out.r11, TDX_FUZZ_PORT_IN) & mask;
+	regs->ax |= tdx_fuzz(ret || tdx_fuzz_err(TDX_FUZZ_PORT_IN_ERR) ?
+			     UINT_MAX : out.r11, TDX_FUZZ_PORT_IN) & mask;
 
 	return !ret;
 }

@@ -884,6 +884,13 @@ config INTEL_TDX_GUEST
 	  and the TD’s CPU state from other software, including VMM. TDX guest
 	  uses virtual X2APIC for interrupt management.
 
+config TDX_FUZZ
+	bool "Fuzzing support for TDX"
+	depends on INTEL_TDX_GUEST
+	select FAULT_INJECTION
+	help
+	  Support fuzzing of TDX guests against attacks from hosts
+
 endif #HYPERVISOR_GUEST
 
 source "arch/x86/Kconfig.cpu"

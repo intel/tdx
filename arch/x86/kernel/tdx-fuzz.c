@@ -13,6 +13,7 @@
 #include <linux/percpu.h>
 #include <linux/smp.h>
 #include <asm/tdx.h>
+#include <asm/trace/tdx.h>
 
 static DEFINE_PER_CPU(struct rnd_state, fuzz_rndstate);
 static DECLARE_FAULT_ATTR(tdx_fault);
@@ -39,6 +40,7 @@ static u64 __tdx_fuzz(u64 var, int bits, enum tdx_fuzz_loc loc)
 		for (i = 0; i < num_bits; i++)
 			var ^= 1ULL << (rnd[i] & (bits-1));
 	}
+	trace_tdx_fuzz((u64)__builtin_return_address(0), bits, oldvar, var, loc);
 	put_cpu();
 	return var;
 }
@@ -56,6 +58,7 @@ bool tdx_fuzz_err(enum tdx_fuzz_loc loc)
 	if (!fuzz_errors || !should_fail(&tdx_fault, 1))
 		return false;
 
+	trace_tdx_fuzz((u64)__builtin_return_address(0), 1, 0, 1, loc);
 	return true;
 }
 

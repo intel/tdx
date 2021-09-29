@@ -148,6 +148,51 @@ TRACE_EVENT(tdx_hypercall_exit,
 
 #endif // CONFIG_INTEL_TDX_GUEST
 
+#ifdef CONFIG_TDX_FUZZ
+
+TRACE_EVENT(tdx_fuzz,
+
+	TP_PROTO(u64 rip, unsigned bits, u64 oldval, u64 newval, int loc),
+
+	TP_ARGS(rip, bits, oldval, newval, loc),
+
+	TP_STRUCT__entry(
+		__field(u64, rip)
+		__field(unsigned, bits)
+		__field(u64, oldval)
+		__field(u64, newval)
+		__field(int, loc)
+	),
+
+	TP_fast_assign(
+		__entry->rip = rip;
+		__entry->bits = bits;
+		__entry->oldval = oldval;
+		__entry->newval = newval;
+		__entry->loc = loc;
+	),
+
+	TP_printk("rip %pF bits %u oldval %llx newval %llx loc %s",
+		(void *)__entry->rip,
+		__entry->bits,
+		__entry->oldval,
+		__entry->newval,
+		__print_symbolic(__entry->loc,
+				   { TDX_FUZZ_MSR_READ, "msr_read" },
+				   { TDX_FUZZ_MMIO_READ, "mmio_read" },
+				   { TDX_FUZZ_MSR_READ_ERR, "msr_read_err" },
+				   { TDX_FUZZ_MSR_WRITE_ERR, "msr_write_err" },
+				   { TDX_FUZZ_PORT_IN, "port_in" },
+				   { TDX_FUZZ_PORT_IN_ERR, "port_in_err" },
+				   { TDX_FUZZ_CPUID1, "cpuid1" },
+				   { TDX_FUZZ_CPUID2, "cpuid2" },
+				   { TDX_FUZZ_CPUID3, "cpuid3" },
+				   { TDX_FUZZ_CPUID4, "cpuid4" })
+	)
+);
+
+#endif
+
 #undef TRACE_INCLUDE_PATH
 #define TRACE_INCLUDE_PATH asm/trace/
 #undef TRACE_INCLUDE_FILE

@@ -42,6 +42,7 @@
 #include <asm/perf_event.h>
 #include <asm/x86_init.h>
 #include <linux/atomic.h>
+#include <asm/tdx_host.h>
 #include <asm/barrier.h>
 #include <asm/mpspec.h>
 #include <asm/i8259.h>
@@ -2425,6 +2426,19 @@ int generic_processor_info(int apicid, int version)
 
 		disabled_cpus++;
 		return -ENODEV;
+	}
+
+	/*
+	 * TDX (TDX module specification 344425-002US) doesn't support CPU
+	 * hotplug.  Prevent physical CPU hotplug if SEAM module has been
+	 * loaded.  Because TDX module loading happens after CPU bitmap
+	 * initialization, it's guaranteed that in CPU bitmap initialization at
+	 * early boot phase, this is always false.
+	 */
+	if (boot_cpu_has(X86_FEATURE_TDX)) {
+		pr_warn("APIC: TDX doesn't support physical CPU hotplug. apicid 0x%x\n",
+			apicid);
+		return -EIO;
 	}
 
 	/*

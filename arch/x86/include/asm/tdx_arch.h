@@ -9,9 +9,12 @@
 /*
  * TDX SEAMCALL API function leaves
  */
+#define SEAMCALL_TDH_SYS_KEY_CONFIG		31
 #define SEAMCALL_TDH_SYS_INFO			32
 #define SEAMCALL_TDH_SYS_INIT			33
 #define SEAMCALL_TDH_SYS_LP_INIT		35
+#define SEAMCALL_TDH_SYS_TDMR_INIT		36
+#define SEAMCALL_TDH_SYS_CONFIG			45
 
 /*
  * Hard code those values.  They are constant for the current TDX version.
@@ -44,6 +47,7 @@ struct tdmr_reserved_area {
 	u64 size;
 } __packed;
 
+#define TDX_TDMR_ADDR_ALIGNMENT	512
 #define TDX_TDMR_INFO_ALIGNMENT	512
 struct tdmr_info {
 	u64 base;

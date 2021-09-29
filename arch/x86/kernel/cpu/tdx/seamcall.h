@@ -37,6 +37,11 @@ struct tdx_ex_ret {
 			u64 cmr_info;
 			u64 nr_cmr_entries;
 		} sys_info;
+		/* TDH_SYS_TDMR_INIT returns the input PA and next PA. */
+		struct {
+			u64 prev;
+			u64 next;
+		} sys_tdmr_init;
 	};
 };
 

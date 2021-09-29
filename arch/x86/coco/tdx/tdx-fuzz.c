@@ -17,6 +17,7 @@
 static DEFINE_PER_CPU(struct rnd_state, fuzz_rndstate);
 static DECLARE_FAULT_ATTR(tdx_fault);
 static bool fuzz_tdcall;
+static bool fuzz_errors;
 static u16 fuzz_num_bits = 2;
 static bool fuzz_early_seed;
 
@@ -48,6 +49,14 @@ u64 tdx_fuzz(u64 var, enum tdx_fuzz_loc loc)
 		return var;
 
 	return __tdx_fuzz(var, BITS_PER_LONG, loc);
+}
+
+bool tdx_fuzz_err(enum tdx_fuzz_loc loc)
+{
+	if (!fuzz_errors || !should_fail(&tdx_fault, 1))
+		return false;
+
+	return true;
 }
 
 static void fuzz_init_seed(unsigned long seed)
@@ -84,6 +93,12 @@ static int __init tdx_fuzz_setup(char *str)
 		if (*str == ',')
 			str++;
 	}
+	if (sscanf(str, "tderrors%n", &off) == 1) {
+		fuzz_errors = true;
+		str += off;
+		if (*str == ',')
+			str++;
+	}
 	if (sscanf(str, "numbits:%hu", &fuzz_num_bits) == 1) {
 		str += off;
 		if (*str == ',')
@@ -106,6 +121,7 @@ static int __init tdx_fuzz_init(void)
 	debugfs_remove(debugfs_lookup("verbose", dbp));
 
 	debugfs_create_bool("tdcall", 0600, dbp, &fuzz_tdcall);
+	debugfs_create_bool("tderrors", 0600, dbp, &fuzz_errors);
 	debugfs_create_u16("num_change_bits", 0600, dbp, &fuzz_num_bits);
 	debugfs_create_file("seed", 0200, dbp, NULL, &fuzz_seed_fops);
 

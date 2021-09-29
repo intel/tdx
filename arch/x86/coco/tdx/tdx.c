@@ -368,13 +368,15 @@ static int read_msr(struct pt_regs *regs, struct ve_info *ve)
 		.r11 = hcall_func(EXIT_REASON_MSR_READ),
 		.r12 = regs->cx,
 	};
+	u64 ret;
 
 	/*
 	 * Emulate the MSR read via hypercall. More info about ABI
 	 * can be found in TDX Guest-Host-Communication Interface
 	 * (GHCI), section titled "TDG.VP.VMCALL<Instruction.RDMSR>".
 	 */
-	if (__trace_tdx_hypercall_ret(&args))
+	ret = __trace_tdx_hypercall_ret(&args);
+	if (ret || tdx_fuzz_err(TDX_FUZZ_MSR_READ_ERR))
 		return -EIO;
 
 	/* Should filter the MSRs to only fuzz host controlled */
@@ -392,13 +394,15 @@ static int write_msr(struct pt_regs *regs, struct ve_info *ve)
 		.r12 = regs->cx,
 		.r13 = (u64)regs->dx << 32 | regs->ax,
 	};
+	u64 ret;
 
 	/*
 	 * Emulate the MSR write via hypercall. More info about ABI
 	 * can be found in TDX Guest-Host-Communication Interface
 	 * (GHCI) section titled "TDG.VP.VMCALL<Instruction.WRMSR>".
 	 */
-	if (__trace_tdx_hypercall(&args))
+	ret = __trace_tdx_hypercall(&args);
+	if (ret || tdx_fuzz_err(TDX_FUZZ_MSR_WRITE_ERR))
 		return -EIO;
 
 	return ve_instr_len(ve);
@@ -591,7 +595,8 @@ static bool handle_in(struct pt_regs *regs, int size, int port)
 	 * in TDX Guest-Host-Communication Interface (GHCI) section titled
 	 * "TDG.VP.VMCALL<Instruction.IO>".
 	 */
-	success = !__trace_tdx_hypercall_ret(&args);
+	success = !__trace_tdx_hypercall_ret(&args) &&
+		  !tdx_fuzz_err(TDX_FUZZ_PORT_IN_ERR);
 
 	/* Update part of the register affected by the emulated instruction */
 	regs->ax &= ~mask;
@@ -851,6 +856,7 @@ static bool tdx_enc_status_changed(unsigned long vaddr, int numpages, bool enc)
 {
 	phys_addr_t start = __pa(vaddr);
 	phys_addr_t end   = __pa(vaddr + numpages * PAGE_SIZE);
+	u64 ret;
 
 	if (!enc) {
 		/* Set the shared (decrypted) bits: */
@@ -863,7 +869,8 @@ static bool tdx_enc_status_changed(unsigned long vaddr, int numpages, bool enc)
 	 * can be found in TDX Guest-Host-Communication Interface (GHCI),
 	 * section "TDG.VP.VMCALL<MapGPA>"
 	 */
-	if (_tdx_hypercall(TDVMCALL_MAP_GPA, start, end - start, 0, 0))
+	ret = _tdx_hypercall(TDVMCALL_MAP_GPA, start, end - start, 0, 0);
+	if (ret || tdx_fuzz_err(TDX_FUZZ_MAP_ERR))
 		return false;
 
 	/* private->shared conversion  requires only MapGPA call */

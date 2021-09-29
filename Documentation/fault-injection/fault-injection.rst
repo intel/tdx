@@ -61,6 +61,11 @@ Available fault injection capabilities
   inject init_hctx() errors by setting config items under
   /sys/kernel/config/nullb/<disk>/init_hctx_fault_inject.
 
+- fail_tdx
+
+  inject errors and flipped bits into Intel TDX TDCALL responses.
+
+
 Configure fault-injection capabilities behavior
 -----------------------------------------------
 
@@ -208,6 +213,25 @@ configuration of fault-injection capabilities.
 	use a negative errno, you better use 'printf' instead of 'echo', e.g.:
 	$ printf %#x -12 > retval
 
+- /sys/kernel/debug/fail_tdx/tdcall
+
+	enable flipping bits in TDX TDCALL responses
+
+- /sys/kernel/debug/fail_tdx/tderrors
+
+	enable injecting errors in TDX TDCALL responses
+
+- /sys/kernel/debug/fail_tdx/seed
+
+	set seed for random generator used for flipping bits in TDX TDCALL
+	responses. Note that each CPU has its own independent random generator.
+
+- /sys/kernel/debug/fail_tdx/num_change_bits
+
+	number of bits to change with tdcall=1 in TDX TDCALL responses.
+	when set to 64 the whole value is replaced with a randon number.
+	otherwise the number of bits specified are randomly flipped.
+
 Boot option
 ^^^^^^^^^^^
 
@@ -220,6 +244,8 @@ use the boot option::
 	fail_make_request=
 	fail_futex=
 	mmc_core.fail_request=<interval>,<probability>,<space>,<times>
+
+        fail_tdx= [seed:N,][tdcall:1,][tderrors:1,][numbits:XX],<interval>,<probability>,<space>,<times>
 
 proc entries
 ^^^^^^^^^^^^

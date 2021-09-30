@@ -446,11 +446,28 @@ static int acpi_bert_data_init(void *th, struct acpi_data_attr *data_attr)
 	return sysfs_create_bin_file(tables_data_kobj, &data_attr->attr);
 }
 
+static int acpi_tdel_data_init(void *th, struct acpi_data_attr *data_attr)
+{
+	struct acpi_table_tdel *tdel = th;
+
+	if (tdel->header.length < sizeof(struct acpi_table_tdel) ||
+	    !(tdel->log_area_address) || !(tdel->log_area_length)) {
+		kfree(data_attr);
+		return -EINVAL;
+	}
+	data_attr->addr = tdel->log_area_address;
+	data_attr->attr.size = tdel->log_area_length;
+	data_attr->attr.attr.name = "TDEL";
+
+	return sysfs_create_bin_file(tables_data_kobj, &data_attr->attr);
+}
+
 static struct acpi_data_obj {
 	char *name;
 	int (*fn)(void *, struct acpi_data_attr *);
 } acpi_data_objs[] = {
 	{ ACPI_SIG_BERT, acpi_bert_data_init },
+	{ ACPI_SIG_TDEL, acpi_tdel_data_init },
 };
 
 #define NUM_ACPI_DATA_OBJS ARRAY_SIZE(acpi_data_objs)

@@ -42,6 +42,7 @@
 #define ACPI_SIG_WSMT           "WSMT"	/* Windows SMM Security Mitigations Table */
 #define ACPI_SIG_XENV           "XENV"	/* Xen Environment table */
 #define ACPI_SIG_XXXX           "XXXX"	/* Intermediate AML header for ASL/ASL+ converter */
+#define ACPI_SIG_TDEL           "TDEL"	/* Intel Trust Domain Event Log table */
 
 /*
  * All tables must be byte-packed to match the ACPI specification, since
@@ -468,6 +469,22 @@ struct acpi_tpm2_arm_smc {
 /* Values for operation_flags above */
 
 #define ACPI_TPM2_IDLE_SUPPORT          (1)
+
+/*******************************************************************************
+ *
+ * TDEL - Trust Domain Event Log Table
+ *
+ * Conforms to Intel TDX GHCI Specification
+ * Version 1, Sep 2021
+ *
+ ******************************************************************************/
+
+struct acpi_table_tdel {
+	struct acpi_table_header header;    /* Common ACPI table header */
+	u32 reserved;
+	u64 log_area_length;    /* Log area minimum length */
+	u64 log_area_address;   /* Log area start address */
+};
 
 /*******************************************************************************
  *

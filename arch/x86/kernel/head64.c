@@ -40,6 +40,7 @@
 #include <asm/extable.h>
 #include <asm/trapnr.h>
 #include <asm/sev.h>
+#include <asm/tdx.h>
 
 /*
  * Manage page tables very early on.
@@ -499,6 +500,14 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 	idt_setup_early_handler();
 
 	copy_bootdata(__va(real_mode_data));
+
+	/*
+	 * A future dependency on cmdline parameters is expected (for
+	 * adding debug options). So the order of calling it should be
+	 * after copy_bootdata() (in which command line parameter is
+	 * initialized).
+	 */
+	tdx_early_init();
 
 	/*
 	 * Load microcode early on BSP.

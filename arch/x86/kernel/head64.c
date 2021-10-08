@@ -40,6 +40,7 @@
 #include <asm/extable.h>
 #include <asm/trapnr.h>
 #include <asm/sev.h>
+#include <asm/tdx.h>
 
 /*
  * Manage page tables very early on.
@@ -515,6 +516,9 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 	idt_setup_early_handler();
 
 	copy_bootdata(__va(real_mode_data));
+
+	/* Needed before cc_platform_has() can be used for TDX */
+	tdx_early_init();
 
 	/*
 	 * Load microcode early on BSP.

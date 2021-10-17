@@ -112,9 +112,27 @@ static int __init np_seamldr_die_notify(struct notifier_block *nb,
 {
 	struct die_args *die_args = args;
 	struct pt_regs *regs = die_args->regs;
+	unsigned int ds, es, fs, gs, ss, cs;
+
+	pr_err("%s:%d FSGSBASE cmd %ld trapnr %d err 0x%lx\n",
+	       __func__, __LINE__, cmd, die_args->trapnr, die_args->err);
+	pr_err("%s:%d FSGSBASE 0x%lx %pS\n",
+		__func__, __LINE__, regs->ip, (void *)regs->ip);
+	savesegment(ds, ds);
+	savesegment(es, es);
+	savesegment(fs, fs);
+	savesegment(gs, gs);
+	savesegment(ss, ss);
+	savesegment(cs, cs);
+	pr_err("%s:%d ds 0x%x es 0x%x fs 0x%x gs 0x%x ss 0x%x cs 0x%x\n",
+		__func__, __LINE__, ds, es, fs, gs, ss, cs);
+	pr_err("die_notifier:cs 0x%lx ss 0x%lx KERNEL_CS 0x%x KERNEL_DS 0x%x\n",
+		regs->cs, regs->ss, __KERNEL_CS, __KERNEL_DS);
+	pr_err("np_seamldr_saved_cr4 0x%lx\n", np_seamldr_saved_cr4);
 
 	if (cmd == DIE_TRAP && die_args->trapnr == X86_TRAP_UD &&
 	    np_seamldr_saved_cr4) {
+		pr_err("rdfsbase\n");
 		/*
 		 * #UD on rdfsbase/wrfsbase due to CR4.FSGSBASE = 0. Forcibly
 		 * restore CR4 to the saved one.
@@ -146,6 +164,9 @@ static int __init np_seamldr_die_notify(struct notifier_block *nb,
 		};
 		struct iretq_frame *iret = (struct iretq_frame *)regs->sp;
 
+		pr_err("GFP iret\n");
+		pr_err("ip 0x%lx %pS cs 0x%lx ss 0x%lx\n",
+			iret->ip, (void *)iret->ip, iret->cs, iret->ss);
 		regs->cs = __KERNEL_CS;
 		iret->cs = __KERNEL_CS;
 		iret->ss = __KERNEL_DS;
@@ -188,6 +209,23 @@ static u64 __init __p_seamldr_load(void *np_seamldr,
 
 	u64 err;
 
+	unsigned int ds, es, fs, gs, ss, cs;
+
+	savesegment(ds, ds);
+	savesegment(es, es);
+	savesegment(fs, fs);
+	savesegment(gs, gs);
+	savesegment(ss, ss);
+	savesegment(cs, cs);
+	pr_err("ds 0x%x es 0x%x fs 0x%x gs 0x%x ss 0x%x cs 0x%x\n",
+		ds, es, fs, gs, ss, cs);
+	pr_err("fsbase 0x%lx gsbase 0x%lx\n", rdfsbase(), rdgsbase());
+	pr_err("nmi before 0\n");
+	apic->send_IPI(0, NMI_VECTOR);
+	pr_err("nmi before 1\n");
+	apic->send_IPI_self(NMI_VECTOR);
+	pr_err("nmi before 2\n");
+
 	debugctlmsr = get_debugctlmsr();
 	if (boot_cpu_has(X86_FEATURE_ARCH_PERFMON)) {
 		eax.full = cpuid_eax(0xa);
@@ -227,6 +265,12 @@ static u64 __init __p_seamldr_load(void *np_seamldr,
 		wrmsrl(MSR_IA32_RTIT_CTL, rtit_ctl);
 	if (boot_cpu_has(X86_FEATURE_ARCH_LBR))
 		wrmsrl(MSR_ARCH_LBR_CTL, arch_lbr);
+
+	pr_err("nmi after 0\n");
+	apic->send_IPI(0, NMI_VECTOR);
+	pr_err("nmi after 1\n");
+	apic->send_IPI_self(NMI_VECTOR);
+	pr_err("nmi after 2\n");
 
 	return err;
 }

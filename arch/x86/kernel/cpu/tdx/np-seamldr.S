@@ -144,6 +144,20 @@ SYM_FUNC_START(np_seamldr_launch)
 
 .Lseamldr_resume:
 	UNWIND_HINT_EMPTY
+
+1:
+	movq	$0x400, %rax
+	movq	$0x0, %rdx
+	movl	$0x830, %ecx
+	wrmsr
+
+	movq	$0x2, %rax
+	movq	$0x0, %rdx
+	movl	$0x83f, %ecx
+	wrmsr
+
+2:
+	UNWIND_HINT_EMPTY
 	/*
 	 * The NP-SEAMLDR restores CRs, GDT, and IDT.  Segment registers are
 	 * flat, but don't necessarily hold valid kernel selectors.  Reload the
@@ -235,7 +249,7 @@ SYM_FUNC_START(np_seamldr_launch)
 	 */
 1:
 	movq	$-EFAULT, %r9
-	jmp	.Lseamldr_resume
+	jmp	2b
 .popsection
 	_ASM_EXTABLE(.Lseamldr_enteraccs, 1b)
 

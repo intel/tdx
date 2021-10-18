@@ -40,6 +40,8 @@ static int tdx_sysfs_init(void);
 static inline int tdx_sysfs_init(void) { return 0;}
 #endif
 
+bool tdx_tsx_supported __read_mostly;
+EXPORT_SYMBOL_GPL(tdx_tsx_supported);
 u32 tdx_global_keyid __ro_after_init;
 EXPORT_SYMBOL_GPL(tdx_global_keyid);
 static u32 tdx_guest_keyid_start __ro_after_init;
@@ -282,8 +284,11 @@ out:
 	return ret;
 }
 
+#define MSR_TSX_CTRL_MASK       (TSX_CTRL_RTM_DISABLE | TSX_CTRL_CPUID_CLEAR)
+
 static int try_init_module_global(void)
 {
+	u64 seamcall_ret;
 	u64 tsx_ctrl;
 	int ret;
 
@@ -299,10 +304,26 @@ static int try_init_module_global(void)
 		goto out;
 	}
 
+	/*
+	 * Determine if TDX module supports TSX or not.
+	 * Before 1.0.3.3: TSX isn't supported.
+	 * TDH.SYS.INIT() requires TSX_CTRL=0 otherwise TDX_INCORRECT_MSR_VALUE
+	 *
+	 * After 1.0.3.3: TSX is supported.
+	 * TDH.SYS.INIT() accepts any value of TSX_CTRL.
+	 * TDH.SYS.LP.INIT() requires TSX_CTRL is the same value of TDH.SYS.INIT()
+	 */
+	rdmsrl(MSR_IA32_TSX_CTRL, tsx_ctrl);
+	wrmsrl(MSR_IA32_TSX_CTRL, tsx_ctrl | MSR_TSX_CTRL_MASK);
 	/* All '0's are just unused parameters. */
-	tsx_ctrl = tsx_ctrl_clear();
-	ret = seamcall(TDH_SYS_INIT, 0, 0, 0, 0, NULL, NULL);
-	tsx_ctrl_restore(tsx_ctrl);
+	ret = seamcall(TDH_SYS_INIT, 0, 0, 0, 0, &seamcall_ret, NULL);
+	if (seamcall_ret == TDX_INCORRECT_CPUID_VALUE ||
+	    seamcall_ret == (TDX_INCORRECT_MSR_VALUE | MSR_TSX_CTRL_MASK)) {
+		(void)tsx_ctrl_clear();
+		ret = seamcall(TDH_SYS_INIT, 0, 0, 0, 0, NULL, NULL);
+	} else if (!ret)
+		tdx_tsx_supported = true;
+	wrmsrl(MSR_IA32_TSX_CTRL, tsx_ctrl);
 
 	tdx_global_init_status = TDX_GLOBAL_INIT_DONE;
 	if (ret)
@@ -357,10 +378,16 @@ int tdx_cpu_enable(void)
 	if (ret)
 		goto update_status;
 
-	tsx_ctrl = tsx_ctrl_clear();
+	rdmsrl(MSR_IA32_TSX_CTRL, tsx_ctrl);
+	if (tdx_tsx_supported) {
+		/* TSX_CTRL must have the same value at TDH.SYS.INIT(). */
+		wrmsrl(MSR_IA32_TSX_CTRL, tsx_ctrl | MSR_TSX_CTRL_MASK);
+	} else
+		/* Pre 1.0.3.3, TSX_CTRL must be 0. */
+		(void)tsx_ctrl_clear();
 	/* All '0's are just unused parameters */
 	ret = seamcall(TDH_SYS_LP_INIT, 0, 0, 0, 0, NULL, NULL);
-	tsx_ctrl_restore(tsx_ctrl);
+	wrmsrl(MSR_IA32_TSX_CTRL, tsx_ctrl);
 
 update_status:
 	lp_status = TDX_LP_INIT_DONE;

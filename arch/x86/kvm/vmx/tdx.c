@@ -4,6 +4,7 @@
 
 #include <asm/fpu/xcr.h>
 #include <asm/virtext.h>
+#include <asm/cpu.h>
 #include <asm/tdx.h>
 
 #include "capabilities.h"
@@ -846,6 +847,16 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 
 		kvm_wait_lapic_expire(vcpu);
 	}
+
+	/*
+	 * TDH.VP.ENTER has special environment requirements that
+	 * RTM_DISABLE(bit 0) and TSX_CPUID_CLEAR(bit 1) of IA32_TSX_CTRL must
+	 * be 0 if it's supported.
+	 * MSR_IA32_TSX_CTRL is restored by user return msrs callback which is
+	 * enabled by tdx_user_return_update_cache().
+	 */
+	(void)tsx_ctrl_clear();
+	to_kvm_tdx(vcpu->kvm)->tsx_ctrl_value = 0;
 
 	tdx_vcpu_enter_exit(vcpu, tdx);
 

@@ -9,6 +9,7 @@
 #include <asm/kvm_boot.h>
 #include <asm/kvm_host.h>
 #include <asm/cacheflush.h>
+#include <asm/cpu.h>
 
 #include "tdx_errno.h"
 
@@ -520,14 +521,46 @@ static inline u64 tdh_sys_info(hpa_t tdsysinfo, int nr_bytes, hpa_t cmr_info,
 	seamcall_4_4(TDH_SYS_INFO, tdsysinfo, nr_bytes, cmr_info, nr_cmr_entries, ex);
 }
 
-static inline u64 tdh_sys_init(u64 attributes, struct tdx_ex_ret *ex)
+static inline u64 __tdh_sys_init(u64 attributes, struct tdx_ex_ret *ex)
 {
 	seamcall_1_5(TDH_SYS_INIT, attributes, ex);
 }
 
-static inline u64 tdh_sys_lp_init(struct tdx_ex_ret *ex)
+static inline u64 tdh_sys_init(u64 attributes, struct tdx_ex_ret *ex)
+{
+	u64 tsx_ctrl, ret;
+
+	/*
+	 * tdh_sys_init() has special environment requirements that
+	 * RTM_DISABLE(bit 0) and TSX_CPUID_CLEAR(bit 1) of IA32_TSX_CTRL must
+	 * be 0 if it's supported.
+	 */
+	tsx_ctrl = tsx_ctrl_clear();
+	ret = __tdh_sys_init(attributes, ex);
+	tsx_ctrl_restore(tsx_ctrl);
+
+	return ret;
+}
+
+static inline u64 __tdh_sys_lp_init(struct tdx_ex_ret *ex)
 {
 	seamcall_0_3(TDH_SYS_LP_INIT, ex);
+}
+
+static inline u64 tdh_sys_lp_init(struct tdx_ex_ret *ex)
+{
+	u64 tsx_ctrl, ret;
+
+	/*
+	 * tdh_sys_init() has special environment requirements that
+	 * RTM_DISABLE(bit 0) and TSX_CPUID_CLEAR(bit 1) of IA32_TSX_CTRL must
+	 * be 0 if it's supported.
+	 */
+	tsx_ctrl = tsx_ctrl_clear();
+	ret = __tdh_sys_lp_init(ex);
+	tsx_ctrl_restore(tsx_ctrl);
+
+	return ret;
 }
 
 static inline u64 tdh_sys_tdmr_init(hpa_t tdmr, struct tdx_ex_ret *ex)

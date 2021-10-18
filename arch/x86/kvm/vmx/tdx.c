@@ -873,12 +873,21 @@ static void tdx_flush_gprs_dirty(struct kvm_vcpu *vcpu, bool force);
 static noinstr void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 					struct vcpu_tdx *tdx)
 {
+	u64 tsx_ctrl;
+
+	/*
+	 * TDH.VP.ENTER has special environment requirements that
+	 * RTM_DISABLE(bit 0) and TSX_CPUID_CLEAR(bit 1) of IA32_TSX_CTRL must
+	 * be 0 if it's supported.
+	 */
+	tsx_ctrl = tsx_ctrl_clear();
 	kvm_guest_enter_irqoff();
 
 	tdx->exit_reason.full = __tdx_vcpu_run(tdx->tdvpr.pa, vcpu->arch.regs,
 					       tdx->tdvmcall.regs_mask);
 
 	kvm_guest_exit_irqoff();
+	tsx_ctrl_restore(tsx_ctrl);
 }
 
 fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)

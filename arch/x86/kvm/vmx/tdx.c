@@ -4,6 +4,7 @@
 
 #include <asm/fpu/xcr.h>
 #include <asm/virtext.h>
+#include <asm/cpu.h>
 #include <asm/tdx.h>
 
 #include "capabilities.h"
@@ -807,6 +808,14 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 		kvm_wait_lapic_expire(vcpu);
 	}
 
+	/*
+	 * TDH.VP.ENTER has special environment requirements that
+	 * RTM_DISABLE(bit 0) and TSX_CPUID_CLEAR(bit 1) of IA32_TSX_CTRL must
+	 * be 0 if it's supported.
+	 * MSR_IA32_TSX_CTRL is restored by user return msrs callback which is
+	 * enabled by tdx_user_return_update_cache().
+	 */
+	(void)tsx_ctrl_clear();
 	tdx_vcpu_enter_exit(vcpu, tdx);
 
 	tdx_user_return_update_cache();
@@ -2917,6 +2926,11 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 				tdx_uret_msrs[i].msr);
 			return -EIO;
 		}
+	}
+	if (kvm_find_user_return_msr(MSR_IA32_TSX_CTRL) == -1) {
+		pr_err("MSR %x isn't included by kvm_find_user_return_msr\n",
+		       MSR_IA32_TSX_CTRL);
+		return -EIO;
 	}
 
 	max_pkgs = topology_max_packages();

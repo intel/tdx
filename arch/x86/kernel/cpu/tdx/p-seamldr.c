@@ -7,10 +7,13 @@
 #include <linux/memblock.h>
 #include <linux/slab.h>
 
+#include <asm/debugreg.h>
 #include <asm/cmdline.h>
 #include <asm/virtext.h>
 #include <asm/trapnr.h>
+#include <asm/perf_event.h>
 
+#include "../../events/perf_event.h"
 #include "p-seamldr.h"
 #include "seamcall.h"
 #include "seam.h"
@@ -123,6 +126,78 @@ static int __init np_seamldr_die_notify(struct notifier_block *nb,
 static struct notifier_block np_seamldr_die_notifier __initdata = {
 	.notifier_call = np_seamldr_die_notify,
 };
+
+asmlinkage u64 __init np_seamldr_launch(unsigned long seamldr_pa,
+					unsigned long seamldr_size);
+
+static u64 __init __p_seamldr_load(void *np_seamldr,
+				unsigned long np_seamldr_size)
+{
+	/*
+	 * The NP-SEAMLDR will clobber some MSRs and DR7.  Save and restore
+	 * them.
+	 */
+	unsigned long debugctlmsr;
+
+	bool has_core_perf_global_ctrl = false;
+	union cpuid10_eax eax;
+	unsigned long core_perf_global_ctrl;
+
+	bool has_pebs_enable = false;
+	union perf_capabilities perf_cap;
+	unsigned long pebs_enable;
+
+	unsigned long rtit_ctl;
+	unsigned long arch_lbr;
+	unsigned long misc_enable;
+	unsigned long efer;
+	unsigned long cr_pat;
+	unsigned long dr7;
+
+	u64 err;
+
+	debugctlmsr = get_debugctlmsr();
+	if (boot_cpu_has(X86_FEATURE_ARCH_PERFMON)) {
+		eax.full = cpuid_eax(0xa);
+		if (eax.split.version_id > 0) {
+			has_core_perf_global_ctrl = true;
+			rdmsrl(MSR_CORE_PERF_GLOBAL_CTRL, core_perf_global_ctrl);
+		}
+	}
+	if (boot_cpu_has(X86_FEATURE_PDCM)) {
+		rdmsrl(MSR_IA32_PERF_CAPABILITIES, perf_cap.capabilities);
+		if (perf_cap.pebs_baseline) {
+			has_pebs_enable = true;
+			rdmsrl(MSR_IA32_PEBS_ENABLE, pebs_enable);
+		}
+	}
+	if (boot_cpu_has(X86_FEATURE_INTEL_PT))
+		rdmsrl(MSR_IA32_RTIT_CTL, rtit_ctl);
+	if (boot_cpu_has(X86_FEATURE_ARCH_LBR))
+		rdmsrl(MSR_ARCH_LBR_CTL, arch_lbr);
+	rdmsrl(MSR_IA32_MISC_ENABLE, misc_enable);
+	rdmsrl(MSR_EFER, efer);
+	rdmsrl(MSR_IA32_CR_PAT, cr_pat);
+	dr7 = local_db_save();
+
+	err = np_seamldr_launch(__pa(np_seamldr), np_seamldr_size);
+
+	local_db_restore(dr7);
+	wrmsrl(MSR_IA32_CR_PAT, cr_pat);
+	wrmsrl(MSR_EFER, efer);
+	wrmsrl(MSR_IA32_MISC_ENABLE, misc_enable);
+	update_debugctlmsr(debugctlmsr);
+	if (has_core_perf_global_ctrl)
+		wrmsrl(MSR_CORE_PERF_GLOBAL_CTRL, core_perf_global_ctrl);
+	if (has_pebs_enable)
+		wrmsrl(MSR_IA32_PEBS_ENABLE, pebs_enable);
+	if (boot_cpu_has(X86_FEATURE_INTEL_PT))
+		wrmsrl(MSR_IA32_RTIT_CTL, rtit_ctl);
+	if (boot_cpu_has(X86_FEATURE_ARCH_LBR))
+		wrmsrl(MSR_ARCH_LBR_CTL, arch_lbr);
+
+	return err;
+}
 
 /*
  * load_p_seamldr() - load P-SEAMLDR

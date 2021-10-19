@@ -9,6 +9,8 @@
 
 #include <asm/debugreg.h>
 #include <asm/cmdline.h>
+#include <asm/delay.h>
+#include <asm/apic.h>
 #include <asm/virtext.h>
 #include <asm/trapnr.h>
 #include <asm/perf_event.h>
@@ -200,6 +202,125 @@ static u64 __init __p_seamldr_load(void *np_seamldr,
 }
 
 /*
+ * p_seamldr_load - load the P-SEAMLDR by launching the NP-SEAMLDR ACM.
+ * @np_seamldr: cpio data to np_sealdr image
+ * @return: 0 on success, error code on failure.
+ *
+ * Put all APs into Wait-For-SIPI state and then, launch Authenticated Code
+ * Module(ACM) by invoking GETSEC[EnterACCS] on BSP.  It's caller's
+ * responsibility to ensure that all the APs are safe to receive INIT.
+ * Call this function before SMP initialization smp_init() (or ensure all
+ * the APs are offline with CPU lock held.)
+ *
+ * KASAN thinks that memcpy from initrd image via cpio_data is invalid access
+ * because the boot loader allocates the region of initrd image.  Not by the
+ * kernel memory allocator.  Add the annotation of __no_sanitize_address to
+ * apiece KASAN.
+ */
+static int __init __no_sanitize_address
+p_seamldr_load(struct cpio_data *cpio_np_seamldr)
+{
+	unsigned long np_seamldr_size = cpio_np_seamldr->size;
+	void *np_seamldr;
+	u32 icr_busy;
+	int enteraccs_attempts = 10;
+	int ret;
+	u64 err;
+
+	if (!np_seamldr_size) {
+		pr_info("Invalid NP-SEAMLDR ACM size\n");
+		return -EINVAL;
+	}
+
+	/* GETSEC[EnterACCS] requires the ACM to be 4k aligned and below 4G. */
+	np_seamldr = alloc_pages_exact(np_seamldr_size,
+				GFP_KERNEL | __GFP_DMA32);
+	if (!np_seamldr) {
+		pr_info("failed to allocate memory for NP-SEAMLDR ACM. size 0x%lx\n",
+			np_seamldr_size);
+		return -ENOMEM;
+	}
+
+	/*
+	 * KASAN thinks that (cpio_np_seamldr->data, cpio_np_seamldr->data)
+	 * is invalid address because the region comes from the initrd placed
+	 * by boot loader, not by the kernel memory allocator.
+	 */
+	memcpy(np_seamldr, cpio_np_seamldr->data, np_seamldr_size);
+
+	/*
+	 * Because this is early boot phase, it's assumed that VMX isn't enabled
+	 * yet. (kvm_intel.ko isn't loaded yet.) SEAMLDR spec requires VMXOFF on
+	 * all LPs.
+	 *
+	 * When normal (re)boot, VMX is off as reset value..  Also in kexec
+	 * case, VMX is also disabled by cpu_emergency_vmxoff() on reboot.
+	 */
+	WARN_ON(__read_cr4() & X86_CR4_VMXE);
+
+	ret = -EIO;
+	/* Ensure APs are in Wait-For-SIPI. */
+	apic_icr_write(APIC_DEST_ALLBUT | APIC_INT_LEVELTRIG | APIC_INT_ASSERT |
+		       APIC_DM_INIT, 0);
+	icr_busy = safe_apic_wait_icr_idle();
+	if (WARN_ON(icr_busy))
+		goto out;
+
+	apic_icr_write(APIC_DEST_ALLBUT | APIC_INT_LEVELTRIG | APIC_DM_INIT, 0);
+	icr_busy = safe_apic_wait_icr_idle();
+	if (WARN_ON(icr_busy))
+		goto out;
+
+	ret = register_die_notifier(&np_seamldr_die_notifier);
+	if (ret)
+		goto out_unregister;
+
+	while (1) {
+		err = __p_seamldr_load(np_seamldr, np_seamldr_size);
+
+		/*
+		 * P_SEAMLDR was already loaded.  For example in the case of
+		 * kexec reboot.  Re-use the already loaded one.
+		 */
+		if (err == NP_SEAMLDR_EMODBUSY) {
+			pr_info("P-SEAMLDR was already loaded. reusing it.\n");
+			err = 0;
+			break;
+		}
+
+		/*
+		 * Gracefully handle special error cases.
+		 * - NP_SEAMLDR_EUNSPECERR: entropy is lacking.
+		 * - -EFAULT: #GPs on EnterACCS due to APs not in Wait-For-SIPI
+		 *    state.  EnterACCS requires APs to be in Wait-For-SIPI
+		 *    state, but doesn't provide any way for software to confirm
+		 *    APs are in Wait-For-SIPI state, i.e. try-catch is sadly
+		 *    the most optimal approach.
+		 */
+		if (err != NP_SEAMLDR_EUNSPECERR && err != -EFAULT)
+			break;
+
+		/* reach retry limit */
+		if (WARN_ON(!enteraccs_attempts--))
+			break;
+
+		/*
+		 * Wait for APs to be in Wait-For-SIPI state or for enough
+		 * entropy.
+		 */
+		udelay(1 * USEC_PER_MSEC);
+	}
+	pr_info("Launch NP-SEAMLDR returned 0x%llx\n", err);
+	ret = err ? -EIO : 0;
+
+out_unregister:
+	unregister_die_notifier(&np_seamldr_die_notifier);
+out:
+	free_pages_exact(np_seamldr, np_seamldr_size);
+	return ret;
+}
+
+/*
  * load_p_seamldr() - load P-SEAMLDR
  *
  * Call this function
@@ -226,8 +347,15 @@ int __init load_p_seamldr(void)
 		return -ENOENT;
 	}
 
-	/* TODO: Launch NP-SEAMLDR */
+	pr_info("Loading TDX P-SEAMLDR %s.\n", np_seamldr_name);
+	err = p_seamldr_load(&np_seamldr);
 	if (np_seamldr_len)
 		memblock_free_late(__pa(np_seamldr_name), np_seamldr_len);
+	if (err) {
+		pr_err("failed to load TDX P-SEAMLDR\n");
+		return err;
+	}
+
+	pr_info("Successfully loaded TDX P-SEAMLDR.\n");
 	return 0;
 }

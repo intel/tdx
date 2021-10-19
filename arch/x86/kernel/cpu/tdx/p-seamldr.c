@@ -7,6 +7,7 @@
 #include <linux/slab.h>
 
 #include <asm/trace/seam.h>
+#include <asm/debugreg.h>
 #include <asm/virtext.h>
 
 #include "p-seamldr.h"
@@ -88,6 +89,43 @@ out:
 		kfree(p_seamldr_info); /* kfree() is NULL-safe. */
 		p_seamldr_info = NULL;
 	}
+	return err;
+}
+
+extern u64 __init np_seamldr_launch(unsigned long seamldr_pa,
+				unsigned long seamldr_size);
+
+static u64 __init __p_seamldr_load(void *np_seamldr,
+				unsigned long np_seamldr_size)
+{
+	/*
+	 * The np_seamldr_launch() clobbers some MSRs and DR7.  Save and restore
+	 * them.
+	 *
+	 * No need to save and restore MSR_CORE_PERF_GLOBAL_CTRL,
+	 * MSR_IA32_PEBS_ENABLE, MSR_IA32_RTIT_CTL, and MSR_ARCH_LBR_CTL because
+	 * it's before those features are discovered and used.  Later they will
+	 * be initialized.
+	 */
+	unsigned long dr7;
+	unsigned long misc_enable;
+	unsigned long efer;
+	unsigned long cr_pat;
+
+	u64 err;
+
+	get_debugreg(dr7, 7);
+	rdmsrl(MSR_IA32_MISC_ENABLE, misc_enable);
+	rdmsrl(MSR_EFER, efer);
+	rdmsrl(MSR_IA32_CR_PAT, cr_pat);
+
+	err = np_seamldr_launch(__pa(np_seamldr), np_seamldr_size);
+
+	wrmsrl(MSR_IA32_CR_PAT, cr_pat);
+	wrmsrl(MSR_EFER, efer);
+	wrmsrl(MSR_IA32_MISC_ENABLE, misc_enable);
+	set_debugreg(dr7, 7);
+
 	return err;
 }
 

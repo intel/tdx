@@ -9,6 +9,7 @@
 
 #include <asm/cmdline.h>
 #include <asm/virtext.h>
+#include <asm/trapnr.h>
 
 #include "p-seamldr.h"
 #include "seamcall.h"
@@ -61,6 +62,37 @@ static bool __init is_seamrr_enabled(void)
 
 	return true;
 }
+
+/*
+ * The NP-SEAMLDR returns with the clobbered CR4.  If NMI happens before
+ * restoring CR4, the NMI handler uses the features disabled by CR4.  Restore
+ * saved CR4.
+ */
+extern unsigned long np_seamldr_saved_cr4 __initdata;
+
+static int __init np_seamldr_die_notify(struct notifier_block *nb,
+					unsigned long cmd, void *args)
+{
+	struct die_args *die_args = args;
+	struct pt_regs *regs = die_args->regs;
+
+	if (cmd == DIE_TRAP && die_args->trapnr == X86_TRAP_UD &&
+	    np_seamldr_saved_cr4) {
+		/*
+		 * #UD on rdfsbase/wrfsbase due to CR4.FSGSBASE = 0. Forcibly
+		 * restore CR4 to the saved one.
+		 * cr4_set_bits() doesn't work as it checks shadowed CR4 because
+		 * The NP-SEAMLDR clobbers CR4 outside of shadowed CR4.
+		 */
+		__write_cr4(np_seamldr_saved_cr4);
+		return NOTIFY_STOP;
+	}
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block np_seamldr_die_notifier __initdata = {
+	.notifier_call = np_seamldr_die_notify,
+};
 
 /*
  * load_p_seamldr() - load P-SEAMLDR

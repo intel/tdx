@@ -42,8 +42,11 @@ void __iomem *pci_iomap_range(struct pci_dev *dev,
 		len = maxlen;
 	if (flags & IORESOURCE_IO)
 		return __pci_ioport_map(dev, start, len);
-	if (flags & IORESOURCE_MEM)
+	if (flags & IORESOURCE_MEM) {
+		if (dev->dev.authorized)
+			return ioremap_driver_hardened(start, len);
 		return ioremap(start, len);
+	}
 	/* What? */
 	return NULL;
 }

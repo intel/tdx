@@ -127,6 +127,8 @@ static inline void gsc_writeq(unsigned long long val, unsigned long addr)
  */
 void __iomem *ioremap(unsigned long offset, unsigned long size);
 #define ioremap_wc			ioremap
+/* Share memory with host in confidential guest platforms */
+#define ioremap_driver_hardened		ioremap
 #define ioremap_uc			ioremap
 #define pci_iounmap			pci_iounmap
 

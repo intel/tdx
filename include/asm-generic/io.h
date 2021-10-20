@@ -982,6 +982,11 @@ static inline void __iomem *ioremap(phys_addr_t addr, size_t size)
 #define ioremap_wt ioremap
 #endif
 
+/* Share memory with host in confidential guest platforms */
+#ifndef ioremap_driver_hardened
+#define ioremap_driver_hardened ioremap
+#endif
+
 /*
  * ioremap_uc is special in that we do require an explicit architecture
  * implementation.  In general you do not want to use this function in a

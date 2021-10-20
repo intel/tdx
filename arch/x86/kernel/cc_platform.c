@@ -13,14 +13,11 @@
 
 #include <asm/mshyperv.h>
 #include <asm/processor.h>
+#include <asm/tdx.h>
 
-static bool __maybe_unused intel_cc_platform_has(enum cc_attr attr)
+static bool intel_cc_platform_has(enum cc_attr attr)
 {
-#ifdef CONFIG_INTEL_TDX_GUEST
 	return false;
-#else
-	return false;
-#endif
 }
 
 /*
@@ -76,6 +73,8 @@ bool cc_platform_has(enum cc_attr attr)
 {
 	if (sme_me_mask)
 		return amd_cc_platform_has(attr);
+	else if (is_tdx_guest())
+		return intel_cc_platform_has(attr);
 
 	if (hv_is_isolation_supported())
 		return hyperv_cc_platform_has(attr);

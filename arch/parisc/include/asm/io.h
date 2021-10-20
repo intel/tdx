@@ -133,6 +133,10 @@ static inline void gsc_writeq(unsigned long long val, unsigned long addr)
 #define ioremap_wc(addr, size)  \
 	ioremap_prot((addr), (size), _PAGE_IOREMAP)
 
+/* Share memory with host in confidential guest platforms */
+#define ioremap_driver_hardened \
+	ioremap_prot((addr), (size), _PAGE_IOREMAP)
+
 #define pci_iounmap			pci_iounmap
 
 void memset_io(volatile void __iomem *addr, unsigned char val, int count);

@@ -878,6 +878,7 @@ config INTEL_TDX_GUEST
 	depends on X86_64 && CPU_SUP_INTEL
 	depends on X86_X2APIC
 	select PARAVIRT_XXL
+	select ARCH_HAS_CC_PLATFORM
 	help
 	  Support running as a guest under TDX.  Without this support,
 	  the kernel can not boot or run under TDX.

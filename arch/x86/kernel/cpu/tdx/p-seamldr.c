@@ -3,12 +3,15 @@
 
 #define pr_fmt(fmt) "seam: " fmt
 
+#include <linux/memblock.h>
 #include <linux/kobject.h>
+#include <linux/kdebug.h>
 #include <linux/slab.h>
 
 #include <asm/trace/seam.h>
 #include <asm/debugreg.h>
 #include <asm/cmdline.h>
+#include <asm/trapnr.h>
 #include <asm/delay.h>
 #include <asm/apic.h>
 #include <asm/virtext.h>
@@ -95,8 +98,55 @@ out:
 	return err;
 }
 
-extern u64 __init np_seamldr_launch(unsigned long seamldr_pa,
-				unsigned long seamldr_size);
+/*
+ * Workaround for clobbered registers by NP-SEAMLDR.  NP-SEAMLDR clobbers
+ * several registers and there is a window where NMI isn't safe.  If NMI happens
+ * during the window and the kernel is about to die, correct the unexpected CPU
+ * status.
+ */
+static int __init np_seamldr_die_notify(struct notifier_block *nb,
+					unsigned long cmd, void *args)
+{
+	struct die_args *die_args = args;
+	struct pt_regs *regs = die_args->regs;
+	const u8 *insn = (u8 *)regs->ip;
+
+	/*
+	 * NP-SEAMLDR clobbers %cr4.  Because it's before feature discovery,
+	 * features disabled by %cr4 aren't used.
+	 */
+
+	/* Workaround for clobbered %cs/%ss. */
+	if (cmd == DIE_GPF && die_args->trapnr == X86_TRAP_GP &&
+		/* iretq */
+		insn[0] == 0x48 && insn[1] == 0xcf) {
+		struct iretq_frame {
+			unsigned long ip;
+			unsigned long cs;
+			unsigned long flags;
+			unsigned long sp;
+			unsigned long ss;
+		};
+		struct iretq_frame *iret = (struct iretq_frame *)regs->sp;
+
+		if ((unsigned long)&np_seamldr_nmi_fixup_begin <= iret->ip &&
+			iret->ip < (unsigned long)&np_seamldr_nmi_fixup_end) {
+			/*
+			 * iretq in nmi_restore causes #GP due to clobbered
+			 * %CS/%SS.  Correct them.
+			 */
+			iret->cs = __KERNEL_CS;
+			iret->ss = __KERNEL_DS;
+			return NOTIFY_STOP;
+		}
+	}
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block np_seamldr_die_notifier __initdata = {
+	.notifier_call = np_seamldr_die_notify,
+};
 
 static u64 __init __p_seamldr_load(void *np_seamldr,
 				unsigned long np_seamldr_size)
@@ -208,6 +258,10 @@ p_seamldr_load(struct cpio_data *cpio_np_seamldr)
 	if (WARN_ON(icr_busy))
 		goto out;
 
+	ret = register_die_notifier(&np_seamldr_die_notifier);
+	if (ret)
+		goto out;
+
 	while (1) {
 		err = __p_seamldr_load(np_seamldr, np_seamldr_size);
 
@@ -245,10 +299,11 @@ p_seamldr_load(struct cpio_data *cpio_np_seamldr)
 		 */
 		udelay(1 * USEC_PER_MSEC);
 	}
-	if (!err)
-		ret = 0;
-	else
+	if (err) {
 		pr_err("NP-SEAMLDR returned 0x%llx\n", err);
+		ret = -EIO;
+	}
+	unregister_die_notifier(&np_seamldr_die_notifier);
 
 out:
 	if (np_seamldr)

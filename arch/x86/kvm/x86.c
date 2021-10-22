@@ -7440,16 +7440,6 @@ static int emulator_pio_in_out(struct kvm_vcpu *vcpu, int size,
 	int r;
 
 	WARN_ON_ONCE(vcpu->arch.pio.count);
-	vcpu->arch.pio.port = port;
-	vcpu->arch.pio.in = in;
-	vcpu->arch.pio.count = count;
-	vcpu->arch.pio.size = size;
-	if (in)
-		memset(vcpu->arch.pio_data, 0, size * count);
-	else
-		memcpy(vcpu->arch.pio_data, data, size * count);
-	data = vcpu->arch.pio_data;
-
 	for (i = 0; i < count; i++) {
 		if (in)
 			r = kvm_io_bus_read(vcpu, KVM_PIO_BUS, port, size, data);
@@ -7463,6 +7453,16 @@ static int emulator_pio_in_out(struct kvm_vcpu *vcpu, int size,
 
 userspace_io:
 	WARN_ON(i != 0);
+	vcpu->arch.pio.port = port;
+	vcpu->arch.pio.in = in;
+	vcpu->arch.pio.count = count;
+	vcpu->arch.pio.size = size;
+
+	if (in)
+		memset(vcpu->arch.pio_data, 0, size * count);
+	else
+		memcpy(vcpu->arch.pio_data, data, size * count);
+
 	vcpu->run->exit_reason = KVM_EXIT_IO;
 	vcpu->run->io.direction = in ? KVM_EXIT_IO_IN : KVM_EXIT_IO_OUT;
 	vcpu->run->io.size = size;
@@ -7474,9 +7474,13 @@ userspace_io:
 }
 
 static int __emulator_pio_in(struct kvm_vcpu *vcpu, int size,
-			     unsigned short port, unsigned int count)
+			     unsigned short port, void *val, unsigned int count)
 {
-	return emulator_pio_in_out(vcpu, size, port, NULL, count, true);
+	int r = emulator_pio_in_out(vcpu, size, port, val, count, true);
+	if (r)
+		trace_kvm_pio(KVM_PIO_IN, port, size, count, val);
+
+	return r;
 }
 
 static void complete_emulator_pio_in(struct kvm_vcpu *vcpu, void *val)
@@ -7499,16 +7503,11 @@ static int emulator_pio_in(struct kvm_vcpu *vcpu, int size,
 		 * shenanigans as KVM doesn't support modifying the rep count,
 		 * and the emulator ensures @count doesn't overflow the buffer.
 		 */
+		complete_emulator_pio_in(vcpu, val);
+		return 1;
 	} else {
-		int r = __emulator_pio_in(vcpu, size, port, count);
-		if (!r)
-			return r;
-
-		/* Results already available, fall through.  */
+		return __emulator_pio_in(vcpu, size, port, val, count);
 	}
-
-	complete_emulator_pio_in(vcpu, val);
-	return 1;
 }
 
 static int emulator_pio_in_emulated(struct x86_emulate_ctxt *ctxt,
@@ -7523,14 +7522,8 @@ static int emulator_pio_out(struct kvm_vcpu *vcpu, int size,
 			    unsigned short port, const void *val,
 			    unsigned int count)
 {
-	int ret;
-
 	trace_kvm_pio(KVM_PIO_OUT, port, size, count, val);
-	ret = emulator_pio_in_out(vcpu, size, port, (void *)val, count, false);
-	if (ret)
-                vcpu->arch.pio.count = 0;
-
-        return ret;
+	return emulator_pio_in_out(vcpu, size, port, (void *)val, count, false);
 }
 
 static int emulator_pio_out_emulated(struct x86_emulate_ctxt *ctxt,
@@ -13099,20 +13092,20 @@ static int kvm_sev_es_outs(struct kvm_vcpu *vcpu, unsigned int size,
 static int kvm_sev_es_ins(struct kvm_vcpu *vcpu, unsigned int size,
 			  unsigned int port);
 
-static void advance_sev_es_emulated_ins(struct kvm_vcpu *vcpu)
+static void advance_sev_es_emulated_ins(struct kvm_vcpu *vcpu, unsigned count, int size)
 {
-	unsigned count = vcpu->arch.pio.count;
-	complete_emulator_pio_in(vcpu, vcpu->arch.sev_pio_data);
 	vcpu->arch.sev_pio_count -= count;
-	vcpu->arch.sev_pio_data += count * vcpu->arch.pio.size;
+	vcpu->arch.sev_pio_data += count * size;
 }
 
 static int complete_sev_es_emulated_ins(struct kvm_vcpu *vcpu)
 {
+	unsigned count = vcpu->arch.pio.count;
 	int size = vcpu->arch.pio.size;
 	int port = vcpu->arch.pio.port;
 
-	advance_sev_es_emulated_ins(vcpu);
+	complete_emulator_pio_in(vcpu, vcpu->arch.sev_pio_data);
+	advance_sev_es_emulated_ins(vcpu, count, size);
 	if (vcpu->arch.sev_pio_count)
 		return kvm_sev_es_ins(vcpu, size, port);
 	return 1;
@@ -13124,11 +13117,11 @@ static int kvm_sev_es_ins(struct kvm_vcpu *vcpu, unsigned int size,
 	for (;;) {
 		unsigned int count =
 			min_t(unsigned int, PAGE_SIZE / size, vcpu->arch.sev_pio_count);
-		if (!__emulator_pio_in(vcpu, size, port, count))
+		if (!__emulator_pio_in(vcpu, size, port, vcpu->arch.sev_pio_data, count))
 			break;
 
 		/* Emulation done by the kernel.  */
-		advance_sev_es_emulated_ins(vcpu);
+		advance_sev_es_emulated_ins(vcpu, count, size);
 		if (!vcpu->arch.sev_pio_count)
 			return 1;
 	}

@@ -38,6 +38,7 @@
  * R9: Load status returned by NP-SEAMLDR: success (0x0) or error code.
  * Other GPRs, including RSP 0x0
  *
+ * CS: Flat.  Its segment selector is clobbered.
  * DS: Flat.  Its segment selector is clobbered.
  * GDTR: Base = As provided by OS in R9; Limit unchanged.
  * IDTR: Base = As provided by OS in R12; Limit unchanged.
@@ -54,7 +55,7 @@
  *   CR0, CR3, CR4,
  *   rflags,
  * Restore segment registers. don't save them because they have known values.
- *   DS
+ *   DS, ES, CS, SS
  */
 	.text
 	__INIT
@@ -137,6 +138,7 @@ SYM_FUNC_START(np_seamldr_launch)
 	getsec
 
 .Lseamldr_resume:
+SYM_INNER_LABEL(np_seamldr_nmi_fixup_begin, SYM_L_GLOBAL)
 	UNWIND_HINT_EMPTY
 	/*
 	 * The NP-SEAMLDR restores CRs, GDT, and IDT.  Segment registers are
@@ -149,9 +151,22 @@ SYM_FUNC_START(np_seamldr_launch)
 	 * %r9: Status code NP-SEAMLDR returns.
 	 * %rsp: 0.  This requires IST for NMI to setup valid interrupt stack
 	 *       because the modified legacy stack-switching doesn't work.
+	 *
+	 * Workaround for SS/CS:
+	 * NP-SEAMLDR loads flat segment descriptor cache with its GDT and
+	 * restores OS GDT, but it doesn't restore segment selectors and leaves
+	 * segment selectors clobbered.  If exception/interrupt happens before
+	 * restoring CS/SS, the clobbered CS/SS are saved and the handler is
+	 * invoked with CS from IDT and SS from IST.  The following iret trying
+	 * to re-load clobbered CS/SS segment selector causes #GP(selector).
+	 *
+	 * Die notifier corrects the saved CS/SS so that nmi handler and iret
+	 * work as expected.
 	 */
 	movl	$__KERNEL_DS, %eax
 	movl	%eax, %ds
+	movl	%eax, %es
+	movl	%eax, %ss
 
 	/*
 	 * The frame unwinder requires valid %rbp.  Restore %rbp early before
@@ -167,6 +182,15 @@ SYM_FUNC_START(np_seamldr_launch)
 	/*
 	 * The objtool loses stack size due to no way to specify its stack size.
 	 */
+	UNWIND_HINT sp_reg=ORC_REG_SP sp_offset=8*10 type=UNWIND_HINT_TYPE_CALL
+
+	/* Far return to load the kernel CS. */
+	pushq	$__KERNEL_CS
+	leaq	.Lkernel_cs(%rip), %rax
+	pushq	%rax
+	lretq
+.Lkernel_cs:
+SYM_INNER_LABEL(np_seamldr_nmi_fixup_end, SYM_L_GLOBAL)
 	UNWIND_HINT sp_reg=ORC_REG_SP sp_offset=8*10 type=UNWIND_HINT_TYPE_CALL
 
 	/* Restore CPU status, in reverse order of saving. */

@@ -104,6 +104,11 @@ struct p_seamldr_info {
 
 int __init p_seamldr_get_info(void);
 
+u64 __init np_seamldr_launch(unsigned long seamldr_pa,
+			unsigned long seamldr_size);
+void __init np_seamldr_nmi_fixup_begin(void);
+void __init np_seamldr_nmi_fixup_end(void);
+
 int __init load_p_seamldr(void);
 
 #endif /* _X86_TDX_P_SEAMLOADER_H */

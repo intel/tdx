@@ -38,6 +38,7 @@
  * R9: Load status returned by NP-SEAMLDR: success (0x0) or error code.
  * Other GPRs, including RSP 0x0
  *
+ * CS: Flat.  Its segment selector is clobbered.
  * DS: Flat.  Its segment selector is clobbered.
  * GDTR: Base = As provided by OS in R9; Limit unchanged.
  * IDTR: Base = As provided by OS in R12; Limit unchanged.
@@ -54,7 +55,7 @@
  *   CR0, CR3, CR4,
  *   rflags,
  * Restore segment registers. don't save them because they have known values.
- *   DS
+ *   DS, ES, CS, SS
  */
 	.text
 	__INIT
@@ -165,6 +166,8 @@ SYM_FUNC_START(np_seamldr_launch)
 	 */
 	movl	$__KERNEL_DS, %eax
 	movl	%eax, %ds
+	movl	%eax, %es
+	movl	%eax, %ss
 
 	/*
 	 * The frame unwinder requires valid %rbp.  Restore %rbp early before
@@ -180,6 +183,14 @@ SYM_FUNC_START(np_seamldr_launch)
 	/*
 	 * The objtool loses stack size due to no way to specify its stack size.
 	 */
+	UNWIND_HINT sp_reg=ORC_REG_SP sp_offset=8*9 type=UNWIND_HINT_TYPE_CALL
+
+	/* Far return to load the kernel CS. */
+	pushq	$__KERNEL_CS
+	leaq	.Lkernel_cs(%rip), %rax
+	pushq	%rax
+	lretq
+.Lkernel_cs:
 	UNWIND_HINT sp_reg=ORC_REG_SP sp_offset=8*9 type=UNWIND_HINT_TYPE_CALL
 
 	/* Restore CPU status, in reverse order of saving. */

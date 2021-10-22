@@ -64,9 +64,11 @@ static bool __init is_seamrr_enabled(void)
 }
 
 /*
- * The NP-SEAMLDR returns with the clobbered CR4.  If NMI happens before
- * restoring CR4, the NMI handler uses the features disabled by CR4.  Restore
- * saved CR4.
+ * The NP-SEAMLDR returns with the clobbered CS/SS with the flat cached
+ * descriptors.  If NMI happens before restoring segment selectors, the
+ * clobbered values of CS/SS are saved and the following iret tries to re-load
+ * the clobbered segment selector to trigger #GP.  Correct the saved CS/SS so
+ * that iret loads the intended segment selectors.
  */
 extern unsigned long np_seamldr_saved_cr4 __initdata;
 
@@ -85,8 +87,36 @@ static int __init np_seamldr_die_notify(struct notifier_block *nb,
 		 * The NP-SEAMLDR clobbers CR4 outside of shadowed CR4.
 		 */
 		__write_cr4(np_seamldr_saved_cr4);
+		/*
+		 * Saved CS is clobbered value by NP-SEAMLDR.  Store correct
+		 * value.
+		 */
+		regs->cs = __KERNEL_CS;
+		/* SS is zero. no need to correct. */
 		return NOTIFY_STOP;
 	}
+
+	if (cmd == DIE_GPF && die_args->trapnr == X86_TRAP_GP &&
+	    np_seamldr_saved_cr4) {
+		/*
+		 * iretq in nmi_restore causes #GP due to clobbered %CS/%SS.
+		 * Correct them.
+		 */
+		struct iretq_frame {
+			unsigned long ip;
+			unsigned long cs;
+			unsigned long flags;
+			unsigned long sp;
+			unsigned long ss;
+		};
+		struct iretq_frame *iret = (struct iretq_frame *)regs->sp;
+
+		regs->cs = __KERNEL_CS;
+		iret->cs = __KERNEL_CS;
+		iret->ss = __KERNEL_DS;
+		return NOTIFY_STOP;
+	}
+
 	return NOTIFY_DONE;
 }
 

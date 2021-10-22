@@ -7473,7 +7473,7 @@ userspace_io:
 	return 0;
 }
 
-static int __emulator_pio_in(struct kvm_vcpu *vcpu, int size,
+static int emulator_pio_in(struct kvm_vcpu *vcpu, int size,
 			     unsigned short port, void *val, unsigned int count)
 {
 	int r = emulator_pio_in_out(vcpu, size, port, val, count, true);
@@ -7492,9 +7492,11 @@ static void complete_emulator_pio_in(struct kvm_vcpu *vcpu, void *val)
 	vcpu->arch.pio.count = 0;
 }
 
-static int emulator_pio_in(struct kvm_vcpu *vcpu, int size,
-			   unsigned short port, void *val, unsigned int count)
+static int emulator_pio_in_emulated(struct x86_emulate_ctxt *ctxt,
+				    int size, unsigned short port, void *val,
+				    unsigned int count)
 {
+	struct kvm_vcpu *vcpu = emul_to_vcpu(ctxt);
 	if (vcpu->arch.pio.count) {
 		/*
 		 * Complete a previous iteration that required userspace I/O.
@@ -7506,16 +7508,8 @@ static int emulator_pio_in(struct kvm_vcpu *vcpu, int size,
 		complete_emulator_pio_in(vcpu, val);
 		return 1;
 	} else {
-		return __emulator_pio_in(vcpu, size, port, val, count);
+		return emulator_pio_in(vcpu, size, port, val, count);
 	}
-}
-
-static int emulator_pio_in_emulated(struct x86_emulate_ctxt *ctxt,
-				    int size, unsigned short port, void *val,
-				    unsigned int count)
-{
-	return emulator_pio_in(emul_to_vcpu(ctxt), size, port, val, count);
-
 }
 
 static int emulator_pio_out(struct kvm_vcpu *vcpu, int size,
@@ -8733,7 +8727,7 @@ static int kvm_fast_pio_in(struct kvm_vcpu *vcpu, int size,
 	/* For size less than 4 we merge, else we zero extend */
 	val = (size < 4) ? kvm_rax_read(vcpu) : 0;
 
-	ret = __emulator_pio_in(vcpu, size, port, &val, 1);
+	ret = emulator_pio_in(vcpu, size, port, &val, 1);
 	if (ret) {
 		kvm_rax_write(vcpu, val);
 		return ret;
@@ -13113,7 +13107,7 @@ static int kvm_sev_es_ins(struct kvm_vcpu *vcpu, unsigned int size,
 	for (;;) {
 		unsigned int count =
 			min_t(unsigned int, PAGE_SIZE / size, vcpu->arch.sev_pio_count);
-		if (!__emulator_pio_in(vcpu, size, port, vcpu->arch.sev_pio_data, count))
+		if (!emulator_pio_in(vcpu, size, port, vcpu->arch.sev_pio_data, count))
 			break;
 
 		/* Emulation done by the kernel.  */

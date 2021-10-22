@@ -13219,6 +13219,12 @@ int kvm_sev_es_mmio_read(struct kvm_vcpu *vcpu, gpa_t gpa, unsigned int bytes,
 }
 EXPORT_SYMBOL_GPL(kvm_sev_es_mmio_read);
 
+static void advance_sev_es_emulated_pio(struct kvm_vcpu *vcpu, unsigned count, int size)
+{
+	vcpu->arch.sev_pio_count -= count;
+	vcpu->arch.sev_pio_data += count * size;
+}
+
 static int kvm_sev_es_outs(struct kvm_vcpu *vcpu, unsigned int size,
 			   unsigned int port);
 
@@ -13242,8 +13248,7 @@ static int kvm_sev_es_outs(struct kvm_vcpu *vcpu, unsigned int size,
 		int ret = emulator_pio_out(vcpu, size, port, vcpu->arch.sev_pio_data, count);
 
 		/* memcpy done already by emulator_pio_out.  */
-		vcpu->arch.sev_pio_count -= count;
-		vcpu->arch.sev_pio_data += count * size;
+		advance_sev_es_emulated_pio(vcpu, count, size);
 		if (!ret)
 			break;
 
@@ -13259,12 +13264,6 @@ static int kvm_sev_es_outs(struct kvm_vcpu *vcpu, unsigned int size,
 static int kvm_sev_es_ins(struct kvm_vcpu *vcpu, unsigned int size,
 			  unsigned int port);
 
-static void advance_sev_es_emulated_ins(struct kvm_vcpu *vcpu, unsigned count, int size)
-{
-	vcpu->arch.sev_pio_count -= count;
-	vcpu->arch.sev_pio_data += count * size;
-}
-
 static int complete_sev_es_emulated_ins(struct kvm_vcpu *vcpu)
 {
 	unsigned count = vcpu->arch.pio.count;
@@ -13272,7 +13271,7 @@ static int complete_sev_es_emulated_ins(struct kvm_vcpu *vcpu)
 	int port = vcpu->arch.pio.port;
 
 	complete_emulator_pio_in(vcpu, vcpu->arch.sev_pio_data);
-	advance_sev_es_emulated_ins(vcpu, count, size);
+	advance_sev_es_emulated_pio(vcpu, count, size);
 	if (vcpu->arch.sev_pio_count)
 		return kvm_sev_es_ins(vcpu, size, port);
 	return 1;
@@ -13288,7 +13287,7 @@ static int kvm_sev_es_ins(struct kvm_vcpu *vcpu, unsigned int size,
 			break;
 
 		/* Emulation done by the kernel.  */
-		advance_sev_es_emulated_ins(vcpu, count, size);
+		advance_sev_es_emulated_pio(vcpu, count, size);
 		if (!vcpu->arch.sev_pio_count)
 			return 1;
 	}

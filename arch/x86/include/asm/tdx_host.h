@@ -43,6 +43,8 @@ void pr_seamcall_ex_ret_info(u64 op, u64 error_code,
 struct tdsysinfo_struct;
 const struct tdsysinfo_struct *tdx_get_sysinfo(void);
 
+int tdx_seamcall_on_each_pkg(int (*fn)(void *), void *param);
+
 extern u32 tdx_keyids_start __read_mostly;
 extern u32 tdx_nr_keyids __read_mostly;
 #else
@@ -61,6 +63,11 @@ struct tdsysinfo_struct;
 static inline const struct tdsysinfo_struct *tdx_get_sysinfo(void)
 {
 	return NULL;
+}
+
+static inline int tdx_seamcall_on_each_pkg(int (*fn)(void *), void *param)
+{
+	return 0;
 }
 #endif
 

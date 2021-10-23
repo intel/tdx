@@ -257,17 +257,18 @@ static inline void slow_down_io(void)
 #endif
 
 #ifdef CONFIG_AMD_MEM_ENCRYPT
-#include <linux/jump_label.h>
 
-extern struct static_key_false sev_enable_key;
-static inline bool sev_key_active(void)
+extern u64 sev_status;
+
+static inline bool is_sev_enabled(void)
 {
-	return static_branch_unlikely(&sev_enable_key);
+	return ((sev_status & MSR_AMD64_SEV_ENABLED) &&
+		!(sev_status & MSR_AMD64_SEV_ES_ENABLED));
 }
 
 #else /* !CONFIG_AMD_MEM_ENCRYPT */
 
-static inline bool sev_key_active(void) { return false; }
+static inline bool is_sev_enabled(void) { return false; }
 
 #endif /* CONFIG_AMD_MEM_ENCRYPT */
 
@@ -301,7 +302,7 @@ static inline unsigned type in##bwl##_p(int port)			\
 									\
 static inline void outs##bwl(int port, const void *addr, unsigned long count) \
 {									\
-	if (sev_key_active()) {						\
+	if (is_sev_enabled()) {						\
 		unsigned type *value = (unsigned type *)addr;		\
 		while (count) {						\
 			out##bwl(*value, port);				\
@@ -317,7 +318,7 @@ static inline void outs##bwl(int port, const void *addr, unsigned long count) \
 									\
 static inline void ins##bwl(int port, void *addr, unsigned long count)	\
 {									\
-	if (sev_key_active()) {						\
+	if (is_sev_enabled()) {						\
 		unsigned type *value = (unsigned type *)addr;		\
 		while (count) {						\
 			*value = in##bwl(port);				\

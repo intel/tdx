@@ -1847,6 +1847,9 @@ static int init_vqs(struct ports_device *portdev)
 	int err;
 
 	nr_ports = portdev->max_nr_ports;
+	if (use_multiport(portdev) && nr_ports < 1)
+		return -EINVAL;
+
 	nr_queues = use_multiport(portdev) ? (nr_ports + 1) * 2 : 2;
 
 	vqs = kmalloc_array(nr_queues, sizeof(struct virtqueue *), GFP_KERNEL);

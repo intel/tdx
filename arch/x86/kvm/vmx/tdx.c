@@ -795,9 +795,16 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 		kvm_wait_lapic_expire(vcpu, true);
 	}
 
-	if (kvm_tdx->attributes & TDX_TD_ATTRIBUTE_PERFMON)
-		intel_pmu_save();
-	else if (td_profile_allowed(kvm_tdx))
+	/*
+	 * Always do PMU context switch here because SEAM module
+	 * unconditionally clear MSR_IA32_DS_AREA, otherwise CPU
+	 * may start to write data into DS area immediately after
+	 * SEAMRET to KVM, which cause PANIC with NULL access.
+	 */
+	intel_pmu_save();
+
+	if (!(kvm_tdx->attributes & TDX_TD_ATTRIBUTE_PERFMON) &&
+		td_profile_allowed(kvm_tdx))
 		tdx_switch_perf_msrs(vcpu);
 
 	/*
@@ -824,6 +831,12 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	tdx->host_state_need_restore = true;
 
 	/*
+	 * See the comments above for intel_pmu_save() for why
+	 * always do PMU context switch here
+	 */
+	intel_pmu_restore();
+
+	/*
 	 * Restoring PMU must be after DS area because PMU may start to log
 	 * records in DS area.
 	 */
@@ -845,8 +858,6 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 				apic_write(APIC_LVTPC, APIC_DM_NMI);
 			}
 		}
-
-		intel_pmu_restore();
 	}
 
 	tdx_register_cache_reset(vcpu);

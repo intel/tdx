@@ -145,7 +145,18 @@ static int __init np_seamldr_die_notify(struct notifier_block *nb,
 		 * value.
 		 */
 		regs->cs = __KERNEL_CS;
-		/* SS is zero. no need to correct. */
+
+		/* A #UD will be nested into #NMI due to CR4.FSGSBASE = 0:
+		   #NMI handler -> call paranoid_entry -> rdgsbase -> #UD
+		   The %ss pushed for exception handler on IST stack is the
+		   orignal %ss value but not NULL, CPU push NULL for %ss onto
+		   IST stack only for INTERRUPT handler. So the clobbered %ss
+		   finally pushes onto IST stack for #UD handler, and lead to
+		   #DF finally when CPU return from #UD handler, so restore
+		   %ss here.
+		*/
+		regs->ss = __KERNEL_DS;
+
 		return NOTIFY_STOP;
 	}
 

@@ -8027,7 +8027,16 @@ EXPORT_PER_CPU_SYMBOL_GPL(current_vcpu);
 
 int kvm_is_in_guest(void)
 {
-	return __this_cpu_read(current_vcpu) != NULL;
+	struct kvm_vcpu *vcpu = __this_cpu_read(current_vcpu);
+
+	/*
+	 * If kvm is in guest, perf subsystem records guest IP. Ensure
+	 * guest state is accessible.
+	 */
+	if (vcpu && !vcpu->arch.guest_state_protected)
+		return true;
+
+	return false;
 }
 
 static int kvm_is_user_mode(void)

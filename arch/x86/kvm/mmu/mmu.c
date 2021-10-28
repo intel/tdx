@@ -3679,9 +3679,12 @@ static bool handle_abnormal_pfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t gfn,
 		/*
 		 * If MMIO caching is disabled, emulate immediately without
 		 * touching the shadow page tables as attempting to install an
-		 * MMIO SPTE will just be an expensive nop.
+		 * MMIO SPTE will just be an expensive nop, but excludes the
+		 * INTEL TD guest due to it also uses shadow_mmio_value = 0
+		 * to emulating MMIO access.
 		 */
-		if (unlikely(!vcpu->kvm->arch.shadow_mmio_value)) {
+		if (unlikely(!vcpu->kvm->arch.shadow_mmio_value)
+		    && !vcpu->kvm->arch.gfn_shared_mask) {
 			*ret_val = RET_PF_EMULATE;
 			return true;
 		}

@@ -2465,10 +2465,10 @@ static void tdx_set_rflags(struct kvm_vcpu *vcpu, unsigned long rflags)
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 	u64 val;
 
-	if (KVM_BUG_ON(!is_debug_td(vcpu), vcpu->kvm))
+	if (!tdx->initialized)
 		return;
 
-	if (!tdx->initialized)
+	if (KVM_BUG_ON(!is_debug_td(vcpu), vcpu->kvm))
 		return;
 
 	/*

@@ -65,6 +65,11 @@ static inline u64 seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
 	return err;
 }
 
+const char *tdx_seamcall_error_name(u64 error_code);
+
+void pr_seamcall_ex_ret_info(u64 op, u64 error_code,
+			const struct tdx_ex_ret *ex_ret);
+void pr_seamcall_error(u64 op, u64 error_code, const struct tdx_ex_ret *ex_ret);
 #endif /* CONFIG_INTEL_TDX_HOST */
 
 #endif /* __SEAM_SEAMCALL_H */

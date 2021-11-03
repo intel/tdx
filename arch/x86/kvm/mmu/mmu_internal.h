@@ -142,6 +142,10 @@ void kvm_flush_remote_tlbs_with_address(struct kvm *kvm,
 					u64 start_gfn, u64 pages);
 unsigned int pte_list_count(struct kvm_rmap_head *rmap_head);
 
+void kvm_flush_remote_tlbs_with_range(struct kvm *kvm,
+				      struct kvm_tlb_range *range);
+
+
 /*
  * Return values of handle_mmio_page_fault, mmu.page_fault, and fast_page_fault().
  *

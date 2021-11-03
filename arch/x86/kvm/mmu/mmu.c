@@ -1128,23 +1128,6 @@ gfn_to_memslot_dirty_bitmap(struct kvm_vcpu *vcpu, gfn_t gfn,
 	return slot;
 }
 
-static inline bool __is_private_gfn(struct kvm *kvm, gfn_t gfn_stolen_bits)
-{
-	gfn_t gfn_shared_mask = kvm->arch.gfn_shared_mask;
-
-	return gfn_shared_mask && !(gfn_shared_mask & gfn_stolen_bits);
-}
-
-static inline bool is_private_gfn(struct kvm_vcpu *vcpu, gfn_t gfn_stolen_bits)
-{
-	return __is_private_gfn(vcpu->kvm, gfn_stolen_bits);
-}
-
-static inline bool is_private_spte(struct kvm *kvm, u64 *sptep)
-{
-	return __is_private_gfn(kvm, sptep_to_sp(sptep)->gfn_stolen_bits);
-}
-
 /*
  * About rmap_head encoding:
  *
@@ -1317,7 +1300,7 @@ static void rmap_remove(struct kvm *kvm, u64 *spte, u64 old_spte)
 
 	__pte_list_remove(spte, rmap_head);
 
-	if (__is_private_gfn(kvm, sp->gfn_stolen_bits))
+	if (is_private_sp(sp))
 		static_call(kvm_x86_drop_private_spte)(
 			kvm, gfn, sp->role.level, spte_to_pfn(old_spte));
 }
@@ -1418,7 +1401,7 @@ static bool __drop_large_spte(struct kvm_vcpu *vcpu, u64 *sptep)
 	if (is_large_pte(*sptep)) {
 		WARN_ON(sptep_to_sp(sptep)->role.level == PG_LEVEL_4K);
 
-		if (is_private_spte(vcpu->kvm, sptep)) {
+		if (is_private_spte(sptep)) {
 			old_spte = *sptep;
 			kvm_mmu_zap_private_spte(vcpu->kvm, sptep);
 			split_private_spte(vcpu, sptep, old_spte);
@@ -1682,10 +1665,10 @@ static bool kvm_mmu_zap_private_spte(struct kvm *kvm, u64 *sptep)
 	if (likely(!kvm->arch.gfn_shared_mask))
 		return false;
 
-	sp = sptep_to_sp(sptep);
-	if (!__is_private_gfn(kvm, sp->gfn_stolen_bits))
+	if (!is_private_spte(sptep))
 		return false;
 
+	sp = sptep_to_sp(sptep);
 	gfn = kvm_mmu_page_get_gfn(sp, sptep - sp->spt);
 	pfn = spte_to_pfn(*sptep);
 
@@ -1860,7 +1843,7 @@ restart:
 		need_flush = 1;
 
 		/* Private page relocation is not yet supported. */
-		KVM_BUG_ON(is_private_spte(kvm, sptep), kvm);
+		KVM_BUG_ON(is_private_spte(sptep), kvm);
 
 		if (pte_write(pte)) {
 			pte_list_remove(kvm, rmap_head, sptep);
@@ -2467,16 +2450,15 @@ static void clear_sp_write_flooding_count(u64 *spte)
 	__clear_sp_write_flooding_count(sptep_to_sp(spte));
 }
 
-static struct kvm_mmu_page *__kvm_mmu_get_page(struct kvm_vcpu *vcpu,
-					       gfn_t gfn,
-					       gfn_t gfn_stolen_bits,
-					       gva_t gaddr,
-					       unsigned int level,
-					       int direct,
-					       unsigned int access)
+static struct kvm_mmu_page *kvm_mmu_get_page(struct kvm_vcpu *vcpu,
+					     gfn_t gfn,
+					     gva_t gaddr,
+					     unsigned int level,
+					     int direct,
+					     unsigned int access,
+					     unsigned int private)
 {
 	bool direct_mmu = vcpu->arch.mmu->direct_map;
-	gpa_t gfn_and_stolen = gfn | gfn_stolen_bits;
 	union kvm_mmu_page_role role;
 	struct hlist_head *sp_list;
 	unsigned quadrant;
@@ -2495,10 +2477,11 @@ static struct kvm_mmu_page *__kvm_mmu_get_page(struct kvm_vcpu *vcpu,
 		quadrant &= (1 << ((PT32_PT_BITS - PT64_PT_BITS) * level)) - 1;
 		role.quadrant = quadrant;
 	}
+	role.private = private;
 
-	sp_list = &vcpu->kvm->arch.mmu_page_hash[kvm_page_table_hashfn(gfn_and_stolen)];
+	sp_list = &vcpu->kvm->arch.mmu_page_hash[kvm_page_table_hashfn(gfn)];
 	for_each_valid_sp(vcpu->kvm, sp, sp_list) {
-		if ((sp->gfn | sp->gfn_stolen_bits) != gfn_and_stolen) {
+		if (sp->gfn != gfn) {
 			collisions++;
 			continue;
 		}
@@ -2551,11 +2534,9 @@ trace_get_page:
 
 	++vcpu->kvm->stat.mmu_cache_miss;
 
-	sp = kvm_mmu_alloc_page(vcpu, direct,
-				is_private_gfn(vcpu, gfn_stolen_bits));
+	sp = kvm_mmu_alloc_page(vcpu, direct, private);
 
 	sp->gfn = gfn;
-	sp->gfn_stolen_bits = gfn_stolen_bits;
 	sp->role = role;
 	hlist_add_head(&sp->hash_link, sp_list);
 	if (!direct) {
@@ -2570,13 +2551,6 @@ out:
 	if (collisions > vcpu->kvm->stat.max_mmu_page_hash_collisions)
 		vcpu->kvm->stat.max_mmu_page_hash_collisions = collisions;
 	return sp;
-}
-
-static struct kvm_mmu_page *kvm_mmu_get_page(struct kvm_vcpu *vcpu, gfn_t gfn,
-					     gva_t gaddr, unsigned int level,
-					     int direct, unsigned int access)
-{
-	return __kvm_mmu_get_page(vcpu, gfn, 0, gaddr, level, direct, access);
 }
 
 static void shadow_walk_init_using_root(struct kvm_shadow_walk_iterator *iterator,
@@ -2613,7 +2587,7 @@ static void shadow_walk_init(struct kvm_shadow_walk_iterator *iterator,
 {
 	hpa_t root;
 
-	if (tdp_enabled && is_private_gfn(vcpu, addr >> PAGE_SHIFT))
+	if (tdp_enabled && kvm_vcpu_is_private_gfn(vcpu, addr >> PAGE_SHIFT))
 		root = vcpu->arch.mmu->private_root_hpa;
 	else
 		root = vcpu->arch.mmu->root_hpa;
@@ -3191,8 +3165,7 @@ static int direct_pte_prefetch_many(struct kvm_vcpu *vcpu,
 	gfn = kvm_mmu_page_get_gfn(sp, start - sp->spt);
 	slot = gfn_to_memslot_dirty_bitmap(vcpu, gfn, access & ACC_WRITE_MASK);
 
-	/* Don't map private memslots for stolen bits */
-	if (!slot || (sp->gfn_stolen_bits && slot->id >= KVM_USER_MEM_SLOTS))
+	if (!slot || (is_private_sp(sp) && slot->id > KVM_USER_MEM_SLOTS))
 		return -1;
 
 	ret = gfn_to_page_many_atomic(slot, gfn, pages, end - start);
@@ -3364,6 +3337,18 @@ void disallowed_hugepage_adjust(struct kvm_page_fault *fault, u64 spte, int cur_
 	}
 }
 
+bool kvm_is_private_gfn(struct kvm *kvm, gfn_t gfn)
+{
+	gfn_t gfn_shared_mask = kvm->arch.gfn_shared_mask;
+
+	return gfn_shared_mask && !(gfn_shared_mask & gfn);
+}
+
+bool kvm_vcpu_is_private_gfn(struct kvm_vcpu *vcpu, gfn_t gfn)
+{
+	return kvm_is_private_gfn(vcpu->kvm, gfn);
+}
+
 static void kvm_mmu_link_private_sp(struct kvm_vcpu *vcpu,
 				    struct kvm_mmu_page *sp)
 {
@@ -3391,7 +3376,7 @@ static void split_private_spte(struct kvm_vcpu *vcpu, u64 *sptep, u64 old_spte)
 	if (!is_zapped_private_pte(*sptep))
 		return;
 
-	if (WARN_ON_ONCE(level < PG_LEVEL_2M || !is_private_gfn(vcpu, sp->gfn_stolen_bits)))
+	if (WARN_ON_ONCE(level < PG_LEVEL_2M || !is_private_spte(sptep)))
 		return;
 
 	gfn = kvm_mmu_page_get_gfn(sp, sptep - sp->spt);
@@ -3400,8 +3385,8 @@ static void split_private_spte(struct kvm_vcpu *vcpu, u64 *sptep, u64 old_spte)
 	__pte_list_remove(sptep, rmap_head);
 
 	level--;
-	sp = __kvm_mmu_get_page(vcpu, gfn, sp->gfn_stolen_bits,
-				gfn >> PAGE_SHIFT, level, true, ACC_ALL);
+	sp = kvm_mmu_get_page(vcpu, gfn, gfn >> PAGE_SHIFT, level, true,
+			ACC_ALL, true);
 
 	link_shadow_page(vcpu, sptep, sp);
 	kvm_update_page_stats(vcpu->kvm, PG_LEVEL_4K, -1);
@@ -3426,8 +3411,7 @@ static void split_private_spte(struct kvm_vcpu *vcpu, u64 *sptep, u64 old_spte)
 		free_page((unsigned long)p);
 }
 
-static void kvm_mmu_zap_alias_spte(struct kvm_vcpu *vcpu, gfn_t gfn,
-				   gpa_t gpa_alias)
+static void kvm_mmu_zap_alias_spte(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 {
 	struct kvm_shadow_walk_iterator it;
 	struct kvm_rmap_head *rmap_head;
@@ -3436,6 +3420,8 @@ static void kvm_mmu_zap_alias_spte(struct kvm_vcpu *vcpu, gfn_t gfn,
 	struct kvm_memory_slot *slot;
 	struct rmap_iterator iter;
 	struct kvm_mmu_page *sp;
+	gpa_t gpa_alias = fault->addr ^
+		(vcpu->kvm->arch.gfn_shared_mask << PAGE_SHIFT);
 	u64 *sptep;
 	u64 spte;
 
@@ -3470,8 +3456,8 @@ re_start:
 		return;
 
 	slots = kvm_memslots_for_spte_role(kvm, sp->role);
-	slot = __gfn_to_memslot(slots, gfn);
-	rmap_head = gfn_to_rmap(gfn, sp->role.level, slot);
+	slot = __gfn_to_memslot(slots, fault->gfn);
+	rmap_head = gfn_to_rmap(fault->gfn, sp->role.level, slot);
 	if (__kvm_zap_rmapp(kvm, rmap_head)) {
 		/*
 		 * Because the page to zap can be large page, get the
@@ -3490,16 +3476,16 @@ re_start:
 		 * kvm_flush_remote_tlbs_with_range() to flush TLBs for either
 		 * private, or shared mapping.
 		 */
-		if (!is_private_gfn(vcpu, sp->gfn_stolen_bits))
+		if (!is_private_sp(sp))
 			range.start_gfn |= vcpu->kvm->arch.gfn_shared_mask;
 		kvm_flush_remote_tlbs_with_range(kvm, &range);
 	}
 
-	if (!is_private_gfn(vcpu, sp->gfn_stolen_bits))
+	if (!is_private_sp(sp))
 		return;
 
 	if (is_large_pte(spte) &&
-	    !kvm_page_type_valid_on_level(gfn, slot, it.level)) {
+	    !kvm_page_type_valid_on_level(fault->gfn, slot, it.level)) {
 		split_private_spte(vcpu, it.sptep, spte);
 		goto re_start;
 	}
@@ -3517,12 +3503,8 @@ static int __direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	struct kvm_shadow_walk_iterator it;
 	struct kvm_mmu_page *sp;
 	int ret;
-	gpa_t gpa = fault->addr;
-	gpa_t gpa_stolen_mask = vcpu_gpa_stolen_mask(vcpu);
-	gfn_t gfn = (gpa & ~gpa_stolen_mask) >> PAGE_SHIFT;
-	gfn_t gfn_stolen_bits = (gpa & gpa_stolen_mask) >> PAGE_SHIFT;
 	gfn_t base_gfn = fault->gfn;
-	bool is_private = is_private_gfn(vcpu, gfn_stolen_bits);
+	bool is_private = kvm_vcpu_is_private_gfn(vcpu, fault->addr >> PAGE_SHIFT);
 	bool is_zapped_pte;
 	unsigned int pte_access = ACC_ALL;
 
@@ -3530,12 +3512,12 @@ static int __direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		if (is_private)
 			return -EFAULT;
 	} else if (vcpu->kvm->arch.gfn_shared_mask) {
-		kvm_mmu_update_page_attr(vcpu, gfn,
+		kvm_mmu_update_page_attr(vcpu, fault->gfn,
 					 is_private ? KVM_PAGE_TYPE_PRIVATE :
 						      KVM_PAGE_TYPE_SHARED);
-		kvm_mmu_zap_alias_spte(vcpu, gfn, gpa ^ gpa_stolen_mask);
+		kvm_mmu_zap_alias_spte(vcpu, fault);
 		fault->max_level = min(fault->max_level,
-				max_level_of_valid_page_type(vcpu, gfn));
+				max_level_of_valid_page_type(vcpu, fault->gfn));
 	}
 
 	/* TDX shared GPAs are no executable, enforce this for the SDV. */
@@ -3548,7 +3530,7 @@ static int __direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	 * smaller mapping are there.
 	 */
 	if (is_private) {
-		for_each_shadow_entry(vcpu, gpa, it) {
+		for_each_shadow_entry(vcpu, fault->addr, it) {
 			if (is_shadow_present_pte(*it.sptep)) {
 				if (!is_last_spte(*it.sptep, it.level) &&
 					fault->max_level >= it.level)
@@ -3578,8 +3560,8 @@ static int __direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		if (is_shadow_present_pte(*it.sptep))
 			continue;
 
-		sp = __kvm_mmu_get_page(vcpu, base_gfn, gfn_stolen_bits,
-					it.addr, it.level - 1, true, ACC_ALL);
+		sp = kvm_mmu_get_page(vcpu, base_gfn, it.addr, it.level - 1,
+				true, ACC_ALL, is_private);
 
 		link_shadow_page(vcpu, it.sptep, sp);
 		if (fault->is_tdp && fault->huge_page_disallowed &&
@@ -3990,14 +3972,13 @@ static int mmu_check_root(struct kvm_vcpu *vcpu, gfn_t root_gfn)
 	return ret;
 }
 
-static hpa_t mmu_alloc_root(struct kvm_vcpu *vcpu, gfn_t gfn,
-			    gfn_t gfn_stolen_bits, gva_t gva, u8 level,
-			    bool direct)
+static hpa_t mmu_alloc_root(struct kvm_vcpu *vcpu, gfn_t gfn, gva_t gva,
+			    u8 level, bool direct, bool private)
 {
 	struct kvm_mmu_page *sp;
 
-	sp = __kvm_mmu_get_page(vcpu, gfn, gfn_stolen_bits, gva, level, direct,
-				ACC_ALL);
+	sp = kvm_mmu_get_page(vcpu, gfn, gva, level, direct, ACC_ALL,
+			private);
 	++sp->root_count;
 
 	return __pa(sp->spt);
@@ -4022,10 +4003,12 @@ static int mmu_alloc_direct_roots(struct kvm_vcpu *vcpu)
 		mmu->root_hpa = root;
 	} else if (shadow_root_level >= PT64_ROOT_4LEVEL) {
 		if (gfn_shared && !VALID_PAGE(vcpu->arch.mmu->private_root_hpa)) {
-			root = mmu_alloc_root(vcpu, 0, 0, 0, shadow_root_level, true);
+			root = mmu_alloc_root(vcpu, 0, 0, shadow_root_level,
+					true, true);
 			vcpu->arch.mmu->private_root_hpa = root;
 		}
-		root = mmu_alloc_root(vcpu, 0, gfn_shared, 0, shadow_root_level, true);
+		root = mmu_alloc_root(vcpu, 0, 0, shadow_root_level, true,
+				false);
 		vcpu->arch.mmu->root_hpa = root;
 	} else if (shadow_root_level == PT32E_ROOT_LEVEL) {
 		WARN_ON_ONCE(gfn_shared);
@@ -4038,8 +4021,9 @@ static int mmu_alloc_direct_roots(struct kvm_vcpu *vcpu)
 		for (i = 0; i < 4; ++i) {
 			WARN_ON_ONCE(IS_VALID_PAE_ROOT(mmu->pae_root[i]));
 
-			root = mmu_alloc_root(vcpu, i << (30 - PAGE_SHIFT), 0,
-					      i << 30, PT32_ROOT_LEVEL, true);
+			root = mmu_alloc_root(vcpu, i << (30 - PAGE_SHIFT),
+					      i << 30, PT32_ROOT_LEVEL, true,
+					      false);
 			mmu->pae_root[i] = root | PT_PRESENT_MASK |
 					   shadow_me_mask;
 		}
@@ -4577,7 +4561,7 @@ static bool kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
 	bool async;
 
 	/* Don't expose aliases for no slot GFNs or private memslots */
-	if ((fault->addr & vcpu_gpa_stolen_mask(vcpu)) &&
+	if ((fault->addr & kvm_gpa_stolen_mask(vcpu->kvm)) &&
 	    !kvm_is_visible_memslot(slot)) {
 		fault->pfn = KVM_PFN_NOSLOT;
 		return false;
@@ -4646,7 +4630,7 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 	unsigned long mmu_seq;
 	int r;
 
-	fault->gfn = vcpu_gpa_to_gfn_unalias(vcpu, fault->addr);
+	fault->gfn = kvm_gfn_unalias(vcpu->kvm, fault->addr);
 	fault->slot = kvm_vcpu_gfn_to_memslot(vcpu, fault->gfn);
 
 	if (page_fault_handle_page_track(vcpu, fault))
@@ -4747,7 +4731,8 @@ int kvm_tdp_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 
 	while (fault->max_level > PG_LEVEL_4K) {
 		int page_num = KVM_PAGES_PER_HPAGE(fault->max_level);
-		gfn_t base = (fault->addr >> PAGE_SHIFT) & ~(page_num - 1);
+		gfn_t base = kvm_gfn_unalias(vcpu->kvm, fault->addr) &
+			~(page_num - 1);
 
 		if (kvm_mtrr_check_gfn_range_consistency(vcpu, base, page_num))
 			break;
@@ -6567,7 +6552,7 @@ restart:
 		pfn = spte_to_pfn(*sptep);
 
 		/* Private page dirty logging is not supported. */
-		KVM_BUG_ON(is_private_spte(kvm, sptep), kvm);
+		KVM_BUG_ON(is_private_spte(sptep), kvm);
 
 		/*
 		 * We cannot do huge page mapping for indirect shadow pages,
@@ -7116,7 +7101,7 @@ int kvm_mmu_is_page_private(struct kvm *kvm,
 			return -EFAULT;
 
 		if (sptep) {
-			*is_private = is_private_spte(kvm, sptep);
+			*is_private = is_private_spte(sptep);
 			return 0;
 		}
 

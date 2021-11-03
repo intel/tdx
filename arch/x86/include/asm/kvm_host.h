@@ -323,7 +323,8 @@ union kvm_mmu_page_role {
 		unsigned smap_andnot_wp:1;
 		unsigned ad_disabled:1;
 		unsigned guest_mode:1;
-		unsigned :6;
+		unsigned private:1;
+		unsigned :5;
 
 		/*
 		 * This is left at the top of the word so that
@@ -2035,5 +2036,8 @@ int memslot_rmap_alloc(struct kvm_memory_slot *slot, unsigned long npages);
 
 /* The common function for normal x86 guest */
 void load_guest_debug_regs(struct kvm_vcpu *vcpu);
+
+bool kvm_is_private_gfn(struct kvm *kvm, gfn_t gfn);
+bool kvm_vcpu_is_private_gfn(struct kvm_vcpu *vcpu, gfn_t gfn);
 
 #endif /* _ASM_X86_KVM_HOST_H */

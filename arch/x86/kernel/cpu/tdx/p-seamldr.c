@@ -6,6 +6,7 @@
 #include <linux/kobject.h>
 #include <linux/slab.h>
 
+#include <asm/trace/seam.h>
 #include <asm/virtext.h>
 
 #include "p-seamldr.h"

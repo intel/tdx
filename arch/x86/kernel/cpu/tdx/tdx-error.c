@@ -2,12 +2,19 @@
 /* functions to record TDX SEAMCALL error */
 
 #include <linux/bug.h>
+#include <linux/trace_events.h>
 
 #include <asm/tdx_errno.h>
 #include <asm/tdx_arch.h>
 #include <asm/tdx_host.h>
 
 #include "p-seamldr.h"
+
+#define CREATE_TRACE_POINTS
+#include <asm/trace/seam.h>
+
+EXPORT_TRACEPOINT_SYMBOL_GPL(seamcall_enter);
+EXPORT_TRACEPOINT_SYMBOL_GPL(seamcall_exit);
 
 void pr_seamcall_ex_ret_info(u64 op, u64 error_code,
 			     const struct tdx_ex_ret *ex_ret)

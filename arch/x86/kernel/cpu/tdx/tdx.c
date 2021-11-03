@@ -9,6 +9,7 @@
 #include <linux/cpu.h>
 
 #include <asm/irq_vectors.h>
+#include <asm/trace/seam.h>
 #include <asm/tdx_errno.h>
 #include <asm/tdx_arch.h>
 #include <asm/tdx_host.h>

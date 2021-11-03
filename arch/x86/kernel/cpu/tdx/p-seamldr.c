@@ -23,7 +23,8 @@ static int seamldr_info(phys_addr_t seamldr_info)
 		if (ret == P_SEAMLDR_VMFAILINVALID)
 			pr_info("The P-SEAMLDR is not loaded by BIOS.  Skip TDX initialization.\n");
 		else
-			pr_err("SEAMCALL[SEAMLDR_INFO] failed 0x%llx\n", ret);
+			pr_err("SEAMCALL[SEAMLDR_INFO] failed %s (0x%llx)\n",
+				p_seamldr_error_name(ret), ret);
 		return -EIO;
 	}
 	return 0;

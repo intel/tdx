@@ -44,6 +44,7 @@ struct tdx_ex_ret {
 	};
 };
 
+const char *tdx_seamcall_error_name(u64 error_code);
 void pr_seamcall_ex_ret_info(u64 op, u64 error_code,
 			const struct tdx_ex_ret *ex_ret);
 void pr_seamcall_error(u64 op, u64 error_code, const struct tdx_ex_ret *ex_ret);
@@ -63,6 +64,11 @@ extern bool is_debug_seamcall_available __read_mostly;
 extern bool is_nonarch_seamcall_available __read_mostly;
 
 #else
+static inline const char *tdx_seamcall_error_name(u64 error_code)
+{
+	return "";
+}
+
 struct tdx_ex_ret;
 static inline void pr_seamcall_ex_ret_info(u64 op, u64 error_code,
 					const struct tdx_ex_ret *ex_ret)

@@ -1871,6 +1871,11 @@ static int tdx_sept_free_private_sp(struct kvm *kvm, gfn_t gfn, enum pg_level le
 	return ret;
 }
 
+/*
+ * TODO: optimization:
+ * Implement tlb_remote_flush_with_range and flush only private EPT by
+ * TDH.MEM.TRACK or shared EPT by ept_sync_context().
+ */
 static int tdx_sept_tlb_remote_flush(struct kvm *kvm)
 {
 	struct kvm_tdx *kvm_tdx;

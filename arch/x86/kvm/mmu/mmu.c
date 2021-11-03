@@ -277,6 +277,18 @@ static inline bool kvm_available_flush_tlb_with_range(void)
 	return kvm_x86_ops.tlb_remote_flush_with_range;
 }
 
+void kvm_flush_remote_tlbs_with_range(struct kvm *kvm,
+		struct kvm_tlb_range *range)
+{
+	int ret = -EOPNOTSUPP;
+
+	if (range && kvm_available_flush_tlb_with_range())
+		ret = static_call(kvm_x86_tlb_remote_flush_with_range)(kvm, range);
+
+	if (ret)
+		kvm_flush_remote_tlbs(kvm);
+}
+
 void kvm_flush_remote_tlbs_with_address(struct kvm *kvm,
 		u64 start_gfn, u64 pages)
 {
@@ -3449,14 +3461,28 @@ re_start:
 	slots = kvm_memslots_for_spte_role(kvm, sp->role);
 	slot = __gfn_to_memslot(slots, fault->gfn);
 	rmap_head = gfn_to_rmap(fault->gfn, sp->role.level, slot);
-	if (__kvm_zap_rmapp(kvm, rmap_head))
-		kvm_flush_remote_tlbs_with_address(kvm,
-			/*
-			 * Because the page to zap can be large page, get the
-			 * base gfn instead of gfn that may not be aligned.
-			 */
-			kvm_mmu_page_get_gfn(sp, it.sptep - sp->spt),
-			KVM_PAGES_PER_HPAGE(sp->role.level));
+	if (__kvm_zap_rmapp(kvm, rmap_head)) {
+		/*
+		 * Because the page to zap can be large page, get the
+		 * base gfn instead of gfn that may not be aligned.
+		 */
+		struct kvm_tlb_range range = {
+			.start_gfn = kvm_mmu_page_get_gfn(sp, it.sptep - sp->spt),
+			.pages = KVM_PAGES_PER_HPAGE(sp->role.level),
+		};
+
+		/*
+		 * TDX only keeps either private mapping, or shared mapping,
+		 * but not both, therefore, it is a little bit heavy to use
+		 * kvm_flush_remote_tlbs_with_address(), because it flushes
+		 * TLBs for all GFN aliasings.  Instead, it is enough to use
+		 * kvm_flush_remote_tlbs_with_range() to flush TLBs for either
+		 * private, or shared mapping.
+		 */
+		if (!is_private_sp(sp))
+			range.start_gfn |= vcpu->kvm->arch.gfn_shared_mask;
+		kvm_flush_remote_tlbs_with_range(kvm, &range);
+	}
 
 	if (!is_private_sp(sp))
 		return;

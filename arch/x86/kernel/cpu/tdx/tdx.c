@@ -20,6 +20,7 @@
 #include "tdx-ops.h"
 #include "p-seamldr.h"
 #include "seam.h"
+#include "tdx.h"
 
 enum TDX_HOST_OPTION {
 	TDX_HOST_OFF,
@@ -788,3 +789,25 @@ out_err:
  *   it's built into the kernel.
  */
 subsys_initcall_sync(tdx_late_init);
+
+#ifdef CONFIG_SYSFS
+
+struct kobject *tdx_kobj;
+
+int __init tdx_sysfs_init(void)
+{
+	if (!boot_cpu_has(X86_FEATURE_SEAM))
+		return 0;
+
+	if (tdx_kobj)
+		return 0;
+
+	tdx_kobj = kobject_create_and_add("tdx", firmware_kobj);
+	if (!tdx_kobj) {
+		pr_err("kobject_create_and_add tdx failed\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+#endif

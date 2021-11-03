@@ -1,0 +1,54 @@
+What:           /sys/firmware/tdx/
+Date:           September 2021
+KernelVersion:  5.15
+Contact:        Isaku Yamahata <isaku.yamahata@intel.com>, kvm@vger.kernel.org
+Description:
+                Intel's Trust Domain Extensions (TDX) protect guest VMs from
+                malicious hosts and some physical attacks.  This directory
+                represents the entry point directory for the TDX.
+
+                the TDX requires the TDX firmware to load into an isolated
+                memory region.  It requires a two-step loading process.  It uses
+                the first phase firmware loader (a.k.a NP-SEAMLDR) that loads
+                the next loader and the second phase firmware loader(a.k.a
+                P-SEAMLDR) that loads the TDX firmware(a.k.a the "TDX module").
+Users:          libvirt
+
+What:           /sys/firmware/tdx/p_seamldr/
+Date:           September 2021
+KernelVersion:  5.15
+Contact:        Isaku Yamahata <isaku.yamahata@intel.com>, kvm@vger.kernel.org
+Description:
+                The P-SEAMLDR is the TDX firmware loader. The P-SEAMLDR comes
+                with its attributes, vendor_id, build_date, build_num, minor
+                version, major version to identify itself.
+
+                Provides the information about the P-SEAMLDR loaded on the
+                platform.  This directory exists if the P-SEAMLDR is
+                successfully loaded.  It contains the following read-only files.
+                The information corresponds to the data structure, SEAMLDR_INFO.
+                The admins or VMM management software like libvirt can refer to
+                that information, determine if P-SEAMLDR is supported, and
+                identify the loaded P-SEAMLDR.
+
+                =============== ================================================
+                version         structure version of SEAMLDR_INFO as an
+                                hexadecimal number with the "0x" prefix
+                                "0x0".
+                attributes      32bit flags as a hexadecimal number with the
+                                "0x" prefix.
+                                Bit 31 - Production-worthy (0) or
+                                         debug (1).
+                                Bits 30:0 - Reserved 0.
+                vendor_id       Vendor ID as a hexadecimal number with the "0x"
+                                prefix.
+                                "0x0806" (Intel P-SEAMLDR module).
+                build_date      Build date in yyyy.mm.dd BCD format.
+                build_num       Build number as a hexadecimal number with the
+                                "0x" prefix.
+                minor           Minor version number as a hexadecimal number
+                                with the "0x" prefix.
+                major           Major version number as a hexadecimal number
+                                with the "0x" prefix.
+                =============== ================================================
+Users:          libvirt

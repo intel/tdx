@@ -3,6 +3,7 @@
 
 #define pr_fmt(fmt) "seam: " fmt
 
+#include <linux/kobject.h>
 #include <linux/slab.h>
 
 #include <asm/virtext.h>
@@ -10,6 +11,7 @@
 #include "p-seamldr.h"
 #include "seamcall.h"
 #include "seam.h"
+#include "tdx.h"
 
 static int seamldr_info(phys_addr_t seamldr_info)
 {
@@ -26,9 +28,10 @@ static int seamldr_info(phys_addr_t seamldr_info)
 	return 0;
 }
 
+static struct p_seamldr_info *p_seamldr_info;
+
 int __init p_seamldr_get_info(void)
 {
-	struct p_seamldr_info *p_seamldr_info;
 	struct vmcs *vmcs = NULL;
 	int vmxoff_err = 0;
 	int err = 0;
@@ -78,6 +81,79 @@ int __init p_seamldr_get_info(void)
 		p_seamldr_info->minor, p_seamldr_info->major);
 out:
 	free_page((unsigned long)vmcs); /* free_page() ignores NULL */
-	kfree(p_seamldr_info); /* kfree() is NULL-safe. */
+	/* On success, keep p_seamldr_info to export the info via sysfs. */
+	if (err) {
+		kfree(p_seamldr_info); /* kfree() is NULL-safe. */
+		p_seamldr_info = NULL;
+	}
 	return err;
 }
+
+#ifdef CONFIG_SYSFS
+
+static struct kobject *p_seamldr_kobj;
+
+#define P_SEAMLDR_ATTR_SHOW_FMT(name, fmt)				\
+static ssize_t name ## _show(						\
+	struct kobject *kobj, struct kobj_attribute *attr, char *buf)	\
+{									\
+	return sprintf(buf, fmt, p_seamldr_info->name);			\
+}									\
+static struct kobj_attribute p_seamldr_##name = __ATTR_RO(name)
+
+#define P_SEAMLDR_ATTR_SHOW_DEC(name)	P_SEAMLDR_ATTR_SHOW_FMT(name, "%d\n")
+#define P_SEAMLDR_ATTR_SHOW_HEX(name)	P_SEAMLDR_ATTR_SHOW_FMT(name, "0x%x\n")
+
+P_SEAMLDR_ATTR_SHOW_HEX(version);
+P_SEAMLDR_ATTR_SHOW_FMT(attributes, "0x08%x\n");
+P_SEAMLDR_ATTR_SHOW_HEX(vendor_id);
+P_SEAMLDR_ATTR_SHOW_DEC(build_date);
+P_SEAMLDR_ATTR_SHOW_HEX(build_num);
+P_SEAMLDR_ATTR_SHOW_HEX(minor);
+P_SEAMLDR_ATTR_SHOW_HEX(major);
+
+static struct attribute *p_seamldr_attrs[] = {
+	&p_seamldr_version.attr,
+	&p_seamldr_attributes.attr,
+	&p_seamldr_vendor_id.attr,
+	&p_seamldr_build_date.attr,
+	&p_seamldr_build_num.attr,
+	&p_seamldr_minor.attr,
+	&p_seamldr_major.attr,
+	NULL,
+};
+
+static const struct attribute_group p_seamldr_attr_group = {
+	.attrs = p_seamldr_attrs,
+};
+
+static int __init p_seamldr_sysfs_init(void)
+{
+	int ret = 0;
+
+	ret = tdx_sysfs_init();
+	if (ret)
+		goto out;
+
+	if (!p_seamldr_info)
+		goto out;
+
+	p_seamldr_kobj = kobject_create_and_add("p_seamldr", tdx_kobj);
+	if (!p_seamldr_kobj) {
+		pr_err("kobject_create_and_add p_seamldr failed\n");
+		ret = -EINVAL;
+		goto out;
+	}
+
+	ret = sysfs_create_group(p_seamldr_kobj, &p_seamldr_attr_group);
+	if (ret) {
+		pr_err("Sysfs exporting attribute failed with error %d", ret);
+		kobject_put(p_seamldr_kobj);
+		p_seamldr_kobj = NULL;
+	}
+
+out:
+	return ret;
+}
+device_initcall(p_seamldr_sysfs_init);
+#endif

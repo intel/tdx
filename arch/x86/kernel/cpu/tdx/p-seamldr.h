@@ -22,11 +22,24 @@
 
 #define P_SEAMLDR_SUCCESS	0x0000000000000000ULL
 
+#define P_SEAMLDR_ERROR_CODE(name)	{ name, #name }
+
+#define P_SEAMLDR_ERROR_CODES				\
+	P_SEAMLDR_ERROR_CODE(P_SEAMLDR_SUCCESS),	\
+	P_SEAMLDR_ERROR_CODE(P_SEAMLDR_VMFAILINVALID)
+
+const char *p_seamldr_error_name(u64 error_code);
+
 /*
  * P-SEAMLDR function leaves
  */
 #define SEAMCALL_SEAMLDR_BASE		BIT_ULL(63)
 #define SEAMCALL_SEAMLDR_INFO		SEAMCALL_SEAMLDR_BASE
+
+#define SEAMLDR_SEAMCALL(name)	{ SEAMCALL_##name, #name }
+
+#define SEAMLDR_SEAMCALLS			\
+	SEAMLDR_SEAMCALL(SEAMLDR_INFO)
 
 struct tee_tcb_svn {
 	u16 seam;

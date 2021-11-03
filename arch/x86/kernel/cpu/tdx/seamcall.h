@@ -6,6 +6,7 @@
 #include <linux/linkage.h>
 
 #include <asm/tdx_host.h>
+#include <asm/trace/seam.h>
 
 #ifdef CONFIG_INTEL_TDX_HOST
 
@@ -52,12 +53,16 @@ static inline u64 seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
 			   struct tdx_ex_ret *ex)
 {
 	struct tdx_ex_ret dummy;
+	u64 err;
 
 	if (!ex)
 		/* __seamcall requires non-NULL ex. */
 		ex = &dummy;
 
-	return __seamcall(op, rcx, rdx, r8, r9, ex);
+	trace_seamcall_enter(op, rcx, rdx, r8, r9, 0, 0);
+	err = __seamcall(op, rcx, rdx, r8, r9, ex);
+	trace_seamcall_exit(op, err, ex);
+	return err;
 }
 
 #endif /* CONFIG_INTEL_TDX_HOST */

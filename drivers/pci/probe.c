@@ -22,6 +22,7 @@
 #include <linux/bitfield.h>
 #include <linux/cc_platform.h>
 #include <linux/device.h>
+#include <linux/cc_platform.h>
 #include "pci.h"
 
 #define CARDBUS_LATENCY_TIMER	176	/* secondary latency timer */
@@ -2644,7 +2645,7 @@ int pci_scan_slot(struct pci_bus *bus, int devfn)
 	}
 
 	/* Only one slot has PCIe device */
-	if (bus->self && nr)
+	if (bus->self && nr && !cc_platform_has(CC_ATTR_GUEST_DEVICE_FILTER))
 		pcie_aspm_init_link_state(bus->self);
 
 	return nr;

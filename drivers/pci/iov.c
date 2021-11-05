@@ -12,6 +12,7 @@
 #include <linux/export.h>
 #include <linux/string.h>
 #include <linux/delay.h>
+#include <linux/cc_platform.h>
 #include "pci.h"
 
 #define VIRTFN_ID_LEN	17	/* "virtfn%u\0" for 2^32 - 1 */
@@ -609,6 +610,9 @@ static int sriov_enable(struct pci_dev *dev, int nr_virtfn)
 
 	if (!nr_virtfn)
 		return 0;
+
+	if (cc_platform_has(CC_ATTR_GUEST_HARDENED))
+		return -EINVAL;
 
 	if (iov->num_VFs)
 		return -EINVAL;

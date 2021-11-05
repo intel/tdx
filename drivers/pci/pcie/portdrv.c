@@ -17,6 +17,7 @@
 #include <linux/string.h>
 #include <linux/slab.h>
 #include <linux/aer.h>
+#include <linux/cc_platform.h>
 
 #include "../pci.h"
 #include "portdrv.h"
@@ -834,6 +835,9 @@ static int __init pcie_portdrv_init(void)
 {
 	if (pcie_ports_disabled)
 		return -EACCES;
+
+	if (cc_platform_has(CC_ATTR_GUEST_HARDENED))
+		return -EINVAL;
 
 	pcie_init_services();
 	dmi_check_system(pcie_portdrv_dmi_table);

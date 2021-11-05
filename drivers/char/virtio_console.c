@@ -1986,6 +1986,8 @@ static void virtcons_remove(struct virtio_device *vdev)
 	kfree(portdev);
 }
 
+#define MAX_VIRTIO_PORTS 64
+
 /*
  * Once we're further in boot, we get probed like any other virtio
  * device.
@@ -2041,6 +2043,10 @@ static int virtcons_probe(struct virtio_device *vdev)
 	    virtio_cread_feature(vdev, VIRTIO_CONSOLE_F_MULTIPORT,
 				 struct virtio_console_config, max_nr_ports,
 				 &portdev->max_nr_ports) == 0) {
+		if (portdev->max_nr_ports >= MAX_VIRTIO_PORTS) {
+			err = -EINVAL;
+			goto free;
+		}
 		multiport = true;
 	}
 

@@ -2697,7 +2697,7 @@ int pci_scan_slot(struct pci_bus *bus, int devfn)
 	} while (fn >= 0);
 
 	/* Only one slot has PCIe device */
-	if (bus->self && nr)
+	if (bus->self && nr && !cc_platform_has(CC_ATTR_GUEST_HARDENED))
 		pcie_aspm_init_link_state(bus->self);
 
 	return nr;

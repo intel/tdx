@@ -16,6 +16,7 @@
 #include <asm/insn.h>
 #include <asm/insn-eval.h>
 #include <linux/pci.h>
+#include <linux/nmi.h>
 
 #define CREATE_TRACE_POINTS
 #include <asm/trace/tdx.h>
@@ -816,6 +817,7 @@ void __init tdx_early_init(void)
 	setup_clear_cpu_cap(X86_FEATURE_MTRR);
 	setup_clear_cpu_cap(X86_FEATURE_APERFMPERF);
 	setup_clear_cpu_cap(X86_FEATURE_TME);
+	setup_clear_cpu_cap(X86_FEATURE_CQM_LLC);
 
 	/*
 	 * The only secure (mononotonous) timer inside a TD guest
@@ -840,6 +842,14 @@ void __init tdx_early_init(void)
 	swiotlb_force = SWIOTLB_FORCE;
 
 	legacy_pic = &null_legacy_pic;
+
+	/*
+	 * Disable NMI watchdog because of the risk of false positives
+	 * and also can increase overhead in the TDX module.
+	 * This is already done for KVM, but covers other hypervisors
+	 * here.
+	 */
+	hardlockup_detector_disable();
 
 	/*
 	 * Make sure there is a panic if something goes wrong,

@@ -696,9 +696,20 @@ unsigned long native_calibrate_tsc(void)
 static unsigned long cpu_khz_from_cpuid(void)
 {
 	unsigned int eax_base_mhz, ebx_max_mhz, ecx_bus_mhz, edx;
+	unsigned eax_denominator, ebx_numerator, ecx_hz;
 
 	if (boot_cpu_data.x86_vendor != X86_VENDOR_INTEL)
 		return 0;
+
+	if (boot_cpu_data.cpuid_level < 0x15)
+		return 0;
+
+	eax_denominator = ebx_numerator = ecx_hz = edx = 0;
+
+	cpuid(0x15, &eax_denominator, &ebx_numerator, &ecx_hz, &edx);
+
+	if (ebx_numerator && eax_denominator)
+		return ecx_hz;
 
 	if (boot_cpu_data.cpuid_level < 0x16)
 		return 0;

@@ -18,4 +18,6 @@ static inline bool amd_force_dma_unencrypted(struct device *dev)
 static inline void amd_mem_encrypt_init(void) {}
 #endif /* CONFIG_AMD_MEM_ENCRYPT */
 
+void mem_encrypt_init_swiotlb_size(void);
+
 #endif

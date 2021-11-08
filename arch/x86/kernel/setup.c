@@ -49,6 +49,7 @@
 #include <asm/thermal.h>
 #include <asm/unwind.h>
 #include <asm/vsyscall.h>
+#include <asm/mem_encrypt_common.h>
 #include <linux/vmalloc.h>
 
 /*
@@ -1031,11 +1032,8 @@ void __init setup_arch(char **cmdline_p)
 	memblock_set_current_limit(ISA_END_ADDRESS);
 	e820__memblock_setup();
 
-	/*
-	 * Needs to run after memblock setup because it needs the physical
-	 * memory size.
-	 */
-	sev_setup_arch();
+	if (cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT))
+		mem_encrypt_init_swiotlb_size();
 
 	efi_fake_memmap();
 	efi_find_mirror();

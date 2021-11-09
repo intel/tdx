@@ -13403,6 +13403,11 @@ bool kvm_arch_dirty_log_supported(struct kvm *kvm)
 	return kvm->arch.vm_type != KVM_X86_TDX_VM;
 }
 
+bool kvm_arch_private_mem_supported(struct kvm *kvm)
+{
+	return kvm->arch.vm_type == KVM_X86_TDX_VM;
+}
+
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_entry);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_exit);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_mmio);

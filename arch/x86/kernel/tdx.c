@@ -838,6 +838,11 @@ bool tdx_handle_virtualization_exception(struct pt_regs *regs,
 		ret = tdx_handle_io(regs, ve->exit_qual);
 		break;
 	case EXIT_REASON_EPT_VIOLATION:
+		if (!(ve->gpa & tdx_shared_mask())) {
+			panic("#VE due to access to unaccepted memory. "
+			      "GPA: %#llx\n", ve->gpa);
+		}
+
 		/* Currently only MMIO triggers EPT violation */
 		ve->instr_len = tdx_handle_mmio(regs, ve);
 		if (ve->instr_len < 0) {

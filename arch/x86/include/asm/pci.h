@@ -95,8 +95,10 @@ int pcibios_set_irq_routing(struct pci_dev *dev, int pin, int irq);
 bool pci_dev_has_default_msi_parent_domain(struct pci_dev *dev);
 #ifdef CONFIG_PCI
 void pci_disable_early(void);
+void pci_disable_mmconf(void);
 #else
 static inline void pci_disable_early(void) { }
+static inline void pci_disable_mmconf(void) { }
 #endif
 
 #define HAVE_PCI_MMAP

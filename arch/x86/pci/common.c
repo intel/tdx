@@ -737,3 +737,8 @@ void pci_disable_early(void)
 {
 	pci_probe |= PCI_PROBE_NOEARLY;
 }
+
+void pci_disable_mmconf(void)
+{
+	pci_probe &= ~PCI_PROBE_MMCONF;
+}

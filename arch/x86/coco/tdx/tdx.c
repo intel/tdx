@@ -879,6 +879,7 @@ void __init tdx_early_init(void)
 	legacy_pic = &null_legacy_pic;
 
 	pci_disable_early();
+	pci_disable_mmconf();
 
 	pr_info("Guest detected\n");
 }

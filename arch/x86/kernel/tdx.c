@@ -844,6 +844,7 @@ void __init tdx_early_init(void)
 		pr_warn("Setting event notification interrupt failed\n");
 
 	pci_disable_early();
+	pci_disable_mmconf();
 
 	pr_info("Guest detected\n");
 }

@@ -150,7 +150,9 @@ You probably want to use 0 as machine type.
 X86:
 ^^^^
 
-Supported X86 VM types can be queried via KVM_CAP_VM_TYPES.
+Supported X86 VM types can be queried via KVM_CAP_VM_TYPES, which returns the
+bitmap of supported vm types. The 1-setting of bit @n means vm type with value
+@n is supported.
 
 S390:
 ^^^^^

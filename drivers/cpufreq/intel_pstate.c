@@ -1647,7 +1647,8 @@ static void intel_pstate_disable_hwp_interrupt(struct cpudata *cpudata)
 		return;
 
 	/* wrmsrl_on_cpu has to be outside spinlock as this can result in IPC */
-	wrmsrl_on_cpu(cpudata->cpu, MSR_HWP_INTERRUPT, 0x00);
+	if (boot_cpu_has(X86_FEATURE_HWP_NOTIFY))
+		wrmsrl_on_cpu(cpudata->cpu, MSR_HWP_INTERRUPT, 0x00);
 
 	spin_lock_irqsave(&hwp_notify_lock, flags);
 	if (cpumask_test_and_clear_cpu(cpudata->cpu, &hwp_intr_enable_mask))

@@ -759,11 +759,9 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 		 * APIC_LVTPC here as host counters are to be enabled.
 		 * Otherwise, a subsequent host PMI may be masked.
 		 */
-		if (tdx->exit_reason.basic == EXIT_REASON_EXCEPTION_NMI) {
-			if (apic_read(APIC_LVTPC) & APIC_LVT_MASKED) {
-				tdx->guest_pmi_exit = true;
-				apic_write(APIC_LVTPC, APIC_DM_NMI);
-			}
+		if (apic_read(APIC_LVTPC) & APIC_LVT_MASKED) {
+			tdx->guest_pmi_exit = true;
+			apic_write(APIC_LVTPC, APIC_DM_NMI);
 		}
 	}
 
@@ -819,17 +817,18 @@ static void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu)
 	u16 exit_reason = tdx->exit_reason.basic;
 
 	if (exit_reason == EXIT_REASON_EXCEPTION_NMI) {
-		if (tdx->guest_pmi_exit) {
-			kvm_make_request(KVM_REQ_PMI, vcpu);
-			tdx->guest_pmi_exit = false;
-		}
-		else
+		if (!tdx->guest_pmi_exit)
 			vmx_handle_exception_nmi_irqoff(vcpu,
 							tdexit_intr_info(vcpu));
 	}
 	else if (exit_reason == EXIT_REASON_EXTERNAL_INTERRUPT)
 		vmx_handle_external_interrupt_irqoff(vcpu,
 						     tdexit_intr_info(vcpu));
+
+	if (tdx->guest_pmi_exit) {
+		kvm_make_request(KVM_REQ_PMI, vcpu);
+		tdx->guest_pmi_exit = false;
+	}
 }
 
 static int tdx_emulate_inject_bp_end(struct kvm_vcpu *vcpu, unsigned long dr6)

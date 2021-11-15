@@ -524,6 +524,7 @@ static int __init tdx_init_tdmrs(void)
 static int __init tdx_sys_key_config_cpu(void *unused)
 {
 	u64 err;
+	static int count = 0;
 
 	do {
 		err = tdh_sys_key_config();
@@ -535,6 +536,16 @@ static int __init tdx_sys_key_config_cpu(void *unused)
 	 * same package may have already configured it.  Ignore such case.
 	 */
 	if (err == TDX_KEY_CONFIGURED)
+		err = 0;
+
+	/*
+	 * TDX module bug work around.  If all the memory controllers are
+	 * configured,  tdh_sys_key_config() should return TDX_KEY_CONFIGURED.
+	 * However, it returns TDX_SYSCONFIG_NOT_DONE wrongly.
+	 */
+	if (err == 0)
+		count++;
+	if (err == TDX_SYSCONFIG_NOT_DONE && count > 0)
 		err = 0;
 
 	if (WARN_ON_ONCE(err)) {

@@ -747,12 +747,6 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	tdx_restore_host_xsave_state(vcpu);
 	tdx->host_state_need_restore = true;
 
-	/*
-	 * See the comments above for intel_pmu_save() for why
-	 * always do PMU context switch here
-	 */
-	intel_pmu_restore();
-
 	if (kvm_tdx->attributes & TDX1_TD_ATTRIBUTE_PERFMON) {
 		/*
 		 * Guest perf counters overflow leads to a PMI configured by
@@ -772,6 +766,12 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 			}
 		}
 	}
+
+	/*
+	 * See the comments above for intel_pmu_save() for why
+	 * always do PMU context switch here
+	 */
+	intel_pmu_restore();
 
 	tdx_register_cache_reset(vcpu);
 

@@ -25,6 +25,7 @@
 #include <asm/cpufeature.h>
 #include <asm/msr-index.h>
 #include <asm/msr.h>
+#include <asm/cpu.h>
 #include <asm/smp.h>
 #include <asm/tdx.h>
 #include "tdx.h"
@@ -200,9 +201,19 @@ static void seamcall_smp_call_function(void *data)
 {
 	struct seamcall_ctx *sc = data;
 	struct tdx_module_output out;
+	u64 tsx_ctrl;
 	u64 ret;
 
+	/*
+	 * TDH.SYS.LP.INIT has special environment requirements that
+	 * RTM_DISABLE(bit 0) and TSX_CPUID_CLEAR(bit 1) of IA32_TSX_CTRL must
+	 * be 0 if it's supported.
+	 */
+	if (sc->fn == TDH_SYS_LP_INIT)
+		tsx_ctrl = tsx_ctrl_clear();
 	ret = seamcall(sc->fn, sc->rcx, sc->rdx, sc->r8, sc->r9, &out);
+	if (sc->fn == TDH_SYS_LP_INIT)
+		tsx_ctrl_restore(tsx_ctrl);
 	if (ret)
 		atomic_set(&sc->err, -EFAULT);
 }
@@ -262,9 +273,19 @@ static int seamcall_on_each_package_serialized(struct seamcall_ctx *sc)
  */
 static int tdx_module_init_global(void)
 {
+	u64 tsx_ctrl;
 	u64 ret;
 
+	/*
+	 * TDH.SYS.INIT has special environment requirements that
+	 * RTM_DISABLE(bit 0) and TSX_CPUID_CLEAR(bit 1) of IA32_TSX_CTRL must
+	 * be 0 if it's supported.
+	 */
+	preempt_disable();
+	tsx_ctrl = tsx_ctrl_clear();
 	ret = seamcall(TDH_SYS_INIT, 0, 0, 0, 0, NULL);
+	tsx_ctrl_restore(tsx_ctrl);
+	preempt_enable();
 	if (ret == TDX_SEAMCALL_VMFAILINVALID)
 		return -ENODEV;
 

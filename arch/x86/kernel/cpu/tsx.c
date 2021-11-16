@@ -11,6 +11,7 @@
 #include <linux/cpufeature.h>
 
 #include <asm/cmdline.h>
+#include <asm/cpu.h>
 
 #include "cpu.h"
 
@@ -18,6 +19,8 @@
 #define pr_fmt(fmt) "tsx: " fmt
 
 enum tsx_ctrl_states tsx_ctrl_state __ro_after_init = TSX_CTRL_NOT_SUPPORTED;
+
+static bool ia32_tsx_ctrl_supported __ro_after_init;
 
 static void tsx_disable(void)
 {
@@ -73,7 +76,9 @@ static bool tsx_ctrl_is_supported(void)
 	 * tsx= cmdline requests will do nothing on CPUs without
 	 * MSR_IA32_TSX_CTRL support.
 	 */
-	return !!(ia32_cap & ARCH_CAP_TSX_CTRL_MSR);
+	ia32_tsx_ctrl_supported = !!(ia32_cap & ARCH_CAP_TSX_CTRL_MSR);
+
+	return ia32_tsx_ctrl_supported;
 }
 
 static enum tsx_ctrl_states x86_get_tsx_auto_mode(void)
@@ -259,3 +264,26 @@ void tsx_ap_init(void)
 		/* See comment over that function for more details. */
 		tsx_clear_cpuid();
 }
+
+#define MSR_TSX_CTRL_MASK	(TSX_CTRL_RTM_DISABLE | TSX_CTRL_CPUID_CLEAR)
+
+/* Clear the MSR_TSX_CTRL and return the old value if supported */
+u64 tsx_ctrl_clear(void)
+{
+	u64 tsx_ctrl = 0;
+
+	if (ia32_tsx_ctrl_supported) {
+		rdmsrl(MSR_IA32_TSX_CTRL, tsx_ctrl);
+		if (tsx_ctrl & MSR_TSX_CTRL_MASK)
+			wrmsrl(MSR_IA32_TSX_CTRL, tsx_ctrl & ~MSR_TSX_CTRL_MASK);
+	}
+	return tsx_ctrl;
+}
+EXPORT_SYMBOL_GPL(tsx_ctrl_clear);
+
+void tsx_ctrl_restore(u64 tsx_ctrl)
+{
+	if (ia32_tsx_ctrl_supported && (tsx_ctrl & MSR_TSX_CTRL_MASK))
+		wrmsrl(MSR_IA32_TSX_CTRL, tsx_ctrl);
+}
+EXPORT_SYMBOL_GPL(tsx_ctrl_restore);

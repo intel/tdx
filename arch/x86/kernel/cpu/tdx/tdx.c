@@ -778,6 +778,7 @@ out_err:
 /*
  * subsys_initcall_sync() is chosen to satisfy the following conditions.
  *   e820_reserve_resources() called by setup_arch().  Because
+ *   tdx_construct_tdmr() walks iomem resources looking for legacy pmem region.
  * - After reserved memory region is polulated in iomem_resource by
  *   e820__reserve_resources_late(), which is called by
  *   subsys_initcall(pci_subsys_init).

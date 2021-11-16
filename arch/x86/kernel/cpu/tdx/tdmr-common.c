@@ -1261,7 +1261,7 @@ static int __init fillup_reserved_areas_across_tdmrs(struct tdx_memory *tmem,
  * @data:	Type-specific TDX memory block opaque data
  * @ops:	Type-specific TDX memory block ops
  *
- * Create one TDX memory block with type-specific data.
+ * Create one TDX memory block with type-specific data and ops.
  */
 struct tdx_memblock * __init tdx_memblock_create(unsigned long start_pfn,
 		unsigned long end_pfn, int nid, void *data,

@@ -4,6 +4,8 @@
 
 #include "tdmr-sysmem.h"
 
+extern struct tdx_memory tmem_all __initdata;
+
 /* Build TDX memory with all TDX capable memory blocks */
 int __init build_tdx_memory(void);
 
@@ -12,7 +14,7 @@ void __init cleanup_subtype_tdx_memory(void);
 
 /*
  * Construct final TDMRs based on CMR info and TDX module info, to cover
- * final TDX memory @tmem_sysmem (built by tdx_sysmem_build()).
+ * final TDX memory @tmem_all (built by build_tdx_memory()).
  */
 int __init construct_tdx_tdmrs(struct cmr_info *cmr_array, int cmr_num,
 		struct tdx_module_descriptor *desc,

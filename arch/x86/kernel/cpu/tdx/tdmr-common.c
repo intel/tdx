@@ -9,7 +9,6 @@
 #include <linux/slab.h>
 #include <linux/gfp.h>
 #include "tdmr-common.h"
-#include "tdmr-sysmem.h"
 
 /* Check whether first range is fully covered by second */
 static bool __init is_range_fully_covered(u64 r1_start, u64 r1_end,
@@ -285,8 +284,10 @@ static void __init tdmr_range_merge(struct tdmr_range *tr1,
 	tr1->last_tmb = tr2->last_tmb;
 }
 
+/* Merge TDMR ranges with different types of TDX memory blocks */
+#define TR_MERGE_TYPELESS	BIT(0)
 /* Merge non-contiguous TDMR ranges */
-#define TR_MERGE_NON_CONTIG	BIT(0)
+#define TR_MERGE_NON_CONTIG	BIT(1)
 
 /*
  * Try to merge two adjacent TDMR ranges into single one.  @nid indicates only
@@ -316,6 +317,16 @@ static bool __init merge_tdmr_ranges_node(struct tdmr_range_ctx *tr_ctx,
 		 */
 		if (nid != NUMA_NO_NODE && prev_tr->nid != tr->nid)
 			return false;
+
+		/*
+		 * Don't merge ranges with different types of TDX memory blocks
+		 * if TR_MERGE_TYPELESS is not specified.  Note only check last
+		 * block of @tr, and first block of @next_tr, although one range
+		 * can have multiple types of blocks.
+		 */
+		if (!(merge_flags & TR_MERGE_TYPELESS) &&
+			(prev_tr->last_tmb->ops != tr->first_tmb->ops))
+			continue;
 
 		/*
 		 * Don't merge non-contiguous ranges when TR_MERGE_NON_CONTIG
@@ -356,6 +367,12 @@ again:
 
 	if (tr_ctx->tr_num <= target_tr_num)
 		return true;
+
+	/* Try again with TR_MERGE_TYPELESS if not */
+	if (!(merge_flags & TR_MERGE_TYPELESS)) {
+		merge_flags |= TR_MERGE_TYPELESS;
+		goto again;
+	}
 
 	/* Then try to merge non-contiguous ranges */
 	if (!(merge_flags & TR_MERGE_NON_CONTIG)) {
@@ -432,7 +449,7 @@ static void __init construct_tdmrs_cleanup(struct tdx_memory *tmem)
 				struct tdx_pamt, list);
 
 		list_del(&pamt->list);
-		sysmem_pamt_free(pamt->tmb, pamt->pamt_pfn,
+		pamt->tmb->ops->pamt_free(pamt->tmb, pamt->pamt_pfn,
 				pamt->total_pages);
 		kfree(pamt);
 	}
@@ -727,7 +744,7 @@ static int __init tmb_alloc_pamt_pool(struct tdx_memory *tmem,
 	if (!pamt)
 		return -ENOMEM;
 
-	pamt_pfn = sysmem_pamt_alloc(tmb, pamt_sz >> PAGE_SHIFT);
+	pamt_pfn = tmb->ops->pamt_alloc(tmb, pamt_sz >> PAGE_SHIFT);
 	if (!pamt_pfn) {
 		kfree(pamt);
 		return -ENOMEM;
@@ -737,6 +754,7 @@ static int __init tmb_alloc_pamt_pool(struct tdx_memory *tmem,
 	pamt->pamt_pfn = pamt_pfn;
 	pamt->total_pages = pamt_sz >> PAGE_SHIFT;
 	pamt->free_pages = pamt_sz >> PAGE_SHIFT;
+	/* In order to use tmb->ops->pamt_free() */
 	pamt->tmb = tmb;
 	/* Setup TDX memory block's PAMT pool */
 	tmb->pamt = pamt;
@@ -1241,11 +1259,13 @@ static int __init fillup_reserved_areas_across_tdmrs(struct tdx_memory *tmem,
  * @end_pfn:	End PFN of the TDX memory block
  * @nid:	Node the TDX memory block belongs to
  * @data:	Type-specific TDX memory block opaque data
+ * @ops:	Type-specific TDX memory block ops
  *
  * Create one TDX memory block with type-specific data.
  */
 struct tdx_memblock * __init tdx_memblock_create(unsigned long start_pfn,
-		unsigned long end_pfn, int nid, void *data)
+		unsigned long end_pfn, int nid, void *data,
+		struct tdx_memblock_ops *ops)
 {
 	struct tdx_memblock *tmb;
 
@@ -1257,6 +1277,7 @@ struct tdx_memblock * __init tdx_memblock_create(unsigned long start_pfn,
 	tmb->start_pfn = start_pfn;
 	tmb->end_pfn = end_pfn;
 	tmb->data = data;
+	tmb->ops = ops;
 
 	return tmb;
 }
@@ -1271,6 +1292,7 @@ void __init tdx_memblock_free(struct tdx_memblock *tmb)
 	if (!tmb)
 		return;
 
+	tmb->ops->tmb_free(tmb);
 	kfree(tmb);
 }
 

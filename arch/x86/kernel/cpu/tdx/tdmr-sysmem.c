@@ -11,8 +11,10 @@
 /* TDX memory instance which contains all system memory blocks */
 struct tdx_memory tmem_sysmem __initdata;
 
-unsigned long __init sysmem_pamt_alloc(struct tdx_memblock *tmb,
-				unsigned long nr_pages)
+static void __init sysmem_tmb_free(struct tdx_memblock *tmb) { }
+
+static unsigned long __init sysmem_pamt_alloc(struct tdx_memblock *tmb,
+		unsigned long nr_pages)
 {
 	struct page *page;
 
@@ -25,11 +27,17 @@ unsigned long __init sysmem_pamt_alloc(struct tdx_memblock *tmb,
 	return page ? page_to_pfn(page) : 0;
 }
 
-void __init sysmem_pamt_free(struct tdx_memblock *tmb,
-			unsigned long pamt_pfn, unsigned long nr_pages)
+static void __init sysmem_pamt_free(struct tdx_memblock *tmb,
+		unsigned long pamt_pfn, unsigned long nr_pages)
 {
 	free_contig_range(pamt_pfn, nr_pages);
 }
+
+static struct tdx_memblock_ops sysmem_ops = {
+	.tmb_free = sysmem_tmb_free,
+	.pamt_alloc = sysmem_pamt_alloc,
+	.pamt_free = sysmem_pamt_free,
+};
 
 static int __init tdx_sysmem_add_block(struct tdx_memory *tmem,
 		unsigned long start_pfn, unsigned long end_pfn, int nid)
@@ -55,7 +63,7 @@ static int __init tdx_sysmem_add_block(struct tdx_memory *tmem,
 	if (start_pfn >= end_pfn)
 		return 0;
 
-	tmb = tdx_memblock_create(start_pfn, end_pfn, nid, NULL);
+	tmb = tdx_memblock_create(start_pfn, end_pfn, nid, NULL, &sysmem_ops);
 	if (!tmb)
 		return -ENOMEM;
 

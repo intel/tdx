@@ -6,6 +6,8 @@
 
 #ifdef CONFIG_INTEL_TDX_HOST
 
+#include <linux/cache.h>
+
 /*
  * TDX extended return:
  * Some of The "TDX module" SEAMCALLs return extended values (which are function
@@ -16,10 +18,6 @@
  */
 struct tdx_ex_ret {
 	union {
-		/*
-		 * TODO: define symbolic names for each SEAMCALLs to the
-		 * "TDX module" instead of register name for readability.
-		 */
 		struct {
 			u64 rcx;
 			u64 rdx;
@@ -28,12 +26,28 @@ struct tdx_ex_ret {
 			u64 r10;
 			u64 r11;
 		} regs;
+		/*
+		 * TDH_SYS_INFO returns the buffer address and its size, and the
+		 * CMR_INFO address and its number of entries.
+		 */
+		struct {
+			u64 buffer;
+			u64 nr_bytes;
+			u64 cmr_info;
+			u64 nr_cmr_entries;
+		} sys_info;
 	};
 };
 
 void pr_seamcall_ex_ret_info(u64 op, u64 error_code,
 			const struct tdx_ex_ret *ex_ret);
 void pr_seamcall_error(u64 op, u64 error_code, const struct tdx_ex_ret *ex_ret);
+
+struct tdsysinfo_struct;
+const struct tdsysinfo_struct *tdx_get_sysinfo(void);
+
+extern u32 tdx_keyids_start __read_mostly;
+extern u32 tdx_nr_keyids __read_mostly;
 #else
 struct tdx_ex_ret;
 static inline void pr_seamcall_ex_ret_info(u64 op, u64 error_code,
@@ -44,6 +58,12 @@ static inline void pr_seamcall_ex_ret_info(u64 op, u64 error_code,
 static inline void pr_seamcall_error(u64 op, u64 error_code,
 				const struct tdx_ex_ret *ex_ret)
 {
+}
+
+struct tdsysinfo_struct;
+static inline const struct tdsysinfo_struct *tdx_get_sysinfo(void)
+{
+	return NULL;
 }
 #endif
 

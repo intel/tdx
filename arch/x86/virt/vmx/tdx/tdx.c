@@ -23,6 +23,7 @@
 #include <asm/virtext.h>
 #include <asm/e820/api.h>
 #include <asm/pgtable.h>
+#include <asm/cpu.h>
 #include <asm/smp.h>
 #include <asm/tdx.h>
 #include "tdx.h"
@@ -423,10 +424,20 @@ struct seamcall_ctx {
 static void seamcall_smp_call_function(void *data)
 {
 	struct seamcall_ctx *sc = data;
+	u64 tsx_ctrl;
 	int ret;
 
+	/*
+	 * TDH.SYS.LP.INIT has special environment requirements that
+	 * RTM_DISABLE(bit 0) and TSX_CPUID_CLEAR(bit 1) of IA32_TSX_CTRL must
+	 * be 0 if it's supported.
+	 */
+	if (sc->fn == TDH_SYS_LP_INIT)
+		tsx_ctrl = tsx_ctrl_clear();
 	ret = seamcall(sc->fn, sc->rcx, sc->rdx, sc->r8, sc->r9,
 			&sc->seamcall_ret, &sc->out);
+	if (sc->fn == TDH_SYS_LP_INIT)
+		tsx_ctrl_restore(tsx_ctrl);
 	if (ret)
 		atomic_set(&sc->err, ret);
 }
@@ -1497,10 +1508,21 @@ static int init_tdx_module(void)
 {
 	struct tdmr_info **tdmr_array;
 	int tdmr_num;
+	u64 tsx_ctrl;
 	int ret;
 
 	/* TDX module global initialization */
+
+	/*
+	 * TDH.SYS.INIT has special environment requirements that
+	 * RTM_DISABLE(bit 0) and TSX_CPUID_CLEAR(bit 1) of IA32_TSX_CTRL must
+	 * be 0 if it's supported.
+	 */
+	preempt_disable();
+	tsx_ctrl = tsx_ctrl_clear();
 	ret = seamcall(TDH_SYS_INIT, 0, 0, 0, 0, NULL, NULL);
+	tsx_ctrl_restore(tsx_ctrl);
+	preempt_enable();
 	if (ret)
 		goto out;
 

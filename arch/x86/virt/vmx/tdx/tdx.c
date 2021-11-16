@@ -303,8 +303,14 @@ static int tdx_on_each_cpu_cond(int (*func)(void *), void *func_data,
 
 static int seamcall_lp_init(void)
 {
+	u64 tsx_ctrl;
+	int ret;
+
+	tsx_ctrl = tsx_ctrl_clear();
 	/* All '0's are just unused parameters */
-	return seamcall(TDH_SYS_LP_INIT, 0, 0, 0, 0, NULL, NULL);
+	ret = seamcall(TDH_SYS_LP_INIT, 0, 0, 0, 0, NULL, NULL);
+	tsx_ctrl_restore(tsx_ctrl);
+	return ret;
 }
 
 static int smp_func_module_lp_init(void *data)
@@ -1183,13 +1189,18 @@ static int init_tdx_module(void)
 	static struct cmr_info cmr_array[MAX_CMRS]
 			__aligned(CMR_INFO_ARRAY_ALIGNMENT);
 	struct tdsysinfo_struct *sysinfo = &PADDED_STRUCT(tdsysinfo);
+	u64 tsx_ctrl;
 	int ret;
 
 	/*
 	 * TDX module global initialization.  All '0's are just
 	 * unused parameters.
 	 */
+	preempt_disable();
+	tsx_ctrl = tsx_ctrl_clear();
 	ret = seamcall(TDH_SYS_INIT, 0, 0, 0, 0, NULL, NULL);
+	tsx_ctrl_restore(tsx_ctrl);
+	preempt_enable();
 	if (ret)
 		return ret;
 

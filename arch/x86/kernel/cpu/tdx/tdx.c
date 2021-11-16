@@ -5,6 +5,7 @@
 
 #include <linux/kernel.h>
 #include <linux/init.h>
+#include <linux/slab.h>
 #include <linux/cpu.h>
 
 #include <asm/tdx_arch.h>
@@ -44,6 +45,23 @@ enum TDX_MODULE_STATE {
 };
 
 static enum TDX_MODULE_STATE tdx_module_state __initdata;
+
+/* TDX system information returned by TDH_SYS_INFO. */
+static struct tdsysinfo_struct *tdx_tdsysinfo;
+
+/*
+ * Return pointer to TDX system info (TDSYSINFO_STRUCT) if TDX has been
+ * successfully initialized, or NULL.
+ */
+const struct tdsysinfo_struct *tdx_get_sysinfo(void)
+{
+	return tdx_tdsysinfo;
+}
+EXPORT_SYMBOL_GPL(tdx_get_sysinfo);	/* kvm_intel needs this. */
+
+/* CMR info array returned by TDH_SYS_INFO. */
+static struct cmr_info *tdx_cmrs __initdata;
+static int tdx_nr_cmrs __initdata;
 
 /* KeyID range reserved to TDX by BIOS */
 static u32 tdx_keyids_start __initdata;
@@ -150,6 +168,115 @@ static int __init tdx_init_system(void)
 	return tdx_init_cpus();
 }
 
+static void __init tdx_sys_info_free(struct tdsysinfo_struct **tdsysinfo,
+				struct cmr_info **cmrs)
+{
+	/* kfree() is NULL-safe. */
+	kfree(*tdsysinfo);
+	kfree(*cmrs);
+	*tdsysinfo = NULL;
+	*cmrs = NULL;
+}
+
+/*
+ * TDH_SYS_CONFIG requires that struct tdsysinfo_struct and the array of struct
+ * cmr_info have the alignment of TDX_TDSYSINFO_STRUCT_ALIGNMENT(1024) and
+ * TDX_CMR_INFO_ARRAY_ALIGNMENT(512).
+ * sizeof(struct tdsysinfo_struct) = 1024
+ * sizeof(struct cmr_info) * TDX_MAX_NR_CMRS = 512
+ *
+ * NOTE: kmalloc() returns size-aligned when size of power of 2.
+ */
+static int __init tdx_sys_info_alloc(struct tdsysinfo_struct **tdsysinfo,
+				     struct cmr_info **cmrs)
+{
+	/* tdh_sys_info() requires special alignment. */
+	BUILD_BUG_ON(sizeof(struct tdsysinfo_struct) != 1024);
+	BUILD_BUG_ON(!is_power_of_2(sizeof(**tdsysinfo)));
+	BUILD_BUG_ON(!IS_ALIGNED(sizeof(**tdsysinfo),
+				 TDX_TDSYSINFO_STRUCT_ALIGNMENT));
+	BUILD_BUG_ON(!is_power_of_2(sizeof(**cmrs) * TDX_MAX_NR_CMRS));
+	BUILD_BUG_ON(!IS_ALIGNED(sizeof(**cmrs) * TDX_MAX_NR_CMRS,
+				 TDX_CMR_INFO_ARRAY_ALIGNMENT));
+
+	*tdsysinfo = kzalloc(sizeof(**tdsysinfo), GFP_KERNEL);
+	*cmrs = kcalloc(TDX_MAX_NR_CMRS, sizeof(**cmrs), GFP_KERNEL);
+	if (!*tdsysinfo || !*cmrs) {
+		tdx_sys_info_free(tdsysinfo, cmrs);
+		return -ENOMEM;
+	}
+	return 0;
+}
+
+/*
+ * tdx_get_system_info - store TDX system information into the following
+ *                       variables. tdx_keyid_start, tdx_nr_keyids,
+ *                       tdx_tdsysinfo, tdx_cmrs and tdx_nr_cmrs.
+ *
+ * @return: 0 on success, error code on failure.
+ *
+ * get info about system. i.e. info about TDX module and Convertible Memory
+ * Regions(CMRs).
+ */
+static int __init tdx_get_system_info(void)
+{
+	struct tdx_ex_ret ex_ret;
+	u64 err;
+	int ret;
+	int i;
+
+	ret = tdx_sys_info_alloc(&tdx_tdsysinfo, &tdx_cmrs);
+	if (ret)
+		return ret;
+
+	/* Collect the system wide information needed to construct TDMRs. */
+	err = tdh_sys_info(__pa(tdx_tdsysinfo), sizeof(*tdx_tdsysinfo),
+			   __pa(tdx_cmrs), TDX_MAX_NR_CMRS, &ex_ret);
+	if (WARN_ON(err)) {
+		pr_seamcall_error(SEAMCALL_TDH_SYS_INFO, err, &ex_ret);
+		ret = -EIO;
+		goto out;
+	}
+
+	/*
+	 * ex_ret.nr_cmr_entries is how many entries TDX module writes.  It may
+	 * contain 0-size entries at the end.  Exclude 0-size entries.
+	 */
+	tdx_nr_cmrs = 0;
+	for (i = 0; i < ex_ret.sys_info.nr_cmr_entries; i++) {
+		if (!tdx_cmrs[i].size)
+			break;
+		tdx_nr_cmrs++;
+	}
+
+	/*
+	 * Sanity check TDSYSINFO.  TDX module should have the architectural
+	 * values in TDX spec.
+	 */
+	if (((tdx_tdsysinfo->max_reserved_per_tdmr != TDX_MAX_NR_RSVD_AREAS) ||
+		(tdx_tdsysinfo->max_tdmrs != TDX_MAX_NR_TDMRS) ||
+		(tdx_tdsysinfo->pamt_entry_size != TDX_PAMT_ENTRY_SIZE))) {
+		pr_err("Invalid TDSYSINFO.  Disable TDX.\n");
+		ret = -EINVAL;
+		goto out;
+	}
+
+	pr_info("TDX SEAM module: attributes 0x%x vendor_id 0x%x build_date %d "
+		"build_num 0x%x minor_version 0x%x major_version 0x%x.\n",
+		tdx_tdsysinfo->attributes, tdx_tdsysinfo->vendor_id,
+		tdx_tdsysinfo->build_date, tdx_tdsysinfo->build_num,
+		tdx_tdsysinfo->minor_version, tdx_tdsysinfo->major_version);
+
+	for (i = 0; i < tdx_nr_cmrs; i++)
+		pr_info("TDX CMR[%2d]: base 0x%016llx size 0x%016llx\n",
+			i, tdx_cmrs[i].base, tdx_cmrs[i].size);
+
+out:
+	if (ret)
+		tdx_sys_info_free(&tdx_tdsysinfo, &tdx_cmrs);
+	return ret;
+}
+
 /*
  * Early system wide initialization of the TDX module. Check if the TDX firmware
  * loader and the TDX firmware module are available and log their version.
@@ -215,6 +342,10 @@ static int __init tdx_arch_init(void)
 		goto out;
 
 	ret = tdx_init_system();
+	if (ret)
+		goto out;
+
+	ret = tdx_get_system_info();
 	if (ret)
 		goto out;
 

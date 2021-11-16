@@ -19,10 +19,6 @@
  */
 struct tdx_ex_ret {
 	union {
-		/*
-		 * TODO: define symbolic names for each SEAMCALLs to the
-		 * "TDX module" instead of register name for readability.
-		 */
 		struct {
 			u64 rcx;
 			u64 rdx;
@@ -31,6 +27,16 @@ struct tdx_ex_ret {
 			u64 r10;
 			u64 r11;
 		} regs;
+		/*
+		 * TDH_SYS_INFO returns the buffer address and its size, and the
+		 * CMR_INFO address and its number of entries.
+		 */
+		struct {
+			u64 buffer;
+			u64 nr_bytes;
+			u64 cmr_info;
+			u64 nr_cmr_entries;
+		} sys_info;
 	};
 };
 

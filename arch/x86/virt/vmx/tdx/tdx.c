@@ -24,6 +24,7 @@
 #include <linux/sort.h>
 #include <asm/pgtable_types.h>
 #include <asm/msr.h>
+#include <asm/cpu.h>
 #include <asm/tdx.h>
 #include "tdx.h"
 

@@ -25,6 +25,7 @@
 #include <asm/msr-index.h>
 #include <asm/msr.h>
 #include <asm/apic.h>
+#include <asm/cpu.h>
 #include <asm/tdx.h>
 #include "tdx.h"
 

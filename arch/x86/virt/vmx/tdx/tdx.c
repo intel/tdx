@@ -32,6 +32,7 @@
 #include <asm/archrandom.h>
 #include <asm/page.h>
 #include <asm/special_insns.h>
+#include <asm/cpu.h>
 #include <asm/tdx.h>
 #include "tdx.h"
 

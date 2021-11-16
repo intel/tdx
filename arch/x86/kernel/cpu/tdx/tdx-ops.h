@@ -20,12 +20,37 @@ static inline u64 tdh_sys_info(u64 tdsysinfo, int nr_bytes, u64 cmr_info,
 
 static inline u64 tdh_sys_init(u64 attributes, struct tdx_ex_ret *ex)
 {
-	return seamcall(SEAMCALL_TDH_SYS_INIT, attributes, 0, 0, 0, ex);
+	u64 tsx_ctrl, ret;
+
+	/*
+	 * TDH.SYS.INIT has special environment requirements that
+	 * RTM_DISABLE(bit 0) and TSX_CPUID_CLEAR(bit 1) of IA32_TSX_CTRL must
+	 * be 0 if it's supported.
+	 */
+	preempt_disable();
+	tsx_ctrl = tsx_ctrl_clear();
+	ret = seamcall(SEAMCALL_TDH_SYS_INIT, attributes, 0, 0, 0, ex);
+	tsx_ctrl_restore(tsx_ctrl);
+	preempt_enable();
+	return ret;
 }
 
 static inline u64 tdh_sys_lp_init(struct tdx_ex_ret *ex)
 {
-	return seamcall(SEAMCALL_TDH_SYS_LP_INIT, 0, 0, 0, 0, ex);
+	u64 tsx_ctrl, ret;
+
+	/*
+	 * TDH.SYS.LP.INIT has special environment requirements that
+	 * RTM_DISABLE(bit 0) and TSX_CPUID_CLEAR(bit 1) of IA32_TSX_CTRL must
+	 * be 0 if it's supported.
+	 */
+	preempt_disable();
+	tsx_ctrl = tsx_ctrl_clear();
+	ret = seamcall(SEAMCALL_TDH_SYS_LP_INIT, 0, 0, 0, 0, ex);
+	tsx_ctrl_restore(tsx_ctrl);
+	preempt_enable();
+
+	return ret;
 }
 
 static inline u64 tdh_sys_tdmr_init(u64 tdmr, struct tdx_ex_ret *ex)

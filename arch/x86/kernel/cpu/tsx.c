@@ -256,3 +256,18 @@ void tsx_ap_init(void)
 		/* See comment over that function for more details. */
 		tsx_clear_cpuid();
 }
+
+/*
+ * Clear the MSR_TSX_CTRL.
+ * The caller must ensure that X86_FEATURE_MSR_TSX_CTRL is set.
+ */
+#define MSR_TSX_CTRL_MASK	(TSX_CTRL_RTM_DISABLE | TSX_CTRL_CPUID_CLEAR)
+void tsx_ctrl_clear(void)
+{
+	u64 tsx_ctrl;
+
+	rdmsrl(MSR_IA32_TSX_CTRL, tsx_ctrl);
+	if (tsx_ctrl & MSR_TSX_CTRL_MASK)
+		wrmsrl(MSR_IA32_TSX_CTRL, tsx_ctrl & ~MSR_TSX_CTRL_MASK);
+}
+EXPORT_SYMBOL_GPL(tsx_ctrl_clear);

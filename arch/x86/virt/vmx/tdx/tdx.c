@@ -282,8 +282,11 @@ out:
 	return ret;
 }
 
+#define MSR_TSX_CTRL_MASK	(TSX_CTRL_RTM_DISABLE | TSX_CTRL_CPUID_CLEAR)
+
 static int try_init_module_global(void)
 {
+	u64 tsx_ctrl;
 	int ret;
 
 	/*
@@ -299,7 +302,10 @@ static int try_init_module_global(void)
 	}
 
 	/* All '0's are just unused parameters. */
+	tsx_ctrl = tsx_ctrl_save();
+	tsx_ctrl_restore(tsx_ctrl & ~MSR_TSX_CTRL_MASK);
 	ret = seamcall(TDH_SYS_INIT, 0, 0, 0, 0, NULL, NULL);
+	tsx_ctrl_restore(tsx_ctrl);
 
 	tdx_global_init_status = TDX_GLOBAL_INIT_DONE;
 	if (ret)
@@ -327,6 +333,7 @@ out:
 int tdx_cpu_enable(void)
 {
 	unsigned int lp_status;
+	u64 tsx_ctrl;
 	int ret;
 
 	if (!platform_tdx_enabled())
@@ -353,8 +360,11 @@ int tdx_cpu_enable(void)
 	if (ret)
 		goto update_status;
 
+	tsx_ctrl = tsx_ctrl_save();
+	tsx_ctrl_restore(tsx_ctrl & ~MSR_TSX_CTRL_MASK);
 	/* All '0's are just unused parameters */
 	ret = seamcall(TDH_SYS_LP_INIT, 0, 0, 0, 0, NULL, NULL);
+	tsx_ctrl_restore(tsx_ctrl);
 
 update_status:
 	lp_status = TDX_LP_INIT_DONE;

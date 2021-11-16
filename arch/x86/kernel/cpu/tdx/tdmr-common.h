@@ -42,8 +42,23 @@ struct tdx_pamt {
 	struct tdx_memblock *tmb;
 };
 
+struct tdx_memblock_ops {
+	void (*tmb_free)(struct tdx_memblock *tmb);
+	/*
+	 * Allocate @npages TDX memory as PAMT.  @tmb can be where PAMT is
+	 * allocated from, or just a hit.
+	 */
+	unsigned long (*pamt_alloc)(struct tdx_memblock *tmb,
+			unsigned long npages);
+	/* Free PAMT allocated by pamt_alloc(). */
+	void (*pamt_free)(struct tdx_memblock *tmb, unsigned long pamt_pfn,
+			unsigned long npages);
+};
+
 /*
  * Structure to describe common TDX memory block which can be covered by TDMRs.
+ * To support specific type of TDX memory block, a type-specific data structure
+ * should be defined, and pass as opaque data, along with type-specific ops.
  */
 struct tdx_memblock {
 	struct list_head list;
@@ -51,6 +66,7 @@ struct tdx_memblock {
 	unsigned long end_pfn;
 	int nid;
 	void *data;	/* TDX memory block type specific data */
+	struct tdx_memblock_ops *ops;
 	struct tdx_pamt *pamt;
 };
 
@@ -75,7 +91,8 @@ struct tdx_memory {
 };
 
 struct tdx_memblock * __init tdx_memblock_create(unsigned long start_pfn,
-		unsigned long end_pfn, int nid, void *data);
+		unsigned long end_pfn, int nid, void *data,
+		struct tdx_memblock_ops *ops);
 void __init tdx_memblock_free(struct tdx_memblock *tmb);
 
 void __init tdx_memory_init(struct tdx_memory *tmem);

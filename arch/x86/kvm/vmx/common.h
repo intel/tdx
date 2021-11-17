@@ -219,4 +219,8 @@ static inline unsigned long vmx_mask_out_guest_rip(struct kvm_vcpu *vcpu,
 		return (u32)new_rip;
 	return new_rip;
 }
+
+/* For share the handler between legacy guest and TD guest */
+int __vmx_handle_dr(struct kvm_vcpu *vcpu, bool guest_debug_enabled);
+
 #endif /* __KVM_X86_VMX_COMMON_H */

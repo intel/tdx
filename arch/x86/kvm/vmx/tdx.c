@@ -910,22 +910,40 @@ static int tdx_emulate_vmcall(struct kvm_vcpu *vcpu)
 {
 	unsigned long nr, a0, a1, a2, a3, ret;
 
-	/*
-	 * ABI for KVM tdvmcall argument:
-	 * In Guest-Hypervisor Communication Interface(GHCI) specification,
-	 * Non-zero leaf number (R10 != 0) is defined to indicate
-	 * vendor-specific.  KVM uses this for KVM hypercall.  NOTE: KVM
-	 * hypercall number starts from one.  Zero isn't used for KVM hypercall
-	 * number.
-	 *
-	 * R10: KVM hypercall number
-	 * arguments: R11, R12, R13, R14.
-	 */
+#define TDX_HYPERCALL_VENDOR_KVM		0x4d564b2e584454 /* TDX.KVM */
 	nr = kvm_r10_read(vcpu);
-	a0 = kvm_r11_read(vcpu);
-	a1 = kvm_r12_read(vcpu);
-	a2 = kvm_r13_read(vcpu);
-	a3 = kvm_r14_read(vcpu);
+	if (nr == TDX_HYPERCALL_VENDOR_KVM) {
+		/*
+		 * TODO: once the guest ABI change is done, remove this ABI
+		 * support.
+		 *
+		 * ABI for KVM tdvmcall argument:
+		 * magic number: R10 (0x4d564b2e584454)
+		 * hypercall leaf: R11
+		 * arguments: R12, R13, R14, R15.
+		 */
+		nr = tdvmcall_leaf(vcpu);
+		a0 = kvm_r12_read(vcpu);
+		a1 = kvm_r13_read(vcpu);
+		a2 = kvm_r14_read(vcpu);
+		a3 = kvm_r15_read(vcpu);
+	} else {
+		/*
+		 * ABI for KVM tdvmcall argument:
+		 * In Guest-Hypervisor Communication Interface(GHCI)
+		 * specification, Non-zero leaf number (R10 != 0) is defined to
+		 * indicate vendor-specific.  KVM uses this for KVM hypercall.
+		 * NOTE: KVM hypercall number starts from one.  Zero isn't used
+		 * for KVM hypercall number.
+		 *
+		 * R10: KVM h ypercall number
+		 * arguments: R11, R12, R13, R14.
+		 */
+		a0 = kvm_r11_read(vcpu);
+		a1 = kvm_r12_read(vcpu);
+		a2 = kvm_r13_read(vcpu);
+		a3 = kvm_r14_read(vcpu);
+	}
 
 	ret = __kvm_emulate_hypercall(vcpu, nr, a0, a1, a2, a3, true);
 

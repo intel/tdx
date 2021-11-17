@@ -46,3 +46,5 @@ static u64 tdx_get_segment_base(struct kvm_vcpu *vcpu, int seg) { return 0; }
 static void tdx_get_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var,
 			    int seg) {}
 static void tdx_get_cs_db_l_bits(struct kvm_vcpu *vcpu, int *db, int *l) {}
+static void tdx_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask) {}
+static int tdx_skip_emulated_instruction(struct kvm_vcpu *vcpu) { return 0; }

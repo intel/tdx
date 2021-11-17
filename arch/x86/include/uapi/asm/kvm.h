@@ -572,4 +572,15 @@ struct kvm_va_to_pa {
 	__u64 pa;
 };
 
+struct kvm_rw_memory {
+	/* This can be GPA or HVA */
+	__u64 addr;
+
+	/* This will be updated to completed
+	 * reading/writing byte size when the ioctl return
+	 */
+	__u64 len;
+	__u64 ubuf;
+};
+
 #endif /* _ASM_X86_KVM_H */

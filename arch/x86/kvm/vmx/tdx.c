@@ -65,7 +65,7 @@ static __always_inline hpa_t set_hkid_to_hpa(hpa_t pa, u16 hkid)
 	return pa;
 }
 
-static __always_inline unsigned long tdexit_exit_qual(struct kvm_vcpu *vcpu)
+__always_inline unsigned long tdexit_exit_qual(struct kvm_vcpu *vcpu)
 {
 	return kvm_rcx_read(vcpu);
 }

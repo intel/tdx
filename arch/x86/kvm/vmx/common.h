@@ -49,6 +49,24 @@ static __always_inline u64 vmread_gprs(struct kvm_vcpu *vcpu,
 
 	return td_gpr_read64(to_tdx(vcpu), field);
 }
+
+static inline unsigned long vm_get_exit_qual(struct kvm_vcpu *vcpu)
+{
+	if (is_td_vcpu(vcpu))
+		return tdexit_exit_qual(vcpu);
+	return vmx_get_exit_qual(vcpu);
+}
+
+static inline void vm_exec_controls_clearbit(struct kvm_vcpu *vcpu,
+					     u32 bit)
+{
+	if (is_td_vcpu(vcpu))
+		td_vmcs_clearbit32(to_tdx(vcpu),
+				   CPU_BASED_VM_EXEC_CONTROL,
+				   bit);
+	else
+		exec_controls_clearbit(to_vmx(vcpu), bit);
+}
 #else
 #define VT_BUILD_VMCS_HELPERS(type, bits, tdbits)			   \
 static __always_inline type vmread##bits(struct kvm_vcpu *vcpu,		   \
@@ -67,6 +85,17 @@ static __always_inline u64 vmread_gprs(struct kvm_vcpu *vcpu,
 {
 	return vcpu->arch.regs[field];
 }
+static inline unsigned long vm_get_exit_qual(struct kvm_vcpu *vcpu)
+{
+	return vmx_get_exit_qual(vcpu);
+}
+
+static inline void vm_exec_controls_clearbit(struct kvm_vcpu *vcpu,
+					     u32 bit)
+{
+	exec_controls_clearbit(to_vmx(vcpu), bit);
+}
+
 #endif /* CONFIG_KVM_INTEL_TDX */
 VT_BUILD_VMCS_HELPERS(u16, 16, 16);
 VT_BUILD_VMCS_HELPERS(u32, 32, 32);

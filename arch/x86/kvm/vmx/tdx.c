@@ -481,6 +481,16 @@ static int tdx_do_tdh_mng_key_config(void *param)
 	mutex_unlock(&tdx_mng_key_config_lock[cur_pkg]);
 
 	/*
+	 * WORKAROUND for the TDX module.  When the key is configured on all CPU
+	 * packages, it returns TDX_LIFECYCLE_STATE_INCORRECT (or
+	 * TDX_KEY_STATE_INCORRECT depending on the version of the TDX module)
+	 * instead of TDX_KEY_CONFIGURED.  Remove this once it's fixed.
+	 */
+	if (err == TDX_LIFECYCLE_STATE_INCORRECT ||
+		err == TDX_KEY_STATE_INCORRECT)
+		err = TDX_KEY_CONFIGURED;
+
+	/*
 	 * TDH.MNG.KEY.CONFIG is per CPU package operation.  Other CPU on the
 	 * same package did it for us.
 	 */

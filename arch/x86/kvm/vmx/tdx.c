@@ -2179,6 +2179,21 @@ static void tdx_get_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var,
 	vmx_decode_ar_bytes(td_vmcs_read32(tdx, GUEST_ES_AR_BYTES + seg), var);
 }
 
+static void tdx_get_cs_db_l_bits(struct kvm_vcpu *vcpu, int *db, int *l)
+{
+	u32 ar;
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	if (KVM_BUG_ON(!is_debug_td(vcpu), vcpu->kvm))
+		return;
+
+	ar = td_vmcs_read32(tdx,
+			    kvm_vmx_segment_fields[VCPU_SREG_CS].ar_bytes);
+
+	*db = (ar >> 14) & 1;
+	*l = (ar >> 13) & 1;
+}
+
 static void tdx_cache_gprs(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);

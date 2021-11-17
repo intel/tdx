@@ -1298,11 +1298,34 @@ static int tdx_emulate_vmcall(struct kvm_vcpu *vcpu)
 {
 	unsigned long nr, a0, a1, a2, a3, ret;
 
-	nr = tdvmcall_exit_reason(vcpu);
-	a0 = tdvmcall_p1_read(vcpu);
-	a1 = tdvmcall_p2_read(vcpu);
-	a2 = tdvmcall_p3_read(vcpu);
-	a3 = tdvmcall_p4_read(vcpu);
+#define TDX_HYPERCALL_VENDOR_KVM		0x4d564b2e584454 /* TDX.KVM */
+	nr = kvm_r10_read(vcpu);
+	if (nr == TDX_HYPERCALL_VENDOR_KVM) {
+		/*
+		 * TODO: once the guest ABI change is done, remove this ABI
+		 * support.
+		 *
+		 * ABI for KVM tdvmcall argument:
+		 * magic number: R10 (0x4d564b2e584454)
+		 * hypercall leaf: R11
+		 * arguments: R12, R13, R14, R15.
+		 */
+		nr = tdvmcall_exit_reason(vcpu);
+		a0 = tdvmcall_p1_read(vcpu);
+		a1 = tdvmcall_p2_read(vcpu);
+		a2 = tdvmcall_p3_read(vcpu);
+		a3 = tdvmcall_p4_read(vcpu);
+	} else {
+		/*
+		 * ABI for KVM tdvmcall argument:
+		 * hypercall leaf: R10 (!= 0). KVM hypercall leaf starts from 1.
+		 * arguments: R11, R12, R13, R14.
+		 */
+		a0 = kvm_r11_read(vcpu);
+		a1 = kvm_r12_read(vcpu);
+		a2 = kvm_r13_read(vcpu);
+		a3 = kvm_r14_read(vcpu);
+	}
 
 	ret = __kvm_emulate_hypercall(vcpu, nr, a0, a1, a2, a3, true);
 

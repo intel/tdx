@@ -658,6 +658,12 @@ static void tdx_restore_host_xsave_state(struct kvm_vcpu *vcpu)
 		__write_pkru(vcpu->arch.host_pkru);
 }
 
+static inline void tdx_register_cache_reset(struct kvm_vcpu *vcpu)
+{
+	vcpu->arch.regs_avail = 0;
+	vcpu->arch.regs_dirty = 0;
+}
+
 u64 __tdx_vcpu_run(hpa_t tdvpr, void *regs, u32 regs_mask);
 
 static noinstr void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu,
@@ -740,7 +746,7 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 		}
 	}
 
-	vmx_register_cache_reset(vcpu);
+	tdx_register_cache_reset(vcpu);
 
 	trace_kvm_exit((unsigned int)tdx->exit_reason.full, vcpu, KVM_ISA_VMX);
 

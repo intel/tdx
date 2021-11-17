@@ -3696,7 +3696,11 @@ static int mmu_alloc_direct_roots(struct kvm_vcpu *vcpu)
 		goto out_unlock;
 
 	if (is_tdp_mmu_enabled(vcpu->kvm)) {
-		root = kvm_tdp_mmu_get_vcpu_root_hpa(vcpu);
+		if (gfn_shared && !VALID_PAGE(mmu->private_root_hpa)) {
+			root = kvm_tdp_mmu_get_vcpu_root_hpa(vcpu, true);
+			mmu->private_root_hpa = root;
+		}
+		root = kvm_tdp_mmu_get_vcpu_root_hpa(vcpu, false);
 		mmu->root_hpa = root;
 	} else if (shadow_root_level >= PT64_ROOT_4LEVEL) {
 		if (gfn_shared && !VALID_PAGE(vcpu->arch.mmu->private_root_hpa)) {
@@ -4366,7 +4370,33 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 
 	r = RET_PF_RETRY;
 
-	if (is_tdp_mmu_fault)
+	/*
+	 * Unfortunately, when running TD, TDP MMU cannot always run multiple
+	 * fault threads concurrently.  TDX has two page tables supporting
+	 * private and shared mapping simultaneously, but at given time, only
+	 * one mapping can be valid for given GFN, otherwise it may cause
+	 * machine check and data lose.  Therefore, TDP MMU fault handler zaps
+	 * aliasing mapping.
+	 *
+	 * Running fault threads for both private and shared GPA concurrently
+	 * can potentially end up with having both private and shared mapping
+	 * for one GPA.  For instance, vcpu 0 is accessing using private GPA,
+	 * and vcpu 1 is accessing using shared GPA (i.e. right after MAP_GPA):
+	 *
+	 *		vcpu 0				vcpu 1
+	 *	(fault with private GPA)	(fault with shared GPA)
+	 *
+	 *	zap shared mapping
+	 *					zap priavte mapping
+	 *					setup shared mapping
+	 *	setup private mapping
+	 *
+	 * This can be prevented by only allowing one type of fault (private
+	 * or shared) to run concurrently.  Choose to let private fault to run
+	 * concurrently, because for TD, most pages should be private.
+	 */
+	if (is_tdp_mmu_fault && kvm_is_private_gfn(vcpu->kvm,
+				fault->addr >> PAGE_SHIFT))
 		read_lock(&vcpu->kvm->mmu_lock);
 	else
 		write_lock(&vcpu->kvm->mmu_lock);
@@ -4384,7 +4414,8 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 		r = __direct_map(vcpu, fault);
 
 out_unlock:
-	if (is_tdp_mmu_fault)
+	if (is_tdp_mmu_fault && kvm_is_private_gfn(vcpu->kvm,
+				fault->addr >> PAGE_SHIFT))
 		read_unlock(&vcpu->kvm->mmu_lock);
 	else
 		write_unlock(&vcpu->kvm->mmu_lock);
@@ -6071,6 +6102,10 @@ static void kvm_mmu_zap_all_fast(struct kvm *kvm)
 
 	write_unlock(&kvm->mmu_lock);
 
+	/*
+	 * For now private root is never invalidate during VM is running,
+	 * so this can only happen for shared roots.
+	 */
 	if (is_tdp_mmu_enabled(kvm)) {
 		read_lock(&kvm->mmu_lock);
 		kvm_tdp_mmu_zap_invalidated_roots(kvm);
@@ -6176,7 +6211,8 @@ void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end)
 	if (is_tdp_mmu_enabled(kvm)) {
 		for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++)
 			flush = kvm_tdp_mmu_zap_gfn_range(kvm, i, gfn_start,
-							  gfn_end, flush);
+							  gfn_end, flush,
+							  false);
 	}
 
 	if (flush)
@@ -6209,6 +6245,11 @@ void kvm_mmu_slot_remove_write_access(struct kvm *kvm,
 		write_unlock(&kvm->mmu_lock);
 	}
 
+	/*
+	 * For now this can only happen for non-TD VM, because TD private
+	 * mapping doesn't support write protection.  kvm_tdp_mmu_wrprot_slot()
+	 * will give a WARN() if it hits for TD.
+	 */
 	if (is_tdp_mmu_enabled(kvm)) {
 		read_lock(&kvm->mmu_lock);
 		flush |= kvm_tdp_mmu_wrprot_slot(kvm, memslot, start_level);
@@ -6288,6 +6329,11 @@ void kvm_mmu_zap_collapsible_sptes(struct kvm *kvm,
 		write_unlock(&kvm->mmu_lock);
 	}
 
+	/*
+	 * This should only be reachable in case of log-dirty, wihch TD private
+	 * mapping doesn't support so far.  kvm_tdp_mmu_zap_collapsible_sptes()
+	 * internally gives a WARN() when it hits.
+	 */
 	if (is_tdp_mmu_enabled(kvm)) {
 		read_lock(&kvm->mmu_lock);
 		kvm_tdp_mmu_zap_collapsible_sptes(kvm, slot);
@@ -6325,6 +6371,7 @@ void kvm_mmu_slot_leaf_clear_dirty(struct kvm *kvm,
 		write_unlock(&kvm->mmu_lock);
 	}
 
+	/* See comments in kvm_mmu_slot_remove_write_access() */
 	if (is_tdp_mmu_enabled(kvm)) {
 		read_lock(&kvm->mmu_lock);
 		flush |= kvm_tdp_mmu_clear_dirty_slot(kvm, memslot);
@@ -6359,8 +6406,12 @@ restart:
 	}
 	kvm_mmu_commit_zap_page(kvm, &invalid_list);
 
-	if (is_tdp_mmu_enabled(kvm))
-		kvm_tdp_mmu_zap_all(kvm);
+	if (is_tdp_mmu_enabled(kvm)) {
+		bool zap_private =
+			(mmu_pages == &kvm->arch.private_mmu_pages) ?
+			true : false;
+		kvm_tdp_mmu_zap_all(kvm, zap_private);
+	}
 
 	write_unlock(&kvm->mmu_lock);
 }

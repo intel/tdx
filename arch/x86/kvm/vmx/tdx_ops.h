@@ -421,9 +421,9 @@ static inline u64 tdh_mem_rd(hpa_t tdr, gpa_t addr, struct tdx_ex_ret *ex)
 	seamcall_2_3(TDH_MNG_RDMEM, addr, tdr, ex);
 }
 
-static inline u64 tdh_mng_wrmem(hpa_t addr, u64 val, struct tdx_ex_ret *ex)
+static inline u64 tdh_mem_wr(hpa_t tdr, hpa_t addr, u64 val, struct tdx_ex_ret *ex)
 {
-	seamcall_2_2(TDH_MNG_WRMEM, addr, val, ex);
+	seamcall_3_3(TDH_MNG_WRMEM, addr, tdr, val, ex);
 }
 
 static inline u64 tdh_mem_page_demote(hpa_t tdr, gpa_t gpa, int level, hpa_t page,

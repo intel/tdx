@@ -2383,6 +2383,165 @@ fail:
 	return ret;
 }
 
+static int do_write_private_memory(struct kvm *kvm, gpa_t addr, u64 *val)
+{
+	u64 err;
+	struct tdx_ex_ret td_ret;
+
+	err = tdh_mem_wr(to_kvm_tdx(kvm)->tdr.pa, addr, *val, &td_ret);
+	if (TDX_ERR(err, TDH_MNG_WRMEM, &td_ret))
+		return -EIO;
+
+	return 0;
+}
+
+static int write_private_memory(struct kvm *kvm, gpa_t addr,
+			       u32 max_allow_len,
+			       u32 *copy_len, void *in_buf)
+{
+	gpa_t chunk_addr;
+	u32 in_chunk_offset;
+	u32 len;
+	void *ptr;
+	int ret;
+	union {
+		u64 u64;
+		u8 u8[TDX_MEMORY_RW_CHUNK];
+	} l_buf;
+
+	tdx_get_memory_chunk_and_offset(addr, &chunk_addr, &in_chunk_offset);
+	len = min(max_allow_len, TDX_MEMORY_RW_CHUNK - in_chunk_offset);
+
+	if (len < TDX_MEMORY_RW_CHUNK) {
+		ret = do_read_private_memory(kvm,
+					     chunk_addr,
+					     &l_buf.u64);
+		if (!ret)
+			memcpy(l_buf.u8 + in_chunk_offset, in_buf, len);
+		ptr = l_buf.u8;
+	} else {
+		ret = 0;
+		ptr = in_buf;
+	}
+
+	if (!ret)
+		ret = do_write_private_memory(kvm, chunk_addr, ptr);
+
+	if (copy_len && !ret)
+		*copy_len = len;
+
+	return ret;
+}
+
+static int do_tdx_td_write_memory(struct kvm *kvm, gpa_t addr, u64 len,
+				  u64 *complete_len, void __user *buf)
+{
+	u32 in_page_offset;
+	u32 copy_len;
+	u32 round_len;
+	u64 complete;
+	gfn_t gfn;
+	int ret = 0;
+	int idx;
+	void *page_buf;
+	void *from_buf;
+	bool is_private;
+	struct kvm_memory_slot *memslot;
+
+	page_buf = (void *)__get_free_page(GFP_KERNEL);
+	if (!page_buf) {
+		ret = -ENOMEM;
+		goto fail;
+	}
+
+	complete = 0;
+	while (len > 0) {
+		cond_resched();
+		if (signal_pending(current)) {
+			ret = -EINTR;
+			break;
+		}
+
+		round_len = min(len,
+				(u64)(PAGE_SIZE - offset_in_page(addr)));
+		if (copy_from_user(page_buf, buf, round_len)) {
+			ret = -EFAULT;
+			goto fail_free_mem;
+		}
+
+		idx = srcu_read_lock(&kvm->srcu);
+
+		gfn = gpa_to_gfn(addr);
+		memslot = gfn_to_memslot(kvm, gfn);
+		if (!kvm_is_visible_memslot(memslot)) {
+			ret = -EINVAL;
+			goto fail_unlock_srcu;
+		}
+
+		from_buf = page_buf;
+		len -= round_len;
+		buf += round_len;
+		while (round_len > 0) {
+			read_lock(&kvm->mmu_lock);
+
+			ret = kvm_mmu_is_page_private(kvm, memslot, gfn, &is_private);
+			if (ret)
+				goto fail_unlock;
+
+			if (is_private) {
+				ret = write_private_memory(kvm, addr,
+							   round_len,
+							   &copy_len,
+							   from_buf);
+			} else {
+				in_page_offset = offset_in_page(addr);
+				copy_len = min(round_len,
+					       (u32)
+					       (PAGE_SIZE - in_page_offset));
+
+				/*
+				 * Refer the comments in do_tdx_td_read_memory()
+				 * for reason we release the lock here
+				 */
+				read_unlock(&kvm->mmu_lock);
+				ret = kvm_write_guest_page(kvm, gfn,
+							   from_buf,
+							   in_page_offset,
+							   copy_len);
+				read_lock(&kvm->mmu_lock);
+			}
+			if (ret)
+				goto fail_unlock;
+
+			read_unlock(&kvm->mmu_lock);
+			addr += copy_len;
+			from_buf += copy_len;
+			round_len -= copy_len;
+			complete += copy_len;
+		}
+		srcu_read_unlock(&kvm->srcu, idx);
+	}
+
+	free_page((u64)page_buf);
+
+	if (complete_len)
+		*complete_len = complete;
+
+	return ret;
+
+fail_unlock:
+	read_unlock(&kvm->mmu_lock);
+fail_unlock_srcu:
+	srcu_read_unlock(&kvm->srcu, idx);
+fail_free_mem:
+	free_page((u64)page_buf);
+fail:
+	if (complete_len)
+		*complete_len = complete;
+
+	return ret;
+}
+
 static int tdx_guest_memory_access_check(struct kvm *kvm, struct kvm_rw_memory *rw_memory)
 {
 	if (!is_td(kvm))
@@ -2415,6 +2574,24 @@ static int tdx_read_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memor
 		ret = do_tdx_td_read_memory(kvm, rw_memory->addr, rw_memory->len,
 					    &complete_len,
 					    (void __user *)rw_memory->ubuf);
+	}
+
+	rw_memory->len = complete_len;
+	return ret;
+}
+
+static int tdx_write_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memory)
+{
+	int ret;
+	u64 complete_len = 0;
+
+	rw_memory->addr &= ~kvm_gpa_stolen_mask(kvm);
+
+	ret = tdx_guest_memory_access_check(kvm, rw_memory);
+	if (!ret) {
+		ret = do_tdx_td_write_memory(kvm, rw_memory->addr, rw_memory->len,
+					     &complete_len,
+					     (void __user *)rw_memory->ubuf);
 	}
 
 	rw_memory->len = complete_len;
@@ -2485,6 +2662,7 @@ static int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	x86_ops->link_private_sp = tdx_sept_link_private_sp;
 	x86_ops->free_private_sp = tdx_sept_free_private_sp;
 	x86_ops->mem_enc_read_memory = tdx_read_guest_memory;
+	x86_ops->mem_enc_write_memory = tdx_write_guest_memory;
 
 	max_pkgs = topology_max_packages();
 	tdh_mng_key_config_lock = kcalloc(max_pkgs, sizeof(*tdh_mng_key_config_lock),

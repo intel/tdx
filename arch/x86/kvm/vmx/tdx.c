@@ -2197,11 +2197,13 @@ static void tdx_update_exception_bitmap(struct kvm_vcpu *vcpu)
 
 static void tdx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val)
 {
-	/* TODO: Add TDH_VP_WR(GUEST_DR7) for debug TDs. */
-	if (is_debug_td(vcpu))
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	if (!is_debug_td(vcpu) || !tdx->initialized)
 		return;
 
-	KVM_BUG_ON(val != DR7_FIXED_1, vcpu->kvm);
+	// KVM_BUG_ON(val != DR7_FIXED_1, vcpu->kvm);
+	td_vmcs_write64(tdx, GUEST_DR7, val);
 }
 
 static void tdx_sync_dirty_debug_regs(struct kvm_vcpu *vcpu)

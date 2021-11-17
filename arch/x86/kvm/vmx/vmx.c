@@ -5048,6 +5048,9 @@ static int vmx_handle_dr(struct kvm_vcpu *vcpu)
 
 static void vmx_sync_dirty_debug_regs(struct kvm_vcpu *vcpu)
 {
+	/* Keep the original checking for legacy x86 guests */
+	WARN_ON(vcpu->arch.switch_db_regs & KVM_DEBUGREG_AUTO_SWITCH_GUEST);
+
 	get_debugreg(vcpu->arch.db[0], 0);
 	get_debugreg(vcpu->arch.db[1], 1);
 	get_debugreg(vcpu->arch.db[2], 2);

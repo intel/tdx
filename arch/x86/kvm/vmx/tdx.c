@@ -1529,6 +1529,13 @@ static int tdx_handle_ept_misconfig(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
+static int tdx_handle_dr(struct kvm_vcpu *vcpu)
+{
+	bool guest_debug_enabled =
+		!!(vcpu->guest_debug & KVM_GUESTDBG_USE_HW_BP);
+	return __vmx_handle_dr(vcpu, guest_debug_enabled);
+}
+
 static int tdx_handle_exit(struct kvm_vcpu *vcpu,
 			   enum exit_fastpath_completion fastpath)
 {
@@ -1572,6 +1579,8 @@ static int tdx_handle_exit(struct kvm_vcpu *vcpu,
 		return tdx_handle_ept_violation(vcpu);
 	case EXIT_REASON_EPT_MISCONFIG:
 		return tdx_handle_ept_misconfig(vcpu);
+	case EXIT_REASON_DR_ACCESS:
+		return tdx_handle_dr(vcpu);
 	case EXIT_REASON_TRIPLE_FAULT:
 		return tdx_handle_triple_fault(vcpu);
 	case EXIT_REASON_OTHER_SMI:
@@ -2082,6 +2091,13 @@ static int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 	td_vmcs_write16(tdx, POSTED_INTR_NV, POSTED_INTR_VECTOR);
 	td_vmcs_write64(tdx, POSTED_INTR_DESC_ADDR, __pa(&tdx->pi_desc));
 	td_vmcs_setbit32(tdx, PIN_BASED_VM_EXEC_CONTROL, PIN_BASED_POSTED_INTR);
+
+	if (is_debug_td(vcpu)) {
+		td_vmcs_setbit32(tdx,
+				 CPU_BASED_VM_EXEC_CONTROL,
+				 CPU_BASED_MOV_DR_EXITING);
+	}
+
 	return 0;
 }
 
@@ -2099,9 +2115,52 @@ static void tdx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val)
 	KVM_BUG_ON(val != DR7_FIXED_1, vcpu->kvm);
 }
 
+static void tdx_sync_dirty_debug_regs(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx_vcpu = to_tdx(vcpu);
+
+	if (!is_debug_td(vcpu))
+		return;
+
+	/*
+	 * Even auto switch guest need save the debug register for visting
+	 * from userspace when KVM/QEMU doesn't using the DR registers.
+	 */
+	// WARN_ON(vcpu->arch.switch_db_regs & KVM_DEBUGREG_AUTO_SWITCH_GUEST);
+
+	vcpu->arch.db[0] = td_dr_read64(tdx_vcpu, 0);
+	vcpu->arch.db[1] = td_dr_read64(tdx_vcpu, 1);
+	vcpu->arch.db[2] = td_dr_read64(tdx_vcpu, 2);
+	vcpu->arch.db[3] = td_dr_read64(tdx_vcpu, 3);
+	vcpu->arch.dr6 = td_dr_read64(tdx_vcpu, 6);
+	vcpu->arch.dr7 = td_vmcs_read64(to_tdx(vcpu), GUEST_DR7);
+
+	vcpu->arch.switch_db_regs &= ~KVM_DEBUGREG_WONT_EXIT;
+	td_vmcs_setbit32(tdx_vcpu,
+			 CPU_BASED_VM_EXEC_CONTROL,
+			 CPU_BASED_MOV_DR_EXITING);
+}
+
 static void tdx_load_guest_debug_regs(struct kvm_vcpu *vcpu)
 {
-	kvm_pr_unimpl("unexpected %s\n", __func__);
+	struct vcpu_tdx *tdx_vcpu = to_tdx(vcpu);
+
+	if (!is_debug_td(vcpu))
+		return;
+
+	td_dr_write64(tdx_vcpu, 0, vcpu->arch.eff_db[0]);
+	td_dr_write64(tdx_vcpu, 1, vcpu->arch.eff_db[1]);
+	td_dr_write64(tdx_vcpu, 2, vcpu->arch.eff_db[2]);
+	td_dr_write64(tdx_vcpu, 3, vcpu->arch.eff_db[3]);
+	td_dr_write64(tdx_vcpu, 6, vcpu->arch.dr6);
+
+	/*
+	 * Optimization:
+	 * tdx auto switch the guest debug regs, so we clear
+	 * KVM_DEBUGREG_BP_ENABLED to avoid context switch
+	 * DRs every time
+	 */
+	vcpu->arch.switch_db_regs &= ~KVM_DEBUGREG_BP_ENABLED;
 }
 
 static int tdx_get_cpl(struct kvm_vcpu *vcpu)

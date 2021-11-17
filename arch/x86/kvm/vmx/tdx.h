@@ -37,6 +37,13 @@ struct kvm_tdx {
 	hpa_t source_pa;
 
 	u64 tsc_offset;
+
+	/*
+	 * Lock to prevent seamcalls from running concurrently
+	 * when TDP MMU is enabled, because TDP fault handler
+	 * runs concurrently.
+	 */
+	spinlock_t seamcall_lock;
 };
 
 union tdx_exit_reason {

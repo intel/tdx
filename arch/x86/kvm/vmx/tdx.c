@@ -613,6 +613,7 @@ static void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 		goto td_bugged;
 
 	vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
+	vcpu->arch.regs_dirty = 0;
 
 	return;
 
@@ -665,6 +666,7 @@ static inline void tdx_register_cache_reset(struct kvm_vcpu *vcpu)
 }
 
 u64 __tdx_vcpu_run(hpa_t tdvpr, void *regs, u32 regs_mask);
+static void tdx_flush_gprs_dirty(struct kvm_vcpu *vcpu, bool force);
 
 static noinstr void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 					struct vcpu_tdx *tdx)
@@ -712,6 +714,14 @@ static fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	 * SEAMRET to KVM, which cause PANIC with NULL access.
 	 */
 	intel_pmu_save();
+
+	/*
+	 * limited to debug td only due to now only debug
+	 * td guest need this feature for instructioin
+	 * emulation/skipping.
+	 */
+	if (is_debug_td(vcpu))
+		tdx_flush_gprs_dirty(vcpu, false);
 
 	tdx_vcpu_enter_exit(vcpu, tdx);
 
@@ -2178,23 +2188,48 @@ static void tdx_cache_gprs(struct kvm_vcpu *vcpu)
 		return;
 
 	for (i = 0; i < NR_VCPU_REGS; i++) {
-		if (i == VCPU_REGS_RSP || i == VCPU_REGS_RIP)
+
+		if (i == VCPU_REGS_RIP) {
+			vcpu->arch.regs[i] = td_vmcs_read64(tdx, GUEST_RIP);
 			continue;
+		}
+		if (i == VCPU_REGS_RSP) {
+			vcpu->arch.regs[i] = td_vmcs_read64(tdx, GUEST_RSP);
+			continue;
+		}
 
 		vcpu->arch.regs[i] = td_gpr_read64(tdx, i);
 	}
 }
 
-static void tdx_flush_gprs(struct kvm_vcpu *vcpu)
+static void tdx_flush_gprs_dirty(struct kvm_vcpu *vcpu, bool force)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 	int i;
 
+	for (i = 0; i < NR_VCPU_REGS; i++) {
+		if (!kvm_register_is_dirty(vcpu, i) && !force)
+			continue;
+
+		if (i == VCPU_REGS_RSP) {
+			td_vmcs_write64(tdx, GUEST_RSP, vcpu->arch.regs[i]);
+			continue;
+		}
+		if (i == VCPU_REGS_RIP) {
+			td_vmcs_write64(tdx, GUEST_RIP, vcpu->arch.regs[i]);
+			continue;
+		}
+
+		td_gpr_write64(tdx, i, vcpu->arch.regs[i]);
+	}
+}
+
+static void tdx_flush_gprs(struct kvm_vcpu *vcpu)
+{
 	if (!is_td_vcpu(vcpu) || KVM_BUG_ON(!is_debug_td(vcpu), vcpu->kvm))
 		return;
 
-	for (i = 0; i < NR_VCPU_REGS; i++)
-		td_gpr_write64(tdx, i, vcpu->arch.regs[i]);
+	tdx_flush_gprs_dirty(vcpu, true);
 }
 
 static void __init tdx_pre_kvm_init(unsigned int *vcpu_size,

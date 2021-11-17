@@ -2188,6 +2188,8 @@ static void tdx_cache_gprs(struct kvm_vcpu *vcpu)
 		return;
 
 	for (i = 0; i < NR_VCPU_REGS; i++) {
+		if (kvm_register_is_dirty(vcpu, i))
+			continue;
 
 		if (i == VCPU_REGS_RIP) {
 			vcpu->arch.regs[i] = td_vmcs_read64(tdx, GUEST_RIP);

@@ -1215,7 +1215,7 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 	// 	ret = tdx_emulate_rdpmc(vcpu);
 	// 	break;
 	// case EXIT_REASON_VMCALL:
-	// 	
+	//
 	// 	break;
 	case EXIT_REASON_IO_INSTRUCTION:
 		return tdx_emulate_io(vcpu);
@@ -2202,6 +2202,225 @@ static void __init tdx_pre_kvm_init(unsigned int *vcpu_size,
 		*vm_size = sizeof(struct kvm_tdx);
 }
 
+#define TDX_MEMORY_RW_CHUNK 8
+#define TDX_MEMORY_RW_CHUNK_OFFSET_MASK (TDX_MEMORY_RW_CHUNK - 1)
+#define TDX_MEMORY_RW_CHUNK_MASK (~TDX_MEMORY_RW_CHUNK_OFFSET_MASK)
+static inline void tdx_get_memory_chunk_and_offset(gpa_t addr, u64 *chunk, u32 *offset)
+{
+	*chunk = addr & TDX_MEMORY_RW_CHUNK_MASK;
+	*offset = addr & TDX_MEMORY_RW_CHUNK_OFFSET_MASK;
+}
+
+static int do_read_private_memory(struct kvm *kvm, gpa_t addr, u64 *val)
+{
+	u64 err;
+	struct tdx_ex_ret td_ret;
+
+	err = tdh_mem_rd(to_kvm_tdx(kvm)->tdr.pa, addr, &td_ret);
+	if (TDX_ERR(err, TDH_MNG_RDMEM, &td_ret))
+		return -EIO;
+
+	*val = td_ret.mem_rdwr.mem_val;
+	return 0;
+}
+
+static int read_private_memory(struct kvm *kvm, gpa_t addr,
+			       u32 max_allow_len,
+			       u32 *copy_len, void *out_buf)
+{
+	gpa_t chunk_addr;
+	u32 in_chunk_offset;
+	u32 len;
+	int ret;
+	union {
+		u64 u64;
+		u8 u8[TDX_MEMORY_RW_CHUNK];
+	} l_buf;
+
+	tdx_get_memory_chunk_and_offset(addr, &chunk_addr,
+					&in_chunk_offset);
+	len = min(max_allow_len,
+		  TDX_MEMORY_RW_CHUNK - in_chunk_offset);
+
+	if (len < TDX_MEMORY_RW_CHUNK) {
+		/* unaligned GPA head/tail */
+		ret = do_read_private_memory(kvm,
+					     chunk_addr,
+					     &l_buf.u64);
+		if (!ret)
+			memcpy(out_buf,
+			       l_buf.u8 + in_chunk_offset,
+			       len);
+	} else {
+		ret = do_read_private_memory(kvm,
+					     chunk_addr,
+					     out_buf);
+	}
+
+	if (copy_len && !ret)
+		*copy_len = len;
+	return ret;
+}
+
+static int do_tdx_td_read_memory(struct kvm *kvm, gpa_t addr, u64 len,
+				 u64 *complete_len, void __user *buf)
+{
+	u32 in_page_offset;
+	u32 copy_len;
+	u32 round_len;
+	u32 saved_round_len;
+	u64 complete;
+	gfn_t gfn;
+	void *page_buf;
+	void *to_buf;
+	bool is_private;
+	int ret = -EINVAL;
+	int idx;
+	struct kvm_memory_slot *memslot;
+
+	page_buf = (void *)__get_free_page(GFP_KERNEL);
+	if (!page_buf) {
+		ret = -ENOMEM;
+		goto fail;
+	}
+
+	complete = 0;
+	while (len > 0) {
+		cond_resched();
+		if (signal_pending(current)) {
+			ret = -EINTR;
+			break;
+		}
+
+		round_len = min(len,
+				(u64)(PAGE_SIZE - offset_in_page(addr)));
+		saved_round_len = round_len;
+
+		idx = srcu_read_lock(&kvm->srcu);
+
+		gfn = gpa_to_gfn(addr);
+		memslot = gfn_to_memslot(kvm, gfn);
+		if (!kvm_is_visible_memslot(memslot)) {
+			ret = -EINVAL;
+			goto fail_unlock_srcu;
+		}
+
+		to_buf = page_buf;
+		while (round_len > 0) {
+			read_lock(&kvm->mmu_lock);
+
+			ret = kvm_mmu_is_page_private(kvm, memslot,
+						      gfn, &is_private);
+			if (ret)
+				goto fail_unlock;
+
+			if (is_private) {
+				ret = read_private_memory(kvm, addr,
+							  round_len,
+							  &copy_len,
+							  to_buf);
+			} else {
+				in_page_offset = offset_in_page(addr);
+				copy_len = min(round_len,
+					       (u32)
+					       (PAGE_SIZE - in_page_offset));
+				/*
+				 * Release the KVM MMU lock due to guest page
+				 * may not mapped in host's page table, page
+				 * fault handler does MMU notify callback
+				 * to KVM which also acquires the KMV MMU lock
+				 */
+				read_unlock(&kvm->mmu_lock);
+				ret = kvm_read_guest_page(kvm, gfn, to_buf,
+							  in_page_offset,
+							  copy_len);
+				read_lock(&kvm->mmu_lock);
+			}
+			if (ret)
+				goto fail_unlock;
+
+			read_unlock(&kvm->mmu_lock);
+			addr += copy_len;
+			to_buf += copy_len;
+			round_len -= copy_len;
+		}
+
+		srcu_read_unlock(&kvm->srcu, idx);
+
+		if (copy_to_user(buf,
+				 page_buf, saved_round_len)) {
+			ret = -EFAULT;
+			goto fail_free_mem;
+		}
+
+		len -= saved_round_len;
+		buf += saved_round_len;
+
+		/*
+		 * Only update the completed size when the data
+		 * is submitted into userspace's buffer
+		 */
+		complete += saved_round_len;
+	}
+
+	free_page((u64)page_buf);
+
+	if (complete_len)
+		*complete_len = complete;
+
+	return ret;
+
+fail_unlock:
+	read_unlock(&kvm->mmu_lock);
+fail_unlock_srcu:
+	srcu_read_unlock(&kvm->srcu, idx);
+fail_free_mem:
+	free_page((u64)page_buf);
+fail:
+	if (complete_len)
+		*complete_len = complete;
+
+	return ret;
+}
+
+static int tdx_guest_memory_access_check(struct kvm *kvm, struct kvm_rw_memory *rw_memory)
+{
+	if (!is_td(kvm))
+		return -EINVAL;
+
+	if (!(to_kvm_tdx(kvm)->attributes & TDX1_TD_ATTRIBUTE_DEBUG))
+		return -EINVAL;
+
+	if (!is_td_initialized(kvm))
+		return -EINVAL;
+
+	if (rw_memory->len == 0 || !rw_memory->ubuf)
+		return -EINVAL;
+
+	if (rw_memory->addr + rw_memory->len < rw_memory->addr)
+		return -EINVAL;
+
+	return 0;
+}
+
+static int tdx_read_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memory)
+{
+	int ret;
+	u64 complete_len = 0;
+
+	rw_memory->addr &= ~kvm_gpa_stolen_mask(kvm);
+
+	ret = tdx_guest_memory_access_check(kvm, rw_memory);
+	if (!ret) {
+		ret = do_tdx_td_read_memory(kvm, rw_memory->addr, rw_memory->len,
+					    &complete_len,
+					    (void __user *)rw_memory->ubuf);
+	}
+
+	rw_memory->len = complete_len;
+	return ret;
+}
+
 static int __init tdx_debugfs_init(void);
 static void __exit tdx_debugfs_exit(void);
 
@@ -2265,6 +2484,7 @@ static int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	x86_ops->unzap_private_spte = tdx_sept_unzap_private_spte;
 	x86_ops->link_private_sp = tdx_sept_link_private_sp;
 	x86_ops->free_private_sp = tdx_sept_free_private_sp;
+	x86_ops->mem_enc_read_memory = tdx_read_guest_memory;
 
 	max_pkgs = topology_max_packages();
 	tdh_mng_key_config_lock = kcalloc(max_pkgs, sizeof(*tdh_mng_key_config_lock),

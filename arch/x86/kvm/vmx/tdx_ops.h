@@ -45,6 +45,12 @@ struct tdx_ex_ret {
 			u64 addr;
 			u64 val;
 		};
+		/* TDH_MEM_{RD,WR} return the error info and value. */
+		struct {
+			u64 ext_err_info_1;
+			u64 ext_err_info_2;
+			u64 mem_val;
+		} mem_rdwr;
 		/* TDH_PHYMEM_PAGE_RDMD and TDH_PHYMEM_PAGE_RECLAIM return page metadata. */
 		struct {
 			u64 page_type;
@@ -410,9 +416,9 @@ static inline u64 tdh_mng_wr(hpa_t tdr, u64 field, u64 val, u64 mask,
 	seamcall_4_3(TDH_MNG_WR, tdr, field, val, mask, ex);
 }
 
-static inline u64 tdh_mng_rdmem(hpa_t addr, struct tdx_ex_ret *ex)
+static inline u64 tdh_mem_rd(hpa_t tdr, gpa_t addr, struct tdx_ex_ret *ex)
 {
-	seamcall_1_2(TDH_MNG_RDMEM, addr, ex);
+	seamcall_2_3(TDH_MNG_RDMEM, addr, tdr, ex);
 }
 
 static inline u64 tdh_mng_wrmem(hpa_t addr, u64 val, struct tdx_ex_ret *ex)

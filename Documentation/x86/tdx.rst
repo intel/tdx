@@ -205,3 +205,99 @@ Encryption key configuration is per memory controller operation.  It means all
 CPU packages must be configured.  Otherwise, TDX operations depending on it,
 such as creating TDX guests, fail.  At least one CPU from the CPU package must
 be kept online.
+
+Early load of the NP-SEAMLDR and the TDX module
+===============================================
+If TDX is enabled(CONFIG_INTEL_TDX_HOST=y), a kernel can load the TDX module
+from initrd.  The related files (np-seamldr.acm, libtdx.so and
+libtdx.so.sigstruct) need to be stored in initrd(or compiled as built-in
+firmware).  Here's an example of how to customize the preparation of an initrd.
+Please note that it heavily depends on the distro how to prepare initrd.
+
+
+initramfs-tools
+---------------
+The following script is a sample hook script for initramfs-tools.  Typically It
+can be placed under /etc/initramfs-tools/hooks/.  TDXSEAM_SRCDIR is the
+directory in the host file system to store files related to the TDX module.
+
+::
+
+  #! /bin/sh -e
+
+  if [ -z "${TDXSEAM_SRCDIR}" ]; then
+      TDXSEAM_SRCDIR=/lib/firmware/intel-seam
+  fi
+  if [ -z "${TDXSEAM_FILES}" ]; then
+      TDXSEAM_FILES="np-seamldr.acm libtdx.so libtdx.so.sigstruct"
+  fi
+  TDXSEAM_DESTDIR=/kernel/x86/tdx/
+
+  PREREQ=""
+  prereqs()
+  {
+      echo "$PREREQ"
+  }
+
+  case $1 in
+      prereqs)
+          prereqs
+          exit 0
+          ;;
+  esac
+
+  . /usr/share/initramfs-tools/hook-functions
+
+
+  verbose()
+  {
+      if [ "${verbose}" = "y" ] ; then
+          echo "I: tdx-seam: $*"
+      fi
+      :
+  }
+
+  verbose "copying tdx module into early initramfs..."
+  EFW_TMP=$(mktemp -d "${TMPDIR:-/var/tmp}/mkinitramfs-EFW_XXXXXXXXXX") || {
+      echo "E: tdx-seam: cannot create temporary file" >&2
+      exit 1
+  }
+  EFW_D="${EFW_TMP}/d"
+  EFW_CPIO="${EFW_TMP}/early-initramfs.cpio"
+
+  cleanup()
+  {
+      [ -d "${EFW_TMP}" ] && rm -fr "${EFW_TMP}" || true
+  }
+
+  errorout()
+  {
+      cleanup
+      exit 1
+  }
+
+  mkdir -p ${EFW_D}/${TDXSEAM_DESTDIR} || errorout
+
+  for f in ${TDXSEAM_FILES}; do
+      verbose "Adding tdx-seam module ${TDXSEAM_SRCDIR}/${f} -> ${EFW_D}/${TDXSEAM_DESTDIR}/$(basename ${f})
+  "
+      cp ${TDXSEAM_SRCDIR}/${f} ${EFW_D}/${TDXSEAM_DESTDIR}/$(basename ${f}) || errorout
+  done
+
+  (cd ${EFW_D}; find . -print0 | cpio --create --quiet --dereference --format newc --null -R 0:0 > ${EFW_CPIO}) || errorout
+  prepend_earlyinitramfs "${EFW_CPIO}" || errorout
+
+  cleanup
+  exit 0
+
+dracut
+------
+Put the tdx firmware files under /kernel/x86/tdx/ in the system.  dracut isn't
+able to customize the file in the source.  The following configuration is an
+example that can be put under /etc/dracut.conf.d/.
+
+::
+
+  compress=cat
+  install_items+="/kernel/x86/tdx/libtdx.so /kernel/x86/tdx/libtdx.so.sigstruct /kernel/x86/tdx/np-seamldr.acm"
+

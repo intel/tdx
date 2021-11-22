@@ -9,11 +9,14 @@
 #include <asm/cacheflush.h>
 #include <asm/asm.h>
 #include <asm/kvm_host.h>
+#include <asm/tdx.h>
 
 #include "tdx_errno.h"
 #include "tdx_arch.h"
 
 #ifdef CONFIG_INTEL_TDX_HOST
+
+void pr_tdx_error(u64 op, u64 error_code, const struct tdx_module_output *out);
 
 static inline u64 tdh_mng_addcx(hpa_t tdr, hpa_t addr)
 {

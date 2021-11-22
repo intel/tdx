@@ -54,10 +54,6 @@ void pr_seamcall_error(u64 op, u64 error_code, const struct tdx_ex_ret *ex_ret);
 struct tdsysinfo_struct;
 const struct tdsysinfo_struct *tdx_get_sysinfo(void);
 
-extern u32 tdx_keyids_start __read_mostly;
-extern u32 tdx_nr_keyids __read_mostly;
-extern u32 tdx_seam_keyid __read_mostly;
-
 bool range_is_tdx_memory(phys_addr_t start, phys_addr_t end);
 
 /* Debug configuration SEAMCALLs */

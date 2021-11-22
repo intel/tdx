@@ -120,12 +120,9 @@ static struct cmr_info *tdx_cmrs __initdata;
 static int tdx_nr_cmrs __initdata;
 
 /* KeyID range reserved to TDX by BIOS */
-u32 tdx_keyids_start __read_mostly;
-EXPORT_SYMBOL_GPL(tdx_keyids_start);	/* kvm_intel needs this. */
-u32 tdx_nr_keyids __read_mostly;
-EXPORT_SYMBOL_GPL(tdx_nr_keyids);	/* kvm_intel needs this. */
-u32 tdx_seam_keyid __read_mostly;
-EXPORT_SYMBOL_GPL(tdx_seam_keyid);	/* kvm_intel needs this. */
+static u32 tdx_keyids_start __initdata;
+static u32 tdx_nr_keyids __initdata;
+static u32 tdx_seam_keyid __initdata;
 
 static void __init tdx_get_keyids(u32 *keyids_start, u32 *nr_keyids)
 {

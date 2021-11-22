@@ -9,6 +9,7 @@
 #include <asm/cacheflush.h>
 #include <asm/asm.h>
 #include <asm/kvm_host.h>
+#include <asm/tdx.h>
 
 #include "tdx_errno.h"
 #include "tdx_arch.h"
@@ -32,6 +33,10 @@ static inline u64 kvm_seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
 	}
 	return ret;
 }
+
+#ifdef CONFIG_INTEL_TDX_HOST
+void pr_tdx_error(u64 op, u64 error_code, const struct tdx_module_output *out);
+#endif
 
 static inline u64 tdh_mng_addcx(hpa_t tdr, hpa_t addr)
 {

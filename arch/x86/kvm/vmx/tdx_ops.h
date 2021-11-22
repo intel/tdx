@@ -16,6 +16,10 @@
 
 #include "x86.h"
 
+#ifdef CONFIG_INTEL_TDX_HOST
+void pr_tdx_error(u64 op, u64 error_code, const struct tdx_module_args *out);
+#endif
+
 static inline u64 tdh_mng_addcx(struct kvm_tdx *kvm_tdx, hpa_t addr)
 {
 	struct tdx_module_args in = {

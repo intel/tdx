@@ -38,7 +38,7 @@ static DEFINE_MUTEX(attestation_lock);
 /* Completion object to track attestation status */
 static DECLARE_COMPLETION(attestation_done);
 /* Buffer used to copy report data in attestation handler */
-static u8 report_data[TDX_REPORT_DATA_LEN];
+static u8 report_data[TDX_REPORT_DATA_LEN] __aligned(64);
 /* Data pointer used to get TD Quote data in attestation handler */
 static void *tdquote_data;
 /* Data pointer used to get TDREPORT data in attestation handler */
@@ -100,6 +100,9 @@ static long tdx_attest_ioctl(struct file *file, unsigned int cmd,
 			ret = -EIO;
 			break;
 		}
+
+		/* ret will be positive if completed. */
+		ret = 0;
 
 		if (copy_to_user(argp, tdquote_data, QUOTE_SIZE))
 			ret = -EFAULT;

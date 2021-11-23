@@ -13,6 +13,12 @@
 /* TDX module Call Leaf IDs */
 #define TDX_GET_VEINFO			3
 
+/* See Exit Qualification for I/O Instructions in VMX documentation */
+#define VE_IS_IO_IN(exit_qual)		(((exit_qual) & 8) ? 1 : 0)
+#define VE_GET_IO_SIZE(exit_qual)	(((exit_qual) & 7) + 1)
+#define VE_GET_PORT_NUM(exit_qual)	((exit_qual) >> 16)
+#define VE_IS_IO_STRING(exit_qual)	((exit_qual) & 16 ? 1 : 0)
+
 static bool tdx_guest_detected __ro_after_init;
 
 /*
@@ -256,6 +262,45 @@ static int tdx_handle_mmio(struct pt_regs *regs, struct ve_info *ve)
 	return insn.length;
 }
 
+/*
+ * Emulate I/O using hypercall.
+ *
+ * Assumes the IO instruction was using ax, which is enforced
+ * by the standard io.h macros.
+ *
+ * Return True on success or False on failure.
+ */
+static bool tdx_handle_io(struct pt_regs *regs, u32 exit_qual)
+{
+	struct tdx_hypercall_output out;
+	int size, port, ret;
+	u64 mask;
+	bool in;
+
+	if (VE_IS_IO_STRING(exit_qual))
+		return false;
+
+	in   = VE_IS_IO_IN(exit_qual);
+	size = VE_GET_IO_SIZE(exit_qual);
+	port = VE_GET_PORT_NUM(exit_qual);
+	mask = GENMASK(BITS_PER_BYTE * size, 0);
+
+	/*
+	 * Emulate the I/O read/write via hypercall. More info about
+	 * ABI can be found in TDX Guest-Host-Communication Interface
+	 * (GHCI) sec titled "TDG.VP.VMCALL<Instruction.IO>".
+	 */
+	ret = _tdx_hypercall(EXIT_REASON_IO_INSTRUCTION, size, !in, port,
+			     in ? 0 : regs->ax, &out);
+	if (!in)
+		return !ret;
+
+	regs->ax &= ~mask;
+	regs->ax |= ret ? UINT_MAX : out.r11 & mask;
+
+	return !ret;
+}
+
 bool tdx_get_ve_info(struct ve_info *ve)
 {
 	struct tdx_module_output out;
@@ -331,6 +376,9 @@ static bool tdx_virt_exception_kernel(struct pt_regs *regs, struct ve_info *ve)
 		ret = ve->instr_len > 0;
 		if (!ret)
 			pr_warn_once("MMIO failed\n");
+		break;
+	case EXIT_REASON_IO_INSTRUCTION:
+		ret = tdx_handle_io(regs, ve->exit_qual);
 		break;
 	default:
 		pr_warn("Unexpected #VE: %lld\n", ve->exit_reason);

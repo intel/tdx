@@ -1738,7 +1738,8 @@ static int __tdx_handle_exit(struct kvm_vcpu *vcpu,
 	union tdx_exit_reason exit_reason = to_tdx(vcpu)->exit_reason;
 
 	if (unlikely(exit_reason.non_recoverable || exit_reason.error)) {
-		kvm_pr_unimpl("TD exit 0x%llx, %d qual 0x%lx ext 0x%lx gpa 0x%lx intr 0x%lx\n",
+		kvm_pr_unimpl("TD exit %s(0x%llx), %d qual 0x%lx ext 0x%lx gpa 0x%lx intr 0x%lx\n",
+			      tdx_error_name(exit_reason.full),
 			      exit_reason.full, exit_reason.basic,
 			      tdexit_exit_qual(vcpu),
 			      tdexit_ext_exit_qual(vcpu),

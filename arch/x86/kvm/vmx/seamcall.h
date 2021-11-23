@@ -110,6 +110,7 @@ static inline u64 seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10,
 	return ret;
 }
 
+const char *tdx_error_name(u64 error_code);
 void pr_tdx_ex_ret_info(u64 op, u64 error_code, const struct tdx_ex_ret *ex_ret);
 void pr_tdx_error(u64 op, u64 error_code, const struct tdx_ex_ret *ex_ret);
 

@@ -17,6 +17,12 @@
 #define EPT_READ	0
 #define EPT_WRITE	1
 
+/* See Exit Qualification for I/O Instructions in VMX documentation */
+#define VE_IS_IO_IN(e)		((e) & BIT(3))
+#define VE_GET_IO_SIZE(e)	(((e) & GENMASK(2, 0)) + 1)
+#define VE_GET_PORT_NUM(e)	((e) >> 16)
+#define VE_IS_IO_STRING(e)	((e) & BIT(4))
+
 /*
  * Wrapper for standard use of __tdx_hypercall with panic report
  * for TDCALL error.
@@ -274,6 +280,53 @@ static int tdx_handle_mmio(struct pt_regs *regs, struct ve_info *ve)
 	return true;
 }
 
+/*
+ * Emulate I/O using hypercall.
+ *
+ * Assumes the IO instruction was using ax, which is enforced
+ * by the standard io.h macros.
+ *
+ * Return True on success or False on failure.
+ */
+static bool tdx_handle_io(struct pt_regs *regs, u32 exit_qual)
+{
+	struct tdx_hypercall_args args = {
+		.r10 = TDX_HYPERCALL_STANDARD,
+		.r11 = EXIT_REASON_IO_INSTRUCTION,
+	};
+	int size, port;
+	u64 mask;
+	bool in;
+
+	if (VE_IS_IO_STRING(exit_qual))
+		return false;
+
+	in   = VE_IS_IO_IN(exit_qual);
+	size = VE_GET_IO_SIZE(exit_qual);
+	port = VE_GET_PORT_NUM(exit_qual);
+	mask = GENMASK(BITS_PER_BYTE * size, 0);
+
+	args.r12 = size;
+	args.r13 = !in;
+	args.r14 = port;
+	args.r15 = in ? 0 : regs->ax;
+
+	/*
+	 * Emulate the I/O read/write via hypercall. More info about
+	 * ABI can be found in TDX Guest-Host-Communication Interface
+	 * (GHCI) section titled "TDG.VP.VMCALL<Instruction.IO>".
+	 */
+	if (__tdx_hypercall(&args))
+		panic("Hypercall failed (Buggy TDX module!)\n");
+	if (!in)
+		return !args.r10;
+
+	regs->ax &= ~mask;
+	regs->ax |= args.r10 ? UINT_MAX : args.r11 & mask;
+
+	return !args.r10;
+}
+
 bool tdx_get_ve_info(struct ve_info *ve)
 {
 	struct tdx_module_output out;
@@ -330,6 +383,8 @@ static bool tdx_virt_exception_kernel(struct pt_regs *regs, struct ve_info *ve)
 		return tdx_handle_cpuid(regs);
 	case EXIT_REASON_EPT_VIOLATION:
 		return tdx_handle_mmio(regs, ve);
+	case EXIT_REASON_IO_INSTRUCTION:
+		return tdx_handle_io(regs, ve->exit_qual);
 	default:
 		pr_warn("Unexpected #VE: %lld\n", ve->exit_reason);
 		return false;

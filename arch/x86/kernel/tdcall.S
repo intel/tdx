@@ -3,6 +3,7 @@
 #include <asm/asm.h>
 #include <asm/frame.h>
 #include <asm/unwind_hints.h>
+#include <uapi/asm/vmx.h>
 
 #include <linux/linkage.h>
 #include <linux/bits.h>
@@ -38,6 +39,12 @@
  * Binutils >= 2.36.
  */
 #define tdcall .byte 0x66,0x0f,0x01,0xcc
+
+/*
+ * Used in __tdx_hypercall() to determine whether to enable interrupts
+ * before issuing TDCALL for the EXIT_REASON_HLT case.
+ */
+#define ENABLE_IRQS_BEFORE_HLT 0x01
 
 /*
  * __tdx_module_call()  - Used by TDX guests to request services from
@@ -230,6 +237,30 @@ SYM_FUNC_START(__tdx_hypercall)
 
 	movl $TDVMCALL_EXPOSE_REGS_MASK, %ecx
 
+	/*
+	 * For the idle loop STI needs to be called directly before
+	 * the TDCALL that enters idle (EXIT_REASON_HLT case). STI
+	 * instruction enables interrupts only one instruction later.
+	 * If there is a window between STI and the instruction that
+	 * emulates the HALT state, there is a chance for interrupts to
+	 * happen in this window, which can delay the HLT operation
+	 * indefinitely. Since this is the not the desired result,
+	 * conditionally call STI before TDCALL.
+	 *
+	 * Since STI instruction is only required for the idle case
+	 * (a special case of EXIT_REASON_HLT), use the r15 register
+	 * value to identify it. Since the R15 register is not used
+	 * by the VMM as per EXIT_REASON_HLT ABI, re-use it in
+	 * software to identify the STI case.
+	 */
+	cmpl $EXIT_REASON_HLT, %r11d
+	jne .Lskip_sti
+	cmpl $ENABLE_IRQS_BEFORE_HLT, %r15d
+	jne .Lskip_sti
+	/* Set R15 register to 0, it is unused in EXIT_REASON_HLT case */
+	xor %r15, %r15
+	sti
+.Lskip_sti:
 	tdcall
 
 	/* Restore output pointer to R9 */

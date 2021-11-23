@@ -93,7 +93,7 @@ struct tdmr_info {
 	struct tdmr_reserved_area reserved_areas[TDX_MAX_NR_RSVD_AREAS];
 } __packed __aligned(TDX_TDMR_INFO_ALIGNMENT);
 
-#define TDX_TDSYSINFO_STRUCT_ALIGNEMNT	1024
+#define TDX_TDSYSINFO_STRUCT_ALIGNMENT	1024
 struct tdsysinfo_struct {
 	/* TDX-SEAM Module Info */
 	u32 attributes;
@@ -125,6 +125,6 @@ struct tdsysinfo_struct {
 		struct tdx_cpuid_config cpuid_configs[0];
 		u8 reserved5[892];
 	};
-} __packed __aligned(TDX_TDSYSINFO_STRUCT_ALIGNEMNT);
+} __packed __aligned(TDX_TDSYSINFO_STRUCT_ALIGNMENT);
 
 #endif /* __ASM_X86_TDX_ARCH_H */

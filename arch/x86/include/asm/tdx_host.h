@@ -56,11 +56,6 @@ const struct tdsysinfo_struct *tdx_get_sysinfo(void);
 
 bool range_is_tdx_memory(phys_addr_t start, phys_addr_t end);
 
-/* Debug configuration SEAMCALLs */
-extern bool is_debug_seamcall_available __read_mostly;
-/* Non-architectural configuration SEAMCALLs */
-extern bool is_nonarch_seamcall_available __read_mostly;
-
 #else
 static inline void tdx_early_init(void)
 {

@@ -4987,9 +4987,17 @@ int __vmx_handle_dr(struct kvm_vcpu *vcpu, bool guest_debug_enabled)
 	exit_qualification = vm_get_exit_qual(vcpu);
 	dr = exit_qualification & DEBUG_REG_ACCESS_NUM;
 
-	/* First, if DR does not exist, trigger UD */
-	if (!kvm_require_dr(vcpu, dr))
-		return 1;
+	/* First, if DR does not exist, trigger UD for legacy Guest
+	 * For TD guest due to exception injection is not supported by
+	 * TDX 1.0 we have to skip the instruction here.
+	 */
+	if (!kvm_require_dr(vcpu, dr)) {
+		if (vcpu->kvm->arch.vm_type != KVM_X86_TDX_VM)
+			return 1;
+
+		pr_err_once("Skip access to DR4/5 due to #UD injection is not supported on TDX 1.0\n");
+		return kvm_complete_insn_gp(vcpu, 0);
+	}
 
 	if (kvm_x86_ops.get_cpl(vcpu) > 0)
 		goto out;

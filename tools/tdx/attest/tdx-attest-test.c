@@ -46,6 +46,11 @@ struct tdx_attest_args {
 	char *out_file;
 };
 
+struct tdx_gen_quote {
+	void *buf;
+	size_t len;
+};
+
 static void print_hex_dump(const char *title, const char *prefix_str,
 			   const void *buf, int len)
 {
@@ -124,6 +129,7 @@ static int gen_quote(int devfd, bool dump_data)
 	__u8 *quote_data;
 	__u64 quote_size;
 	int ret;
+	struct tdx_gen_quote getquote_arg;
 
 	quote_size = get_quote_size(devfd);
 
@@ -139,7 +145,10 @@ static int gen_quote(int devfd, bool dump_data)
 		goto done;
 	}
 
-	ret = ioctl(devfd, TDX_CMD_GEN_QUOTE, quote_data);
+	getquote_arg.buf = quote_data;
+	getquote_arg.len = quote_size;
+
+	ret = ioctl(devfd, TDX_CMD_GEN_QUOTE, &getquote_arg);
 	if (ret) {
 		printf("TDX_CMD_GEN_QUOTE ioctl() %d failed\n", ret);
 		goto done;

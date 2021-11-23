@@ -69,9 +69,14 @@ static inline u64 tdh_sys_tdmr_config(u64 tdmr, int nr_entries, int hkid)
 			NULL);
 }
 
+/* Debug configuration SEAMCALLs */
+extern bool is_debug_seamcall_available __read_mostly;
+/* Non-architectural configuration SEAMCALLs */
+extern bool is_nonarch_seamcall_available __read_mostly;
+
 static inline u64 tdh_trace_seamcalls(u64 level)
 {
-	u64 err;
+	u64 err = 0;
 
 	if (is_debug_seamcall_available) {
 		err = seamcall(SEAMCALL_TDDEBUGCONFIG,

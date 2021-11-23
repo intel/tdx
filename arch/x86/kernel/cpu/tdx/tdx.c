@@ -421,7 +421,7 @@ static void __init tdx_sys_info_free(struct tdsysinfo_struct **tdsysinfo,
 
 /*
  * TDH_SYS_CONFIG requires that struct tdsysinfo_struct and the array of struct
- * cmr_info have the alignment of TDX_TDSYSINFO_STRUCT_ALIGNEMNT(1024) and
+ * cmr_info have the alignment of TDX_TDSYSINFO_STRUCT_ALIGNMENT(1024) and
  * TDX_CMR_INFO_ARRAY_ALIGNMENT(512).
  * sizeof(struct tdsysinfo_struct) = 1024
  * sizeof(struct cmr_info) * TDX_MAX_NR_CMRS = 512
@@ -435,7 +435,7 @@ static int __init tdx_sys_info_alloc(struct tdsysinfo_struct **tdsysinfo,
 	BUILD_BUG_ON(sizeof(struct tdsysinfo_struct) != 1024);
 	BUILD_BUG_ON(!is_power_of_2(sizeof(**tdsysinfo)));
 	BUILD_BUG_ON(!IS_ALIGNED(sizeof(**tdsysinfo),
-				 TDX_TDSYSINFO_STRUCT_ALIGNEMNT));
+				 TDX_TDSYSINFO_STRUCT_ALIGNMENT));
 	BUILD_BUG_ON(!is_power_of_2(sizeof(**cmrs) * TDX_MAX_NR_CMRS));
 	BUILD_BUG_ON(!IS_ALIGNED(sizeof(**cmrs) * TDX_MAX_NR_CMRS,
 				 TDX_CMR_INFO_ARRAY_ALIGNMENT));

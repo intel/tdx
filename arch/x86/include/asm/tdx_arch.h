@@ -48,6 +48,12 @@
 	TDX_SEAMCALL(TDDEBUGCONFIG),		\
 	TDX_SEAMCALL(TDXMODE)
 
+/*
+ * Hard code those values.  They are constant for the current TDX version.
+ * TDH.SYS.INIT enumerates those values.  Do sanity check on initialization.
+ *
+ * TODO: If they are bumped in future, bump them.
+ */
 #define TDX_MAX_NR_CMRS			32
 #define TDX_MAX_NR_TDMRS		64
 #define TDX_MAX_NR_RSVD_AREAS		16

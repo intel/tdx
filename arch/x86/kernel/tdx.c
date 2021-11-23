@@ -44,6 +44,21 @@ static inline u64 _tdx_hypercall(u64 fn, u64 r12, u64 r13, u64 r14,
 	return out->r10;
 }
 
+#ifdef CONFIG_KVM_GUEST
+long tdx_kvm_hypercall(unsigned int nr, unsigned long p1, unsigned long p2,
+		       unsigned long p3, unsigned long p4)
+{
+	struct tdx_hypercall_output out;
+
+	/* Non zero return value indicates buggy TDX module, so panic */
+	if (__tdx_hypercall(nr, p1, p2, p3, p4, 0, &out))
+		panic("KVM hypercall %u failed. Buggy TDX module?\n", nr);
+
+	return out.r10;
+}
+EXPORT_SYMBOL_GPL(tdx_kvm_hypercall);
+#endif
+
 static u64 __cpuidle _tdx_halt(const bool irq_disabled, const bool do_sti)
 {
 	/*

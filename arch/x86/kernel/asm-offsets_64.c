@@ -9,7 +9,7 @@
 #include <asm/kvm_para.h>
 #endif
 
-#include <asm/tdx_host.h>
+#include "cpu/tdx/seamcall.h"
 
 int main(void)
 {

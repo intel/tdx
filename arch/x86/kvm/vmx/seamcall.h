@@ -14,6 +14,8 @@
 
 #else
 
+#include "tdx_trace.h"
+
 /*
  * TDX extended return:
  * Some of The "TDX module" SEAMCALLs return extended values (which are function
@@ -80,6 +82,7 @@ static inline u64 seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10,
 	if (!ex)
 		/* The following inline assembly requires non-NULL ex. */
 		ex = &dummy;
+	trace_tdx_seamcall(op, rcx, rdx, r8, r9, r10);
 
 	/*
 	 * Because the TDX module is known to be already initialized, seamcall
@@ -103,6 +106,7 @@ static inline u64 seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10,
 	ex->regs.r10 = r10_out;
 	ex->regs.r11 = r11_out;
 
+	trace_tdx_seamret(op, ret, ex);
 	return ret;
 }
 

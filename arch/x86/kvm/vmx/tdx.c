@@ -1364,6 +1364,10 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 
 	exit_reason = tdvmcall_exit_reason(vcpu);
 
+	trace_kvm_tdvmcall(vcpu, exit_reason,
+			   tdvmcall_p1_read(vcpu), tdvmcall_p2_read(vcpu),
+			   tdvmcall_p3_read(vcpu), tdvmcall_p4_read(vcpu));
+
 	switch (exit_reason) {
 	case EXIT_REASON_CPUID:
 		return tdx_emulate_cpuid(vcpu);
@@ -1417,6 +1421,7 @@ static void tdx_measure_page(struct kvm_tdx *kvm_tdx, hpa_t gpa)
 static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 					enum pg_level level, kvm_pfn_t pfn)
 {
+	int tdx_level = pg_level_to_tdx_sept_level(level);
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	hpa_t hpa = pfn << PAGE_SHIFT;
 	gpa_t gpa = gfn << PAGE_SHIFT;
@@ -1436,11 +1441,15 @@ static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 
 	/* Build-time faults are induced and handled via TDH_MEM_PAGE_ADD. */
 	if (is_td_finalized(kvm_tdx)) {
+		trace_kvm_sept_seamcall(TDH_MEM_PAGE_AUG, gpa, hpa, tdx_level);
+
 		err = tdh_mem_page_aug(kvm_tdx->tdr.pa, gpa, hpa, &ex_ret);
 		if (KVM_BUG_ON(err, kvm))
 			pr_tdx_error(TDH_MEM_PAGE_AUG, err, &ex_ret);
 		return;
 	}
+
+	trace_kvm_sept_seamcall(TDH_MEM_PAGE_ADD, gpa, hpa, tdx_level);
 
 	/*
 	 * In case of TDP MMU, fault handler can run concurrently.  Note
@@ -1496,6 +1505,8 @@ static void __tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn, enum pg_lev
 		return;
 
 	if (is_hkid_assigned(kvm_tdx)) {
+		trace_kvm_sept_seamcall(TDH_MEM_PAGE_REMOVE, gpa, hpa, tdx_level);
+
 		err = tdh_mem_page_remove(kvm_tdx->tdr.pa, gpa, tdx_level, &ex_ret);
 		if (KVM_BUG_ON(err, kvm)) {
 			pr_tdx_error(TDH_MEM_PAGE_REMOVE, err, &ex_ret);
@@ -1536,6 +1547,8 @@ static int __tdx_sept_link_private_sp(struct kvm *kvm, gfn_t gfn,
 	struct tdx_ex_ret ex_ret;
 	u64 err;
 
+	trace_kvm_sept_seamcall(TDH_MEM_SEPT_ADD, gpa, hpa, tdx_level);
+
 	err = tdh_mem_sept_add(kvm_tdx->tdr.pa, gpa, tdx_level, hpa, &ex_ret);
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_MEM_SEPT_ADD, err, &ex_ret);
@@ -1568,6 +1581,8 @@ static void __tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn,
 	struct tdx_ex_ret ex_ret;
 	u64 err;
 
+	trace_kvm_sept_seamcall(TDH_MEM_RANGE_BLOCK, gpa, -1ull, tdx_level);
+
 	err = tdh_mem_range_block(kvm_tdx->tdr.pa, gpa, tdx_level, &ex_ret);
 	if (KVM_BUG_ON(err, kvm))
 		pr_tdx_error(TDH_MEM_RANGE_BLOCK, err, &ex_ret);
@@ -1592,6 +1607,8 @@ static void __tdx_sept_unzap_private_spte(struct kvm *kvm, gfn_t gfn,
 	gpa_t gpa = gfn << PAGE_SHIFT;
 	struct tdx_ex_ret ex_ret;
 	u64 err;
+
+	trace_kvm_sept_seamcall(TDH_MEM_RANGE_UNBLOCK, gpa, -1ull, tdx_level);
 
 	err = tdh_mem_range_unblock(kvm_tdx->tdr.pa, gpa, tdx_level, &ex_ret);
 	if (KVM_BUG_ON(err, kvm))

@@ -8,6 +8,12 @@
 #include "tdx_arch.h"
 #include "tdx_ops.h"
 
+#define CREATE_TRACE_POINTS
+#include "tdx_trace.h"
+
+EXPORT_TRACEPOINT_SYMBOL_GPL(tdx_seamcall);
+EXPORT_TRACEPOINT_SYMBOL_GPL(tdx_seamret);
+
 static const char * const TDX_SEPT_ENTRY_STATES[] = {
 	"SEPT_FREE",
 	"SEPT_BLOCKED",

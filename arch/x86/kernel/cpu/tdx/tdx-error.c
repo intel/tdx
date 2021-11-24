@@ -9,6 +9,7 @@
 #include <asm/tdx_host.h>
 
 #include "p-seamldr.h"
+#include "seamcall.h"
 
 #define CREATE_TRACE_POINTS
 #include <asm/trace/seam.h>

@@ -8,6 +8,7 @@
 #include <asm/tdx_host.h>
 #include <asm/trace/seam.h>
 
+#ifdef CONFIG_INTEL_TDX_HOST
 /*
  * TDX extended return:
  * Some of The "TDX module" SEAMCALLs return extended values (which are function
@@ -65,9 +66,9 @@ static inline u64 seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
 
 const char *tdx_seamcall_error_name(u64 error_code);
 
-struct tdx_ex_ret;
 void pr_seamcall_ex_ret_info(u64 op, u64 error_code,
 			const struct tdx_ex_ret *ex_ret);
 void pr_seamcall_error(u64 op, u64 error_code, const struct tdx_ex_ret *ex_ret);
+#endif
 
 #endif /* __SEAM_SEAMCALL_H */

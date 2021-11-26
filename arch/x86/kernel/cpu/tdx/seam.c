@@ -28,6 +28,9 @@
 #define SEAMRR_ENABLED_BITS	\
 	(SEAMRR_PHYS_MASK_ENABLED | SEAMRR_PHYS_MASK_LOCKED)
 
+/* Spinlock to prevent calling P-SEAMLDR SEAMCALLs in parallel */
+DEFINE_SPINLOCK(p_seamldr_lock);
+
 /*
  * BIOS configures SEAMRR registers for all cores and ensures all cores
  * are configured consistently.

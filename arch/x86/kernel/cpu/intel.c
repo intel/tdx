@@ -27,6 +27,7 @@
 #include <asm/numa.h>
 #include <asm/thermal.h>
 #include <asm/seam.h>
+#include <asm/tdx_host.h>
 
 #ifdef CONFIG_X86_64
 #include <linux/topology.h>
@@ -717,6 +718,8 @@ static void init_intel(struct cpuinfo_x86 *c)
 		detect_tme(c);
 
 	detect_seam(c);
+
+	detect_tdx_keyids(c);
 
 	init_intel_misc_features(c);
 

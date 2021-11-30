@@ -1359,6 +1359,7 @@ config INTEL_TDX_HOST
 	depends on CPU_SUP_INTEL
 	depends on X86_64
 	select CONTIG_ALLOC
+	select CMA
 	help
 	  Intel's Trust Domain Extensions (TDX) protect guest VMs from malicious
 	  hosts and some physical attacks.  This option enables initialization

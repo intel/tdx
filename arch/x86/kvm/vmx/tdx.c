@@ -3391,7 +3391,6 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 		pr_warn("Cannot enable TDX with EPT disabled\n");
 		return -EINVAL;
 	}
-	tdx_keyids_init();
 
 	if (tdsysinfo == NULL) {
 		WARN_ON_ONCE(cpu_feature_enabled(X86_FEATURE_TDX));
@@ -3421,6 +3420,8 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	if (!memcpy(tdx_caps.cpuid_configs, tdsysinfo->cpuid_configs,
 		    tdsysinfo->num_cpuid_config * sizeof(struct tdx_cpuid_config)))
 		return -EIO;
+
+	tdx_keyids_init();
 
 	x86_ops->cache_gprs = tdx_cache_gprs;
 	x86_ops->flush_gprs = tdx_flush_gprs;

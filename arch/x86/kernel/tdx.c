@@ -931,8 +931,20 @@ bool tdx_handle_virt_exception(struct pt_regs *regs, struct ve_info *ve)
 		ret = tdx_virt_exception_kernel(regs, ve);
 
 	/* After successful #VE handling, move the IP */
-	if (ret)
+	if (ret) {
+		if (regs->flags & X86_EFLAGS_TF) {
+			/*
+			 * Single-stepping through an emulated instruction is
+			 * two-fold: handling the #VE and raising a #DB. The
+			 * former is taken care of above; this tells the #VE
+			 * trap handler to do the latter. #DB is raised after
+			 * the instruction has been executed; the IP also needs
+			 * to be advanced in this case.
+			 */
+			ret = false;
+		}
 		regs->ip += ve->instr_len;
+	}
 
 	return ret;
 }

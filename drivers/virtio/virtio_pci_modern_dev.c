@@ -35,6 +35,11 @@ vp_modern_map_capability(struct virtio_pci_modern_device *mdev, int off,
 	pci_read_config_dword(dev, off + offsetof(struct virtio_pci_cap, length),
 			      &length);
 
+	if (bar > PCI_STD_RESOURCE_END) {
+		dev_err(&dev->dev, "virtio_pci: bad capability BAR %u\n", bar);
+		return NULL;
+	}
+
 	if (length <= start) {
 		dev_err(&dev->dev,
 			"virtio_pci: bad capability len %u (>%u expected)\n",
@@ -120,7 +125,7 @@ static inline int virtio_pci_find_capability(struct pci_dev *dev, u8 cfg_type,
 				     &bar);
 
 		/* Ignore structures with reserved BAR values */
-		if (bar > 0x5)
+		if (bar > PCI_STD_RESOURCE_END)
 			continue;
 
 		if (type == cfg_type) {

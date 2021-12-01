@@ -318,6 +318,10 @@ static int virtio_pci_find_shm_cap(struct pci_dev *dev, u8 required_id,
 		/* Type, and ID match, looks good */
 		pci_read_config_byte(dev, pos + offsetof(struct virtio_pci_cap,
 							 bar), bar);
+		if (*bar > PCI_STD_RESOURCE_END) {
+			dev_err(&dev->dev, "shm cap with bad BAR %d\n", *bar);
+			continue;
+		}
 
 		/* Read the lower 32bit of length and offset */
 		pci_read_config_dword(dev, pos + offsetof(struct virtio_pci_cap,

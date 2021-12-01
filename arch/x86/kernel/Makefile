@@ -23,6 +23,7 @@ CFLAGS_REMOVE_head64.o = -pg
 CFLAGS_REMOVE_sev.o = -pg
 CFLAGS_REMOVE_cc_platform.o = -pg
 CFLAGS_REMOVE_tdx.o = -pg
+CFLAGS_REMOVE_tdx-tests.o = -pg
 endif
 
 KASAN_SANITIZE_head$(BITS).o				:= n
@@ -58,6 +59,7 @@ CFLAGS_tdx.o		+= -fno-stack-protector
 CFLAGS_irq.o := -I $(srctree)/$(src)/../include/asm/trace
 
 obj-y			:= process_$(BITS).o signal.o
+obj-$(CONFIG_INTEL_TDX_GUEST)			+= tdx-tests.o
 obj-$(CONFIG_COMPAT)	+= signal_compat.o
 obj-y			+= traps.o idt.o irq.o irq_$(BITS).o dumpstack_$(BITS).o
 obj-y			+= time.o ioport.o dumpstack.o nmi.o

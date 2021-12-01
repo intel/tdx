@@ -1188,6 +1188,21 @@ static void ve_raise_fault(struct pt_regs *regs, long error_code)
 	die_addr(VE_FAULT_STR, regs, error_code, 0);
 }
 
+static void ve_raise_debug(struct pt_regs *regs)
+{
+	unsigned long dr6 = debug_read_clear_dr6();
+
+	dr6 |= DR_STEP;
+	cond_local_irq_disable(regs);
+
+	if (user_mode(regs))
+		exc_debug_user(regs, dr6);
+	else
+		exc_debug_kernel(regs, dr6);
+
+	cond_local_irq_enable(regs);
+}
+
 DEFINE_IDTENTRY(exc_virtualization_exception)
 {
 	struct ve_info ve;
@@ -1210,10 +1225,14 @@ DEFINE_IDTENTRY(exc_virtualization_exception)
 		ret = tdx_handle_virtualization_exception(regs, &ve);
 	/*
 	 * If tdx_handle_virtualization_exception() could not process
-	 * it successfully, treat it as #GP(0) and handle it.
+	 * it successfully, treat it as #GP(0) or #DB and handle it.
 	 */
-	if (!ret)
-		ve_raise_fault(regs, 0);
+	if (!ret) {
+		if (regs->flags & X86_EFLAGS_TF)
+			ve_raise_debug(regs);
+		else
+			ve_raise_fault(regs, 0);
+	}
 
 	cond_local_irq_disable(regs);
 }

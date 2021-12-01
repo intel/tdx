@@ -1370,6 +1370,21 @@ static void ve_raise_fault(struct pt_regs *regs, long error_code)
 	die_addr(VE_FAULT_STR, regs, error_code, 0);
 }
 
+static void ve_raise_debug(struct pt_regs* regs)
+{
+	unsigned long dr6 = debug_read_clear_dr6();
+
+	dr6 |= DR_STEP;
+	cond_local_irq_disable(regs);
+
+	if (user_mode(regs))
+		exc_debug_user(regs, dr6);
+	else
+		exc_debug_kernel(regs, dr6);
+
+	cond_local_irq_enable(regs);
+}
+
 /*
  * Virtualization Exceptions (#VE) are delivered to TDX guests due to
  * specific guest actions which may happen in either user space or the
@@ -1430,8 +1445,12 @@ DEFINE_IDTENTRY(exc_virtualization_exception)
 	 * If tdx_handle_virt_exception() could not process
 	 * it successfully, treat it as #GP(0) and handle it.
 	 */
-	if (!tdx_handle_virt_exception(regs, &ve))
-		ve_raise_fault(regs, 0);
+	if (!tdx_handle_virt_exception(regs, &ve)) {
+		if (regs->flags & X86_EFLAGS_TF)
+			ve_raise_debug(regs);
+		else
+			ve_raise_fault(regs, 0);
+	}
 
 	cond_local_irq_disable(regs);
 }

@@ -9,6 +9,7 @@
 #include <asm/vmx.h>
 
 #include "mmu.h"
+#include "tdx.h"
 #include "vmcs.h"
 #include "vmx.h"
 #include "x86.h"

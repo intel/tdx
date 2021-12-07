@@ -529,6 +529,10 @@ static bool tdx_virt_exception_kernel(struct pt_regs *regs, struct ve_info *ve)
 	case EXIT_REASON_IO_INSTRUCTION:
 		ret = tdx_handle_io(regs, ve->exit_qual);
 		break;
+	case EXIT_REASON_WBINVD:
+		WARN_ONCE(1, "Unexpected WBINVD\n");
+		ret = true;
+		break;
 	default:
 		pr_warn("Unexpected #VE: %lld\n", ve->exit_reason);
 		break;

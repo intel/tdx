@@ -29,6 +29,10 @@ void tdx_apicv_post_state_restore(struct kvm_vcpu *vcpu) {}
 int tdx_deliver_posted_interrupt(struct kvm_vcpu *vcpu, int vector) { return 0; }
 void tdx_get_exit_info(struct kvm_vcpu *vcpu, u32 *reason,
 		u64 *info1, u64 *info2, u32 *intr_info, u32 *error_code) {}
+int tdx_smi_allowed(struct kvm_vcpu *vcpu, bool for_injection) { return false; }
+int tdx_enter_smm(struct kvm_vcpu *vcpu, char *smstate) { return 0; }
+int tdx_leave_smm(struct kvm_vcpu *vcpu, const char *smstate) { return 0; }
+void tdx_enable_smi_window(struct kvm_vcpu *vcpu) {}
 
 int tdx_dev_ioctl(void __user *argp) { return -EOPNOTSUPP; }
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp) { return -EOPNOTSUPP; }

@@ -1567,22 +1567,22 @@ static void handle_control_message(struct virtio_device *vdev,
 	struct port *port;
 	size_t name_size;
 	int err;
-	unsigned id;
+	unsigned id, event;
 
 	cpkt = (struct virtio_console_control *)(buf->buf + buf->offset);
 
-	/* Make sure the host cannot change id under us */
+	/* Make sure the host cannot change id or event under us */
 	id = virtio32_to_cpu(vdev, READ_ONCE(cpkt->id));
+	event = virtio16_to_cpu(vdev, cpkt->event);
 	port = find_port_by_id(portdev, id);
-	if (!port &&
-	    cpkt->event != cpu_to_virtio16(vdev, VIRTIO_CONSOLE_PORT_ADD)) {
+	if (!port && event != VIRTIO_CONSOLE_PORT_ADD) {
 		/* No valid header at start of buffer.  Drop it. */
 		dev_dbg(&portdev->vdev->dev,
 			"Invalid index %u in control packet\n", cpkt->id);
 		return;
 	}
 
-	switch (virtio16_to_cpu(vdev, cpkt->event)) {
+	switch (event) {
 	case VIRTIO_CONSOLE_PORT_ADD:
 		if (port) {
 			dev_dbg(&portdev->vdev->dev,

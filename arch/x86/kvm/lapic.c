@@ -2921,11 +2921,20 @@ int kvm_apic_accept_events(struct kvm_vcpu *vcpu)
 
 	if (test_bit(KVM_APIC_INIT, &pe)) {
 		clear_bit(KVM_APIC_INIT, &apic->pending_events);
-		kvm_vcpu_reset(vcpu, true);
-		if (kvm_vcpu_is_bsp(apic->vcpu))
+		if (kvm_init_sipi_unsupported(vcpu->kvm))
+			/*
+			 * TDX doesn't support INIT.  Ignore INIT event.  In the
+			 * case of SIPI, the callback of
+			 * vcpu_deliver_sipi_vector ignores it.
+			 */
 			vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
-		else
-			vcpu->arch.mp_state = KVM_MP_STATE_INIT_RECEIVED;
+		else {
+			kvm_vcpu_reset(vcpu, true);
+			if (kvm_vcpu_is_bsp(apic->vcpu))
+				vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
+			else
+				vcpu->arch.mp_state = KVM_MP_STATE_INIT_RECEIVED;
+		}
 	}
 	if (test_bit(KVM_APIC_SIPI, &pe)) {
 		clear_bit(KVM_APIC_SIPI, &apic->pending_events);
@@ -2933,6 +2942,10 @@ int kvm_apic_accept_events(struct kvm_vcpu *vcpu)
 			/* evaluate pending_events before reading the vector */
 			smp_rmb();
 			sipi_vector = apic->sipi_vector;
+			/*
+			 * If SINIT isn't supported, the callback ignores SIPI
+			 * request.
+			 */
 			kvm_x86_ops.vcpu_deliver_sipi_vector(vcpu, sipi_vector);
 			vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
 		}

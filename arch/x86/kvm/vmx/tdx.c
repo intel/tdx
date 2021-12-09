@@ -728,7 +728,6 @@ void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 	}
 }
 
-
 static void tdx_complete_interrupts(struct kvm_vcpu *vcpu)
 {
 	/* Avoid costly SEAMCALL if no NMI was injected. */

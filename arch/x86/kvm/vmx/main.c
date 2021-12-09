@@ -115,6 +115,11 @@ static void vt_vcpu_free(struct kvm_vcpu *vcpu)
 
 static void vt_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 {
+	/*
+	 * TDX has its own sequence to do init during TD build time (by
+	 * KVM_TDX_INIT_VCPU) and it doesn't support INIT event during TD
+	 * runtime.
+	 */
 	if (is_td_vcpu(vcpu))
 		return;
 
@@ -202,6 +207,18 @@ static void vt_enable_smi_window(struct kvm_vcpu *vcpu)
 	vmx_enable_smi_window(vcpu);
 }
 #endif
+
+static bool vt_apic_init_signal_blocked(struct kvm_vcpu *vcpu)
+{
+	/*
+	 * INIT and SIPI are always blocked for TDX, i.e., INIT handling and
+	 * the OP vcpu_deliver_sipi_vector() won't be called.
+	 */
+	if (is_td_vcpu(vcpu))
+		return true;
+
+	return vmx_apic_init_signal_blocked(vcpu);
+}
 
 static void vt_apicv_pre_state_restore(struct kvm_vcpu *vcpu)
 {
@@ -543,7 +560,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 #endif
 
 	.check_emulate_instruction = vmx_check_emulate_instruction,
-	.apic_init_signal_blocked = vmx_apic_init_signal_blocked,
+	.apic_init_signal_blocked = vt_apic_init_signal_blocked,
 	.migrate_timers = vmx_migrate_timers,
 
 	.msr_filter_changed = vmx_msr_filter_changed,

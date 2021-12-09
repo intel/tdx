@@ -58,6 +58,16 @@ static u64 *tdx_tdmr_pa_array;
 /* TDX global KeyID to protect TDX metadata */
 static u32 tdx_global_keyid;
 
+static bool enable_tdx_host;
+
+static int __init tdx_host_setup(char *s)
+{
+	if (!strcmp(s, "on"))
+		enable_tdx_host = true;
+	return 0;
+}
+__setup("tdx_host=", tdx_host_setup);
+
 /*
  * Intel Trusted Domain CPU Architecture Extension spec:
  *
@@ -536,6 +546,10 @@ static void shutdown_tdx_module(void)
 
 static int __detect_tdx(void)
 {
+	/* Disabled by kernel command line */
+	if (!enable_tdx_host)
+		goto no_tdx_module;
+
 	/*
 	 * TDX requires at least two KeyIDs: one global KeyID to protect
 	 * the metadata of the TDX module and one or more KeyIDs to

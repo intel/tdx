@@ -67,6 +67,16 @@ static int tdx_tdmr_num;
 /* TDX global KeyID to protect TDX metadata */
 static u32 tdx_global_keyid;
 
+static bool enable_tdx_host;
+
+static int __init tdx_host_setup(char *s)
+{
+	if (!strcmp(s, "on"))
+		enable_tdx_host = true;
+	return 0;
+}
+__setup("tdx_host=", tdx_host_setup);
+
 #define MSR_IA32_MKTME_KEYID_PARTITIONING	0x00000087
 
 static u64 keyid_partitioning_info;
@@ -679,6 +689,10 @@ static int __detect_tdx(void)
 	/* TDX module has been detected as loaded */
 	if (tdx_module_status != TDX_MODULE_UNKNOWN)
 		return 0;
+
+	/* Disabled by kernel command line */
+	if (!enable_tdx_host)
+		return -ENODEV;
 
 	if (!seamrr_enabled())
 		goto no_tdx_module;

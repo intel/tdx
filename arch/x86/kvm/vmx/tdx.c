@@ -769,8 +769,8 @@ void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 {
 
-	/* Ignore INIT silently because TDX doesn't support INIT event. */
-	if (init_event)
+	/* vcpu_deliver_init method silently discards INIT event. */
+	if (KVM_BUG_ON(init_event, vcpu->kvm))
 		return;
 	if (KVM_BUG_ON(is_td_vcpu_created(to_tdx(vcpu)), vcpu->kvm))
 		return;

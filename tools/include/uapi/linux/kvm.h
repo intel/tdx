@@ -1175,7 +1175,9 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_DIRTY_LOG_RING_ACQ_REL 223
 #define KVM_CAP_S390_PROTECTED_ASYNC_DISABLE 224
 #define KVM_CAP_DIRTY_LOG_RING_WITH_BITMAP 225
-#define KVM_CAP_VM_TYPES 227
+/* TODO: remove this workaround to avoid CAP number conflict in the upstream. */
+#define KVM_CAP_MEMORY_ATTRIBUTES 500
+#define KVM_CAP_VM_TYPES 1000
 
 #ifdef KVM_CAP_IRQ_ROUTING
 

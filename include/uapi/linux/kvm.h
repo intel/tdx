@@ -1269,9 +1269,10 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_DIRTY_LOG_RING_WITH_BITMAP 225
 #define KVM_CAP_PMU_EVENT_MASKED_EVENTS 226
 #define KVM_CAP_COUNTER_OFFSET 227
-#define KVM_CAP_MEMORY_ATTRIBUTES 228
-#define KVM_CAP_USER_MEMORY2 229
-#define KVM_CAP_VM_TYPES 230
+/* TODO: remove this workaround to avoid CAP number conflict in the upstream. */
+#define KVM_CAP_MEMORY_ATTRIBUTES 500
+#define KVM_CAP_USER_MEMORY2 750
+#define KVM_CAP_VM_TYPES 1000
 
 #ifdef KVM_CAP_IRQ_ROUTING
 

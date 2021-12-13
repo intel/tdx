@@ -47,6 +47,7 @@
 #include <asm/spec-ctrl.h>
 #include <asm/virtext.h>
 #include <asm/vmx.h>
+#include <asm/tdx_host.h>
 
 #include "capabilities.h"
 #include "cpuid.h"
@@ -132,6 +133,9 @@ module_param_named(preemption_timer, enable_preemption_timer, bool, S_IRUGO);
 
 extern bool __read_mostly allow_smaller_maxphyaddr;
 module_param(allow_smaller_maxphyaddr, bool, S_IRUGO);
+
+static bool __read_mostly enable_tdx;
+module_param_named(tdx, enable_tdx, bool, S_IRUGO);
 
 #define KVM_VM_CR0_ALWAYS_OFF (X86_CR0_NW | X86_CR0_CD)
 #define KVM_VM_CR0_ALWAYS_ON_UNRESTRICTED_GUEST X86_CR0_NE
@@ -6902,6 +6906,13 @@ static int vmx_vm_init(struct kvm *kvm)
 			break;
 		}
 	}
+
+	if (enable_tdx && detect_tdx())
+		enable_tdx = 0;
+
+	if (enable_tdx && init_tdx())
+		enable_tdx = 0;
+
 	return 0;
 }
 
@@ -7850,6 +7861,10 @@ static __init int hardware_setup(void)
 	}
 
 	vmx_set_cpu_caps();
+
+	/* TDX requires EPT being enabled */
+	if (!enable_ept)
+		enable_tdx = 0;
 
 	r = alloc_kvm_area();
 	if (r)

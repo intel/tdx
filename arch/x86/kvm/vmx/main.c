@@ -6,6 +6,28 @@
 #include "nested.h"
 #include "pmu.h"
 
+#ifdef CONFIG_INTEL_TDX_HOST
+static bool __read_mostly enable_tdx = true;
+module_param_named(tdx, enable_tdx, bool, 0444);
+#else
+#define enable_tdx false
+#endif
+
+static __init int vt_hardware_setup(void)
+{
+	int ret;
+
+	ret = vmx_hardware_setup();
+	if (ret)
+		return ret;
+
+#ifdef CONFIG_INTEL_TDX_HOST
+	if (enable_tdx && tdx_hardware_setup(&vt_x86_ops))
+		enable_tdx = false;
+#endif
+	return 0;
+}
+
 struct kvm_x86_ops vt_x86_ops __initdata = {
 	.name = "kvm_intel",
 
@@ -150,7 +172,7 @@ static struct kvm_x86_init_ops vt_init_ops __initdata = {
 	.cpu_has_kvm_support = vmx_cpu_has_kvm_support,
 	.disabled_by_bios = vmx_disabled_by_bios,
 	.check_processor_compatibility = vmx_check_processor_compat,
-	.hardware_setup = vmx_hardware_setup,
+	.hardware_setup = vt_hardware_setup,
 
 	.runtime_ops = &vt_x86_ops,
 };

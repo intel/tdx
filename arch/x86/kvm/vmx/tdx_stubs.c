@@ -18,9 +18,14 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu) { return EXIT_FASTPATH_NONE; }
 void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu) {}
 void tdx_vcpu_put(struct kvm_vcpu *vcpu) {}
 void tdx_prepare_switch_to_guest(struct kvm_vcpu *vcpu) {}
+void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu) {}
+int tdx_handle_exit(struct kvm_vcpu *vcpu,
+		enum exit_fastpath_completion fastpath) { return 0; }
 
 void tdx_apicv_post_state_restore(struct kvm_vcpu *vcpu) {}
 int tdx_deliver_posted_interrupt(struct kvm_vcpu *vcpu, int vector) { return 0; }
+void tdx_get_exit_info(struct kvm_vcpu *vcpu, u32 *reason,
+		u64 *info1, u64 *info2, u32 *intr_info, u32 *error_code) {}
 
 int tdx_dev_ioctl(void __user *argp) { return -EOPNOTSUPP; }
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp) { return -EOPNOTSUPP; }

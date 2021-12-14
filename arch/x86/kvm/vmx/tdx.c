@@ -55,6 +55,44 @@ struct tdx_capabilities tdx_caps;
 static u64 hkid_mask __ro_after_init;
 static u8 hkid_start_pos __ro_after_init;
 
+int tdx_dev_ioctl(void __user *argp)
+{
+	struct kvm_tdx_capabilities __user *user_caps;
+	struct kvm_tdx_capabilities caps;
+	struct kvm_tdx_cmd cmd;
+
+	BUILD_BUG_ON(sizeof(struct kvm_tdx_cpuid_config) !=
+		     sizeof(struct tdx_cpuid_config));
+
+	if (copy_from_user(&cmd, argp, sizeof(cmd)))
+		return -EFAULT;
+
+	if (cmd.metadata || cmd.id != KVM_TDX_CAPABILITIES)
+		return -EINVAL;
+
+	user_caps = (void __user *)cmd.data;
+	if (copy_from_user(&caps, user_caps, sizeof(caps)))
+		return -EFAULT;
+
+	if (caps.nr_cpuid_configs < tdx_caps.nr_cpuid_configs)
+		return -E2BIG;
+	caps.nr_cpuid_configs = tdx_caps.nr_cpuid_configs;
+
+	if (copy_to_user(user_caps->cpuid_configs, &tdx_caps.cpuid_configs,
+			 tdx_caps.nr_cpuid_configs * sizeof(struct tdx_cpuid_config)))
+		return -EFAULT;
+
+	caps.attrs_fixed0 = tdx_caps.attrs_fixed0;
+	caps.attrs_fixed1 = tdx_caps.attrs_fixed1;
+	caps.xfam_fixed0 = tdx_caps.xfam_fixed0;
+	caps.xfam_fixed1 = tdx_caps.xfam_fixed1;
+
+	if (copy_to_user(user_caps, &caps, sizeof(caps)))
+		return -EFAULT;
+
+	return 0;
+}
+
 int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 {
 	u32 max_pa;

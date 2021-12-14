@@ -47,6 +47,7 @@ static inline u64 tdh_mem_sept_remove(hpa_t tdr, gpa_t gpa, int level,
 
 static inline u64 tdh_vp_addcx(hpa_t tdvpr, hpa_t addr)
 {
+	tdx_clflush_page(addr);
 	return kvm_seamcall(TDH_VP_ADDCX, addr, tdvpr, 0, 0, 0, NULL);
 }
 
@@ -75,6 +76,7 @@ static inline u64 tdh_mng_create(hpa_t tdr, int hkid)
 
 static inline u64 tdh_vp_create(hpa_t tdr, hpa_t tdvpr)
 {
+	tdx_clflush_page(tdvpr);
 	return kvm_seamcall(TDH_VP_CREATE, tdvpr, tdr, 0, 0, 0, NULL);
 }
 

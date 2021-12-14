@@ -19,6 +19,8 @@ struct kvm_tdx {
 	/* To release hkid */
 	struct mmu_notifier mmu_notifier;
 
+	hpa_t source_pa;
+
 	bool finalized;
 	atomic_t tdh_mem_track;
 

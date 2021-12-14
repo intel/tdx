@@ -533,6 +533,7 @@ enum kvm_tdx_cmd_id {
 	KVM_TDX_CAPABILITIES = 0,
 	KVM_TDX_INIT_VM,
 	KVM_TDX_INIT_VCPU,
+	KVM_TDX_INIT_MEM_REGION,
 
 	KVM_TDX_CMD_NR_MAX,
 };
@@ -572,6 +573,14 @@ struct kvm_tdx_init_vm {
 	__u64 mrowner[6];	/* sha384 digest */
 	__u64 mrownerconfig[6];	/* sha348 digest */
 	__u64 reserved[43];	/* must be zero for future extensibility */
+};
+
+#define KVM_TDX_MEASURE_MEMORY_REGION	(1UL << 0)
+
+struct kvm_tdx_init_mem_region {
+	__u64 source_addr;
+	__u64 gpa;
+	__u64 nr_pages;
 };
 
 #endif /* _ASM_X86_KVM_H */

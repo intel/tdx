@@ -960,6 +960,22 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 	return tdx_exit_handlers_fastpath(vcpu);
 }
 
+void tdx_inject_nmi(struct kvm_vcpu *vcpu)
+{
+	++vcpu->stat.nmi_injections;
+	td_management_write8(to_tdx(vcpu), TD_VCPU_PEND_NMI, 1);
+	/*
+	 * TDX doesn't support KVM to request NMI window exit.  If there is
+	 * still a pending vNMI, KVM is not able to inject it along with the
+	 * one pending in TDX module in a back-to-back way.  Since the previous
+	 * vNMI is still pending in TDX module, i.e. it has not been delivered
+	 * to TDX guest yet, it's OK to collapse the pending vNMI into the
+	 * previous one.  The guest is expected to handle all the NMI sources
+	 * when handling the first vNMI.
+	 */
+	vcpu->arch.nmi_pending = 0;
+}
+
 static int tdx_handle_triple_fault(struct kvm_vcpu *vcpu)
 {
 	vcpu->run->exit_reason = KVM_EXIT_SHUTDOWN;

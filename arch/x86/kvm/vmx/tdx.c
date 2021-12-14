@@ -88,6 +88,41 @@ static __always_inline unsigned long tdexit_intr_info(struct kvm_vcpu *vcpu)
 	return kvm_r9_read(vcpu);
 }
 
+#define BUILD_TDVMCALL_ACCESSORS(param, gpr)					\
+static __always_inline								\
+unsigned long tdvmcall_##param##_read(struct kvm_vcpu *vcpu)			\
+{										\
+	return kvm_##gpr##_read(vcpu);						\
+}										\
+static __always_inline void tdvmcall_##param##_write(struct kvm_vcpu *vcpu,	\
+						     unsigned long val)		\
+{										\
+	kvm_##gpr##_write(vcpu, val);						\
+}
+BUILD_TDVMCALL_ACCESSORS(p1, r12);
+BUILD_TDVMCALL_ACCESSORS(p2, r13);
+BUILD_TDVMCALL_ACCESSORS(p3, r14);
+BUILD_TDVMCALL_ACCESSORS(p4, r15);
+
+static __always_inline unsigned long tdvmcall_exit_type(struct kvm_vcpu *vcpu)
+{
+	return kvm_r10_read(vcpu);
+}
+static __always_inline unsigned long tdvmcall_exit_reason(struct kvm_vcpu *vcpu)
+{
+	return kvm_r11_read(vcpu);
+}
+static __always_inline void tdvmcall_set_return_code(struct kvm_vcpu *vcpu,
+						     long val)
+{
+	kvm_r10_write(vcpu, val);
+}
+static __always_inline void tdvmcall_set_return_val(struct kvm_vcpu *vcpu,
+						    unsigned long val)
+{
+	kvm_r11_write(vcpu, val);
+}
+
 static inline bool is_td_vcpu_created(struct vcpu_tdx *tdx)
 {
 	return tdx->tdvpr.added;

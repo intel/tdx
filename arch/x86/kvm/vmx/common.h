@@ -69,6 +69,13 @@ static inline void vmx_handle_external_interrupt_irqoff(struct kvm_vcpu *vcpu,
 	vcpu->arch.at_instruction_boundary = true;
 }
 
+static inline bool kvm_is_private_gpa(const struct kvm *kvm, gpa_t gpa)
+{
+	/* For TDX the direct mask is the shared mask. */
+	return (kvm->arch.vm_type == KVM_X86_TDX_VM) &&
+		!(gpa_to_gfn(gpa) & kvm_gfn_direct_bits(kvm));
+}
+
 static inline int __vmx_handle_ept_violation(struct kvm_vcpu *vcpu, gpa_t gpa,
 					     unsigned long exit_qualification)
 {
@@ -89,6 +96,13 @@ static inline int __vmx_handle_ept_violation(struct kvm_vcpu *vcpu, gpa_t gpa,
 
 	error_code |= (exit_qualification & EPT_VIOLATION_GVA_TRANSLATED) != 0 ?
 	       PFERR_GUEST_FINAL_MASK : PFERR_GUEST_PAGE_MASK;
+
+	/*
+	 * Don't rely on GFN's attribute tracking xarray to prevent EPT  violation
+	 * loops.
+	 */
+	if (kvm_is_private_gpa(vcpu->kvm, gpa))
+		error_code |= PFERR_PRIVATE_ACCESS;
 
 	return kvm_mmu_page_fault(vcpu, gpa, error_code, NULL, 0);
 }

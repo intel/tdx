@@ -142,6 +142,7 @@ void tdx_prepare_switch_to_guest(struct kvm_vcpu *vcpu);
 
 void tdx_apicv_post_state_restore(struct kvm_vcpu *vcpu);
 int tdx_deliver_posted_interrupt(struct kvm_vcpu *vcpu, int vector);
+void tdx_inject_nmi(struct kvm_vcpu *vcpu);
 
 int tdx_dev_ioctl(void __user *argp);
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp);

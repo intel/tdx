@@ -181,6 +181,54 @@ static __always_inline hpa_t set_hkid_to_hpa(hpa_t pa, u16 hkid)
 	return pa | ((hpa_t)hkid << boot_cpu_data.x86_phys_bits);
 }
 
+static __always_inline union vmx_exit_reason tdexit_exit_reason(struct kvm_vcpu *vcpu)
+{
+	return (union vmx_exit_reason)(u32)(to_tdx(vcpu)->vp_enter_ret);
+}
+
+/*
+ * There is no simple way to check some bit(s) to decide whether the return
+ * value of TDH.VP.ENTER has a VMX exit reason or not.  E.g.,
+ * TDX_NON_RECOVERABLE_TD_WRONG_APIC_MODE has exit reason but with error bit
+ * (bit 63) set, TDX_NON_RECOVERABLE_TD_CORRUPTED_MD has no exit reason but with
+ * error bit cleared.
+ */
+static bool tdx_has_exit_reason(struct kvm_vcpu *vcpu)
+{
+	u64 status = to_tdx(vcpu)->vp_enter_ret & TDX_SEAMCALL_STATUS_MASK;
+
+	return status == TDX_SUCCESS || status == TDX_NON_RECOVERABLE_VCPU ||
+	       status == TDX_NON_RECOVERABLE_TD ||
+	       status == TDX_NON_RECOVERABLE_TD_NON_ACCESSIBLE ||
+	       status == TDX_NON_RECOVERABLE_TD_WRONG_APIC_MODE;
+}
+
+static bool tdx_check_exit_reason(struct kvm_vcpu *vcpu, u16 reason)
+{
+	return tdx_has_exit_reason(vcpu) &&
+	       (u16)tdexit_exit_reason(vcpu).basic == reason;
+}
+
+static __always_inline unsigned long tdexit_exit_qual(struct kvm_vcpu *vcpu)
+{
+	return kvm_rcx_read(vcpu);
+}
+
+static __always_inline unsigned long tdexit_ext_exit_qual(struct kvm_vcpu *vcpu)
+{
+	return kvm_rdx_read(vcpu);
+}
+
+static __always_inline unsigned long tdexit_gpa(struct kvm_vcpu *vcpu)
+{
+	return kvm_r8_read(vcpu);
+}
+
+static __always_inline unsigned long tdexit_intr_info(struct kvm_vcpu *vcpu)
+{
+	return kvm_r9_read(vcpu);
+}
+
 static inline void tdx_hkid_free(struct kvm_tdx *kvm_tdx)
 {
 	tdx_guest_keyid_free(kvm_tdx->hkid);
@@ -831,14 +879,34 @@ static void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu)
 	REG(rsi, RSI);
 #undef REG
 
+	if (tdx_check_exit_reason(vcpu, EXIT_REASON_EXCEPTION_NMI) &&
+	    is_nmi(tdexit_intr_info(vcpu))) {
+		kvm_before_interrupt(vcpu, KVM_HANDLING_NMI);
+		vmx_do_nmi_irqoff();
+		kvm_after_interrupt(vcpu);
+	}
 	guest_state_exit_irqoff();
+}
+
+static fastpath_t tdx_exit_handlers_fastpath(struct kvm_vcpu *vcpu)
+{
+	u64 vp_enter_ret = to_tdx(vcpu)->vp_enter_ret;
+
+	/* See the comment of tdx_seamcall_sept(). */
+	if (unlikely(vp_enter_ret == TDX_ERROR_SEPT_BUSY))
+		return EXIT_FASTPATH_REENTER_GUEST;
+
+	/* TDH.VP.ENTER checks TD EPOCH which can contend with TDH.MEM.TRACK. */
+	if (unlikely(vp_enter_ret == (TDX_OPERAND_BUSY | TDX_OPERAND_ID_TD_EPOCH)))
+		return EXIT_FASTPATH_REENTER_GUEST;
+
+	return EXIT_FASTPATH_NONE;
 }
 
 fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 
-	/* TDX exit handle takes care of this error case. */
 	if (unlikely(tdx->state != VCPU_TD_STATE_INITIALIZED)) {
 		/* Set to avoid collision with EXIT_REASON_EXCEPTION_NMI. */
 		tdx->vp_enter_ret = TDX_SW_ERROR;
@@ -862,11 +930,21 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 	tdx->host_state_need_restore = true;
 
 	vcpu->arch.regs_avail &= ~VMX_REGS_LAZY_LOAD_SET;
+
+	if (unlikely((tdx->vp_enter_ret & TDX_SW_ERROR) == TDX_SW_ERROR))
+		return EXIT_FASTPATH_NONE;
+
+	if (unlikely(tdx_check_exit_reason(vcpu, EXIT_REASON_MCE_DURING_VMENTRY)))
+		kvm_machine_check();
+
 	trace_kvm_exit(vcpu, KVM_ISA_VMX);
+
+	if (unlikely(tdx_has_exit_reason(vcpu) && tdexit_exit_reason(vcpu).failed_vmentry))
+		return EXIT_FASTPATH_NONE;
 
 	tdx_complete_interrupts(vcpu);
 
-	return EXIT_FASTPATH_NONE;
+	return tdx_exit_handlers_fastpath(vcpu);
 }
 
 void tdx_inject_nmi(struct kvm_vcpu *vcpu)
@@ -883,6 +961,22 @@ void tdx_inject_nmi(struct kvm_vcpu *vcpu)
 	 * when handling the first vNMI.
 	 */
 	vcpu->arch.nmi_pending = 0;
+}
+
+void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu)
+{
+	if (tdx_check_exit_reason(vcpu, EXIT_REASON_EXTERNAL_INTERRUPT))
+		vmx_handle_external_interrupt_irqoff(vcpu,
+						     tdexit_intr_info(vcpu));
+	else if (tdx_check_exit_reason(vcpu, EXIT_REASON_EXCEPTION_NMI))
+		vmx_handle_exception_irqoff(vcpu, tdexit_intr_info(vcpu));
+}
+
+static int tdx_handle_triple_fault(struct kvm_vcpu *vcpu)
+{
+	vcpu->run->exit_reason = KVM_EXIT_SHUTDOWN;
+	vcpu->mmio_needed = 0;
+	return 0;
 }
 
 void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int pgd_level)
@@ -1198,6 +1292,91 @@ void tdx_deliver_interrupt(struct kvm_lapic *apic, int delivery_mode,
 
 	/* TDX supports only posted interrupt.  No lapic emulation. */
 	__vmx_deliver_posted_interrupt(vcpu, &tdx->pi_desc, vector);
+}
+
+int tdx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t fastpath)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	u64 vp_enter_ret = tdx->vp_enter_ret;
+	union vmx_exit_reason exit_reason;
+
+	if (unlikely(tdx->state != VCPU_TD_STATE_INITIALIZED))
+		return -EINVAL;
+
+	if (fastpath != EXIT_FASTPATH_NONE)
+		return 1;
+
+	/*
+	 * Handle TDX SW errors, including TDX_SEAMCALL_UD, TDX_SEAMCALL_GP and
+	 * TDX_SEAMCALL_VMFAILINVALID.
+	 */
+	if (unlikely((vp_enter_ret & TDX_SW_ERROR) == TDX_SW_ERROR)) {
+		KVM_BUG_ON(!kvm_rebooting, vcpu->kvm);
+		goto unhandled_exit;
+	}
+
+	/*
+	 * Without off-TD debug enabled, failed_vmentry case must have
+	 * TDX_NON_RECOVERABLE set.
+	 */
+	if (unlikely(vp_enter_ret & (TDX_ERROR | TDX_NON_RECOVERABLE))) {
+		/* Triple fault is non-recoverable. */
+		if (unlikely(tdx_check_exit_reason(vcpu, EXIT_REASON_TRIPLE_FAULT)))
+			return tdx_handle_triple_fault(vcpu);
+
+		kvm_pr_unimpl("TD vp_enter_ret 0x%llx, hkid 0x%x hkid pa 0x%llx\n",
+			      vp_enter_ret, to_kvm_tdx(vcpu->kvm)->hkid,
+			      set_hkid_to_hpa(0, to_kvm_tdx(vcpu->kvm)->hkid));
+		goto unhandled_exit;
+	}
+
+	/* From now, the seamcall status should be TDX_SUCCESS. */
+	WARN_ON_ONCE((vp_enter_ret & TDX_SEAMCALL_STATUS_MASK) != TDX_SUCCESS);
+	exit_reason = tdexit_exit_reason(vcpu);
+
+	switch (exit_reason.basic) {
+	default:
+		break;
+	}
+
+unhandled_exit:
+	vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+	vcpu->run->internal.suberror = KVM_INTERNAL_ERROR_UNEXPECTED_EXIT_REASON;
+	vcpu->run->internal.ndata = 2;
+	vcpu->run->internal.data[0] = vp_enter_ret;
+	vcpu->run->internal.data[1] = vcpu->arch.last_vmentry_cpu;
+	return 0;
+}
+
+void tdx_get_exit_info(struct kvm_vcpu *vcpu, u32 *reason,
+		u64 *info1, u64 *info2, u32 *intr_info, u32 *error_code)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	if (tdx_has_exit_reason(vcpu)) {
+		/*
+		 * Encode some useful info from the the 64 bit return code
+		 * into the 32 bit exit 'reason'. If the VMX exit reason is
+		 * valid, just set it to those bits.
+		 */
+		*reason = (u32)tdx->vp_enter_ret;
+		*info1 = tdexit_exit_qual(vcpu);
+		*info2 = tdexit_ext_exit_qual(vcpu);
+	} else {
+		/*
+		 * When the VMX exit reason in vp_enter_ret is not valid,
+		 * overload the VMX_EXIT_REASONS_FAILED_VMENTRY bit (31) to
+		 * mean the vmexit code is not valid. Set the other bits to
+		 * try to avoid picking a value that may someday be a valid
+		 * VMX exit code.
+		 */
+		*reason = 0xFFFFFFFF;
+		*info1 = 0;
+		*info2 = 0;
+	}
+
+	*intr_info = tdexit_intr_info(vcpu);
+	*error_code = 0;
 }
 
 static int tdx_get_capabilities(struct kvm_tdx_cmd *cmd)

@@ -153,6 +153,7 @@ bool tdx_protected_apic_has_interrupt(struct kvm_vcpu *vcpu);
 
 void tdx_deliver_interrupt(struct kvm_lapic *apic, int delivery_mode,
 			   int trig_mode, int vector);
+void tdx_inject_nmi(struct kvm_vcpu *vcpu);
 
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp);
 int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp);
@@ -184,6 +185,7 @@ static inline bool tdx_protected_apic_has_interrupt(struct kvm_vcpu *vcpu) { ret
 
 static inline void tdx_deliver_interrupt(
 	struct kvm_lapic *apic, int delivery_mode, int trig_mode, int vector) {}
+static inline void tdx_inject_nmi(struct kvm_vcpu *vcpu) {}
 
 static inline int tdx_vm_ioctl(struct kvm *kvm, void __user *argp) { return -EOPNOTSUPP; }
 static inline int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp) { return -EOPNOTSUPP; }

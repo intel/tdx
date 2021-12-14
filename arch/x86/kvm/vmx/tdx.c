@@ -372,6 +372,42 @@ free_hkid:
 	return ret;
 }
 
+static int tdx_capabilities(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
+{
+	struct kvm_tdx_capabilities __user *user_caps;
+	struct kvm_tdx_capabilities caps;
+
+	BUILD_BUG_ON(sizeof(struct kvm_tdx_cpuid_config) !=
+		     sizeof(struct tdx_cpuid_config));
+
+	WARN_ON(cmd->id != KVM_TDX_CAPABILITIES);
+	if (cmd->metadata)
+		return -EINVAL;
+
+	user_caps = (void __user *)cmd->data;
+	if (copy_from_user(&caps, user_caps, sizeof(caps)))
+		return -EFAULT;
+
+	if (caps.nr_cpuid_configs < tdx_caps.nr_cpuid_configs)
+		return -E2BIG;
+	caps.nr_cpuid_configs = tdx_caps.nr_cpuid_configs;
+
+	if (copy_to_user(user_caps->cpuid_configs, &tdx_caps.cpuid_configs,
+			 tdx_caps.nr_cpuid_configs *
+			 sizeof(struct tdx_cpuid_config)))
+		return -EFAULT;
+
+	caps.attrs_fixed0 = tdx_caps.attrs_fixed0;
+	caps.attrs_fixed1 = tdx_caps.attrs_fixed1;
+	caps.xfam_fixed0 = tdx_caps.xfam_fixed0;
+	caps.xfam_fixed1 = tdx_caps.xfam_fixed1;
+
+	if (copy_to_user(user_caps, &caps, sizeof(caps)))
+		return -EFAULT;
+
+	return 0;
+}
+
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 {
 	struct kvm_tdx_cmd tdx_cmd;
@@ -383,6 +419,9 @@ int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 	mutex_lock(&kvm->lock);
 
 	switch (tdx_cmd.id) {
+	case KVM_TDX_CAPABILITIES:
+		r = tdx_capabilities(kvm, &tdx_cmd);
+		break;
 	default:
 		r = -EINVAL;
 		goto out;

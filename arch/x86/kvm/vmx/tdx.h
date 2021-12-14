@@ -30,7 +30,7 @@ struct kvm_tdx {
 
 	u64 tsc_offset;
 
-	/* For KVM_MAP_MEMORY and KVM_TDX_INIT_MEM_REGION. */
+	/* For KVM_TDX_INIT_MEM_REGION. */
 	atomic64_t nr_premapped;
 };
 

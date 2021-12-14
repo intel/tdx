@@ -126,10 +126,11 @@ static int __init tdx_host_setup(char *s)
 }
 __setup("tdx_host=", tdx_host_setup);
 
-static bool __seamrr_enabled(void)
+bool __seamrr_enabled(void)
 {
 	return (seamrr_mask & SEAMRR_ENABLED_BITS) == SEAMRR_ENABLED_BITS;
 }
+EXPORT_SYMBOL_GPL(__seamrr_enabled);
 
 static void detect_seam_bsp(struct cpuinfo_x86 *c)
 {

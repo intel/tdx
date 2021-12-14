@@ -53,6 +53,8 @@ struct kvm_mmu_page {
 	u64 *spt;
 	/* hold the gfn of each spte inside spt */
 	gfn_t *gfns;
+	/* associated private shadow page, e.g. SEPT page */
+	void *private_sp;
 	/* Currently serving as active root */
 	union {
 		int root_count;
@@ -102,6 +104,16 @@ static inline int kvm_mmu_role_as_id(union kvm_mmu_page_role role)
 static inline int kvm_mmu_page_as_id(struct kvm_mmu_page *sp)
 {
 	return kvm_mmu_role_as_id(sp->role);
+}
+
+static inline bool is_private_sp(struct kvm_mmu_page *sp)
+{
+	return sp->role.private;
+}
+
+static inline bool is_private_spte(u64 *sptep)
+{
+	return is_private_sp(sptep_to_sp(sptep));
 }
 
 static inline bool kvm_vcpu_ad_need_write_protect(struct kvm_vcpu *vcpu)

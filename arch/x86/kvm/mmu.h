@@ -357,8 +357,7 @@ static inline void kvm_update_page_stats(struct kvm *kvm, int level, int count)
 
 static inline gfn_t kvm_gfn_stolen_mask(struct kvm *kvm)
 {
-	/* Currently there are no stolen bits in KVM */
-	return 0;
+	return kvm->arch.gfn_shared_mask;
 }
 
 static inline gpa_t kvm_gpa_stolen_mask(struct kvm *kvm)
@@ -376,9 +375,13 @@ static inline gfn_t kvm_gfn_unalias(struct kvm *kvm, gfn_t gfn)
 	return gfn & ~kvm_gfn_stolen_mask(kvm);
 }
 
+static inline bool kvm_is_private_gfn(struct kvm *kvm, gfn_t gfn)
+{
+	return  kvm->arch.gfn_shared_mask && !(gfn & kvm->arch.gfn_shared_mask);
+}
+
 static inline bool kvm_is_private_gpa(struct kvm *kvm, gpa_t gpa)
 {
-	return kvm->arch.gfn_shared_mask &&
-		!(gpa_to_gfn(gpa) & kvm->arch.gfn_shared_mask);
+	return kvm_is_private_gfn(kvm, gpa_to_gfn(gpa));
 }
 #endif

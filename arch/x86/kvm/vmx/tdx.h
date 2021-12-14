@@ -5,6 +5,7 @@
 #include <linux/list.h>
 #include <linux/kvm_host.h>
 
+#include "posted_intr.h"
 #include "tdx_errno.h"
 #include "tdx_arch.h"
 #include "tdx_ops.h"

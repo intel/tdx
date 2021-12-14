@@ -131,6 +131,9 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops);
 int tdx_vm_init(struct kvm *kvm);
 void tdx_vm_teardown(struct kvm *kvm);
 void tdx_vm_free(struct kvm *kvm);
+int tdx_vcpu_create(struct kvm_vcpu *vcpu);
+void tdx_vcpu_free(struct kvm_vcpu *vcpu);
+void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event);
 
 int tdx_dev_ioctl(void __user *argp);
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp);

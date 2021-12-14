@@ -123,4 +123,10 @@ void vmx_cancel_hv_timer(struct kvm_vcpu *vcpu);
 #endif
 void vmx_setup_mce(struct kvm_vcpu *vcpu);
 
+#ifdef CONFIG_INTEL_TDX_HOST
+void __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops);
+#else
+static inline void tdx_hardware_setup(struct kvm_x86_ops *x86_ops) {}
+#endif
+
 #endif /* __KVM_X86_VMX_X86_OPS_H */

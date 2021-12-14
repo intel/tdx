@@ -28,6 +28,8 @@ struct kvm_tdx {
 	int cpuid_nent;
 	struct kvm_cpuid_entry2 cpuid_entries[KVM_MAX_CPUID_ENTRIES];
 
+	hpa_t source_pa;
+
 	bool finalized;
 	bool tdh_mem_track;
 

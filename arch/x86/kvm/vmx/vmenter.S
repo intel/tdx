@@ -6,6 +6,7 @@
 #include <asm/nospec-branch.h>
 #include <asm/percpu.h>
 #include <asm/segment.h>
+#include <asm/tdx.h>
 #include "kvm-asm-offsets.h"
 #include "run_flags.h"
 
@@ -29,6 +30,12 @@
 #define VCPU_R13	__VCPU_REGS_R13 * WORD_SIZE
 #define VCPU_R14	__VCPU_REGS_R14 * WORD_SIZE
 #define VCPU_R15	__VCPU_REGS_R15 * WORD_SIZE
+#endif
+
+#ifdef CONFIG_INTEL_TDX_HOST
+#define TDH_VP_ENTER		0
+#define EXIT_REASON_TDCALL	77
+#define seamcall		.byte 0x66,0x0f,0x01,0xcf
 #endif
 
 .macro VMX_DO_EVENT_IRQOFF call_insn call_target
@@ -360,3 +367,160 @@ SYM_FUNC_END(vmread_error_trampoline)
 SYM_FUNC_START(vmx_do_interrupt_irqoff)
 	VMX_DO_EVENT_IRQOFF CALL_NOSPEC _ASM_ARG1
 SYM_FUNC_END(vmx_do_interrupt_irqoff)
+
+#ifdef CONFIG_INTEL_TDX_HOST
+
+.pushsection .noinstr.text, "ax"
+
+/**
+ * __tdx_vcpu_run - Call SEAMCALL(TDH_VP_ENTER) to run a TD vcpu
+ * @tdvpr:	physical address of TDVPR
+ * @regs:	void * (to registers of TDVCPU)
+ * @gpr_mask:	non-zero if guest registers need to be loaded prior to TDH_VP_ENTER
+ *
+ * Returns:
+ *	TD-Exit Reason
+ *
+ * Note: KVM doesn't support using XMM in its hypercalls, it's the HyperV
+ *	 code's responsibility to save/restore XMM registers on TDVMCALL.
+ */
+SYM_FUNC_START(__tdx_vcpu_run)
+	push %rbp
+	mov  %rsp, %rbp
+
+	push %r15
+	push %r14
+	push %r13
+	push %r12
+	push %rbx
+
+	/* Save @regs, which is needed after TDH_VP_ENTER to capture output. */
+	push %rsi
+
+	/* Load @tdvpr to RCX */
+	mov %rdi, %rcx
+
+	/* No need to load guest GPRs if the last exit wasn't a TDVMCALL. */
+	test %dx, %dx
+	je .Lskip_copy_inputs
+
+	/* Load @regs to RAX, which will be clobbered with $TDH_VP_ENTER anyways. */
+	mov %rsi, %rax
+
+	mov VCPU_RBX(%rax), %rbx
+	mov VCPU_RDX(%rax), %rdx
+	mov VCPU_RBP(%rax), %rbp
+	mov VCPU_RSI(%rax), %rsi
+	mov VCPU_RDI(%rax), %rdi
+
+	mov VCPU_R8 (%rax),  %r8
+	mov VCPU_R9 (%rax),  %r9
+	mov VCPU_R10(%rax), %r10
+	mov VCPU_R11(%rax), %r11
+	mov VCPU_R12(%rax), %r12
+	mov VCPU_R13(%rax), %r13
+	mov VCPU_R14(%rax), %r14
+	mov VCPU_R15(%rax), %r15
+
+	/*  Load TDH_VP_ENTER to RAX.  This kills the @regs pointer! */
+.Lskip_copy_inputs:
+	mov $TDH_VP_ENTER, %rax
+
+.Lseamcall:
+	seamcall
+
+	jc .Lvmfail_invalid
+
+	/* xor-swap (%rsp) and %rax */
+	xor (%rsp), %rax
+	xor %rax, (%rsp)
+	xor (%rsp), %rax
+
+	/* Skip to the exit path if TDH_VP_ENTER failed. */
+	btq $TDX_ERROR_BIT, (%rsp)
+	jc .Lout_rax
+
+	/* check if TD-exit due to TDVMCALL */
+	cmpq $EXIT_REASON_TDCALL, (%rsp)
+
+	/* Jump on non-TDVMCALL */
+	jne .Lout_non_tdvmcall
+
+	/* Save all output from SEAMCALL(TDH_VP_ENTER) */
+	mov %rbx, VCPU_RBX(%rax)
+	mov %rbp, VCPU_RBP(%rax)
+	mov %rsi, VCPU_RSI(%rax)
+	mov %rdi, VCPU_RDI(%rax)
+	mov %r10, VCPU_R10(%rax)
+	mov %r11, VCPU_R11(%rax)
+	mov %r12, VCPU_R12(%rax)
+	mov %r13, VCPU_R13(%rax)
+	mov %r14, VCPU_R14(%rax)
+	mov %r15, VCPU_R15(%rax)
+
+.Lout_non_tdvmcall:
+	mov %rcx, VCPU_RCX(%rax)
+	mov %rdx, VCPU_RDX(%rax)
+	mov %r8,  VCPU_R8 (%rax)
+	mov %r9,  VCPU_R9 (%rax)
+
+	/*
+	 * Clear all general purpose registers except RSP and RAX to prevent
+	 * speculative use of the guest's values.
+	 */
+	xorl %ebx,  %ebx
+	xorl %ecx,  %ecx
+	xorl %edx,  %edx
+	xorl %esi,  %esi
+	xorl %edi,  %edi
+	xorl %ebp,  %ebp
+	xorl %r8d,  %r8d
+	xorl %r9d,  %r9d
+	xorl %r10d, %r10d
+	xorl %r11d, %r11d
+	xorl %r12d, %r12d
+	xorl %r13d, %r13d
+	xorl %r14d, %r14d
+	xorl %r15d, %r15d
+
+	/* Restore the TD-Exit reason to RAX for return. */
+.Lout_rax:
+	pop %rax
+
+	/* "POP" @regs. */
+.Lout_regs:
+	pop %rbx
+	pop %r12
+	pop %r13
+	pop %r14
+	pop %r15
+
+	pop %rbp
+	RET
+
+.Lvmfail_invalid:
+	/*
+	 * Use same return value convention to tdxcall.S.
+	 * TDX_SEAMCALL_VMFAILINVALID doesn't conflict with any TDX status code.
+	 */
+	mov $TDX_SEAMCALL_VMFAILINVALID, %rax
+	/* discard pushed %rsi: %rsi is caller-saved.  */
+	add $8, %rsp
+	jmp .Lout_regs
+
+.Lseamcall_faulted:
+	cmpb $0, kvm_rebooting
+	je 1f
+	mov $TDX_SW_ERROR, %r12
+	orq %r12, %rax
+	add $8, %rsp
+	jmp .Lout_regs
+1:	ud2
+	/* Use FAULT version to know what fault happened. */
+	_ASM_EXTABLE_FAULT(.Lseamcall, .Lseamcall_faulted)
+
+SYM_FUNC_END(__tdx_vcpu_run)
+
+.popsection
+
+#endif

@@ -106,6 +106,26 @@ static __always_inline hpa_t set_hkid_to_hpa(hpa_t pa, u16 hkid)
 	return pa | ((hpa_t)hkid << boot_cpu_data.x86_phys_bits);
 }
 
+static __always_inline unsigned long tdexit_exit_qual(struct kvm_vcpu *vcpu)
+{
+	return kvm_rcx_read(vcpu);
+}
+
+static __always_inline unsigned long tdexit_ext_exit_qual(struct kvm_vcpu *vcpu)
+{
+	return kvm_rdx_read(vcpu);
+}
+
+static __always_inline unsigned long tdexit_gpa(struct kvm_vcpu *vcpu)
+{
+	return kvm_r8_read(vcpu);
+}
+
+static __always_inline unsigned long tdexit_intr_info(struct kvm_vcpu *vcpu)
+{
+	return kvm_r9_read(vcpu);
+}
+
 static inline bool is_td_vcpu_created(struct vcpu_tdx *tdx)
 {
 	return tdx->td_vcpu_created;
@@ -821,6 +841,15 @@ static void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu)
 	REG(rsi, RSI);
 #undef REG
 
+	WARN_ON_ONCE(!kvm_rebooting &&
+		     (tdx->exit_reason.full & TDX_SW_ERROR) == TDX_SW_ERROR);
+
+	if ((u16)tdx->exit_reason.basic == EXIT_REASON_EXCEPTION_NMI &&
+	    is_nmi(tdexit_intr_info(vcpu))) {
+		kvm_before_interrupt(vcpu, KVM_HANDLING_NMI);
+		vmx_do_nmi_irqoff();
+		kvm_after_interrupt(vcpu);
+	}
 	guest_state_exit_irqoff();
 }
 
@@ -862,6 +891,25 @@ void tdx_inject_nmi(struct kvm_vcpu *vcpu)
 {
 	++vcpu->stat.nmi_injections;
 	td_management_write8(to_tdx(vcpu), TD_VCPU_PEND_NMI, 1);
+}
+
+void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	u16 exit_reason = tdx->exit_reason.basic;
+
+	if (exit_reason == EXIT_REASON_EXTERNAL_INTERRUPT)
+		vmx_handle_external_interrupt_irqoff(vcpu,
+						     tdexit_intr_info(vcpu));
+	else if (exit_reason == EXIT_REASON_EXCEPTION_NMI)
+		vmx_handle_exception_irqoff(vcpu, tdexit_intr_info(vcpu));
+}
+
+static int tdx_handle_triple_fault(struct kvm_vcpu *vcpu)
+{
+	vcpu->run->exit_reason = KVM_EXIT_SHUTDOWN;
+	vcpu->mmio_needed = 0;
+	return 0;
 }
 
 void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int pgd_level)
@@ -1239,6 +1287,74 @@ void tdx_deliver_interrupt(struct kvm_lapic *apic, int delivery_mode,
 
 	/* TDX supports only posted interrupt.  No lapic emulation. */
 	__vmx_deliver_posted_interrupt(vcpu, &tdx->pi_desc, vector);
+}
+
+int tdx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t fastpath)
+{
+	union tdx_exit_reason exit_reason = to_tdx(vcpu)->exit_reason;
+
+	/* See the comment of tdx_seamcall_sept(). */
+	if (unlikely(exit_reason.full == TDX_ERROR_SEPT_BUSY))
+		return 1;
+
+	/*
+	 * TDH.VP.ENTER checks TD EPOCH which contend with TDH.MEM.TRACK and
+	 * vcpu TDH.VP.ENTER.
+	 */
+	if (unlikely(exit_reason.full == (TDX_OPERAND_BUSY | TDX_OPERAND_ID_TD_EPOCH)))
+		return 1;
+
+	if (unlikely(exit_reason.full == TDX_SEAMCALL_UD)) {
+		kvm_spurious_fault();
+		/*
+		 * In the case of reboot or kexec, loop with TDH.VP.ENTER and
+		 * TDX_SEAMCALL_UD to avoid unnecessarily activity.
+		 */
+		return 1;
+	}
+
+	if (unlikely(exit_reason.non_recoverable || exit_reason.error)) {
+		if (unlikely(exit_reason.basic == EXIT_REASON_TRIPLE_FAULT))
+			return tdx_handle_triple_fault(vcpu);
+
+		kvm_pr_unimpl("TD exit 0x%llx, %d hkid 0x%x hkid pa 0x%llx\n",
+			      exit_reason.full, exit_reason.basic,
+			      to_kvm_tdx(vcpu->kvm)->hkid,
+			      set_hkid_to_hpa(0, to_kvm_tdx(vcpu->kvm)->hkid));
+		goto unhandled_exit;
+	}
+
+	if (unlikely(fastpath == EXIT_FASTPATH_EXIT_HANDLED)) {
+		if (!to_tdx(vcpu)->initialized)
+			return -EINVAL;
+	}
+
+	switch (exit_reason.basic) {
+	default:
+		break;
+	}
+
+unhandled_exit:
+	vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+	vcpu->run->internal.suberror = KVM_INTERNAL_ERROR_UNEXPECTED_EXIT_REASON;
+	vcpu->run->internal.ndata = 2;
+	vcpu->run->internal.data[0] = exit_reason.full;
+	vcpu->run->internal.data[1] = vcpu->arch.last_vmentry_cpu;
+	return 0;
+}
+
+void tdx_get_exit_info(struct kvm_vcpu *vcpu, u32 *reason,
+		u64 *info1, u64 *info2, u32 *intr_info, u32 *error_code)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	*reason = tdx->exit_reason.full;
+
+	*info1 = tdexit_exit_qual(vcpu);
+	*info2 = tdexit_ext_exit_qual(vcpu);
+
+	*intr_info = tdexit_intr_info(vcpu);
+	*error_code = 0;
 }
 
 static int tdx_get_capabilities(struct kvm_tdx_cmd *cmd)

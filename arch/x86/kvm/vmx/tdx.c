@@ -1097,6 +1097,13 @@ int tdx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t fastpath)
 	WARN_ON_ONCE(fastpath != EXIT_FASTPATH_NONE);
 
 	switch (exit_reason.basic) {
+	case EXIT_REASON_OTHER_SMI:
+		/*
+		 * If reach here, it's not a MSMI.
+		 * #SMI is delivered and handled right after SEAMRET, nothing
+		 * needs to be done in KVM.
+		 */
+		return 1;
 	default:
 		break;
 	}

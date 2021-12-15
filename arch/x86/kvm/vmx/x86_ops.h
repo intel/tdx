@@ -8,7 +8,10 @@
 
 #include "x86.h"
 
-extern struct kvm_x86_init_ops vt_init_ops __initdata;
+void __init vmx_pre_kvm_init(unsigned int *vcpu_size, unsigned int *vcpu_align);
+int __init vmx_init(void);
+void vmx_exit(void);
+void vmx_post_kvm_exit(void);
 
 __init int vmx_cpu_has_kvm_support(void);
 __init int vmx_disabled_by_bios(void);

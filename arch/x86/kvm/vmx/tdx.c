@@ -10,6 +10,9 @@
 #include "vmx.h"
 #include "x86.h"
 
+#include <trace/events/kvm.h>
+#include "trace.h"
+
 #undef pr_fmt
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -439,6 +442,75 @@ void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	 * Don't update mp_state to runnable because more initialization
 	 * is needed by TDX_VCPU_INIT.
 	 */
+}
+
+static noinstr void tdx_vcpu_enter_exit(struct vcpu_tdx *tdx)
+{
+	/*
+	 * Avoid section mismatch with to_tdx() with KVM_VM_BUG().  The caller
+	 * should call to_tdx().
+	 */
+	struct kvm_vcpu *vcpu = &tdx->vcpu;
+
+	guest_state_enter_irqoff();
+
+	/*
+	 * struct tdx_module_args and struct kvm_vcpu_arch::args must be same
+	 * layout to use __seamcall_saved_ret().
+	 */
+#define WORD_SIZE	(BITS_PER_LONG / 8)
+#define BUG_ON_ARG_OFFSET(arg_reg, vcpu_reg)				\
+	BUILD_BUG_ON(offsetof(struct tdx_module_args, arg_reg) !=	\
+		     VCPU_REGS_ ## vcpu_reg * WORD_SIZE);
+
+	BUG_ON_ARG_OFFSET(rax_unused, RAX);
+	BUG_ON_ARG_OFFSET(rcx, RCX);
+	BUG_ON_ARG_OFFSET(rdx, RDX);
+	BUG_ON_ARG_OFFSET(rbx, RBX);
+	BUG_ON_ARG_OFFSET(rsp_unused, RSP);
+	BUG_ON_ARG_OFFSET(rbp_unused, RBP);
+	BUG_ON_ARG_OFFSET(rsi, RSI);
+	BUG_ON_ARG_OFFSET(rdi, RDI);
+	BUG_ON_ARG_OFFSET(r8, R8);
+	BUG_ON_ARG_OFFSET(r9, R9);
+	BUG_ON_ARG_OFFSET(r10, R10);
+	BUG_ON_ARG_OFFSET(r11, R11);
+	BUG_ON_ARG_OFFSET(r12, R12);
+	BUG_ON_ARG_OFFSET(r13, R13);
+	BUG_ON_ARG_OFFSET(r14, R14);
+	BUG_ON_ARG_OFFSET(r15, R15);
+
+#undef BUG_ON_ARG_OFFSET
+#undef WORD_SIZE
+
+	vcpu->arch.regs[VCPU_REGS_RCX] = tdx->tdvpr_pa;
+	tdx->exit_reason.full = __seamcall_saved_ret(TDH_VP_ENTER,
+						     (struct tdx_module_args*)vcpu->arch.regs);
+	WARN_ON_ONCE(!kvm_rebooting &&
+		     (tdx->exit_reason.full & TDX_SW_ERROR) == TDX_SW_ERROR);
+
+	guest_state_exit_irqoff();
+}
+
+fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	if (unlikely(!tdx->initialized))
+		return -EINVAL;
+	if (unlikely(vcpu->kvm->vm_bugged)) {
+		tdx->exit_reason.full = TDX_NON_RECOVERABLE_VCPU;
+		return EXIT_FASTPATH_NONE;
+	}
+
+	trace_kvm_entry(vcpu);
+
+	tdx_vcpu_enter_exit(tdx);
+
+	vcpu->arch.regs_avail &= ~VMX_REGS_LAZY_LOAD_SET;
+	trace_kvm_exit(vcpu, KVM_ISA_VMX);
+
+	return EXIT_FASTPATH_NONE;
 }
 
 void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int pgd_level)

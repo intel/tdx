@@ -21,6 +21,9 @@ void tdx_prepare_switch_to_guest(struct kvm_vcpu *vcpu) {}
 void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu) {}
 int tdx_handle_exit(struct kvm_vcpu *vcpu,
 		enum exit_fastpath_completion fastpath) { return 0; }
+bool tdx_is_emulated_msr(u32 index, bool write) { return false; }
+int tdx_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr) { return 1; }
+int tdx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr) { return 1; }
 
 void tdx_apicv_post_state_restore(struct kvm_vcpu *vcpu) {}
 int tdx_deliver_posted_interrupt(struct kvm_vcpu *vcpu, int vector) { return 0; }

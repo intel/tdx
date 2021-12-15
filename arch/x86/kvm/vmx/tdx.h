@@ -41,6 +41,8 @@ struct vcpu_tdx {
 
 	struct list_head cpu_list;
 
+	u64 vp_enter_ret;
+
 	bool initialized;
 
 	/*

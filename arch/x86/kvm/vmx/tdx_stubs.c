@@ -11,6 +11,9 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops) { return -EOPNOTSUPP;
 int tdx_vcpu_create(struct kvm_vcpu *vcpu) { return -EOPNOTSUPP; }
 void tdx_vcpu_free(struct kvm_vcpu *vcpu) {}
 void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event) {}
+fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu) { return EXIT_FASTPATH_NONE; }
+void tdx_vcpu_put(struct kvm_vcpu *vcpu) {}
+void tdx_prepare_switch_to_guest(struct kvm_vcpu *vcpu) {}
 
 int tdx_dev_ioctl(void __user *argp) { return -EOPNOTSUPP; }
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp) { return -EOPNOTSUPP; }

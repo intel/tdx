@@ -554,7 +554,7 @@ static int hv_enable_direct_tlbflush(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
-static __init void hv_setup_evmcs(void)
+__init void hv_setup_evmcs(void)
 {
 	int cpu;
 
@@ -590,7 +590,8 @@ static __init void hv_setup_evmcs(void)
 		enlightened_vmcs = false;
 	}
 }
-static void hv_cleanup_evmcs(void)
+
+void hv_cleanup_evmcs(void)
 {
 	struct hv_vp_assist_page *vp_ap;
 	int cpu;
@@ -615,10 +616,6 @@ static void hv_cleanup_evmcs(void)
 
 	static_branch_disable(&enable_evmcs);
 }
-
-#else /* IS_ENABLED(CONFIG_HYPERV) */
-static void hv_setup_evmcs(void) {}
-static void hv_cleanup_evmcs(void) {}
 #endif /* IS_ENABLED(CONFIG_HYPERV) */
 
 /*
@@ -2712,7 +2709,7 @@ static int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 	return 0;
 }
 
-static bool kvm_is_vmx_supported(int cpu)
+bool kvm_is_vmx_supported(int cpu)
 {
 	if (!cpu_has_vmx()) {
 		pr_err("VMX not supported by CPU %d\n", cpu);
@@ -8345,7 +8342,7 @@ static void vmx_cleanup_l1d_flush(void)
 	l1tf_vmx_mitigation = VMENTER_L1D_FLUSH_AUTO;
 }
 
-static void __vmx_exit(void)
+void vmx_exit(void)
 {
 	allow_smaller_maxphyaddr = false;
 
@@ -8356,29 +8353,9 @@ static void __vmx_exit(void)
 	vmx_cleanup_l1d_flush();
 }
 
-static void vmx_exit(void)
-{
-	kvm_exit();
-	kvm_x86_vendor_exit();
-
-	__vmx_exit();
-
-	hv_cleanup_evmcs();
-}
-module_exit(vmx_exit);
-
-static int __init vmx_init(void)
+int __init vmx_init(void)
 {
 	int r, cpu;
-
-	if (!kvm_is_vmx_supported(raw_smp_processor_id()))
-		return -EOPNOTSUPP;
-
-	hv_setup_evmcs();
-
-	r = kvm_x86_vendor_init(&vt_init_ops);
-	if (r)
-		goto err_x86_init;
 
 	/*
 	 * Must be called after common x86 init so enable_ept is properly set
@@ -8413,23 +8390,9 @@ static int __init vmx_init(void)
 	if (!enable_ept)
 		allow_smaller_maxphyaddr = true;
 
-	/*
-	 * Common KVM initialization _must_ come last, after this, /dev/kvm is
-	 * exposed to userspace!
-	 */
-	r = kvm_init(sizeof(struct vcpu_vmx), __alignof__(struct vcpu_vmx),
-		     THIS_MODULE);
-	if (r)
-		goto err_kvm_init;
-
 	return 0;
 
-err_kvm_init:
-	__vmx_exit();
 err_l1d_flush:
 	kvm_x86_vendor_exit();
-err_x86_init:
-	hv_cleanup_evmcs();
 	return r;
 }
-module_init(vmx_init);

@@ -51,6 +51,8 @@ struct vcpu_tdx {
 
 	struct list_head cpu_list;
 
+	u64 vp_enter_ret;
+
 	enum vcpu_tdx_state state;
 };
 

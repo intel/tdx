@@ -10,6 +10,9 @@
 #include "mmu/spte.h"
 #include "common.h"
 
+#include <trace/events/kvm.h>
+#include "trace.h"
+
 #undef pr_fmt
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -661,6 +664,78 @@ void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 	tdx->state = VCPU_TD_STATE_UNINITIALIZED;
 }
 
+int tdx_vcpu_pre_run(struct kvm_vcpu *vcpu)
+{
+	if (unlikely(to_tdx(vcpu)->state != VCPU_TD_STATE_INITIALIZED ||
+		     to_kvm_tdx(vcpu->kvm)->state != TD_STATE_RUNNABLE))
+		return -EINVAL;
+
+	return 1;
+}
+
+static noinstr void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	struct tdx_module_args args;
+
+	guest_state_enter_irqoff();
+
+	/*
+	 * TODO: optimization:
+	 * - Eliminate copy between args and vcpu->arch.regs.
+	 * - copyin/copyout registers only if (tdx->tdvmvall.regs_mask != 0)
+	 *   which means TDG.VP.VMCALL.
+	 */
+	args = (struct tdx_module_args) {
+		.rcx = tdx->tdvpr_pa,
+#define REG(reg, REG)	.reg = vcpu->arch.regs[VCPU_REGS_ ## REG]
+		REG(rdx, RDX),
+		REG(r8,  R8),
+		REG(r9,  R9),
+		REG(r10, R10),
+		REG(r11, R11),
+		REG(r12, R12),
+		REG(r13, R13),
+		REG(r14, R14),
+		REG(r15, R15),
+		REG(rbx, RBX),
+		REG(rdi, RDI),
+		REG(rsi, RSI),
+#undef REG
+	};
+
+	tdx->vp_enter_ret = tdh_vp_enter(tdx->tdvpr_pa, &args);
+
+#define REG(reg, REG)	vcpu->arch.regs[VCPU_REGS_ ## REG] = args.reg
+	REG(rcx, RCX);
+	REG(rdx, RDX);
+	REG(r8,  R8);
+	REG(r9,  R9);
+	REG(r10, R10);
+	REG(r11, R11);
+	REG(r12, R12);
+	REG(r13, R13);
+	REG(r14, R14);
+	REG(r15, R15);
+	REG(rbx, RBX);
+	REG(rdi, RDI);
+	REG(rsi, RSI);
+#undef REG
+
+	guest_state_exit_irqoff();
+}
+
+fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
+{
+	trace_kvm_entry(vcpu, force_immediate_exit);
+
+	tdx_vcpu_enter_exit(vcpu);
+
+	vcpu->arch.regs_avail &= ~VMX_REGS_LAZY_LOAD_SET;
+	trace_kvm_exit(vcpu, KVM_ISA_VMX);
+
+	return EXIT_FASTPATH_NONE;
+}
 
 void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int pgd_level)
 {

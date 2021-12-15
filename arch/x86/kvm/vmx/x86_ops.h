@@ -8,6 +8,12 @@
 
 #include "x86.h"
 
+void __init hv_vp_assist_page_init(void);
+void hv_vp_assist_page_exit(void);
+void __init vmx_init_early(void);
+int __init vmx_init(void);
+void vmx_exit(void);
+
 __init int vmx_cpu_has_kvm_support(void);
 __init int vmx_disabled_by_bios(void);
 __init int vmx_hardware_setup(void);

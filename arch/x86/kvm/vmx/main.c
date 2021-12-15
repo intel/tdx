@@ -272,6 +272,33 @@ static void vt_enable_irq_window(struct kvm_vcpu *vcpu)
 	vmx_enable_irq_window(vcpu);
 }
 
+static void vt_request_immediate_exit(struct kvm_vcpu *vcpu)
+{
+	if (is_td_vcpu(vcpu))
+		return __kvm_request_immediate_exit(vcpu);
+
+	vmx_request_immediate_exit(vcpu);
+}
+
+static int vt_pre_block(struct kvm_vcpu *vcpu)
+{
+	if (pi_pre_block(vcpu))
+		return 1;
+
+	if (is_td_vcpu(vcpu))
+		return 0;
+
+	return vmx_pre_block(vcpu);
+}
+
+static void vt_post_block(struct kvm_vcpu *vcpu)
+{
+	if (!is_td_vcpu(vcpu))
+		vmx_post_block(vcpu);
+
+	pi_post_block(vcpu);
+}
+
 static int vt_mem_enc_op_dev(void __user *argp)
 {
 	if (!enable_tdx)
@@ -407,15 +434,15 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.check_intercept = vmx_check_intercept,
 	.handle_exit_irqoff = vmx_handle_exit_irqoff,
 
-	.request_immediate_exit = vmx_request_immediate_exit,
+	.request_immediate_exit = vt_request_immediate_exit,
 
 	.sched_in = vt_sched_in,
 
 	.cpu_dirty_log_size = PML_ENTITY_NUM,
 	.update_cpu_dirty_logging = vmx_update_cpu_dirty_logging,
 
-	.pre_block = vmx_pre_block,
-	.post_block = vmx_post_block,
+	.pre_block = vt_pre_block,
+	.post_block = vt_post_block,
 
 	.pmu_ops = &intel_pmu_ops,
 	.nested_ops = &vmx_nested_ops,

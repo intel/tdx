@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/kvm_host.h>
 
+#include "x86_ops.h"
+
 int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops) { return 0; }
 int tdx_vm_init(struct kvm *kvm) { return 0; }
 void tdx_vm_teardown(struct kvm *kvm) {}

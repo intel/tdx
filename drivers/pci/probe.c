@@ -602,7 +602,7 @@ static void pci_init_host_bridge(struct pci_host_bridge *bridge)
 	device_initialize(&bridge->dev);
 }
 
-struct pci_host_bridge *pci_alloc_host_bridge(size_t priv)
+static struct pci_host_bridge *__pci_alloc_host_bridge(size_t priv)
 {
 	struct pci_host_bridge *bridge;
 
@@ -614,6 +614,14 @@ struct pci_host_bridge *pci_alloc_host_bridge(size_t priv)
 	bridge->dev.release = pci_release_host_bridge_dev;
 
 	return bridge;
+}
+
+struct pci_host_bridge* pci_alloc_host_bridge(size_t priv)
+{
+	if (cc_platform_has(CC_ATTR_GUEST_DEVICE_FILTER))
+		return NULL;
+
+	return __pci_alloc_host_bridge(priv);
 }
 EXPORT_SYMBOL(pci_alloc_host_bridge);
 
@@ -3035,7 +3043,7 @@ struct pci_bus *pci_create_root_bus(struct device *parent, int bus,
 	int error;
 	struct pci_host_bridge *bridge;
 
-	bridge = pci_alloc_host_bridge(0);
+	bridge = __pci_alloc_host_bridge(0);
 	if (!bridge)
 		return NULL;
 

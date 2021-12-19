@@ -11,6 +11,7 @@
 #include <linux/mutex.h>
 #include <linux/cpu.h>
 #include <linux/bug.h>
+#include <linux/slab.h>
 #include <asm/cpufeatures.h>
 #include <asm/cpufeature.h>
 #include <asm/msr.h>
@@ -20,6 +21,7 @@
 #include "p-seamldr.h"
 #include "tdx_seamcall.h"
 #include "tdx_arch.h"
+#include "tdmr.h"
 
 /*
  * TDX module status during initialization
@@ -45,7 +47,12 @@ static DEFINE_MUTEX(tdx_module_lock);
 /* Base address of CMR array needs to be 512 bytes aligned. */
 static struct cmr_info tdx_cmr_array[MAX_CMRS] __aligned(CMR_INFO_ARRAY_ALIGNMENT);
 static int tdx_cmr_num;
-static struct tdsysinfo_struct tdx_sysinfo;
+struct tdsysinfo_struct tdx_sysinfo;
+
+/* Array of pointer of TDMRs (TDMR_INFO) */
+static struct tdmr_info **tdx_tdmr_array;
+/* Actual number of TDMRs */
+static int tdx_tdmr_num;
 
 /*
  * Intel Trusted Domain CPU Architecture Extension spec:
@@ -274,6 +281,27 @@ static int get_tdx_sysinfo(void)
 	return sanitize_cmrs();
 }
 
+/* Construct TDMRs to use all system RAM entries in e820 as TDX memory */
+static int build_tdx_memory(void)
+{
+	/* Allocate the array of pointer to TDMRs. */
+	tdx_tdmr_array = kcalloc(tdx_sysinfo.max_tdmrs,
+			sizeof(struct tdmr_info *), GFP_KERNEL);
+
+	if (!tdx_tdmr_array)
+		return -ENOMEM;
+
+	return construct_tdmrs(tdx_tdmr_array, &tdx_tdmr_num);
+}
+
+static void build_tdx_memory_cleanup(void)
+{
+	if (tdx_tdmr_array) {
+		destroy_tdmrs(tdx_tdmr_array, tdx_tdmr_num);
+		kfree(tdx_tdmr_array);
+	}
+}
+
 /* Initialize the TDX module. */
 static int init_tdx_module(void)
 {
@@ -294,8 +322,18 @@ static int init_tdx_module(void)
 	if (ret)
 		goto out;
 
+	/* Construct TDMRs to build TDX memory */
+	ret = build_tdx_memory();
+	if (ret)
+		goto out;
+
 	ret = -EFAULT;
 out:
+	/*
+	 * TDMRs are not required anymore after TDX module
+	 * initialization, no matter successful or not.
+	 */
+	build_tdx_memory_cleanup();
 	return ret;
 }
 

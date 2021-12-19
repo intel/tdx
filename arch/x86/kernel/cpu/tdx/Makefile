@@ -1,1 +1,1 @@
-obj-y	+= seam.o tdx.o seamcall.o p-seamldr.o
+obj-y	+= seam.o tdx.o seamcall.o p-seamldr.o tdmr.o

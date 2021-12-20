@@ -98,6 +98,20 @@ config X86_SGX_KVM
 
 	  If unsure, say N.
 
+config X86_TDX_KVM_EXPERIMENTAL
+	bool "EXPERIMENTAL Trust Domian Extensions (TDX) KVM support"
+	default n
+	depends on INTEL_TDX_HOST
+	depends on KVM_INTEL
+	help
+	  Enable experimental TDX KVM support.  TDX KVM needs many patches and
+	  the patches will be merged step by step, not at once. Even if TDX KVM
+	  support is incomplete, enable TDX KVM support so that developper can
+	  exercise TDX KVM code.  TODO: Remove this configuration once the
+	  (first step of) TDX KVM support is complete.
+
+	  If unsure, say N.
+
 config KVM_AMD
 	tristate "KVM for AMD processors support"
 	depends on KVM

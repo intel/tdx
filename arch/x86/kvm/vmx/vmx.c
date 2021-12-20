@@ -7501,12 +7501,6 @@ free_vpid:
 	return err;
 }
 
-bool vmx_is_vm_type_supported(unsigned long type)
-{
-	/* TODO: Check if TDX is supported. */
-	return __kvm_is_vm_type_supported(type);
-}
-
 #define L1TF_MSG_SMT "L1TF CPU bug present and SMT on, data leak possible. See CVE-2018-3646 and https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/l1tf.html for details.\n"
 #define L1TF_MSG_L1D "L1TF CPU bug present and virtualization mitigation disabled, data leak possible. See CVE-2018-3646 and https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/l1tf.html for details.\n"
 

@@ -24,6 +24,12 @@ static int __init tdx_module_setup(void)
 	return 0;
 }
 
+bool tdx_is_vm_type_supported(unsigned long type)
+{
+	/* enable_tdx check is done by the caller. */
+	return type == KVM_X86_PROTECTED_VM;
+}
+
 static void __init vmx_tdx_on(void *info)
 {
        atomic_t *err = info;

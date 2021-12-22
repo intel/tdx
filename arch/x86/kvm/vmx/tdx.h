@@ -46,6 +46,10 @@ struct vcpu_tdx {
 	u64 vp_enter_ret;
 
 	bool initialized;
+
+	bool host_state_need_save;
+	bool host_state_need_restore;
+	u64 msr_host_kernel_gs_base;
 };
 
 static inline bool is_td(struct kvm *kvm)

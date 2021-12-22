@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
+#include <linux/local_lock.h>
 #include <linux/cleanup.h>
 #include <linux/cpu.h>
 #include <asm/tdx.h>
@@ -155,6 +156,19 @@ static inline int pg_level_to_tdx_sept_level(enum pg_level level)
 /* Maximum number of retries to attempt for SEAMCALLs. */
 #define TDX_SEAMCALL_RETRIES	10000
 
+struct associated_tdvcpus {
+	struct list_head list;
+	local_lock_t lock;
+};
+
+/*
+ * A per-CPU list of TD vCPUs associated with a given CPU.  Used when a CPU
+ * is brought down to invoke TDH_VP_FLUSH on the appropriate TD vCPUS.
+ * Protected by local lock.  This list is manipulated in process context
+ * of vCPU and IPI callback.  See tdx_flush_vp_on_cpu().
+ */
+static DEFINE_PER_CPU(struct associated_tdvcpus, associated_tdvcpus);
+
 static __always_inline hpa_t set_hkid_to_hpa(hpa_t pa, u16 hkid)
 {
 	return pa | ((hpa_t)hkid << boot_cpu_data.x86_phys_bits);
@@ -170,6 +184,22 @@ static inline void tdx_hkid_free(struct kvm_tdx *kvm_tdx)
 static inline bool is_hkid_assigned(struct kvm_tdx *kvm_tdx)
 {
 	return kvm_tdx->hkid > 0;
+}
+
+static inline void tdx_disassociate_vp(struct kvm_vcpu *vcpu)
+{
+	lockdep_assert_irqs_disabled();
+
+	list_del(&to_tdx(vcpu)->cpu_list);
+
+	/*
+	 * Ensure tdx->cpu_list is updated before setting vcpu->cpu to -1,
+	 * otherwise, a different CPU can see vcpu->cpu = -1 and add the vCPU
+	 * to its list before it's deleted from this CPU's list.
+	 */
+	smp_wmb();
+
+	vcpu->cpu = -1;
 }
 
 static void tdx_clear_page(unsigned long page_pa)
@@ -252,6 +282,82 @@ static void tdx_reclaim_control_page(unsigned long ctrl_page_pa)
 	free_page((unsigned long)__va(ctrl_page_pa));
 }
 
+struct tdx_flush_vp_arg {
+	struct kvm_vcpu *vcpu;
+	u64 err;
+};
+
+static void tdx_flush_vp(void *_arg)
+{
+	struct tdx_flush_vp_arg *arg = _arg;
+	struct kvm_vcpu *vcpu = arg->vcpu;
+	u64 err;
+
+	arg->err = 0;
+	lockdep_assert_irqs_disabled();
+
+	/* Task migration can race with CPU offlining. */
+	if (unlikely(vcpu->cpu != raw_smp_processor_id()))
+		return;
+
+	/*
+	 * No need to do TDH_VP_FLUSH if the vCPU hasn't been initialized.  The
+	 * list tracking still needs to be updated so that it's correct if/when
+	 * the vCPU does get initialized.
+	 */
+	if (to_tdx(vcpu)->state != VCPU_TD_STATE_UNINITIALIZED) {
+		/*
+		 * No need to retry.  TDX Resources needed for TDH.VP.FLUSH are:
+		 * TDVPR as exclusive, TDR as shared, and TDCS as shared.  This
+		 * vp flush function is called when destructing vCPU/TD or vCPU
+		 * migration.  No other thread uses TDVPR in those cases.
+		 */
+		err = tdh_vp_flush(to_tdx(vcpu)->tdvpr_pa);
+		if (unlikely(err && err != TDX_VCPU_NOT_ASSOCIATED)) {
+			/*
+			 * This function is called in IPI context. Do not use
+			 * printk to avoid console semaphore.
+			 * The caller prints out the error message, instead.
+			 */
+			if (err)
+				arg->err = err;
+		}
+	}
+
+	tdx_disassociate_vp(vcpu);
+}
+
+static void tdx_flush_vp_on_cpu(struct kvm_vcpu *vcpu)
+{
+	struct tdx_flush_vp_arg arg = {
+		.vcpu = vcpu,
+	};
+	int cpu = vcpu->cpu;
+
+	if (unlikely(cpu == -1))
+		return;
+
+	smp_call_function_single(cpu, tdx_flush_vp, &arg, 1);
+	if (KVM_BUG_ON(arg.err, vcpu->kvm))
+		pr_tdx_error(TDH_VP_FLUSH, arg.err);
+}
+
+void tdx_hardware_disable(void)
+{
+	struct list_head *tdvcpus = this_cpu_ptr(&associated_tdvcpus.list);
+	struct tdx_flush_vp_arg arg;
+	struct vcpu_tdx *tdx, *tmp;
+	unsigned long flags;
+
+	local_lock_irqsave(&associated_tdvcpus.lock, flags);
+	/* Safe variant needed as tdx_disassociate_vp() deletes the entry. */
+	list_for_each_entry_safe(tdx, tmp, tdvcpus, cpu_list) {
+		arg.vcpu = &tdx->vcpu;
+		tdx_flush_vp(&arg);
+	}
+	local_unlock_irqrestore(&associated_tdvcpus.lock, flags);
+}
+
 static void smp_func_do_phymem_cache_wb(void *unused)
 {
 	u64 err = 0;
@@ -288,21 +394,20 @@ void tdx_mmu_release_hkid(struct kvm *kvm)
 	bool packages_allocated, targets_allocated;
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	cpumask_var_t packages, targets;
-	u64 err;
+	struct kvm_vcpu *vcpu;
+	unsigned long j;
 	int i;
+	u64 err;
 
 	if (!is_hkid_assigned(kvm_tdx))
 		return;
 
-	/* KeyID has been allocated but guest is not yet configured */
-	if (!kvm_tdx->tdr_pa) {
-		tdx_hkid_free(kvm_tdx);
-		return;
-	}
-
 	packages_allocated = zalloc_cpumask_var(&packages, GFP_KERNEL);
 	targets_allocated = zalloc_cpumask_var(&targets, GFP_KERNEL);
 	cpus_read_lock();
+
+	kvm_for_each_vcpu(j, vcpu, kvm)
+		tdx_flush_vp_on_cpu(vcpu);
 
 	/*
 	 * TDH.PHYMEM.CACHE.WB tries to acquire the TDX module global lock
@@ -317,6 +422,16 @@ void tdx_mmu_release_hkid(struct kvm *kvm)
 	 * After the above flushing vps, there should be no more vCPU
 	 * associations, as all vCPU fds have been released at this stage.
 	 */
+	err = tdh_mng_vpflushdone(kvm_tdx->tdr_pa);
+	if (err == TDX_FLUSHVP_NOT_DONE)
+		goto out;
+	if (KVM_BUG_ON(err, kvm)) {
+		pr_tdx_error(TDH_MNG_VPFLUSHDONE, err);
+		pr_err("tdh_mng_vpflushdone() failed. HKID %d is leaked.\n",
+		       kvm_tdx->hkid);
+		goto out;
+	}
+
 	for_each_online_cpu(i) {
 		if (packages_allocated &&
 		    cpumask_test_and_set_cpu(topology_physical_package_id(i),
@@ -342,6 +457,7 @@ void tdx_mmu_release_hkid(struct kvm *kvm)
 		tdx_hkid_free(kvm_tdx);
 	}
 
+out:
 	mutex_unlock(&tdx_lock);
 	cpus_read_unlock();
 	free_cpumask_var(targets);
@@ -487,6 +603,27 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	tdx->state = VCPU_TD_STATE_UNINITIALIZED;
 
 	return 0;
+}
+
+void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	if (vcpu->cpu == cpu)
+		return;
+
+	tdx_flush_vp_on_cpu(vcpu);
+
+	KVM_BUG_ON(cpu != raw_smp_processor_id(), vcpu->kvm);
+	local_lock_irq(&associated_tdvcpus.lock);
+	/*
+	 * Pairs with the smp_wmb() in tdx_disassociate_vp() to ensure
+	 * vcpu->cpu is read before tdx->cpu_list.
+	 */
+	smp_rmb();
+
+	list_add(&tdx->cpu_list, this_cpu_ptr(&associated_tdvcpus.list));
+	local_unlock_irq(&associated_tdvcpus.lock);
 }
 
 void tdx_vcpu_free(struct kvm_vcpu *vcpu)
@@ -1949,7 +2086,7 @@ static int __init __do_tdx_bringup(void)
 static int __init __tdx_bringup(void)
 {
 	const struct tdx_sys_info_td_conf *td_conf;
-	int r;
+	int r, i;
 
 	if (!tdp_mmu_enabled || !enable_mmio_caching)
 		return -EOPNOTSUPP;
@@ -1957,6 +2094,12 @@ static int __init __tdx_bringup(void)
 	if (!cpu_feature_enabled(X86_FEATURE_MOVDIR64B)) {
 		pr_warn("MOVDIR64B is reqiured for TDX\n");
 		return -EOPNOTSUPP;
+	}
+
+	/* tdx_hardware_disable() uses associated_tdvcpus. */
+	for_each_possible_cpu(i) {
+		INIT_LIST_HEAD(&per_cpu(associated_tdvcpus.list, i));
+		local_lock_init(&per_cpu(associated_tdvcpus.lock, i));
 	}
 
 	/*

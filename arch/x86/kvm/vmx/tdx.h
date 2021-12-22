@@ -39,6 +39,8 @@ struct vcpu_tdx {
 	unsigned long *tdcx_pa;
 	bool td_vcpu_created;
 
+	struct list_head cpu_list;
+
 	bool initialized;
 
 	/*

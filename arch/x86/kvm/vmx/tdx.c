@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/cleanup.h>
 #include <linux/cpu.h>
+#include <linux/mmu_context.h>
 #include <asm/tdx.h>
 #include "capabilities.h"
 #include "mmu.h"
@@ -9,6 +10,7 @@
 #include "vmx.h"
 #include "mmu/spte.h"
 #include "common.h"
+#include "posted_intr.h"
 
 #include <trace/events/kvm.h>
 #include "trace.h"
@@ -605,6 +607,8 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	if ((kvm_tdx->xfam & XFEATURE_MASK_XTILE) == XFEATURE_MASK_XTILE)
 		vcpu->arch.xfd_no_write_intercept = true;
 
+	tdx->prep_switch_state = TDX_PREP_SW_STATE_UNSAVED;
+
 	tdx->state = VCPU_TD_STATE_UNINITIALIZED;
 
 	return 0;
@@ -629,6 +633,41 @@ void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 
 	list_add(&tdx->cpu_list, &per_cpu(associated_tdvcpus, cpu));
 	local_irq_enable();
+}
+
+/*
+ * Compared to vmx_prepare_switch_to_guest(), there is not much to do
+ * as SEAMCALL/SEAMRET calls take care of most of save and restore.
+ */
+void tdx_prepare_switch_to_guest(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	if (tdx->prep_switch_state == TDX_PREP_SW_STATE_UNSAVED) {
+		if (likely(is_64bit_mm(current->mm)))
+			tdx->msr_host_kernel_gs_base = current->thread.gsbase;
+		else
+			tdx->msr_host_kernel_gs_base = read_msr(MSR_KERNEL_GS_BASE);
+		tdx->prep_switch_state = TDX_PREP_SW_STATE_SAVED;
+	}
+}
+
+static void tdx_prepare_switch_to_host(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	if (tdx->prep_switch_state == TDX_PREP_SW_STATE_UNRESTORED) {
+		++vcpu->stat.host_state_reload;
+		wrmsrl(MSR_KERNEL_GS_BASE, tdx->msr_host_kernel_gs_base);
+	}
+
+	tdx->prep_switch_state = TDX_PREP_SW_STATE_UNSAVED;
+}
+
+void tdx_vcpu_put(struct kvm_vcpu *vcpu)
+{
+	vmx_vcpu_pi_put(vcpu);
+	tdx_prepare_switch_to_host(vcpu);
 }
 
 void tdx_vcpu_free(struct kvm_vcpu *vcpu)
@@ -727,9 +766,13 @@ static noinstr void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu)
 
 fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 {
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
 	trace_kvm_entry(vcpu, force_immediate_exit);
 
 	tdx_vcpu_enter_exit(vcpu);
+
+	tdx->prep_switch_state = TDX_PREP_SW_STATE_UNRESTORED;
 
 	vcpu->arch.regs_avail &= ~VMX_REGS_LAZY_LOAD_SET;
 	trace_kvm_exit(vcpu, KVM_ISA_VMX);

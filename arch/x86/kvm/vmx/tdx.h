@@ -43,6 +43,12 @@ enum vcpu_tdx_state {
 	VCPU_TD_STATE_INITIALIZED,
 };
 
+enum tdx_prepare_switch_state {
+	TDX_PREP_SW_STATE_UNSAVED,
+	TDX_PREP_SW_STATE_SAVED,
+	TDX_PREP_SW_STATE_UNRESTORED,
+};
+
 struct vcpu_tdx {
 	struct kvm_vcpu	vcpu;
 
@@ -54,6 +60,9 @@ struct vcpu_tdx {
 	u64 vp_enter_ret;
 
 	enum vcpu_tdx_state state;
+
+	enum tdx_prepare_switch_state prep_switch_state;
+	u64 msr_host_kernel_gs_base;
 };
 
 void tdh_vp_rd_failed(struct vcpu_tdx *tdx, char *uclass, u32 field, u64 err);

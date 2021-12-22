@@ -413,7 +413,7 @@ int kvm_find_user_return_msr(u32 msr)
 }
 EXPORT_SYMBOL_GPL(kvm_find_user_return_msr);
 
-static void kvm_user_return_msr_init_cpu(struct kvm_user_return_msrs *msrs)
+static void __kvm_user_return_msr_init_cpu(struct kvm_user_return_msrs *msrs)
 {
 	u64 value;
 	int i;
@@ -429,12 +429,18 @@ static void kvm_user_return_msr_init_cpu(struct kvm_user_return_msrs *msrs)
 	msrs->initialized = true;
 }
 
+void kvm_user_return_msr_init_cpu(void)
+{
+	__kvm_user_return_msr_init_cpu(this_cpu_ptr(user_return_msrs));
+}
+EXPORT_SYMBOL_GPL(kvm_user_return_msr_init_cpu);
+
 int kvm_set_user_return_msr(unsigned slot, u64 value, u64 mask)
 {
 	struct kvm_user_return_msrs *msrs = this_cpu_ptr(user_return_msrs);
 	int err;
 
-	kvm_user_return_msr_init_cpu(msrs);
+	__kvm_user_return_msr_init_cpu(msrs);
 
 	value = (value & mask) | (msrs->values[slot].host & ~mask);
 	if (value == msrs->values[slot].curr)

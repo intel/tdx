@@ -169,6 +169,16 @@ static fastpath_t vt_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 	return vmx_vcpu_run(vcpu, force_immediate_exit);
 }
 
+static void vt_vcpu_after_set_cpuid(struct kvm_vcpu *vcpu)
+{
+	if (is_td_vcpu(vcpu)) {
+		tdx_vcpu_after_set_cpuid(vcpu);
+		return;
+	}
+
+	vmx_vcpu_after_set_cpuid(vcpu);
+}
+
 static void vt_flush_tlb_all(struct kvm_vcpu *vcpu)
 {
 	if (is_td_vcpu(vcpu)) {
@@ -347,7 +357,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.get_exit_info = vmx_get_exit_info,
 	.get_entry_info = vmx_get_entry_info,
 
-	.vcpu_after_set_cpuid = vmx_vcpu_after_set_cpuid,
+	.vcpu_after_set_cpuid = vt_vcpu_after_set_cpuid,
 
 	.has_wbinvd_exit = cpu_has_vmx_wbinvd_exit,
 

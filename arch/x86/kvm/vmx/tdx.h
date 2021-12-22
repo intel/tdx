@@ -79,6 +79,8 @@ struct vcpu_tdx {
 	unsigned long *tdcx_pa;
 	bool td_vcpu_created;
 
+	struct list_head cpu_list;
+
 	union tdx_exit_reason exit_reason;
 
 	bool initialized;

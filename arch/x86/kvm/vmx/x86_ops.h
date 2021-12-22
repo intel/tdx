@@ -130,6 +130,8 @@ void vmx_setup_mce(struct kvm_vcpu *vcpu);
 bool tdx_is_vm_type_supported(unsigned long type);
 void __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops);
 void tdx_hardware_unsetup(void);
+void tdx_hardware_enable(void);
+void tdx_hardware_disable(void);
 
 int tdx_vm_init(struct kvm *kvm);
 void tdx_mmu_prezap(struct kvm *kvm);
@@ -152,6 +154,8 @@ void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int root_level);
 static inline bool tdx_is_vm_type_supported(unsigned long type) { return false; }
 static inline void tdx_hardware_setup(struct kvm_x86_ops *x86_ops) {}
 static inline void tdx_hardware_unsetup(void) {}
+static inline void tdx_hardware_enable(void) {}
+static inline void tdx_hardware_disable(void) {}
 
 static inline int tdx_vm_init(struct kvm *kvm) { return -EOPNOTSUPP; }
 static inline void tdx_mmu_prezap(struct kvm *kvm) {}

@@ -83,16 +83,21 @@ static u64 tdx_get_supported_attrs(const struct tdx_sys_info_td_conf *td_conf)
 	return val;
 }
 
+/*
+ * Before returning from TDH.VP.ENTER, the TDX Module assigns:
+ *   XCR0 to the TD’s user-mode feature bits of XFAM (bits 7:0, 9, 18:17)
+ *   IA32_XSS to the TD's supervisor-mode feature bits of XFAM (bits 8, 16:10)
+ */
+#define TDX_XFAM_XCR0_MASK	(GENMASK(7, 0) | BIT(9) | GENMASK(18, 17))
+#define TDX_XFAM_XSS_MASK	(BIT(8) | GENMASK(16, 10))
+#define TDX_XFAM_MASK		(TDX_XFAM_XCR0_MASK | TDX_XFAM_XSS_MASK)
+
 static u64 tdx_get_supported_xfam(const struct tdx_sys_info_td_conf *td_conf)
 {
 	u64 val = kvm_caps.supported_xcr0 | kvm_caps.supported_xss;
 
-	/*
-	 * PT and CET can be exposed to TD guest regardless of KVM's XSS, PT
-	 * and, CET support.
-	 */
-	val |= XFEATURE_MASK_PT | XFEATURE_MASK_CET_USER |
-	       XFEATURE_MASK_CET_KERNEL;
+	/* Ensure features are in the masks */
+	val &= TDX_XFAM_MASK;
 
 	if ((val & td_conf->xfam_fixed1) != td_conf->xfam_fixed1)
 		return 0;
@@ -623,6 +628,11 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
+void tdx_vcpu_after_set_cpuid(struct kvm_vcpu *vcpu)
+{
+	guest_cpu_cap_change(vcpu, X86_FEATURE_XSAVES, kvm_cpu_cap_has(X86_FEATURE_XSAVES));
+}
+
 void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
@@ -724,6 +734,19 @@ int tdx_vcpu_pre_run(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static bool tdx_guest_state_is_invalid(struct kvm_vcpu *vcpu)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
+
+	return vcpu->arch.xcr0 != (kvm_tdx->xfam & TDX_XFAM_XCR0_MASK) ||
+	       vcpu->arch.ia32_xss != (kvm_tdx->xfam & TDX_XFAM_XSS_MASK) ||
+	       vcpu->arch.pkru ||
+	       (cpu_feature_enabled(X86_FEATURE_XSAVE) &&
+		!kvm_is_cr4_bit_set(vcpu, X86_CR4_OSXSAVE)) ||
+	       (cpu_feature_enabled(X86_FEATURE_XSAVES) &&
+		!guest_cpu_cap_has(vcpu, X86_FEATURE_XSAVES));
+}
+
 static noinstr void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
@@ -735,8 +758,13 @@ static noinstr void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu)
 	guest_state_exit_irqoff();
 }
 
+#define TDX_REGS_UNSUPPORTED_SET	(BIT(VCPU_EXREG_RFLAGS) |	\
+					 BIT(VCPU_EXREG_SEGMENTS))
+
 fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 {
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
 	/*
 	 * force_immediate_exit requires vCPU entering for events injection with
 	 * an immediately exit followed. But The TDX module doesn't guarantee
@@ -747,11 +775,24 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 	 */
 	WARN_ON_ONCE(force_immediate_exit);
 
+	if (WARN_ON_ONCE(tdx_guest_state_is_invalid(vcpu))) {
+		/*
+		 * Invalid exit_reason becomes KVM_EXIT_INTERNAL_ERROR, refer
+		 * tdx_handle_exit().
+		 */
+		tdx->vt.exit_reason.full = -1u;
+		tdx->vp_enter_ret = -1u;
+		return EXIT_FASTPATH_NONE;
+	}
+
 	trace_kvm_entry(vcpu, force_immediate_exit);
 
 	tdx_vcpu_enter_exit(vcpu);
 
-	vcpu->arch.regs_avail &= ~VMX_REGS_LAZY_LOAD_SET;
+	kvm_load_host_xsave_state(vcpu);
+
+	vcpu->arch.regs_avail &= ~TDX_REGS_UNSUPPORTED_SET;
+
 	trace_kvm_exit(vcpu, KVM_ISA_VMX);
 
 	return EXIT_FASTPATH_NONE;
@@ -1870,9 +1911,23 @@ out:
 	return r;
 }
 
+static u64 tdx_guest_cr0(struct kvm_vcpu *vcpu, u64 cr4)
+{
+	u64 cr0 = ~CR0_RESERVED_BITS;
+
+	if (cr4 & X86_CR4_CET)
+		cr0 |= X86_CR0_WP;
+
+	cr0 |= X86_CR0_PE | X86_CR0_NE;
+	cr0 &= ~(X86_CR0_NW | X86_CR0_CD);
+
+	return cr0;
+}
+
 static int tdx_vcpu_init(struct kvm_vcpu *vcpu, struct kvm_tdx_cmd *cmd)
 {
 	u64 apic_base;
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 	int ret;
 
@@ -1894,6 +1949,20 @@ static int tdx_vcpu_init(struct kvm_vcpu *vcpu, struct kvm_tdx_cmd *cmd)
 	ret = tdx_td_vcpu_init(vcpu, (u64)cmd->data);
 	if (ret)
 		return ret;
+
+	vcpu->arch.cr4 = ~vcpu->arch.cr4_guest_rsvd_bits;
+	vcpu->arch.cr0 = tdx_guest_cr0(vcpu, vcpu->arch.cr4);
+	/*
+	 * On return from VP.ENTER, the TDX Module sets XCR0 and XSS to the
+	 * maximal values supported by the guest, and zeroes PKRU, so from
+	 * KVM's perspective, those are the guest's values at all times.
+	 */
+	vcpu->arch.ia32_xss = kvm_tdx->xfam & TDX_XFAM_XSS_MASK;
+	vcpu->arch.xcr0 = kvm_tdx->xfam & TDX_XFAM_XCR0_MASK;
+	vcpu->arch.pkru = 0;
+
+	/* TODO: freeze vCPU model before kvm_update_cpuid_runtime() */
+	kvm_update_cpuid_runtime(vcpu);
 
 	tdx->state = VCPU_TD_STATE_INITIALIZED;
 

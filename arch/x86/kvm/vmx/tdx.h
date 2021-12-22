@@ -49,6 +49,8 @@ struct vcpu_tdx {
 	unsigned long tdvpr_pa;
 	unsigned long *tdcx_pa;
 
+	struct list_head cpu_list;
+
 	enum vcpu_tdx_state state;
 };
 

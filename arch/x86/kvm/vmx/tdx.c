@@ -2,6 +2,8 @@
 #include <linux/cleanup.h>
 #include <linux/cpu.h>
 #include <linux/mmu_context.h>
+
+#include <asm/fpu/xcr.h>
 #include <asm/tdx.h>
 #include "capabilities.h"
 #include "mmu.h"
@@ -70,16 +72,21 @@ static u64 tdx_get_supported_attrs(const struct tdx_sys_info_td_conf *td_conf)
 	return val;
 }
 
+/*
+ * Before returning from TDH.VP.ENTER, the TDX Module assigns:
+ *   XCR0 to the TD’s user-mode feature bits of XFAM (bits 7:0, 9, 18:17)
+ *   IA32_XSS to the TD's supervisor-mode feature bits of XFAM (bits 8, 16:10)
+ */
+#define TDX_XFAM_XCR0_MASK	(GENMASK(7, 0) | BIT(9) | GENMASK(18, 17))
+#define TDX_XFAM_XSS_MASK	(BIT(8) | GENMASK(16, 10))
+#define TDX_XFAM_MASK		(TDX_XFAM_XCR0_MASK | TDX_XFAM_XSS_MASK)
+
 static u64 tdx_get_supported_xfam(const struct tdx_sys_info_td_conf *td_conf)
 {
 	u64 val = kvm_caps.supported_xcr0 | kvm_caps.supported_xss;
 
-	/*
-	 * PT and CET can be exposed to TD guest regardless of KVM's XSS, PT
-	 * and, CET support.
-	 */
-	val |= XFEATURE_MASK_PT | XFEATURE_MASK_CET_USER |
-	       XFEATURE_MASK_CET_KERNEL;
+	/* Ensure features are in the masks */
+	val &= TDX_XFAM_MASK;
 
 	if ((val & td_conf->xfam_fixed1) != td_conf->xfam_fixed1)
 		return 0;
@@ -712,6 +719,28 @@ int tdx_vcpu_pre_run(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static void tdx_restore_host_xsave_state(struct kvm_vcpu *vcpu)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
+
+	/* TDX Module sets XCR0 from XFAM */
+	if (cpu_feature_enabled(X86_FEATURE_XSAVE) &&
+	    kvm_host.xcr0 != (kvm_tdx->xfam & TDX_XFAM_XCR0_MASK))
+		xsetbv(XCR_XFEATURE_ENABLED_MASK, kvm_host.xcr0);
+
+	/* TDX Module sets XSS from XFAM */
+	if (cpu_feature_enabled(X86_FEATURE_XSAVES) &&
+	    kvm_host.xss != (kvm_tdx->xfam & TDX_XFAM_XSS_MASK))
+		wrmsrl(MSR_IA32_XSS, kvm_host.xss);
+
+	/* TDX Module clears PKRU */
+	if (cpu_feature_enabled(X86_FEATURE_PKU) &&
+	    (kvm_tdx->xfam & XFEATURE_MASK_PKRU) &&
+	    vcpu->arch.host_pkru &&
+	    cpu_feature_enabled(X86_FEATURE_OSPKE))
+		wrpkru(vcpu->arch.host_pkru);
+}
+
 static noinstr void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
@@ -772,6 +801,7 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 
 	tdx_vcpu_enter_exit(vcpu);
 
+	tdx_restore_host_xsave_state(vcpu);
 	tdx->prep_switch_state = TDX_PREP_SW_STATE_UNRESTORED;
 
 	vcpu->arch.regs_avail &= ~VMX_REGS_LAZY_LOAD_SET;

@@ -83,6 +83,9 @@ struct vcpu_tdx {
 
 	struct list_head cpu_list;
 
+	/* Posted interrupt descriptor */
+	struct pi_desc pi_desc;
+
 	union tdx_exit_reason exit_reason;
 
 	bool initialized;

@@ -18,6 +18,9 @@ void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu) {}
 void tdx_vcpu_put(struct kvm_vcpu *vcpu) {}
 void tdx_prepare_switch_to_guest(struct kvm_vcpu *vcpu) {}
 
+void tdx_apicv_post_state_restore(struct kvm_vcpu *vcpu) {}
+int tdx_deliver_posted_interrupt(struct kvm_vcpu *vcpu, int vector) { return 0; }
+
 int tdx_dev_ioctl(void __user *argp) { return -EOPNOTSUPP; }
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp) { return -EOPNOTSUPP; }
 int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp) { return -EOPNOTSUPP; }

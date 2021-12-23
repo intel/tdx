@@ -10,6 +10,7 @@
 #include "tdx_ops.h"
 #include "vmx_ops.h"
 #include "x86_ops.h"
+#include "common.h"
 #include "cpuid.h"
 #include "lapic.h"
 #include "mmu.h"
@@ -536,6 +537,9 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	vcpu->arch.guest_state_protected =
 		!(to_kvm_tdx(vcpu->kvm)->attributes & TDX_TD_ATTRIBUTE_DEBUG);
 
+	tdx->pi_desc.nv = POSTED_INTR_VECTOR;
+	tdx->pi_desc.sn = 1;
+
 	tdx->host_state_need_save = true;
 	tdx->host_state_need_restore = false;
 
@@ -556,6 +560,7 @@ void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 
+	vmx_vcpu_pi_load(vcpu, cpu);
 	if (vcpu->cpu == cpu)
 		return;
 
@@ -601,6 +606,7 @@ static void tdx_prepare_switch_to_host(struct kvm_vcpu *vcpu)
 
 void tdx_vcpu_put(struct kvm_vcpu *vcpu)
 {
+	vmx_vcpu_pi_put(vcpu);
 	tdx_prepare_switch_to_host(vcpu);
 }
 
@@ -775,6 +781,12 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	}
 
 	trace_kvm_entry(vcpu);
+
+	if (pi_test_on(&tdx->pi_desc)) {
+		apic->send_IPI_self(POSTED_INTR_VECTOR);
+
+		kvm_wait_lapic_expire(vcpu, true);
+	}
 
 	tdx_vcpu_enter_exit(vcpu, tdx);
 
@@ -1058,6 +1070,22 @@ static void tdx_handle_changed_private_spte(
 
 		tdx_sept_drop_private_spte(kvm, gfn, level, old_pfn);
 	}
+}
+
+void tdx_apicv_post_state_restore(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	pi_clear_on(&tdx->pi_desc);
+	memset(tdx->pi_desc.pir, 0, sizeof(tdx->pi_desc.pir));
+}
+
+int tdx_deliver_posted_interrupt(struct kvm_vcpu *vcpu, int vector)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	__vmx_deliver_posted_interrupt(vcpu, &tdx->pi_desc, vector);
+	return 0;
 }
 
 int tdx_dev_ioctl(void __user *argp)
@@ -1480,6 +1508,10 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 		pr_tdx_error(TDH_VP_INIT, err, NULL);
 		return -EIO;
 	}
+
+	td_vmcs_write16(tdx, POSTED_INTR_NV, POSTED_INTR_VECTOR);
+	td_vmcs_write64(tdx, POSTED_INTR_DESC_ADDR, __pa(&tdx->pi_desc));
+	td_vmcs_setbit32(tdx, PIN_BASED_VM_EXEC_CONTROL, PIN_BASED_POSTED_INTR);
 
 	tdx->initialized = true;
 	return 0;

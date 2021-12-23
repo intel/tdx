@@ -123,7 +123,6 @@ int vmx_set_hv_timer(struct kvm_vcpu *vcpu, u64 guest_deadline_tsc,
 void vmx_cancel_hv_timer(struct kvm_vcpu *vcpu);
 #endif
 void vmx_setup_mce(struct kvm_vcpu *vcpu);
-
 void __init tdx_pre_kvm_init(unsigned int *vcpu_size,
 			unsigned int *vcpu_align, unsigned int *vm_size);
 int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops);
@@ -140,6 +139,9 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu);
 void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu);
 void tdx_vcpu_put(struct kvm_vcpu *vcpu);
 void tdx_prepare_switch_to_guest(struct kvm_vcpu *vcpu);
+
+void tdx_apicv_post_state_restore(struct kvm_vcpu *vcpu);
+int tdx_deliver_posted_interrupt(struct kvm_vcpu *vcpu, int vector);
 
 int tdx_dev_ioctl(void __user *argp);
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp);

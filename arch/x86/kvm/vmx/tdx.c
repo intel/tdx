@@ -899,6 +899,30 @@ static int tdx_emulate_vmcall(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static int tdx_emulate_cpuid(struct kvm_vcpu *vcpu)
+{
+	u32 eax, ebx, ecx, edx;
+
+	/* EAX and ECX for cpuid is stored in R12 and R13. */
+	eax = tdvmcall_p1_read(vcpu);
+	ecx = tdvmcall_p2_read(vcpu);
+
+	kvm_cpuid(vcpu, &eax, &ebx, &ecx, &edx, true);
+
+	/*
+	 * The returned value for CPUID (EAX, EBX, ECX, and EDX) is stored into
+	 * R12, R13, R14, and R15.
+	 */
+	tdvmcall_p1_write(vcpu, eax);
+	tdvmcall_p2_write(vcpu, ebx);
+	tdvmcall_p3_write(vcpu, ecx);
+	tdvmcall_p4_write(vcpu, edx);
+
+	tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_SUCCESS);
+
+	return 1;
+}
+
 static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
@@ -910,6 +934,9 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 		return tdx_emulate_vmcall(vcpu);
 
 	switch (tdvmcall_exit_reason(vcpu)) {
+	case EXIT_REASON_CPUID:
+		return tdx_emulate_cpuid(vcpu);
+
 	default:
 		break;
 	}

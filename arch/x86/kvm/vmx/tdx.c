@@ -1168,6 +1168,63 @@ static int tdx_report_fatal_error(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
+static int tdx_map_gpa(struct kvm_vcpu *vcpu)
+{
+	struct kvm *kvm = vcpu->kvm;
+	gpa_t gpa = tdvmcall_p1_read(vcpu);
+	gpa_t size = tdvmcall_p2_read(vcpu);
+	gpa_t end = gpa + size;
+
+	tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
+	if (!IS_ALIGNED(gpa, 4096) || !IS_ALIGNED(size, 4096) ||
+		end < gpa ||
+		end > kvm_gfn_stolen_mask(kvm) << (PAGE_SHIFT + 1) ||
+		kvm_is_private_gpa(kvm, gpa) != kvm_is_private_gpa(kvm, end))
+		return 1;
+
+	tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_SUCCESS);
+
+#define TDX_MAP_GPA_SIZE_MAX   (16 * 1024 * 1024)
+	while (gpa < end) {
+		gfn_t s = gpa_to_gfn(gpa);
+		gfn_t e = gpa_to_gfn(
+			min(roundup(gpa + 1, TDX_MAP_GPA_SIZE_MAX), end));
+		int ret = kvm_mmu_map_gpa(vcpu, &s, e);
+
+		if (ret == -EAGAIN)
+			e = s;
+		else if (ret) {
+			tdvmcall_set_return_code(vcpu,
+						TDG_VP_VMCALL_INVALID_OPERAND);
+			break;
+		}
+
+		gpa = gfn_to_gpa(e);
+
+		/*
+		 * TODO:
+		 * Interrupt this hypercall invocation to return remaining
+		 * region to the guest and let the guest to resume the
+		 * hypercall.
+		 *
+		 * The TDX Guest-Hypervisor Communication Interface(GHCI)
+		 * specification and guest implementation need to be updated.
+		 *
+		 * if (gpa < end && need_resched()) {
+		 *	size = end - gpa;
+		 *	kvm_r12_write(vcpu, gpa);
+		 *	kvm_r13_write(vcpu, size);
+		 *	tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INTERRUPTED_RESUME);
+		 *	break;
+		 * }
+		 */
+		if (gpa < end && need_resched())
+			cond_resched();
+	}
+
+	return 1;
+}
+
 static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
@@ -1193,6 +1250,8 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 		return tdx_emulate_wrmsr(vcpu);
 	case TDG_VP_VMCALL_REPORT_FATAL_ERROR:
 		return tdx_report_fatal_error(vcpu);
+	case TDG_VP_VMCALL_MAP_GPA:
+		return tdx_map_gpa(vcpu);
 	default:
 		break;
 	}

@@ -923,6 +923,48 @@ static int tdx_emulate_cpuid(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static int tdx_emulate_hlt(struct kvm_vcpu *vcpu)
+{
+	bool interrupt_disabled = tdvmcall_p1_read(vcpu);
+	union tdx_vcpu_state_details details;
+
+	tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_SUCCESS);
+
+	if (!interrupt_disabled) {
+		/*
+		 * Virtual interrupt can arrive after TDG.VM.VMCALL<HLT> during
+		 * the TDX module executing.  On the other hand, KVM doesn't
+		 * know if vcpu was executing in the guest TD or the TDX module.
+		 *
+		 * CPU mode transition:
+		 * TDG.VP.VMCALL<HLT> (SEAM VMX non-root mode) ->
+		 * the TDX module (SEAM VMX root mode) ->
+		 * KVM (Legacy VMX root mode)
+		 *
+		 * If virtual interrupt arrives to this vcpu
+		 * - In the guest TD executing:
+		 *   KVM can handle it in the same way to the VMX case.
+		 * - During the TDX module executing:
+		 *   The TDX modules switches to KVM with TDG.VM.VMCALL<HLT>
+		 *   exit reason.  KVM thinks the guest was running.  So KVM
+		 *   vcpu wake up logic doesn't kick in.  Check if virtual
+		 *   interrupt is pending and resume vcpu without blocking vcpu.
+		 * - KVM executing:
+		 *   The existing logic wakes up the target vcpu on injecting
+		 *   virtual interrupt in the same way to the VMX case.
+		 *
+		 * Check if the interrupt is already pending.  If yes, resume
+		 * vcpu from guest HLT without emulating hlt instruction.
+		 */
+		details.full = td_state_non_arch_read64(
+			to_tdx(vcpu), TD_VCPU_STATE_DETAILS_NON_ARCH);
+		if (details.vmxip)
+			return 1;
+	}
+
+	return kvm_emulate_halt_noskip(vcpu);
+}
+
 static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
@@ -936,7 +978,8 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 	switch (tdvmcall_exit_reason(vcpu)) {
 	case EXIT_REASON_CPUID:
 		return tdx_emulate_cpuid(vcpu);
-
+	case EXIT_REASON_HLT:
+		return tdx_emulate_hlt(vcpu);
 	default:
 		break;
 	}

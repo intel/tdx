@@ -5,6 +5,7 @@
 #include <asm/tdx.h>
 #include "capabilities.h"
 #include "x86_ops.h"
+#include "common.h"
 #include "mmu.h"
 #include "tdx.h"
 #include "tdx_ops.h"
@@ -594,6 +595,9 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	tdx->host_state_need_save = true;
 	tdx->host_state_need_restore = false;
 
+	tdx->pi_desc.nv = POSTED_INTR_VECTOR;
+	__pi_set_sn(&tdx->pi_desc);
+
 	return 0;
 }
 
@@ -601,6 +605,7 @@ void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 
+	vmx_vcpu_pi_load(vcpu, cpu);
 	if (vcpu->cpu == cpu)
 		return;
 
@@ -832,6 +837,9 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 	}
 
 	trace_kvm_entry(vcpu, force_immediate_exit);
+
+	if (pi_test_on(&tdx->pi_desc))
+		apic->send_IPI_self(POSTED_INTR_VECTOR);
 
 	tdx_vcpu_enter_exit(vcpu);
 
@@ -1212,6 +1220,16 @@ int tdx_sept_remove_private_spte(struct kvm *kvm, gfn_t gfn,
 		tdx_track(kvm);
 
 	return tdx_sept_drop_private_spte(kvm, gfn, level, pfn);
+}
+
+void tdx_deliver_interrupt(struct kvm_lapic *apic, int delivery_mode,
+			   int trig_mode, int vector)
+{
+	struct kvm_vcpu *vcpu = apic->vcpu;
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	/* TDX supports only posted interrupt.  No lapic emulation. */
+	__vmx_deliver_posted_interrupt(vcpu, &tdx->pi_desc, vector);
 }
 
 static int tdx_get_capabilities(struct kvm_tdx_cmd *cmd)
@@ -2105,6 +2123,10 @@ static int tdx_vcpu_init(struct kvm_vcpu *vcpu, struct kvm_tdx_cmd *cmd)
 	ret = tdx_td_vcpu_init(vcpu, (u64)cmd->data);
 	if (ret)
 		return ret;
+
+	td_vmcs_write16(tdx, POSTED_INTR_NV, POSTED_INTR_VECTOR);
+	td_vmcs_write64(tdx, POSTED_INTR_DESC_ADDR, __pa(&tdx->pi_desc));
+	td_vmcs_setbit32(tdx, PIN_BASED_VM_EXEC_CONTROL, PIN_BASED_POSTED_INTR);
 
 	tdx->initialized = true;
 	return 0;

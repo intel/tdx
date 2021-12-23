@@ -1199,6 +1199,13 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 		return tdx_emulate_rdmsr(vcpu);
 	case EXIT_REASON_MSR_WRITE:
 		return tdx_emulate_wrmsr(vcpu);
+	case TDG_VP_VMCALL_REPORT_FATAL_ERROR:
+		/*
+		 * Exit to userspace device model for tear down.
+		 * Because guest TD is already panicking, returning an error to
+		 * guest TD doesn't make sense.  No argument check is done.
+		 */
+		return tdx_vp_vmcall_to_user(vcpu);
 	default:
 		break;
 	}

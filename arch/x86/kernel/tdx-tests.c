@@ -79,11 +79,16 @@ static struct perf_event_attr attr = {
 	.bp_len		= sizeof(long),
 };
 
-unsigned int bp_hit;
+unsigned int bp_hit, ovf_hit;
 
-static void overflow_cb(struct perf_event *bp, struct perf_sample_data *sample, struct pt_regs *regs)
+static void breakpoint_cb(struct perf_event *bp, struct perf_sample_data *sample, struct pt_regs *regs)
 {
+	unsigned int a, b, c, d;
 	bp_hit++;
+
+	a = b = c = d = 0;
+	cpuid_count(5, 0, &a, &b, &c, &d);
+	trace_printk("CPUID5: %u %u %u %u\n", a, b, c, d);
 }
 
 static void kvm_test_breakpoint(void)
@@ -108,9 +113,57 @@ again:
 
 	if (!bp) {
 		attr.bp_addr = start + 5;
-		bp = register_wide_hw_breakpoint(&attr, overflow_cb, NULL);
+		bp = register_wide_hw_breakpoint(&attr, breakpoint_cb, NULL);
 		if (IS_ERR(bp)) {
 			pr_warn("can't create breakpoint at %llu: %ld\n", attr.bp_addr, PTR_ERR(bp));
+			return;
+		}
+	}
+	goto again;
+}
+
+static void overflow_cb(struct perf_event *bp, struct perf_sample_data *sample, struct pt_regs *regs)
+{
+	unsigned int a, b, c, d;
+	ovf_hit++;
+	a = b = c = d = 0;
+	cpuid_count(5, 0, &a, &b, &c, &d);
+	trace_printk("CPUID5: %u %u %u %u in_nmi: %d\n", a, b, c, d, !!in_nmi());
+}
+
+static struct perf_event_attr attr_insn = {
+	.type = PERF_TYPE_HARDWARE,
+	.config = PERF_COUNT_HW_CPU_CYCLES,
+	.size = sizeof(struct perf_event_attr),
+	.pinned = 1,
+	.sample_period = 1000,
+};
+
+static void kvm_test_instructions(void)
+{
+	unsigned long start = 0;
+	struct perf_event *event = NULL;
+	int retry = 20;
+
+again:
+	if (event && !--retry) {
+		perf_event_release_kernel(event);
+		pr_warn("ovf_hit: %d\n", ovf_hit);
+		return;
+	}
+
+	asm volatile(
+		"lea (%%rip),%0\n\t"
+		"movl $0x5,%%eax\n\t"
+		"cpuid\n\t"
+		: "=r" (start) : : "eax", "ebx", "ecx", "edx"
+	);
+
+	if (!event) {
+		event = perf_event_create_kernel_counter(&attr_insn, raw_smp_processor_id(),
+							 NULL, overflow_cb, NULL);
+		if (IS_ERR(event)) {
+			pr_warn("can't create on cpu%d: %ld\n", raw_smp_processor_id(), PTR_ERR(event));
 			return;
 		}
 	}
@@ -122,6 +175,7 @@ int __init kvm_unit_test_debug_init(void)
 	unsigned long start;
 
 	kvm_test_breakpoint();
+	kvm_test_instructions();
 
 	register_die_notifier(&kvm_unit_test_debug_notifier);
 

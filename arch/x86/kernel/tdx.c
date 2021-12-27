@@ -883,6 +883,8 @@ bool tdx_handle_virtualization_exception(struct pt_regs *regs,
 		ret = tdx_write_msr_safe(regs->cx, regs->ax, regs->dx);
 		break;
 	case EXIT_REASON_CPUID:
+		if (regs->ax == 5)
+			trace_printk("#VE CPUID at %pS\n", (void *)regs->ip);
 		ret = tdx_handle_cpuid(regs);
 		break;
 	case EXIT_REASON_IO_INSTRUCTION:

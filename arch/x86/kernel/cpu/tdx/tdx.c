@@ -152,6 +152,47 @@ static int init_tdx_module_platform(void)
 	return 0;
 }
 
+/* SMP call function to run TDH.SYS.LP.INIT */
+static void smp_call_tdx_cpu_init(void *data)
+{
+	atomic_t *err = (atomic_t *)err;
+	u64 ret;
+
+	ret = tdh_sys_lp_init();
+	if (ret) {
+		SEAMCALL_ERR_WARN("TDH.SYS.LP.INIT", ret);
+		atomic_set(err, -1);
+	}
+}
+
+/* Logical cpu level initialization on all online cpus. */
+static int init_tdx_module_cpus(void)
+{
+	int ret;
+
+	/*
+	 * Logical cpu level initialization requires calling
+	 * TDH.SYS.LP.INIT on all cpus reported by BIOS.
+	 * Prevent CPU hotplug to prevent any cpu going offline.
+	 */
+	cpus_read_lock();
+
+	/*
+	 * Sanity check whether all cpus are online.  Number of
+	 * possible cpus has already been checked earlier against
+	 * total_cpus in __detect_tdx() to make sure all cpus are
+	 * in cpu_possible_mask.
+	 */
+	if (num_online_cpus() != num_possible_cpus())
+		return -EFAULT;
+
+	ret = tdx_smp_call_cpus_all(smp_call_tdx_cpu_init);
+
+	cpus_read_unlock();
+
+	return ret;
+}
+
 /* Initialize TDX module. */
 static int init_tdx_module(void)
 {
@@ -159,6 +200,11 @@ static int init_tdx_module(void)
 
 	/* Platform level initialization */
 	ret = init_tdx_module_platform();
+	if (ret)
+		goto out;
+
+	/* Logical cpu level initialization */
+	ret = init_tdx_module_cpus();
 	if (ret)
 		goto out;
 

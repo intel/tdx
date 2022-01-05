@@ -13,6 +13,7 @@
 
 /* TDX module SEAMCALL leaf function numbers */
 #define TDH_SYS_INIT		33
+#define TDH_SYS_LP_INIT		35
 #define TDH_SYS_LP_SHUTDOWN	44
 
 /**
@@ -28,6 +29,16 @@ static inline u64 tdh_sys_init(void)
 	in.rcx = 0;	/* must be 0 for current TDX generation */
 	ret = seamcall(TDH_SYS_INIT, &in, NULL);
 	return ret;
+}
+
+/**
+ * tdh_sys_lp_init - Do logical cpu level initialization for local cpu
+ *
+ * Return: Completion status of TDH.SYS.LP.INIT SEAMCALL.
+ */
+static inline u64 tdh_sys_lp_init(void)
+{
+	return seamcall(TDH_SYS_LP_INIT, NULL, NULL);
 }
 
 /**

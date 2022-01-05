@@ -1,0 +1,30 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+ * Copyright(c) 2021 Intel Corporation.
+ *
+ * Intel TDX module SEAMCALL wrapper functions
+ */
+
+#ifndef _X86_TDX_SEAMCALL_H
+#define _X86_TDX_SEAMCALL_H
+
+#include <linux/types.h>
+#include <asm/seam.h>
+
+/* TDX module SEAMCALL leaf function numbers */
+#define TDH_SYS_LP_SHUTDOWN	44
+
+/**
+ * tdh_sys_lp_shutdown - Put TDX module to shutdown mode on local cpu
+ *
+ * Put TDX module to shutdown mode on local cpu, and prevent further
+ * SEAMCALLs being made on this cpu.
+ *
+ * Return: Completion status of TDH.SYS.LP.SHUTDOWN SEAMCALL.
+ */
+static inline u64 tdh_sys_lp_shutdown(void)
+{
+	return seamcall(TDH_SYS_LP_SHUTDOWN, NULL, NULL);
+}
+
+#endif /* _X86_TDX_SEAMCALL_H */

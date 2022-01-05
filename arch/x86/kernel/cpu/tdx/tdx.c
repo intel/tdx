@@ -142,6 +142,28 @@ static int init_tdx_module_global(void)
 	return tdh_sys_init();
 }
 
+/* SMP call function to run TDH.SYS.LP.INIT */
+static void smp_call_tdx_cpu_init(void *data)
+{
+	atomic_t *err = (atomic_t *)err;
+
+	if (tdh_sys_lp_init())
+		atomic_set(err, -1);
+}
+
+static int init_tdx_module_cpus(void)
+{
+	/*
+	 * Logical cpu level initialization requires call
+	 * TDH.SYS.LP.INIT on all cpus reported by BIOS,
+	 * otherwise SEAMCALL of next step will fail.
+	 *
+	 * Caller to guarantee all cpus reported by BIOS
+	 * are online.
+	 */
+	return tdx_on_each_cpu(smp_call_tdx_cpu_init);
+}
+
 /* Initialize the TDX module. */
 static int init_tdx_module(void)
 {
@@ -149,6 +171,11 @@ static int init_tdx_module(void)
 
 	/* Platform global initialization */
 	ret = init_tdx_module_global();
+	if (ret)
+		goto out;
+
+	/* Logical cpu level initialization */
+	ret = init_tdx_module_cpus();
 	if (ret)
 		goto out;
 

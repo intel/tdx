@@ -19,6 +19,7 @@
 #include <asm/seam.h>
 #include "p-seamldr.h"
 #include "tdx_seamcall.h"
+#include "tdx_arch.h"
 
 /*
  * TDX module status during initialization
@@ -40,6 +41,11 @@ static enum tdx_module_status_t tdx_module_status;
 
 /* Prevent concurrent attempts on TDX detection and initialization */
 static DEFINE_MUTEX(tdx_module_lock);
+
+/* Base address of CMR array needs to be 512 bytes aligned. */
+static struct cmr_info tdx_cmr_array[MAX_CMRS] __aligned(CMR_INFO_ARRAY_ALIGNMENT);
+static int tdx_cmr_num;
+static struct tdsysinfo_struct tdx_sysinfo;
 
 /*
  * Intel Trusted Domain CPU Architecture Extension spec:
@@ -164,6 +170,110 @@ static int init_tdx_module_cpus(void)
 	return tdx_on_each_cpu(smp_call_tdx_cpu_init);
 }
 
+static inline bool is_valid_cmr(struct cmr_info *cmr)
+{
+	return !!cmr->size;
+}
+
+static void print_cmrs(struct cmr_info *cmr_array, int cmr_num)
+{
+	int i;
+
+	for (i = 0; i < cmr_num; i++) {
+		struct cmr_info *cmr = &cmr_array[i];
+
+		pr_info("CMR[%d]: [0x%llx, 0x%llx)\n", i,
+				cmr->base, cmr->base + cmr->size);
+	}
+}
+
+static int sanitize_cmrs(void)
+{
+	int i, j;
+
+	/*
+	 * Intel TDX module spec, 20.7.3 CMR_INFO:
+	 *
+	 *   TDH.SYS.INFO leaf function returns a MAX_CMRS (32) entry
+	 *   array of CMR_INFO entries. The CMRs are sorted from the
+	 *   lowest base address to the highest base address, and they
+	 *   are non-overlapping.
+	 *
+	 * This implies that BIOS may generate empty entries if total
+	 * CMRs are less than 32.  Skip them manually.
+	 */
+	for (i = 0; i < tdx_cmr_num; i++) {
+		struct cmr_info *cmr = &tdx_cmr_array[i];
+		struct cmr_info *prev_cmr = NULL;
+
+		/* Skip further empty CMRs */
+		if (!is_valid_cmr(cmr))
+			break;
+
+		if (i > 0)
+			prev_cmr = &tdx_cmr_array[i - 1];
+
+		/*
+		 * It is a TDX firmware bug if CMRs are not
+		 * in address ascending order.
+		 */
+		if (prev_cmr && ((prev_cmr->base + prev_cmr->size) >
+					cmr->base)) {
+			pr_err("TDX firmware bug: CMRs not in address ascending order\n");
+			return -EFAULT;
+		}
+	}
+
+	/*
+	 * Also a sane BIOS should never generate invalid CMR(s) between
+	 * two valid CMRs.  Sanity check this and simply return error in
+	 * this case.
+	 */
+	for (j = i; j < tdx_cmr_num; j++)
+		if (is_valid_cmr(&tdx_cmr_array[j])) {
+			pr_err("TDX firmware bug: invalid CMR(s) among valid CMRs.\n");
+			return -EFAULT;
+		}
+
+	/*
+	 * Trim all tail empty CMRs.  BIOS should generate at least one
+	 * valid CMR, otherwise it's a TDX firmware bug.
+	 */
+	tdx_cmr_num = i;
+	if (!tdx_cmr_num) {
+		pr_err("TDX firmware bug: No valid CMRs generated.\n");
+		return -EFAULT;
+	}
+
+	print_cmrs(tdx_cmr_array, tdx_cmr_num);
+
+	return 0;
+}
+
+static int get_tdx_sysinfo(void)
+{
+	u64 tdsysinfo_sz, cmr_num;
+	int ret;
+
+	ret = tdh_sys_info(&tdx_sysinfo, tdx_cmr_array,
+			&tdsysinfo_sz, &cmr_num);
+	if (ret)
+		return ret;
+
+	if (WARN_ON(tdsysinfo_sz > sizeof(tdx_sysinfo)) ||
+		WARN_ON(cmr_num > MAX_CMRS))
+		return -EFAULT;
+
+	tdx_cmr_num = (int)cmr_num;
+
+	pr_info("TDX module: vendor_id 0x%x, major_version %u, minor_version %u, build_date %u, build_num %u",
+			tdx_sysinfo.vendor_id, tdx_sysinfo.major_version,
+			tdx_sysinfo.minor_version, tdx_sysinfo.build_date,
+			tdx_sysinfo.build_num);
+
+	return sanitize_cmrs();
+}
+
 /* Initialize the TDX module. */
 static int init_tdx_module(void)
 {
@@ -176,6 +286,11 @@ static int init_tdx_module(void)
 
 	/* Logical cpu level initialization */
 	ret = init_tdx_module_cpus();
+	if (ret)
+		goto out;
+
+	/* Get the TDX module and CMR info */
+	ret = get_tdx_sysinfo();
 	if (ret)
 		goto out;
 

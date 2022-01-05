@@ -128,6 +128,95 @@ static int check_e820_against_cmrs(struct cmr_info *cmr_array, int cmr_num)
 	return 0;
 }
 
+/* TDMR must be 1gb aligned */
+#define TDMR_ALIGNMENT		BIT_ULL(30)
+#define TDMR_PFN_ALIGNMENT	(TDMR_ALIGNMENT >> PAGE_SHIFT)
+
+/* Align up and down one address to TDMR boundary */
+#define TDMR_ALIGN_DOWN(_addr)	ALIGN_DOWN((_addr), TDMR_ALIGNMENT)
+#define TDMR_ALIGN_UP(_addr)	ALIGN((_addr), TDMR_ALIGNMENT)
+
+/* TDMR's start and end address */
+#define TDMR_START(_tdmr)	((_tdmr)->base)
+#define TDMR_END(_tdmr)		((_tdmr)->base + (_tdmr)->size)
+
+/*
+ * Create array of TDMR based on e820 entries.  The size of each TDMR
+ * must be a whole of multiple of 1G size (and 1G aligned).  one TDMR
+ * may include multiple e820 entries.
+ */
+static int create_tdmr_address_ranges(struct tdmr_info *tdmr_array,
+				      int max_tdmr_num,
+				      int max_rsvd_area_num,
+				      int *tdmr_num)
+{
+	struct tdmr_info *tdmr, *prev_tdmr;
+	struct e820_entry *entry;
+	u64 start, end;
+	int i, tdmr_idx;
+
+	tdmr_idx = 0;
+	tdmr = tdmr_array_entry(tdmr_array, 0, max_rsvd_area_num);
+	prev_tdmr = NULL;
+	/*
+	 * Loop over all RAM entries that are used as TDX memory in e820
+	 * table and create an array of TDMRs to cover them.  To keep it
+	 * simple, always try to use one TDMR to cover one RAM entry.
+	 *
+	 * Since TDMR must be 1G aligned, when looping to a new RAM
+	 * entry, it can be fully or partially covered by the TDMR which
+	 * is created to cover previous RAM entry.  In the latter case,
+	 * still create a new TDMR to cover the remaining part of the new
+	 * RAM entry.
+	 */
+	e820_for_each_ram_entry(e820_table, i, entry, start, end) {
+		/*
+		 * @tdmr is the current valid TDMR that has been created
+		 * to cover previous RAM entries, or it is the first TDMR
+		 * whose address range has not been created when the loop
+		 * starts with the first RAM entry.
+		 *
+		 * Check whether the RAM entry has already been covered
+		 * by current TDMR.  If yes it's done.  For the first RAM
+		 * entry, current TDMR's end is 0 and the check will fail.
+		 */
+		if (end <= TDMR_END(tdmr))
+			continue;
+
+		/*
+		 * If current TDMR is a valid TDMR, by reaching here the
+		 * new RAM entry is either totally above current TDMR, or
+		 * it overlaps with current TDMR.  Move to the next TDMR
+		 * in both cases to cover the new RAM entry.
+		 */
+		if (tdmr->size) {
+			prev_tdmr = tdmr;
+			tdmr_idx++;
+			if (tdmr_idx >= max_tdmr_num)
+				return -E2BIG;
+			tdmr = tdmr_array_entry(tdmr_array, tdmr_idx,
+				max_rsvd_area_num);
+		}
+
+		/*
+		 * Set up the address range for the first TDMR to cover
+		 * first RAM entry, or the new TDMR to cover the new RAM
+		 * entry.  For the latter case, check whether the new RAM
+		 * entry has been partially covered by previous TDMR, and
+		 * set up new TDMR's base accordingly.
+		 */
+		tdmr->base = prev_tdmr &&
+			(TDMR_END(prev_tdmr) > TDMR_ALIGN_DOWN(start)) ?
+			TDMR_END(prev_tdmr) : TDMR_ALIGN_DOWN(start);
+		tdmr->size = TDMR_ALIGN_UP(end) - tdmr->base;
+	}
+
+	/* @tdmr_idx is always the index of last valid TDMR. */
+	*tdmr_num = tdmr_idx + 1;
+
+	return 0;
+}
+
 /**
  * construct_tdmrs - Construct TDMRs to cover all system RAM in e820
  *
@@ -151,5 +240,18 @@ int construct_tdmrs(struct cmr_info *cmr_array, int cmr_num,
 		    struct tdx_module_descriptor *desc,
 		    int *tdmr_num)
 {
-	return check_e820_against_cmrs(cmr_array, cmr_num);
+	int ret;
+
+	ret = check_e820_against_cmrs(cmr_array, cmr_num);
+	if (ret)
+		goto err;
+
+	ret = create_tdmr_address_ranges(tdmr_array, desc->max_tdmr_num,
+			desc->max_rsvd_area_num, tdmr_num);
+	if (ret)
+		goto err;
+
+	return 0;
+err:
+	return ret;
 }

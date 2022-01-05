@@ -12,7 +12,21 @@
 #include <asm/seam.h>
 
 /* TDX module SEAMCALL leaf function numbers */
+#define TDH_SYS_INIT		33
 #define TDH_SYS_LP_SHUTDOWN	44
+
+static inline int tdh_sys_init(void)
+{
+	struct seamcall_regs_in in;
+	int ret;
+
+	/* Must be 0 for the first generation of TDX */
+	in.rcx = 0;
+	ret = tdx_seamcall(TDH_SYS_INIT, &in, NULL, NULL);
+	/* TDH.SYS.INIT should not fail.  WARN_ON() if it does. */
+	WARN_ON(ret);
+	return ret;
+}
 
 static inline int tdh_sys_lp_shutdown(void)
 {

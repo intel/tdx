@@ -134,10 +134,37 @@ static int tdx_smp_call_cpus_all(smp_call_func_t func)
 	return atomic_read(&err) ? -EFAULT : 0;
 }
 
+/* Platform level initialization */
+static int init_tdx_module_platform(void)
+{
+	u64 ret;
+
+	/*
+	 * Platform level initialization requires calling TDH.SYS.INIT
+	 * on any cpu once.
+	 */
+	ret = tdh_sys_init();
+	if (ret) {
+		SEAMCALL_ERR_WARN("TDH.SYS.INIT", ret);
+		return -EFAULT;
+	}
+
+	return 0;
+}
+
 /* Initialize TDX module. */
 static int init_tdx_module(void)
 {
-	return -EFAULT;
+	int ret;
+
+	/* Platform level initialization */
+	ret = init_tdx_module_platform();
+	if (ret)
+		goto out;
+
+	ret = -EFAULT;
+out:
+	return ret;
 }
 
 /* SMP call function to run TDH.SYS.LP.SHUTDOWN */

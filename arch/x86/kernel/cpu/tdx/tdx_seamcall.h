@@ -12,7 +12,23 @@
 #include <asm/seam.h>
 
 /* TDX module SEAMCALL leaf function numbers */
+#define TDH_SYS_INIT		33
 #define TDH_SYS_LP_SHUTDOWN	44
+
+/**
+ * tdh_sys_init - Do platform level initialization
+ *
+ * Return: Completion status of TDH.SYS.INIT SEMACALL.
+ */
+static inline u64 tdh_sys_init(void)
+{
+	struct seamcall_regs_in in;
+	u64 ret;
+
+	in.rcx = 0;	/* must be 0 for current TDX generation */
+	ret = seamcall(TDH_SYS_INIT, &in, NULL);
+	return ret;
+}
 
 /**
  * tdh_sys_lp_shutdown - Put TDX module to shutdown mode on local cpu

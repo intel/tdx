@@ -110,6 +110,115 @@ static int check_e820_against_cmrs(void)
 	return 0;
 }
 
+/* TDMR must be 1gb aligned */
+#define TDMR_ALIGNMENT		BIT_ULL(30)
+#define TDMR_PFN_ALIGNMENT	(TDMR_ALIGNMENT >> PAGE_SHIFT)
+
+/* Align up and down the address to TDMR boundary */
+#define TDMR_ALIGN_DOWN(_addr)	ALIGN_DOWN((_addr), TDMR_ALIGNMENT)
+#define TDMR_ALIGN_UP(_addr)	ALIGN((_addr), TDMR_ALIGNMENT)
+
+/* TDMR's start and end address */
+#define TDMR_START(_tdmr)	((_tdmr)->base)
+#define TDMR_END(_tdmr)		((_tdmr)->base + (_tdmr)->size)
+
+static struct tdmr_info *alloc_tdmr(void)
+{
+	int tdmr_sz;
+
+	/*
+	 * TDMR_INFO's actual size depends on maximum number of reserved
+	 * areas that one TDMR supports.
+	 */
+	tdmr_sz = 64 + tdx_sysinfo.max_reserved_per_tdmr *
+		sizeof(struct tdmr_reserved_area);
+
+	/*
+	 * TDX requires TDMR_INFO to be TDMR_INFO_ALIGNMENT (512, power
+	 * of two) aligned.  Always align up TDMR_INFO size to
+	 * TDMR_INFO_ALIGNMENT so the memory allocated via kzalloc() can
+	 * meet the alignment requirement.
+	 */
+	tdmr_sz = ALIGN(tdmr_sz, TDMR_INFO_ALIGNMENT);
+
+	return kzalloc(tdmr_sz, GFP_KERNEL);
+}
+
+/* Create a new TDMR at given index in the TDMR array */
+static struct tdmr_info *create_tdmr(struct tdmr_info **tdmr_array, int idx)
+{
+	struct tdmr_info *tdmr;
+
+	tdmr = alloc_tdmr();
+
+	WARN_ON(tdmr_array[idx]);
+	tdmr_array[idx] = tdmr;
+
+	return tdmr;
+}
+
+/*
+ * Create TDMRs to cover all RAM entries in e820_table.  The created
+ * TDMRs are saved to @tdmr_array, and @tdmr_num is set to the actual
+ * number of TDMRs.  All entries in @tdmr_array must be initially NULL.
+ */
+static int create_tdmrs(struct tdmr_info **tdmr_array, int *tdmr_num)
+{
+	struct e820_entry *entry;
+	struct tdmr_info *tdmr;
+	u64 start, end;
+	int i, tdmr_idx;
+
+	tdmr_idx = 0;
+	tdmr = create_tdmr(tdmr_array, 0);
+	if (!tdmr)
+		return -ENOMEM;
+	/*
+	 * Loop over all RAM entries in e820 and create TDMRs to cover
+	 * them.  To keep it simple, always try to use one TDMR to cover
+	 * one RAM entry.
+	 *
+	 * TDMR is 1GB aligned, so the current e820 entry may have been
+	 * fully or partially covered by the TDMR for the previous e820
+	 * entry.  For the latter case, create a new TDMR to cover the
+	 * remaining part of this entry.
+	 */
+	e820_for_each_ram_entry(e820_table, i, entry, start, end) {
+		start = TDMR_ALIGN_DOWN(start);
+		end = TDMR_ALIGN_UP(end);
+
+		/* Check overlap with current TDMR */
+		if (tdmr->size) {
+			/* Continue if already fully covered */
+			if (end <= TDMR_END(tdmr))
+				continue;
+
+			/* Skip the already-covered part */
+			if (start < TDMR_END(tdmr))
+				start = TDMR_END(tdmr);
+
+			/*
+			 * Create a new TDMR when RAM entry is not
+			 * covered or partially covered by the current
+			 * TDMR.
+			 */
+			tdmr_idx++;
+			if (tdmr_idx >= tdx_sysinfo.max_tdmrs)
+				return -E2BIG;
+			tdmr = create_tdmr(tdmr_array, tdmr_idx);
+			if (!tdmr)
+				return -ENOMEM;
+		}
+
+		tdmr->base = start;
+		tdmr->size = end - start;
+	}
+
+	/* @tdmr_idx is always the index of last valid TDMR. */
+	*tdmr_num = tdmr_idx + 1;
+
+	return 0;
+}
 
 static void destroy_tdmr(struct tdmr_info *tdmr)
 {
@@ -140,12 +249,19 @@ int construct_tdmrs(struct tdmr_info **tdmr_array, int *tdmr_num)
 	memset(tdmr_array, 0,
 			sizeof(struct tdmr_info *) * tdx_sysinfo.max_tdmrs);
 
+	*tdmr_num = 0;
+
 	ret = check_e820_against_cmrs();
+	if (ret)
+		goto err;
+
+	ret = create_tdmrs(tdmr_array, tdmr_num);
 	if (ret)
 		goto err;
 
 	return -EFAULT;
 err:
+	destroy_tdmrs(tdmr_array, *tdmr_num);
 	return ret;
 }
 

@@ -10,11 +10,53 @@
 
 #include <linux/types.h>
 #include <asm/seam.h>
+#include "tdx_arch.h"
 
 /* TDX module SEAMCALL leaf function numbers */
+#define TDH_SYS_INFO		32
 #define TDH_SYS_INIT		33
 #define TDH_SYS_LP_INIT		35
 #define TDH_SYS_LP_SHUTDOWN	44
+
+
+/*
+ * tdh_sys_info - Get TDX module and CMR array information
+ *
+ * @tdsysinfo:		Address of TDSYSINFO_STRUCT
+ * @cmr_array:		Address of array of CMR_INFO
+ * @tdsysinfo_sz:	The actual number of bytes written to @tdsysinfo
+ * @cmr_num:		The actual number of CMR_INFO entries written to
+ *			@cmr_array
+ *
+ * Caller guarantees @cmr_array at least has MAX_CMRS entries.
+ *
+ * Return: Completion status of TDH.SYS.INFO SEAMCALL.
+ */
+static inline u64 tdh_sys_info(struct tdsysinfo_struct *tdsysinfo,
+			       struct cmr_info *cmr_array,
+			       u64 *tdsysinfo_sz, u64 *cmr_num)
+{
+	struct seamcall_regs_in in;
+	struct seamcall_regs_out out;
+	u64 ret;
+
+	in.rcx = __pa(tdsysinfo);
+	in.rdx = sizeof(*tdsysinfo);
+	in.r8 = __pa(cmr_array);
+	in.r9 = MAX_CMRS;
+
+	ret = seamcall(TDH_SYS_INFO, &in, &out);
+
+	/*
+	 * If SEAMCALL succeeds, RDX contains the actual bytes written
+	 * to @tdsysinfo and R9 contains the actual written number of
+	 * CMR_INFO entries.  Otherwise both fields are 0.
+	 */
+	*tdsysinfo_sz = out.rdx;
+	*cmr_num = out.r9;
+
+	return ret;
+}
 
 /**
  * tdh_sys_init - Do platform level initialization

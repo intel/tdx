@@ -11,6 +11,7 @@
 #include <linux/errno.h>
 #include <linux/sizes.h>
 #include <linux/slab.h>
+#include <linux/sort.h>
 #include <asm/e820/api.h>
 #include <asm/pgtable.h>
 #include "tdmr.h"
@@ -71,6 +72,15 @@ static bool e820_entry_skip_lowmem(struct e820_entry *entry, u64 *start,
 			(_i)++, (_entry) = &(_table)->entries[(_i)])	\
 		if (!e820_entry_is_ram((_entry)) ||			\
 			!e820_entry_skip_lowmem((_entry),		\
+				&(_start), &(_end))) { }		\
+		else
+
+#define e820_for_each_ram_entry_continue(_table, _i, _entry, _start, _end) \
+	for ((_entry) = &(_table)->entries[(_i)];			\
+			(_i) < (_table)->nr_entries;			\
+			(_i)++, (_entry) = &(_table)->entries[(_i)])	\
+		if (!e820_entry_is_ram((_entry)) ||			\
+			!e820_entry_skip_lowmem((_entry), 		\
 				&(_start), &(_end))) { }		\
 		else
 
@@ -369,6 +379,187 @@ err:
 	return -ENOMEM;
 }
 
+static int tdmr_rsvd_area_add(struct tdmr_info *tdmr, int *p_idx,
+			      u64 addr, u64 size, int max_rsvd_area_num)
+{
+	struct tdmr_reserved_area *rsvd_areas = tdmr->reserved_areas;
+	int idx = *p_idx;
+
+	/* Reserved area must be 4K aligned in offset and size */
+	if (WARN_ON(addr & ~PAGE_MASK || size & ~PAGE_MASK))
+		return -EFAULT;
+
+	/* Cannot exceed maximum reserved areas supported by TDX */
+	if (idx >= max_rsvd_area_num)
+		return -E2BIG;
+
+	rsvd_areas[idx].offset = addr - tdmr->base; /* offset */
+	rsvd_areas[idx].size = size;
+
+	*p_idx = idx + 1;
+
+	return 0;
+}
+
+/* Compare function for two TDMR reserved areas. */
+static int rsvd_area_cmp_func(const void *a, const void *b)
+{
+	struct tdmr_reserved_area *r1 = (struct tdmr_reserved_area *)a;
+	struct tdmr_reserved_area *r2 = (struct tdmr_reserved_area *)b;
+
+	if (r1->offset + r1->size <= r2->offset)
+		return -1;
+	if (r1->offset >= r2->offset + r2->size)
+		return 1;
+
+	/* Reserved areas cannot overlap.  Caller should guarantee. */
+	WARN_ON(1);
+	return -1;
+}
+
+/*
+ * Set up reserved areas for given TDMR.  Two types of address ranges
+ * need to be put into reserved areas: TDX memory region holes, and
+ * PAMTs within the TDMR.
+ */
+static int tdmr_setup_reserved_areas(struct tdmr_info *tdmr,
+				     struct tdmr_info *tdmr_array,
+				     int tdmr_num,
+				     int max_rsvd_area_num)
+{
+	struct e820_entry *entry;
+	u64 start, end;
+	u64 addr, sz;
+	u64 prev_end;
+	int rsvd_idx;
+	int i, ret;
+
+	/* Find the first RAM entry covered by the TDMR */
+	e820_for_each_ram_entry(e820_table, i, entry, start, end)
+		if (end > TDMR_START(tdmr))
+			break;
+
+	/*
+	 * One TDMR must cover at least one (or partial) RAM entry,
+	 * otherwise it is kernel bug.  WARN_ON() in this case.
+	 */
+	if (WARN_ON(i == e820_table->nr_entries || start >= TDMR_END(tdmr)))
+		return -EFAULT;
+
+	rsvd_idx = 0;
+
+	if (start > TDMR_START(tdmr)) {
+		addr = TDMR_START(tdmr);
+		sz = start - TDMR_START(tdmr);
+		ret = tdmr_rsvd_area_add(tdmr, &rsvd_idx, addr, sz,
+					max_rsvd_area_num);
+		if (ret)
+			return ret;
+	}
+
+	/*
+	 * Continue to walk over all RAM entries within the TDMR, and
+	 * put RAM entries holes into reserved areas.
+	 */
+	++i;
+	prev_end = end;
+	e820_for_each_ram_entry_continue(e820_table, i, entry, start, end) {
+		if (start > TDMR_END(tdmr))
+			break;
+
+		/*
+		 * Put the hole between previous RAM entry and
+		 * current into reserved area.
+		 */
+		addr = prev_end;
+		sz = start - prev_end;
+		ret = tdmr_rsvd_area_add(tdmr, &rsvd_idx, addr, sz,
+				max_rsvd_area_num);
+		if (ret)
+			return ret;
+
+		prev_end = end;
+	}
+
+	/*
+	 * All RAM entries within the TDMR have been walked over.
+	 * Add hole between last RAM entry and TDMR end to reserved
+	 * areas if it exists.
+	 */
+	if (prev_end < TDMR_END(tdmr)) {
+		addr = prev_end;
+		sz = TDMR_END(tdmr) - prev_end;
+		ret = tdmr_rsvd_area_add(tdmr, &rsvd_idx, addr, sz,
+				max_rsvd_area_num);
+		if (ret)
+			return ret;
+	}
+
+	/*
+	 * All memory holes have been added to reserved areas.
+	 * Add all PAMTs within the TDMR to reserved areas too.
+	 * PAMTs are already set up in TDMR.  Walk over all TDMRs
+	 * to find all the PAMTs which fall into the given TDMR.
+	 */
+	for (i = 0; i < tdmr_num; i++) {
+		struct tdmr_info *tmp = tdmr_array_entry(tdmr_array, i,
+				max_rsvd_area_num);
+		u64 pamt_start, pamt_end;
+
+		pamt_start = tmp->pamt_4k_base;
+		pamt_end = pamt_start + tmp->pamt_4k_size +
+			tmp->pamt_2m_size + tmp->pamt_1g_size;
+
+		/* Skip PAMTs outside of the given TDMR */
+		if ((pamt_end <= TDMR_START(tdmr)) ||
+				(pamt_start >= TDMR_END(tdmr)))
+			continue;
+
+		/*
+		 * Only put the part that is within the TDMR into
+		 * reserved area.
+		 */
+		if (pamt_start < TDMR_START(tdmr))
+			pamt_start = TDMR_START(tdmr);
+		if (pamt_end > TDMR_END(tdmr))
+			pamt_end = TDMR_END(tdmr);
+
+		ret = tdmr_rsvd_area_add(tdmr, &rsvd_idx, pamt_start,
+				pamt_end - pamt_start, max_rsvd_area_num);
+		if (ret)
+			return ret;
+	}
+
+	/*
+	 * Both memory region holes and PAMTs have been put into
+	 * TDMR's reserved areas.  TDX requires reserved areas in
+	 * address ascending order.  Sort them.
+	 */
+	sort(tdmr->reserved_areas, rsvd_idx, sizeof(struct tdmr_reserved_area),
+			rsvd_area_cmp_func, NULL);
+
+	return 0;
+}
+
+static int setup_rsvd_areas_across_tdmrs(struct tdmr_info *tdmr_array,
+					 int tdmr_num, int max_rsvd_area_num)
+{
+	int i;
+
+	for (i = 0; i < tdmr_num; i++) {
+		struct tdmr_info *tdmr = tdmr_array_entry(tdmr_array, i,
+				max_rsvd_area_num);
+		int ret;
+
+		ret = tdmr_setup_reserved_areas(tdmr, tdmr_array, tdmr_num,
+				max_rsvd_area_num);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
 /**
  * construct_tdmrs - Construct TDMRs to cover all system RAM in e820
  *
@@ -407,6 +598,14 @@ int construct_tdmrs(struct cmr_info *cmr_array, int cmr_num,
 			desc->pamt_entry_size, desc->max_rsvd_area_num);
 	if (ret)
 		goto err;
+
+	ret = setup_rsvd_areas_across_tdmrs(tdmr_array, *tdmr_num,
+			desc->max_rsvd_area_num);
+	if (ret) {
+		free_pamts_across_tdmrs(tdmr_array, *tdmr_num,
+				desc->max_rsvd_area_num);
+		goto err;
+	}
 
 	return 0;
 err:

@@ -14,6 +14,7 @@
 #include <asm/string.h>
 #include <linux/sizes.h>
 #include <asm/e820/api.h>
+#include <asm/pgtable.h>
 #include "tdmr.h"
 
 /*
@@ -220,9 +221,151 @@ static int create_tdmrs(struct tdmr_info **tdmr_array, int *tdmr_num)
 	return 0;
 }
 
+/* Calculate PAMT size given a TDMR and a page size */
+static unsigned long __tdmr_get_pamt_sz(struct tdmr_info *tdmr,
+					enum tdx_page_sz pgsz)
+{
+	unsigned long pamt_sz;
+
+	pamt_sz = (tdmr->size >> ((9 * pgsz) + PAGE_SHIFT)) *
+		tdx_sysinfo.pamt_entry_size;
+	/* PAMT size must be 4K aligned */
+	pamt_sz = ALIGN(pamt_sz, PAGE_SIZE);
+
+	return pamt_sz;
+}
+
+/* Calculate the size of all PAMTs for a TDMR */
+static unsigned long tdmr_get_pamt_sz(struct tdmr_info *tdmr)
+{
+	enum tdx_page_sz pgsz;
+	unsigned long pamt_sz;
+
+	pamt_sz = 0;
+	for (pgsz = TDX_PG_4K; pgsz < TDX_PG_MAX; pgsz++)
+		pamt_sz += __tdmr_get_pamt_sz(tdmr, pgsz);
+
+	return pamt_sz;
+}
+
+/*
+ * Locate the NUMA containing the start of the given TDMR's first RAM
+ * entry.  The given TDMR may also cover memory in other NUMA nodes.
+ */
+static int tdmr_get_nid(struct tdmr_info *tdmr)
+{
+	struct e820_entry *entry;
+	u64 start, end;
+	int i;
+
+	/* Find the first RAM entry covered by the TDMR */
+	e820_for_each_ram_entry(e820_table, i, entry, start, end)
+		if (end > TDMR_START(tdmr))
+			break;
+
+	/*
+	 * One TDMR must cover at least one (or partial) RAM entry,
+	 * otherwise it is kernel bug.  WARN_ON() in this case.
+	 */
+	if (WARN_ON(i == e820_table->nr_entries || start >= TDMR_END(tdmr)))
+		return 0;
+
+	/*
+	 * The first RAM entry may be partially covered by the previous
+	 * TDMR.  In this case, use TDMR's start to find the NUMA node.
+	 */
+	if (start < TDMR_START(tdmr))
+		start = TDMR_START(tdmr);
+
+	return phys_to_target_node(start);
+}
+
+static int tdmr_setup_pamt(struct tdmr_info *tdmr)
+{
+	unsigned long tdmr_pamt_base, pamt_base[TDX_PG_MAX];
+	unsigned long pamt_sz[TDX_PG_MAX];
+	unsigned long pamt_npages;
+	struct page *pamt;
+	enum tdx_page_sz pgsz;
+	int nid;
+
+	/*
+	 * Allocate one chunk of physically contiguous memory for all
+	 * PAMTs.  This helps minimize the PAMT's use of reserved areas
+	 * in overlapped TDMRs.
+	 */
+	nid = tdmr_get_nid(tdmr);
+	pamt_npages = tdmr_get_pamt_sz(tdmr) >> PAGE_SHIFT;
+	pamt = alloc_contig_pages(pamt_npages, GFP_KERNEL, nid,
+			&node_online_map);
+	if (!pamt)
+		return -ENOMEM;
+
+	/* Calculate PAMT base and size for all supported page sizes. */
+	tdmr_pamt_base = page_to_pfn(pamt) << PAGE_SHIFT;
+	for (pgsz = TDX_PG_4K; pgsz < TDX_PG_MAX; pgsz++) {
+		unsigned long sz = __tdmr_get_pamt_sz(tdmr, pgsz);
+
+		pamt_base[pgsz] = tdmr_pamt_base;
+		pamt_sz[pgsz] = sz;
+
+		tdmr_pamt_base += sz;
+	}
+
+	tdmr->pamt_4k_base = pamt_base[TDX_PG_4K];
+	tdmr->pamt_4k_size = pamt_sz[TDX_PG_4K];
+	tdmr->pamt_2m_base = pamt_base[TDX_PG_2M];
+	tdmr->pamt_2m_size = pamt_sz[TDX_PG_2M];
+	tdmr->pamt_1g_base = pamt_base[TDX_PG_1G];
+	tdmr->pamt_1g_size = pamt_sz[TDX_PG_1G];
+
+	return 0;
+}
+
+static void tdmr_free_pamt(struct tdmr_info *tdmr)
+{
+	unsigned long pamt_pfn, pamt_sz;
+
+	pamt_pfn = tdmr->pamt_4k_base >> PAGE_SHIFT;
+	pamt_sz = tdmr->pamt_4k_size + tdmr->pamt_2m_size + tdmr->pamt_1g_size;
+
+	/* Do nothing if PAMT hasn't been allocated for this TDMR */
+	if (!pamt_sz)
+		return;
+
+	WARN_ON(!pamt_pfn);
+	free_contig_range(pamt_pfn, pamt_sz >> PAGE_SHIFT);
+}
+
+static void tdmrs_free_pamt_all(struct tdmr_info **tdmr_array, int tdmr_num)
+{
+	int i;
+
+	for (i = 0; i < tdmr_num; i++)
+		tdmr_free_pamt(tdmr_array[i]);
+}
+
+/* Allocate and set up PAMTs for all TDMRs */
+static int tdmrs_setup_pamt_all(struct tdmr_info **tdmr_array, int tdmr_num)
+{
+	int i, ret;
+
+	for (i = 0; i < tdmr_num; i++) {
+		ret = tdmr_setup_pamt(tdmr_array[i]);
+		if (ret)
+			goto err;
+	}
+
+	return 0;
+err:
+	tdmrs_free_pamt_all(tdmr_array, tdmr_num);
+	return -ENOMEM;
+}
+
 static void destroy_tdmr(struct tdmr_info *tdmr)
 {
 	WARN_ON(!tdmr);
+	tdmr_free_pamt(tdmr);
 	kfree(tdmr);
 }
 
@@ -256,6 +399,10 @@ int construct_tdmrs(struct tdmr_info **tdmr_array, int *tdmr_num)
 		goto err;
 
 	ret = create_tdmrs(tdmr_array, tdmr_num);
+	if (ret)
+		goto err;
+
+	ret = tdmrs_setup_pamt_all(tdmr_array, *tdmr_num);
 	if (ret)
 		goto err;
 

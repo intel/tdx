@@ -68,6 +68,7 @@ struct tdmr_reserved_area {
 } __packed;
 
 #define TDMR_INFO_ALIGNMENT	512
+#define TDMR_INFO_PA_ARRAY_ALIGNMENT	512
 struct tdmr_info {
 	u64 base;
 	u64 size;

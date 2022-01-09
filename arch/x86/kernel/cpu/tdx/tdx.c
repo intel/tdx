@@ -11,6 +11,7 @@
 #include <linux/mutex.h>
 #include <linux/cpu.h>
 #include <linux/bug.h>
+#include <linux/slab.h>
 #include <asm/cpufeatures.h>
 #include <asm/cpufeature.h>
 #include <asm/msr.h>
@@ -20,6 +21,7 @@
 #include "p-seamldr.h"
 #include "tdx_seamcall.h"
 #include "tdx_arch.h"
+#include "tdmr.h"
 
 /*
  * SEAMCALL failure with unexpected error code is likely a kernel bug.
@@ -55,6 +57,15 @@ static DEFINE_MUTEX(tdx_module_lock);
 static struct cmr_info tdx_cmr_array[MAX_CMRS] __aligned(CMR_INFO_ARRAY_ALIGNMENT);
 static int tdx_cmr_num;
 static struct tdsysinfo_struct tdx_tdsysinfo;
+
+/* Array of TDMR_INFO */
+static struct tdmr_info *tdx_tdmr_array;
+/* Array of physical address of TDMR_INFO.  Used as input to TDH.SYS.CONFIG. */
+static u64 *tdx_tdmr_pa_array;
+/* Actual number of entries of TDMR_INFO array */
+static int tdx_tdmr_num;
+/* TDX global KeyID to protect TDX metadata */
+static u32 tdx_global_keyid;
 
 #define MSR_IA32_MKTME_KEYID_PARTITIONING	0x00000087
 
@@ -310,6 +321,95 @@ static int get_tdx_sysinfo(void)
 	return sanitize_cmrs();
 }
 
+static int alloc_tdmr_array(int max_tdmr_num, int max_tdmr_rsvd_area_num)
+{
+	int tdmr_pa_array_sz, tdmr_sz, i;
+
+	/*
+	 * TDX requires each TDMR_INFO being TDMR_INFO_ALIGNMENT aligned,
+	 * otherwise TDH.SYS.CONFIG would fail.  Allocate an array of
+	 * TDMR_INFO with each entry being TDMR_INFO_ALIGNMENT aligned to
+	 * meet this requirement.
+	 *
+	 * The size of TDMR_INFO is aligned up to TDMR_INFO_ALIGNMENT, so
+	 * the array size is also aligned up to TDMR_INFO_ALIGNMENT
+	 * (which is power of two).
+	 *
+	 * kmalloc() guarantees the allocated chunk is at least 'size'
+	 * aligned if the allocation size is power of two.
+	 *
+	 * kcalloc() also uses __GFP_ZERO internally.
+	 */
+	tdmr_sz = tdmr_info_struct_sz(max_tdmr_rsvd_area_num);
+	tdx_tdmr_array = kcalloc(max_tdmr_num, tdmr_sz, GFP_KERNEL);
+	if (!tdx_tdmr_array)
+		return -ENOMEM;
+
+	/*
+	 * TDX also requires the array of physical address of TDMR_INFO
+	 * being TDMR_INFO_PA_ARRAY_ALIGNMENT aligned (which is power of
+	 * two).  Align up the array size to TDMR_INFO_PA_ARRAY_ALIGNMENT
+	 * boundary so that memory allocated by kmalloc() meets the
+	 * alignment.
+	 */
+	tdmr_pa_array_sz = ALIGN(max_tdmr_num * sizeof(u64),
+			TDMR_INFO_PA_ARRAY_ALIGNMENT);
+	tdx_tdmr_pa_array = kzalloc(tdmr_pa_array_sz, GFP_KERNEL);
+	if (!tdx_tdmr_pa_array) {
+		kfree(tdx_tdmr_array);
+		return -ENOMEM;
+	}
+
+	/*
+	 * Set up each entry in TDMR_INFO physical address array to
+	 * point to the TDMR_INFO in TDMR_INFO array respectively.
+	 * TDH.SYS.CONFIG later uses the physical address array as
+	 * input to configure the TDX module.
+	 */
+	for (i = 0; i < max_tdmr_num; i++)
+		tdx_tdmr_pa_array[i] = __pa(tdmr_array_entry(tdx_tdmr_array,
+				i, max_tdmr_rsvd_area_num));
+
+	return 0;
+}
+
+static void free_tdmr_array(void)
+{
+	/* kfree() works with NULL */
+	kfree(tdx_tdmr_array);
+	kfree(tdx_tdmr_pa_array);
+}
+
+static int build_tdx_memory(void)
+{
+	struct tdx_module_descriptor desc;
+
+	/* Construct TDMRs to cover all system RAM */
+	desc.max_tdmr_num = tdx_tdsysinfo.max_tdmrs;
+	desc.max_rsvd_area_num = tdx_tdsysinfo.max_reserved_per_tdmr;
+	desc.pamt_entry_size[TDX_PG_4K] = tdx_tdsysinfo.pamt_entry_size;
+	desc.pamt_entry_size[TDX_PG_2M] = tdx_tdsysinfo.pamt_entry_size;
+	desc.pamt_entry_size[TDX_PG_1G] = tdx_tdsysinfo.pamt_entry_size;
+
+	return construct_tdmrs(tdx_cmr_array, tdx_cmr_num,
+			tdx_tdmr_array, &desc, &tdx_tdmr_num);
+}
+
+/* Configure TDX module with TDMRs and global KeyID info */
+static int config_tdx_module(void)
+{
+	u64 ret;
+
+	ret = tdh_sys_config(tdx_tdmr_pa_array, tdx_tdmr_num,
+			tdx_global_keyid);
+	if (ret) {
+		SEAMCALL_ERR_WARN("TDH.SYS.CONFIG", ret);
+		return -EFAULT;
+	}
+
+	return 0;
+}
+
 /* Initialize TDX module. */
 static int init_tdx_module(void)
 {
@@ -330,8 +430,36 @@ static int init_tdx_module(void)
 	if (ret)
 		goto out;
 
+	/*
+	 * Allocate enough space for TDMRs to prepare to construct
+	 * TDMRs to build the TDX usable memory.
+	 */
+	ret = alloc_tdmr_array(tdx_tdsysinfo.max_tdmrs,
+			tdx_tdsysinfo.max_reserved_per_tdmr);
+	if (ret)
+		goto out;
+
+	/* Build the TDX usable memory by constructing TDMRs */
+	ret = build_tdx_memory();
+	if (ret)
+		goto out;
+
+	/* Reserve the first TDX KeyID as global KeyID. */
+	tdx_global_keyid = tdx_keyid_start;
+
+	/* Configure TDX module with TDMRs and global KeyID info */
+	ret = config_tdx_module();
+	if (ret)
+		goto out;
+
 	ret = -EFAULT;
 out:
+	/*
+	 * Always free TDMRs since they are not required any more after
+	 * TDX module initialization, no matter the initialization was
+	 * successful or not.
+	 */
+	free_tdmr_array();
 	return ret;
 }
 

@@ -17,6 +17,7 @@
 #define TDH_SYS_INIT		33
 #define TDH_SYS_LP_INIT		35
 #define TDH_SYS_LP_SHUTDOWN	44
+#define TDH_SYS_CONFIG		45
 
 
 /*
@@ -94,6 +95,25 @@ static inline u64 tdh_sys_lp_init(void)
 static inline u64 tdh_sys_lp_shutdown(void)
 {
 	return seamcall(TDH_SYS_LP_SHUTDOWN, NULL, NULL);
+}
+
+/**
+ * tdh_sys_config - Configure TDX module with TDMRs and global KeyID
+ *
+ * Return: Completion status of TDH.SYS.CONFIG SEAMCALL.
+ */
+static inline u64 tdh_sys_config(u64 *tdmr_pa_array, u64 tdmr_num,
+		u64 global_keyid)
+{
+	struct seamcall_regs_in in;
+	u64 ret;
+
+	in.rcx = __pa(tdmr_pa_array);
+	in.rdx = tdmr_num;
+	in.r8 = global_keyid;
+
+	ret = seamcall(TDH_SYS_CONFIG, &in, NULL);
+	return ret;
 }
 
 #endif /* _X86_TDX_SEAMCALL_H */

@@ -13,6 +13,7 @@
 #include <linux/slab.h>
 #include <asm/string.h>
 #include <linux/sizes.h>
+#include <linux/sort.h>
 #include <asm/e820/api.h>
 #include <asm/pgtable.h>
 #include "tdmr.h"
@@ -362,6 +363,152 @@ err:
 	return -ENOMEM;
 }
 
+static int tdmr_add_rsvd_area(struct tdmr_info *tdmr, int *p_idx,
+			      u64 addr, u64 size)
+{
+	struct tdmr_reserved_area *rsvd_areas = tdmr->reserved_areas;
+	int idx = *p_idx;
+
+	/* Reserved area must be 4K aligned in offset and size */
+	if (WARN_ON(addr & ~PAGE_MASK || size & ~PAGE_MASK))
+		return -EINVAL;
+
+	/* Cannot exceed maximum reserved areas supported by TDX */
+	if (idx >= tdx_sysinfo.max_reserved_per_tdmr)
+		return -E2BIG;
+
+	rsvd_areas[idx].offset = addr - tdmr->base;
+	rsvd_areas[idx].size = size;
+
+	*p_idx = idx + 1;
+
+	return 0;
+}
+
+/* Compare function called by sort() for TDMR reserved areas */
+static int rsvd_area_cmp_func(const void *a, const void *b)
+{
+	struct tdmr_reserved_area *r1 = (struct tdmr_reserved_area *)a;
+	struct tdmr_reserved_area *r2 = (struct tdmr_reserved_area *)b;
+
+	if (r1->offset + r1->size <= r2->offset)
+		return -1;
+	if (r1->offset >= r2->offset + r2->size)
+		return 1;
+
+	/* Reserved areas cannot overlap.  Caller should guarantee. */
+	WARN_ON(1);
+	return -1;
+}
+
+/* Set up reserved areas for a TDMR, including memory holes and PAMTs */
+static int tdmr_setup_rsvd_areas(struct tdmr_info *tdmr,
+				     struct tdmr_info **tdmr_array,
+				     int tdmr_num)
+{
+	struct e820_entry *entry;
+	u64 start, end;
+	u64 prev_end;
+	int rsvd_idx;
+	int i, ret = 0;
+
+	/*
+	 * Walk over all e820 RAM entries, and mark all holes
+	 * as reserved.
+	 */
+	rsvd_idx = 0;
+	prev_end = TDMR_START(tdmr);
+	e820_for_each_ram_entry(e820_table, i, entry, start, end) {
+		/* Break if this entry is after the TDMR */
+		if (start >= TDMR_END(tdmr))
+			break;
+
+		/* Exclude entries before this TDMR */
+		if (end < TDMR_START(tdmr))
+			continue;
+
+		/*
+		 * Skip if no hole exists before this entry.  "<=" is
+		 * used because the first e820 entry might be split into
+		 * two TDMRs.  In that case the start address of the
+		 * first e820 entry is smaller than the start of the
+		 * second TDMR.
+		 */
+		if (start <= prev_end) {
+			prev_end = end;
+			continue;
+		}
+
+		/* Add the hole before this e820 entry */
+		ret = tdmr_add_rsvd_area(tdmr, &rsvd_idx, prev_end,
+				start - prev_end);
+		if (ret)
+			return ret;
+
+		prev_end = end;
+	}
+
+	/* Add the hole after the last RAM entry if it exists. */
+	if (prev_end < TDMR_END(tdmr)) {
+		ret = tdmr_add_rsvd_area(tdmr, &rsvd_idx, prev_end,
+				TDMR_END(tdmr) - prev_end);
+		if (ret)
+			return ret;
+	}
+
+	/*
+	 * Walk over all TDMRs to find out whether any PAMT falls into
+	 * the given TDMR. If yes, mark it as reserved too.
+	 */
+	for (i = 0; i < tdmr_num; i++) {
+		struct tdmr_info *tmp = tdmr_array[i];
+		u64 pamt_start, pamt_end;
+
+		pamt_start = tmp->pamt_4k_base;
+		pamt_end = pamt_start + tmp->pamt_4k_size +
+			tmp->pamt_2m_size + tmp->pamt_1g_size;
+
+		/* Skip PAMTs outside of the given TDMR */
+		if ((pamt_end <= TDMR_START(tdmr)) ||
+				(pamt_start >= TDMR_END(tdmr)))
+			continue;
+
+		/* Only mark the part within the TDMR as reserved */
+		if (pamt_start < TDMR_START(tdmr))
+			pamt_start = TDMR_START(tdmr);
+		if (pamt_end > TDMR_END(tdmr))
+			pamt_end = TDMR_END(tdmr);
+
+		ret = tdmr_add_rsvd_area(tdmr, &rsvd_idx, pamt_start,
+				pamt_end - pamt_start);
+		if (ret)
+			return ret;
+	}
+
+	/* TDX requires reserved areas listed in address ascending order */
+	sort(tdmr->reserved_areas, rsvd_idx, sizeof(struct tdmr_reserved_area),
+			rsvd_area_cmp_func, NULL);
+
+	return 0;
+}
+
+static int tdmrs_setup_rsvd_areas_all(struct tdmr_info **tdmr_array,
+				      int tdmr_num)
+{
+	int i;
+
+	for (i = 0; i < tdmr_num; i++) {
+		int ret;
+
+		ret = tdmr_setup_rsvd_areas(tdmr_array[i], tdmr_array,
+				tdmr_num);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
 static void destroy_tdmr(struct tdmr_info *tdmr)
 {
 	WARN_ON(!tdmr);
@@ -406,7 +553,11 @@ int construct_tdmrs(struct tdmr_info **tdmr_array, int *tdmr_num)
 	if (ret)
 		goto err;
 
-	return -EFAULT;
+	ret = tdmrs_setup_rsvd_areas_all(tdmr_array, *tdmr_num);
+	if (ret)
+		goto err;
+
+	return 0;
 err:
 	destroy_tdmrs(tdmr_array, *tdmr_num);
 	return ret;

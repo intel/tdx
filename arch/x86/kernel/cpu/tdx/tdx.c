@@ -53,6 +53,10 @@ struct tdsysinfo_struct tdx_sysinfo;
 static struct tdmr_info **tdx_tdmr_array;
 /* Actual number of TDMRs */
 static int tdx_tdmr_num;
+/* Array of physical address of TDMR_INFO.  Used as input to TDH.SYS.CONFIG. */
+static u64 *tdx_tdmr_pa_array;
+/* TDX global KeyID to protect TDX metadata */
+static u32 tdx_global_keyid;
 
 /*
  * Intel Trusted Domain CPU Architecture Extension spec:
@@ -302,6 +306,44 @@ static void build_tdx_memory_cleanup(void)
 	}
 }
 
+/* Configure TDX module with TDMRs and global KeyID info */
+static int config_tdx_module(void)
+{
+	int tdmr_pa_array_sz, i;
+	int ret;
+
+	/*
+	 * TDX requires the array of physical address of TDMR_INFO being
+	 * TDMR_INFO_PA_ARRAY_ALIGNMENT aligned (which is power of two).
+	 * Align up the array size to TDMR_INFO_PA_ARRAY_ALIGNMENT so
+	 * that memory allocated by kmalloc() meets the alignment.
+	 */
+	tdmr_pa_array_sz = ALIGN(tdx_tdmr_num * sizeof(u64),
+			TDMR_INFO_PA_ARRAY_ALIGNMENT);
+	tdx_tdmr_pa_array = kzalloc(tdmr_pa_array_sz, GFP_KERNEL);
+	if (!tdx_tdmr_pa_array)
+		return -ENOMEM;
+
+	/*
+	 * TDH.SYS.CONFIG uses the array of physical address of TDMRs
+	 * as input to configure the TDX module.
+	 */
+	for (i = 0; i < tdx_tdmr_num; i++) {
+		tdx_tdmr_pa_array[i] = __pa(tdx_tdmr_array[i]);
+		WARN_ON(!IS_ALIGNED(tdx_tdmr_pa_array[i], TDMR_INFO_ALIGNMENT));
+	}
+
+	ret = tdh_sys_config(tdx_tdmr_pa_array, tdx_tdmr_num,
+			tdx_global_keyid);
+	/*
+	 * The physical address array is only used by TDH.SYS.CONFIG.
+	 * Free it as it is not required anymore.
+	 */
+	kfree(tdx_tdmr_pa_array);
+
+	return ret;
+}
+
 /* Initialize the TDX module. */
 static int init_tdx_module(void)
 {
@@ -324,6 +366,14 @@ static int init_tdx_module(void)
 
 	/* Construct TDMRs to build TDX memory */
 	ret = build_tdx_memory();
+	if (ret)
+		goto out;
+
+	/* Reserve the first TDX KeyID as global KeyID. */
+	tdx_global_keyid = tdx_keyid_start;
+
+	/* Configure TDX module with TDMRs and global KeyID info */
+	ret = config_tdx_module();
 	if (ret)
 		goto out;
 

@@ -10,6 +10,14 @@
 
 #include "tdx_arch.h"
 
+/* Page sizes supported by TDX */
+enum tdx_page_sz {
+	TDX_PG_4K = 0,
+	TDX_PG_2M,
+	TDX_PG_1G,
+	TDX_PG_MAX,
+};
+
 extern struct cmr_info tdx_cmr_array[];
 extern int tdx_cmr_num;
 extern struct tdsysinfo_struct tdx_sysinfo;

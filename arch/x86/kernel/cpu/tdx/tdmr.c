@@ -10,7 +10,9 @@
 #include <linux/types.h>
 #include <linux/errno.h>
 #include <linux/sizes.h>
+#include <linux/slab.h>
 #include <asm/e820/api.h>
+#include <asm/pgtable.h>
 #include "tdmr.h"
 
 /*
@@ -217,6 +219,156 @@ static int create_tdmr_address_ranges(struct tdmr_info *tdmr_array,
 	return 0;
 }
 
+/* Calculate PAMT size for one page size for given TDMR */
+static unsigned long __tdmr_get_pamt_sz(struct tdmr_info *tdmr,
+					enum tdx_page_sz pgsz,
+					int pamt_entry_sz)
+{
+	unsigned long pamt_sz;
+
+	pamt_sz = (tdmr->size >> ((9 * pgsz) + PAGE_SHIFT)) * pamt_entry_sz;
+	/* PAMT size must be 4K aligned */
+	pamt_sz = ALIGN(pamt_sz, PAGE_SIZE);
+
+	return pamt_sz;
+}
+
+/*
+ * Calculate PAMT size for one TDMR.  PAMTs for all supported page sizes
+ * are calculated together as a whole to allow caller to allocate one
+ * chunk of contiguous memory at once for all PAMTs.
+ */
+static unsigned long tdmr_get_pamt_sz(struct tdmr_info *tdmr,
+				      int pamt_entry_sz_array[TDX_PG_MAX])
+{
+	enum tdx_page_sz pgsz;
+	unsigned long pamt_sz;
+
+	pamt_sz = 0;
+	for (pgsz = TDX_PG_4K; pgsz < TDX_PG_MAX; pgsz++)
+		pamt_sz += __tdmr_get_pamt_sz(tdmr, pgsz,
+				pamt_entry_sz_array[pgsz]);
+
+	return pamt_sz;
+}
+
+/* Get the NUMA node where PAMT will be allocated from for given TDMR */
+static int tdmr_get_nid(struct tdmr_info *tdmr)
+{
+	struct e820_entry *entry;
+	u64 start, end;
+	int i;
+
+	/* Find the first RAM entry covered by the TDMR */
+	e820_for_each_ram_entry(e820_table, i, entry, start, end)
+		if (end > TDMR_START(tdmr))
+			break;
+
+	/*
+	 * One TDMR must cover at least one (or partial) RAM entry,
+	 * otherwise it is kernel bug.  WARN_ON() in this case.
+	 */
+	if (WARN_ON(i == e820_table->nr_entries || start >= TDMR_END(tdmr)))
+		return 0;
+
+	return phys_to_target_node(start);
+}
+
+static int tdmr_setup_pamt(struct tdmr_info *tdmr,
+			   int pamt_entry_sz_array[TDX_PG_MAX])
+{
+	unsigned long tdmr_pamt_base, pamt_base[TDX_PG_MAX];
+	unsigned long pamt_sz[TDX_PG_MAX];
+	unsigned long pamt_npages;
+	struct page *pamt;
+	enum tdx_page_sz pgsz;
+	int nid;
+
+	/*
+	 * Allocate one chunk of physically contiguous memory for PAMTs
+	 * for all supported page sizes together, although PAMTs for
+	 * different page sizes are not required to be contiguous.  This
+	 * helps to reduce TDMR's reserved areas occupied by PAMTs.
+	 */
+	nid = tdmr_get_nid(tdmr);
+	pamt_npages = tdmr_get_pamt_sz(tdmr, pamt_entry_sz_array) >> PAGE_SHIFT;
+	pamt = alloc_contig_pages(pamt_npages, GFP_KERNEL, nid,
+			&node_online_map);
+	if (!pamt)
+		return -ENOMEM;
+
+	/* Calculate PAMT base and size for all supported page sizes. */
+	tdmr_pamt_base = page_to_pfn(pamt) << PAGE_SHIFT;
+	for (pgsz = TDX_PG_4K; pgsz < TDX_PG_MAX; pgsz++) {
+		unsigned long sz = __tdmr_get_pamt_sz(tdmr, pgsz,
+				pamt_entry_sz_array[pgsz]);
+
+		pamt_base[pgsz] = tdmr_pamt_base;
+		pamt_sz[pgsz] = sz;
+
+		tdmr_pamt_base += sz;
+	}
+
+	tdmr->pamt_4k_base = pamt_base[TDX_PG_4K];
+	tdmr->pamt_4k_size = pamt_sz[TDX_PG_4K];
+	tdmr->pamt_2m_base = pamt_base[TDX_PG_2M];
+	tdmr->pamt_2m_size = pamt_sz[TDX_PG_2M];
+	tdmr->pamt_1g_base = pamt_base[TDX_PG_1G];
+	tdmr->pamt_1g_size = pamt_sz[TDX_PG_1G];
+
+	return 0;
+}
+
+static void tdmr_free_pamt(struct tdmr_info *tdmr)
+{
+	unsigned long pamt_pfn, pamt_sz;
+
+	pamt_pfn = tdmr->pamt_4k_base >> PAGE_SHIFT;
+	pamt_sz = tdmr->pamt_4k_size + tdmr->pamt_2m_size + tdmr->pamt_1g_size;
+
+	/* Do nothing if PAMT hasn't been allocated for this TDMR */
+	if (!pamt_sz)
+		return;
+
+	WARN_ON(!pamt_pfn);
+	free_contig_range(pamt_pfn, pamt_sz >> PAGE_SHIFT);
+}
+
+static void free_pamts_across_tdmrs(struct tdmr_info *tdmr_array, int tdmr_num,
+				    int max_rsvd_area_num)
+{
+	int i;
+
+	for (i = 0; i < tdmr_num; i++) {
+		struct tdmr_info *tdmr = tdmr_array_entry(tdmr_array, i,
+				max_rsvd_area_num);
+
+		tdmr_free_pamt(tdmr);
+	}
+}
+
+/* Allocate and set up PAMTs for all TDMRs */
+static int setup_pamts_across_tdmrs(struct tdmr_info *tdmr_array, int tdmr_num,
+				   int pamt_entry_sz_array[TDX_PG_MAX],
+				   int max_rsvd_area_num)
+{
+	int i, ret;
+
+	for (i = 0; i < tdmr_num; i++) {
+		struct tdmr_info *tdmr = tdmr_array_entry(tdmr_array, i,
+				max_rsvd_area_num);
+
+		ret = tdmr_setup_pamt(tdmr, pamt_entry_sz_array);
+		if (ret)
+			goto err;
+	}
+
+	return 0;
+err:
+	free_pamts_across_tdmrs(tdmr_array, tdmr_num, max_rsvd_area_num);
+	return -ENOMEM;
+}
+
 /**
  * construct_tdmrs - Construct TDMRs to cover all system RAM in e820
  *
@@ -248,6 +400,11 @@ int construct_tdmrs(struct cmr_info *cmr_array, int cmr_num,
 
 	ret = create_tdmr_address_ranges(tdmr_array, desc->max_tdmr_num,
 			desc->max_rsvd_area_num, tdmr_num);
+	if (ret)
+		goto err;
+
+	ret = setup_pamts_across_tdmrs(tdmr_array, *tdmr_num,
+			desc->pamt_entry_size, desc->max_rsvd_area_num);
 	if (ret)
 		goto err;
 

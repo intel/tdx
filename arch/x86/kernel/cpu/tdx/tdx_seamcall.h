@@ -17,6 +17,7 @@
 #define TDH_SYS_INIT		33
 #define TDH_SYS_LP_INIT		35
 #define TDH_SYS_LP_SHUTDOWN	44
+#define TDH_SYS_CONFIG		45
 
 static inline int tdh_sys_info(struct tdsysinfo_struct *tdsysinfo,
 			       struct cmr_info *cmr_array,
@@ -76,6 +77,22 @@ static inline int tdh_sys_lp_shutdown(void)
 
 	ret = tdx_seamcall(TDH_SYS_LP_SHUTDOWN, NULL, NULL, NULL);
 	/* TDH.SYS.LP.SHUTDOWN should not fail.  WARN_ON() if it does. */
+	WARN_ON(ret);
+	return ret;
+}
+
+static inline int tdh_sys_config(u64 *tdmr_pa_array, u64 tdmr_num,
+				 u64 global_keyid)
+{
+	struct seamcall_regs_in in;
+	int ret;
+
+	in.rcx = __pa(tdmr_pa_array);
+	in.rdx = tdmr_num;
+	in.r8 = global_keyid;
+
+	ret = tdx_seamcall(TDH_SYS_CONFIG, &in, NULL, NULL);
+	/* TDH.SYS.CONFIG should not fail.  WARN_ON() if it does. */
 	WARN_ON(ret);
 	return ret;
 }

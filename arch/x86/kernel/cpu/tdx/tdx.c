@@ -151,6 +151,28 @@ static int tdx_smp_call_cpus_all(smp_call_func_t func)
 	return atomic_read(&err) ? -EFAULT : 0;
 }
 
+/*
+ * Call specific function on all online cpus one by one.  It is
+ * intended to be used to call SEAMCALL which cannot run in parallel
+ * on multiple cpus.
+ */
+static int tdx_smp_call_cpus_all_serialized(smp_call_func_t func)
+{
+	int cpu, ret, err = 0;
+
+	for_each_online_cpu(cpu) {
+		ret = smp_call_function_single(cpu, func, &err, 1);
+		/*
+		 * Don't care about exactly what error happened
+		 * on which cpu.
+		 */
+		if (ret || err)
+			return -EFAULT;
+	}
+
+	return 0;
+}
+
 /* Platform level initialization */
 static int init_tdx_module_platform(void)
 {
@@ -410,6 +432,63 @@ static int config_tdx_module(void)
 	return 0;
 }
 
+/* SMP call function to run TDH.SYS.KEY.CONFIG */
+static void smp_call_tdh_sys_key_config(void *data)
+{
+	int *err = (int *)data;
+	u64 ret;
+
+	ret = tdh_sys_key_config();
+
+	/*
+	 * Key generation may fail due to entropy error, which may
+	 * happen if kernel is executing a lot of RDRAND/RDSEED
+	 * instructions right before the SEAMCALL.  This should not
+	 * happen if kernel is not under attack.  Just treat this
+	 * error as fatal error.
+	 *
+	 * This function is called on all online cpus, and SEAMCALL
+	 * can fail with TDX_KEY_CONFIGURED when it has already been
+	 * done on other cpus on the same pkg.  Treat it as success.
+	 */
+	if (ret && ret != TDX_KEY_CONFIGURED) {
+		SEAMCALL_ERR_WARN("TDH.SYS.KEY.CONFIG", ret);
+		*err = -1;
+	}
+}
+
+/* Configure the global KeyID on all CPU packages. */
+static int config_global_keyid_on_all_pkgs(void)
+{
+	int ret;
+
+	/* Prevent any cpu going offline */
+	cpus_read_lock();
+
+	/*
+	 * TDX requires calling TDH.SYS.KEY.CONFIG at least on one
+	 * cpu for each package, otherwise further SEAMCALL will fail.
+	 * To avoid having to find one cpu for each package and track
+	 * whether all packages has been done, simply requires all
+	 * possible cpus are online and call it on all online cpus.
+	 */
+	if (num_online_cpus() != num_possible_cpus()) {
+		ret = -EFAULT;
+		goto out;
+	}
+
+	/*
+	 * Run TDH.SYS.KEY.CONFIG on all online cpus one by one, since
+	 * it needs to exclusively lock the TDX module therefore cannot
+	 * run in parallel.
+	 */
+	ret = tdx_smp_call_cpus_all_serialized(smp_call_tdh_sys_key_config);
+out:
+	cpus_read_unlock();
+
+	return ret;
+}
+
 /* Initialize TDX module. */
 static int init_tdx_module(void)
 {
@@ -449,6 +528,11 @@ static int init_tdx_module(void)
 
 	/* Configure TDX module with TDMRs and global KeyID info */
 	ret = config_tdx_module();
+	if (ret)
+		goto out;
+
+	/* Configure the global KeyID on all cpu packages */
+	ret = config_global_keyid_on_all_pkgs();
 	if (ret)
 		goto out;
 

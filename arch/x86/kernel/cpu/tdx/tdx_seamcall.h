@@ -13,12 +13,28 @@
 #include "tdx_arch.h"
 
 /* TDX module SEAMCALL leaf function numbers */
+#define TDH_SYS_KEY_CONFIG	31
 #define TDH_SYS_INFO		32
 #define TDH_SYS_INIT		33
 #define TDH_SYS_LP_INIT		35
 #define TDH_SYS_LP_SHUTDOWN	44
 #define TDH_SYS_CONFIG		45
 
+/* TDX module SEAMCALL error codes */
+#define TDX_KEY_CONFIGURED                      0x0000081500000000ULL
+
+/**
+ * tdh_sys_key_config - Configure the global KeyID on local CPU package
+ *
+ * Configure the global KeyID to generate the key on the CPU package
+ * which the local cpu belongs to.
+ *
+ * Return: Completion status of TDH.SYS.KEY.CONFIG SEAMCALL.
+ */
+static inline u64 tdh_sys_key_config(void)
+{
+	return seamcall(TDH_SYS_KEY_CONFIG, NULL, NULL);
+}
 
 /*
  * tdh_sys_info - Get TDX module and CMR array information

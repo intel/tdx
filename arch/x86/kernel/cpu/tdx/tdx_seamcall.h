@@ -17,6 +17,7 @@
 #define TDH_SYS_INFO		32
 #define TDH_SYS_INIT		33
 #define TDH_SYS_LP_INIT		35
+#define TDH_SYS_TDMR_INIT	36
 #define TDH_SYS_LP_SHUTDOWN	44
 #define TDH_SYS_CONFIG		45
 
@@ -85,6 +86,27 @@ static inline int tdh_sys_lp_init(void)
 	/* TDH.SYS.LP.INIT should not fail.  WARN_ON() if it does. */
 	WARN_ON(ret);
 	return ret;
+}
+
+static inline int tdh_sys_tdmr_init(struct tdmr_info *tdmr, u64 *next)
+{
+	struct seamcall_regs_in in;
+	struct seamcall_regs_out out;
+	int ret;
+
+	in.rcx = tdmr->base;
+	ret = tdx_seamcall(TDH_SYS_TDMR_INIT, &in, NULL, &out);
+	/* TDH.SYS.TDMR.INIT should not fail.  WARN_ON() if it does. */
+	if (WARN_ON(ret))
+		return ret;
+
+	/*
+	 * RDX contains 'next-to-initialize' address if
+	 * TDH.SYS.TDMR.INIT succeeds.
+	 */
+	*next = out.rdx;
+
+	return 0;
 }
 
 static inline int tdh_sys_lp_shutdown(void)

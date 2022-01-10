@@ -13,11 +13,27 @@
 #include "tdx_arch.h"
 
 /* TDX module SEAMCALL leaf function numbers */
+#define TDH_SYS_KEY_CONFIG	31
 #define TDH_SYS_INFO		32
 #define TDH_SYS_INIT		33
 #define TDH_SYS_LP_INIT		35
 #define TDH_SYS_LP_SHUTDOWN	44
 #define TDH_SYS_CONFIG		45
+
+static inline int tdh_sys_key_config(u64 *seamcall_ret)
+{
+	int ret;
+
+	ret = tdx_seamcall(TDH_SYS_KEY_CONFIG, NULL, seamcall_ret, NULL);
+	/*
+	 * TDH.SYS.KEY.CONFIG may fail with recoverable errors (i.e. due
+	 * to entropy error), and tdx_seamcall() returns -EFAULT in this
+	 * case.  It should not return any other errors.  WARN_ON() if
+	 * it does.
+	 */
+	WARN_ON(ret && ret != -EFAULT);
+	return ret;
+}
 
 static inline int tdh_sys_info(struct tdsysinfo_struct *tdsysinfo,
 			       struct cmr_info *cmr_array,

@@ -150,6 +150,27 @@ static int tdx_on_each_cpu(smp_call_func_t func)
 	return atomic_read(&err) ? -EFAULT : 0;
 }
 
+/*
+ * Call the requested function on each online in turn.  It is intended
+ * for SEAMCALLs which don't support concurrent invocations.
+ */
+static int tdx_on_each_cpu_serialized(smp_call_func_t func)
+{
+	int cpu, ret, err = 0;
+
+	for_each_online_cpu(cpu) {
+		ret = smp_call_function_single(cpu, func, &err, 1);
+		/*
+		 * Don't care about exactly what error happened
+		 * on which cpu.
+		 */
+		if (ret || err)
+			return -EFAULT;
+	}
+
+	return 0;
+}
+
 static int init_tdx_module_global(void)
 {
 	/*
@@ -344,6 +365,49 @@ static int config_tdx_module(void)
 	return ret;
 }
 
+/* SMP call function to run TDH.SYS.KEY.CONFIG */
+static void smp_call_tdh_sys_key_config(void *data)
+{
+	int *err = (int *)data;
+	u64 seamcall_ret;
+
+	/*
+	 * Some TDH.SYS.KEY.CONFIG errors are theoretically recoverable.
+	 * Assume they are exceedingly rare and WARN() if one is
+	 * encountered instead of retrying.
+	 */
+	if (tdh_sys_key_config(&seamcall_ret)) {
+		WARN_ON(seamcall_ret);
+		*err = -1;
+	}
+}
+
+/* Configure the global KeyID on all CPU packages. */
+static int config_global_keyid_on_all_pkgs(void)
+{
+	/*
+	 * The same physical address associated with different KeyIDs
+	 * has separate cachelines.  Before using the new KeyID to access
+	 * some memory, the cachelines associated with the old KeyID must
+	 * be flushed, otherwise they may later silently corrupt the data
+	 * written with the new KeyID.  After cachelines associated with
+	 * the old KeyID are flushed, CPU speculative fetch using the old
+	 * KeyID is OK since the prefetched cachelines won't be consumed
+	 * by CPU core.
+	 *
+	 * TDX module initializes PAMTs using the global KeyID to crypto
+	 * protect them from malicious host.  Before that, the PAMTs are
+	 * used by kernel (with KeyID 0) and the cachelines associated
+	 * with the PAMTs must be flushed.  Given PAMTs are potentially
+	 * large, just use WBINVD on all cpus to flush the cache.  As
+	 * suggested by the TDX specification, do cache flush before
+	 * configuring the key for global KeyID.
+	 */
+	wbinvd_on_all_cpus();
+
+	return tdx_on_each_cpu_serialized(smp_call_tdh_sys_key_config);
+}
+
 /* Initialize the TDX module. */
 static int init_tdx_module(void)
 {
@@ -374,6 +438,11 @@ static int init_tdx_module(void)
 
 	/* Configure TDX module with TDMRs and global KeyID info */
 	ret = config_tdx_module();
+	if (ret)
+		goto out;
+
+	/* Configure the global KeyID on all cpu packages */
+	ret = config_global_keyid_on_all_pkgs();
 	if (ret)
 		goto out;
 

@@ -408,6 +408,60 @@ static int config_global_keyid_on_all_pkgs(void)
 	return tdx_on_each_cpu_serialized(smp_call_tdh_sys_key_config);
 }
 
+/* Initialize one TDMR */
+static int init_tdmr(struct tdmr_info *tdmr)
+{
+	u64 next;
+
+	/*
+	 * Initializing PAMT entries might be time-consuming (in
+	 * proportion to the size of the requested TDMR).  To avoid long
+	 * latency in one SEAMCALL, TDH.SYS.TDMR.INIT only initializes
+	 * an (implementation-defined) subset of PAMT entries in one
+	 * invocation.
+	 *
+	 * Call TDH.SYS.TDMR.INIT iteratively until all PAMT entries
+	 * of the requested TDMR are initialized (if next-to-initialize
+	 * address matches the end address of the TDMR).
+	 */
+	do {
+		u64 ret;
+
+		ret = tdh_sys_tdmr_init(tdmr, &next);
+		if (ret) {
+			WARN(1, "TDH.SYS.TDMR.INIT failed: 0x%llx", ret);
+			return -EFAULT;
+		}
+		if (need_resched())
+			cond_resched();
+	} while (next < tdmr->base + tdmr->size);
+
+	return 0;
+}
+
+/* Initialize all TDMRs */
+static int init_tdmrs(void)
+{
+	int i;
+
+	/*
+	 * Initialize TDMRs one-by-one for simplicity, though the TDX
+	 * architecture does allow different TDMRs to be initialized in
+	 * parallel on multiple CPUs.  Parallel initialization could
+	 * be added later when the time spent in the serialized scheme
+	 * becomes a real concern.
+	 */
+	for (i = 0; i < tdx_tdmr_num; i++) {
+		int ret;
+
+		ret = init_tdmr(tdx_tdmr_array[i]);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
 /* Initialize the TDX module. */
 static int init_tdx_module(void)
 {
@@ -446,7 +500,14 @@ static int init_tdx_module(void)
 	if (ret)
 		goto out;
 
-	ret = -EFAULT;
+	/* Initialize TDMRs to complete the TDX module initialization */
+	ret = init_tdmrs();
+	if (ret)
+		goto out;
+
+	tdx_module_status = TDX_MODULE_INITIALIZED;
+
+	pr_info("TDX module successfully initialized\n");
 out:
 	/*
 	 * TDMRs are not required anymore after TDX module

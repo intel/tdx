@@ -17,6 +17,7 @@
 #define TDH_SYS_INFO		32
 #define TDH_SYS_INIT		33
 #define TDH_SYS_LP_INIT		35
+#define TDH_SYS_TDMR_INIT	36
 #define TDH_SYS_LP_SHUTDOWN	44
 #define TDH_SYS_CONFIG		45
 
@@ -98,6 +99,35 @@ static inline u64 tdh_sys_init(void)
 static inline u64 tdh_sys_lp_init(void)
 {
 	return seamcall(TDH_SYS_LP_INIT, NULL, NULL);
+}
+
+/**
+ * tdh_sys_tdmr_init - Initialize a TDMR
+ *
+ * @tdmr:	The TDMR to initialize
+ * @next:	The address (rounded down to 1G) next SEAMCALL will
+ *		start to initialize
+ *
+ * Initialize a TDMR. The TDX module is not committed to initialize
+ * all pages in the TDMR in one breath.  In case of partial completion,
+ * RDX returns the next-to-initialize address (rounded down to 1G
+ * boundary). The caller should resume the initialization until the
+ * return address spans the entire TDMR range or any error is detected.
+ *
+ * Return: Completion status of TDH.SYS.TDMR.INIT SEAMCALL.
+ */
+static inline u64 tdh_sys_tdmr_init(struct tdmr_info *tdmr, u64 *next)
+{
+	struct seamcall_regs_in in;
+	struct seamcall_regs_out out;
+	u64 ret;
+
+	in.rcx = tdmr->base;
+	ret = seamcall(TDH_SYS_TDMR_INIT, &in, &out);
+
+	*next = out.rdx;
+
+	return ret;
 }
 
 /**

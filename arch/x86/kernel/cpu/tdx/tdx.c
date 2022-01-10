@@ -489,6 +489,62 @@ out:
 	return ret;
 }
 
+/* Initialize one TDMR */
+static int init_tdmr(struct tdmr_info *tdmr)
+{
+	u64 next;
+
+	/*
+	 * Initialize one TDMR.  TDX module doesn't initialize the entire
+	 * TDMR in one SEAMCALL due to the latency requirement.  Instead,
+	 * this SEAMCALL returns the next-to-initialize address (rounded
+	 * down to 1G).  Loop the SEAMCALL until the next-to-initialize
+	 * address spans the entire TDMR range.
+	 */
+	do {
+		u64 ret;
+
+		ret = tdh_sys_tdmr_init(tdmr, &next);
+		if (ret) {
+			SEAMCALL_ERR_WARN("TDH.SYS.TDMR.INIT", ret);
+			return -EFAULT;
+		}
+		/*
+		 * Initializing the entire TDMR may take many loops and
+		 * could be time consuming.  Check whether need to
+		 * reschedule.
+		 */
+		if (need_resched())
+			cond_resched();
+	} while (next < tdmr->base + tdmr->size);
+
+	return 0;
+}
+
+/* Init all TDMRs */
+static int init_tdmrs(void)
+{
+	int i;
+
+	/*
+	 * Initialize all TDMRs to make all TDX memory available to run
+	 * TD guests.  Note initializing different TDMRs can be done in
+	 * parallel on different cpus, but for simplicity, initialize
+	 * them one by one.
+	 */
+	for (i = 0; i < tdx_tdmr_num; i++) {
+		struct tdmr_info *tdmr = tdmr_array_entry(tdx_tdmr_array, i,
+				tdx_tdsysinfo.max_reserved_per_tdmr);
+		int ret;
+
+		ret = init_tdmr(tdmr);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
 /* Initialize TDX module. */
 static int init_tdx_module(void)
 {
@@ -536,7 +592,25 @@ static int init_tdx_module(void)
 	if (ret)
 		goto out;
 
-	ret = -EFAULT;
+	/*
+	 * TDX module uses global KeyID to initialize PAMTs when it
+	 * initializes TDMRs to crypto protect PAMTs from malicious
+	 * host.  The initialization uses MOVDIR64B internally.
+	 * Before initializing TDMRs, do WBINVD on all packages to
+	 * flush all dirty cachelines otherwise they might corrupt
+	 * the PAMTs after they are initialized by TDX module using
+	 * global KeyID.
+	 */
+	wbinvd_on_all_cpus();
+
+	/* Initialize all TDMRs to make TDX memory ready for use */
+	ret = init_tdmrs();
+	if (ret)
+		goto out;
+
+	tdx_module_status = TDX_MODULE_INITIALIZED;
+
+	pr_info("TDX module successfully initialized\n");
 out:
 	/*
 	 * Always free TDMRs since they are not required any more after

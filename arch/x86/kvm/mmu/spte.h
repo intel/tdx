@@ -194,7 +194,9 @@ extern u64 __read_mostly shadow_nonpresent_or_rsvd_mask;
  * If a thread running without exclusive control of the MMU lock must perform a
  * multi-part operation on an SPTE, it can set the SPTE to REMOVED_SPTE as a
  * non-present intermediate value. Other threads which encounter this value
- * should not modify the SPTE.
+ * should not modify the SPTE.  When TDX is enabled, shadow_init_value, which
+ * is "suppress #VE" bit set, is also set to removed SPTE, because TDX module
+ * always enables "EPT violation #VE".
  *
  * Use a semi-arbitrary value that doesn't set RWX bits, i.e. is not-present on
  * bot AMD and Intel CPUs, and doesn't set PFN bits, i.e. doesn't create a L1TF
@@ -207,9 +209,17 @@ extern u64 __read_mostly shadow_nonpresent_or_rsvd_mask;
 /* Removed SPTEs must not be misconstrued as shadow present PTEs. */
 static_assert(!(REMOVED_SPTE & SPTE_MMU_PRESENT_MASK));
 
+/*
+ * See above comment around REMOVED_SPTE.  SHADOW_REMOVED_SPTE is the actual
+ * intermediate value set to the removed SPET.  When TDX is enabled, it sets
+ * the "suppress #VE" bit, otherwise it's REMOVED_SPTE.
+ */
+extern u64 __read_mostly shadow_init_value;
+#define SHADOW_REMOVED_SPTE	(shadow_init_value | REMOVED_SPTE)
+
 static inline bool is_removed_spte(u64 spte)
 {
-	return spte == REMOVED_SPTE;
+	return spte == SHADOW_REMOVED_SPTE;
 }
 
 /*

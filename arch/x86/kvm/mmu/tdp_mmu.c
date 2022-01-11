@@ -440,7 +440,7 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
 			 * value to the removed SPTE value.
 			 */
 			for (;;) {
-				old_child_spte = xchg(sptep, REMOVED_SPTE);
+				old_child_spte = xchg(sptep, SHADOW_REMOVED_SPTE);
 				if (!is_removed_spte(old_child_spte))
 					break;
 				cpu_relax();
@@ -467,10 +467,10 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
 			 * the two branches consistent and simplifies
 			 * the function.
 			 */
-			WRITE_ONCE(*sptep, REMOVED_SPTE);
+			WRITE_ONCE(*sptep, SHADOW_REMOVED_SPTE);
 		}
 		handle_changed_spte(kvm, kvm_mmu_page_as_id(sp), gfn,
-				    old_child_spte, REMOVED_SPTE, level,
+				    old_child_spte, SHADOW_REMOVED_SPTE, level,
 				    shared);
 	}
 
@@ -659,7 +659,7 @@ static inline int tdp_mmu_zap_spte_atomic(struct kvm *kvm,
 	 * immediately installing a present entry in its place
 	 * before the TLBs are flushed.
 	 */
-	ret = tdp_mmu_set_spte_atomic(kvm, iter, REMOVED_SPTE);
+	ret = tdp_mmu_set_spte_atomic(kvm, iter, SHADOW_REMOVED_SPTE);
 	if (ret)
 		return ret;
 
@@ -673,6 +673,14 @@ static inline int tdp_mmu_zap_spte_atomic(struct kvm *kvm,
 	 * special removed SPTE value. No bookkeeping is needed
 	 * here since the SPTE is going from non-present
 	 * to non-present.
+	 *
+	 * Set non-present value to shadow_init_value, rather than 0.
+	 * It is because when TDX is enabled, TDX module always
+	 * enables "EPT-violation #VE", so KVM needs to set
+	 * "suppress #VE" bit in EPT table entries, in order to get
+	 * real EPT violation, rather than TDVMCALL.  KVM sets
+	 * shadow_init_value (which sets "suppress #VE" bit) so it
+	 * can be set when EPT table entries are zapped.
 	 */
 	kvm_tdp_mmu_write_spte(iter->sptep, shadow_init_value);
 

@@ -338,7 +338,7 @@ static void handle_removed_tdp_mmu_page(struct kvm *kvm, tdp_ptep_t pt,
 			 * value to the removed SPTE value.
 			 */
 			for (;;) {
-				old_child_spte = xchg(sptep, REMOVED_SPTE);
+				old_child_spte = xchg(sptep, SHADOW_REMOVED_SPTE);
 				if (!is_removed_spte(old_child_spte))
 					break;
 				cpu_relax();
@@ -365,10 +365,10 @@ static void handle_removed_tdp_mmu_page(struct kvm *kvm, tdp_ptep_t pt,
 			 * the two branches consistent and simplifies
 			 * the function.
 			 */
-			WRITE_ONCE(*sptep, REMOVED_SPTE);
+			WRITE_ONCE(*sptep, SHADOW_REMOVED_SPTE);
 		}
 		handle_changed_spte(kvm, kvm_mmu_page_as_id(sp), gfn,
-				    old_child_spte, REMOVED_SPTE, level,
+				    old_child_spte, SHADOW_REMOVED_SPTE, level,
 				    shared);
 	}
 
@@ -537,7 +537,7 @@ static inline bool tdp_mmu_zap_spte_atomic(struct kvm *kvm,
 	 * immediately installing a present entry in its place
 	 * before the TLBs are flushed.
 	 */
-	if (!tdp_mmu_set_spte_atomic(kvm, iter, REMOVED_SPTE))
+	if (!tdp_mmu_set_spte_atomic(kvm, iter, SHADOW_REMOVED_SPTE))
 		return false;
 
 	kvm_flush_remote_tlbs_with_address(kvm, iter->gfn,
@@ -550,8 +550,16 @@ static inline bool tdp_mmu_zap_spte_atomic(struct kvm *kvm,
 	 * special removed SPTE value. No bookkeeping is needed
 	 * here since the SPTE is going from non-present
 	 * to non-present.
+	 *
+	 * Set non-present value to shadow_init_value, rather than 0.
+	 * It is because when TDX is enabled, TDX module always
+	 * enables "EPT-violation #VE", so KVM needs to set
+	 * "suppress #VE" bit in EPT table entries, in order to get
+	 * real EPT violation, rather than TDVMCALL.  KVM sets
+	 * shadow_init_value (which sets "suppress #VE" bit) so it
+	 * can be set when EPT table entries are zapped.
 	 */
-	WRITE_ONCE(*rcu_dereference(iter->sptep), 0);
+	WRITE_ONCE(*rcu_dereference(iter->sptep), shadow_init_value);
 
 	return true;
 }
@@ -748,7 +756,8 @@ retry:
 			continue;
 
 		if (!shared) {
-			tdp_mmu_set_spte(kvm, &iter, 0);
+			/* see comments in tdp_mmu_zap_spte_atomic() */
+			tdp_mmu_set_spte(kvm, &iter, shadow_init_value);
 			flush = true;
 		} else if (!tdp_mmu_zap_spte_atomic(kvm, &iter)) {
 			/*
@@ -1135,7 +1144,7 @@ static bool set_spte_gfn(struct kvm *kvm, struct tdp_iter *iter,
 	 * invariant that the PFN of a present * leaf SPTE can never change.
 	 * See __handle_changed_spte().
 	 */
-	tdp_mmu_set_spte(kvm, iter, 0);
+	tdp_mmu_set_spte(kvm, iter, shadow_init_value);
 
 	if (!pte_write(range->pte)) {
 		new_spte = kvm_mmu_changed_pte_notifier_make_spte(iter->old_spte,

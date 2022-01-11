@@ -644,7 +644,10 @@ static efi_status_t allocate_e820(struct boot_params *params,
 			goto out;
 		memset(unaccepted_memory, 0, size);
 		params->unaccepted_memory = (u64)unaccepted_memory;
+	} else {
+		params->unaccepted_memory = 0;
 	}
+
 
 out:
 	efi_bs_call(free_pool, *map->map);

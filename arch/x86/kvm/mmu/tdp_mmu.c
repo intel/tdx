@@ -736,6 +736,11 @@ static inline int tdp_mmu_set_spte_atomic(struct kvm *kvm,
 	return 0;
 }
 
+static u64 shadow_nonpresent_spte(u64 old_spte)
+{
+	return SHADOW_NONPRESENT_VALUE | spte_shared_mask(old_spte);
+}
+
 static inline int tdp_mmu_zap_spte_atomic(struct kvm *kvm,
 					  struct tdp_iter *iter)
 {
@@ -770,7 +775,8 @@ static inline int tdp_mmu_zap_spte_atomic(struct kvm *kvm,
 	 * SHADOW_NONPRESENT_VALUE (which sets "suppress #VE" bit) so it
 	 * can be set when EPT table entries are zapped.
 	 */
-	kvm_tdp_mmu_write_spte(iter->sptep, SHADOW_NONPRESENT_VALUE);
+	kvm_tdp_mmu_write_spte(iter->sptep,
+			       shadow_nonpresent_spte(iter->old_spte));
 
 	return 0;
 }
@@ -948,8 +954,11 @@ retry:
 			continue;
 
 		if (!shared)
-			tdp_mmu_set_spte(kvm, &iter, SHADOW_NONPRESENT_VALUE);
-		else if (tdp_mmu_set_spte_atomic(kvm, &iter, SHADOW_NONPRESENT_VALUE))
+			tdp_mmu_set_spte(kvm, &iter,
+					 shadow_nonpresent_spte(iter.old_spte));
+		else if (tdp_mmu_set_spte_atomic(
+				 kvm, &iter,
+				 shadow_nonpresent_spte(iter.old_spte)))
 			goto retry;
 	}
 }
@@ -1006,7 +1015,8 @@ bool kvm_tdp_mmu_zap_sp(struct kvm *kvm, struct kvm_mmu_page *sp)
 		return false;
 
 	__tdp_mmu_set_spte(kvm, kvm_mmu_page_as_id(sp), sp->ptep, old_spte,
-			   SHADOW_NONPRESENT_VALUE, sp->gfn, sp->role.level + 1,
+			   shadow_nonpresent_spte(old_spte),
+			   sp->gfn, sp->role.level + 1,
 			   true, true, is_private_sp(sp));
 
 	return true;
@@ -1048,11 +1058,20 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 			continue;
 		}
 
+		/*
+		 * SPTE_SHARED_MASK is stored as 4K granularity.  The
+		 * information is lost if we delete upper level SPTE page.
+		 * TODO: support large page.
+		 */
+		if (kvm_gfn_shared_mask(kvm) && iter.level > PG_LEVEL_4K)
+			continue;
+
 		if (!is_shadow_present_pte(iter.old_spte) ||
 		    !is_last_spte(iter.old_spte, iter.level))
 			continue;
 
-		tdp_mmu_set_spte(kvm, &iter, SHADOW_NONPRESENT_VALUE);
+		tdp_mmu_set_spte(kvm, &iter,
+				 shadow_nonpresent_spte(iter.old_spte));
 		flush = true;
 	}
 
@@ -1168,18 +1187,44 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
 	gfn_t gfn_unalias = iter->gfn & ~kvm_gfn_shared_mask(vcpu->kvm);
 
 	WARN_ON(sp->role.level != fault->goal_level);
+	WARN_ON(is_private_sptep(iter->sptep) != fault->is_private);
 
-	/* TDX shared GPAs are no executable, enforce this for the SDV. */
-	if (kvm_gfn_shared_mask(vcpu->kvm) && !fault->is_private)
-		pte_access &= ~ACC_EXEC_MASK;
+	if (kvm_gfn_shared_mask(vcpu->kvm)) {
+		if (fault->is_private) {
+			/*
+			 * SPTE allows only RWX mapping. PFN can't be mapped it
+			 * as READONLY in GPA.
+			 */
+			if (fault->slot && !fault->map_writable)
+				return RET_PF_RETRY;
+			/*
+			 * This GPA is not allowed to map as private.  Let
+			 * vcpu loop in page fault until other vcpu change it
+			 * by MapGPA hypercall.
+			 */
+			if (fault->slot &&
+				spte_shared_mask(iter->old_spte))
+				return RET_PF_RETRY;
+		} else {
+			/* This GPA is not allowed to map as shared. */
+			if (fault->slot &&
+				!spte_shared_mask(iter->old_spte))
+				return RET_PF_RETRY;
+			/* TDX shared GPAs are no executable, enforce this. */
+			pte_access &= ~ACC_EXEC_MASK;
+		}
+	}
 
 	if (unlikely(!fault->slot))
 		new_spte = make_mmio_spte(vcpu, gfn_unalias, pte_access);
-	else
+	else {
 		wrprot = make_spte(vcpu, sp, fault->slot, pte_access,
 				   gfn_unalias, fault->pfn, iter->old_spte,
 				   fault->prefetch, true, fault->map_writable,
 				   &new_spte);
+		if (spte_shared_mask(iter->old_spte))
+			new_spte |= SPTE_SHARED_MASK;
+	}
 
 	if (new_spte == iter->old_spte)
 		ret = RET_PF_SPURIOUS;
@@ -1488,7 +1533,7 @@ static bool set_spte_gfn(struct kvm *kvm, struct tdp_iter *iter,
 	 * invariant that the PFN of a present * leaf SPTE can never change.
 	 * See __handle_changed_spte().
 	 */
-	tdp_mmu_set_spte(kvm, iter, SHADOW_NONPRESENT_VALUE);
+	tdp_mmu_set_spte(kvm, iter, shadow_nonpresent_spte(iter->old_spte));
 
 	if (!pte_write(range->pte)) {
 		new_spte = kvm_mmu_changed_pte_notifier_make_spte(iter->old_spte,

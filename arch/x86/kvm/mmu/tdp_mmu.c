@@ -1788,6 +1788,161 @@ bool kvm_tdp_mmu_write_protect_gfn(struct kvm *kvm,
 	return spte_set;
 }
 
+static void kvm_tdp_mmu_update_private_spte(
+	struct kvm *kvm, struct tdp_iter *iter, bool is_private)
+{
+	u64 new_spte;
+
+	if (is_private) {
+		new_spte = iter->old_spte & ~SPTE_PRIVATE_PROHIBIT;
+		/* No side effect is needed */
+		if (new_spte != iter->old_spte)
+			WRITE_ONCE(*rcu_dereference(iter->sptep), new_spte);
+	} else {
+		new_spte = shadow_init_value | SPTE_PRIVATE_PROHIBIT;
+		if (new_spte != iter->old_spte) {
+			if (is_shadow_present_pte(iter->old_spte))
+				/* Zap SPTE */
+				tdp_mmu_set_spte(kvm, iter, new_spte);
+			else
+				/* No side effect is needed */
+				WRITE_ONCE(*rcu_dereference(iter->sptep), new_spte);
+		}
+	}
+}
+
+/*
+ * Whether GPA is allowed to map private or shared is recorded in private leaf
+ * spte entry as SPTE_PRIVATE_PROHIBIT bit.
+ * - present: private mapping is allowed. (already mapped)
+ * - non-present: private mapping is allowed.
+ * - present | PRIVATE_PROHIBIT: invalid state.
+ * - non-present | SPTE_PRIVATE_PROHIBIT: shared mapping is allowed.
+ *                                        may or may not be mapped as shared.
+ *
+ * state change of private spte:
+ * map_gpa(private):
+ *      private EPT entry: clear PRIVATE_PROHIBIT
+ *	  present: nop
+ *	  non-present: nop
+ *	  non-present | PRIVATE_PROHIBIT -> non-present
+ *	share EPT entry: zap
+ *	  any -> non-present
+ * map_gpa(shared):
+ *	private EPT entry: zap and set PRIVATE_PROHIBIT
+ *	  present     -> non-present | PRIVATE_PROHIBIT
+ *	  non-present -> non-present | PRIVATE_PROHIBIT
+ *	  non-present | PRIVATE_PROHIBIT: nop
+ *	shared EPT entry: nop
+ * map(private GPA):
+ *	private EPT entry: try to populate
+ *	  present: nop
+ *	  non-present -> present
+ *	  non-present | PRIVATE_PROHIBIT: nop. looping on EPT violation
+ *	shared EPT entry: nop
+ * map(shared GPA):
+ *	private EPT entry: nop
+ *	  It's consulted to check if shared GPA is allowed with
+ *        PRIVATE_PROHIBIT bit.
+ *	  present or non-present: loop in EPT violation on shared GPA
+ *	  non-present | PRIVATE_PROHIBIT:	shared GPA is resolved
+ *	shared EPT entry: populate
+ *	  present: nop
+ *	  non-present -> present
+ * zap(private GPA):
+ *	private EPT entry: zap
+ *	  present -> non-present
+ *	  non-present: nop as is_shadow_prsent_pte() is checked
+ *	  non-present | PRIVATE_PROHIBIT: nop by is_shadow_prsent_pte()
+ *	shared EPT entry: nop
+ * zap(shared GPA):
+ *	private EPT entry: nop
+ *	shared EPT entry: zap
+ *	  any -> non-prezent
+ */
+int kvm_tdp_mmu_map_gpa(struct kvm_vcpu *vcpu,
+			gfn_t *startp, gfn_t end, bool is_private)
+{
+	struct kvm *kvm = vcpu->kvm;
+	struct kvm_mmu *mmu = vcpu->arch.mmu;
+	struct kvm_mmu_page *root;
+	struct tdp_iter iter;
+	gfn_t start = *startp;
+	int ret = 0;
+
+	lockdep_assert_held_write(&kvm->mmu_lock);
+	WARN_ON(start & kvm_gfn_stolen_mask(kvm));
+	WARN_ON(end & kvm_gfn_stolen_mask(kvm));
+
+	if (!VALID_PAGE(mmu->root_hpa) || !VALID_PAGE(mmu->private_root_hpa))
+		return -EINVAL;
+
+	if (is_private) {
+		gfn_t shared_mask = kvm_gfn_stolen_mask(kvm);
+
+		root = to_shadow_page(mmu->root_hpa);
+		zap_gfn_range(kvm, root, start | shared_mask, end | shared_mask,
+			false, false, false);
+	}
+
+	root = to_shadow_page(mmu->private_root_hpa);
+	rcu_read_lock();
+	tdp_root_for_each_pte(iter, root, start, end) {
+		if (iter.level == PG_LEVEL_4K) {
+			kvm_tdp_mmu_update_private_spte(kvm, &iter, is_private);
+			continue;
+		}
+
+		/*
+		 * Which GPA is allowed, private or shared, is recorded in the
+		 * granular of 4K in private leaf spte as SPTE_PRIVATE_PROHIBIT.
+		 * Break large page into 4K.
+		 */
+		if (is_shadow_present_pte(iter.old_spte) &&
+			is_large_pte(iter.old_spte)) {
+			/*
+			 * TODO: large page support.
+			 * Doesn't support large page for TDX now
+			 */
+			WARN_ON_ONCE(true);
+			tdp_mmu_set_spte(kvm, &iter, shadow_init_value);
+			iter.old_spte = READ_ONCE(*rcu_dereference(iter.sptep));
+		}
+
+		if (!is_shadow_present_pte(iter.old_spte)) {
+			/*
+			 * Guarantee that alloc_tdp_mmu_page() succees which
+			 * assumes page allocation from cache always successes.
+			 */
+			if (vcpu->arch.mmu_page_header_cache.nobjs == 0 ||
+				vcpu->arch.mmu_shadow_page_cache.nobjs == 0 ||
+				vcpu->arch.mmu_private_sp_cache.nobjs == 0) {
+				ret = -EAGAIN;
+				break;
+			}
+			/*
+			 * write lock of mmu_lock is held.  No other thread
+			 * freezes SPTE.
+			 */
+			if (!tdp_mmu_populate_nonleaf(
+					vcpu, &iter, is_private, false)) {
+				/* As write lock is held, this case sholdn't happen. */
+				WARN_ON_ONCE(true);
+				ret = -EAGAIN;
+				break;
+			}
+		}
+	}
+	rcu_read_unlock();
+
+	if (ret == -EAGAIN) {
+		*startp = iter.next_last_level_gfn;
+		end = *startp;
+	}
+	kvm_flush_remote_tlbs_with_address(kvm, start, end - start);
+	return ret;
+}
+
 /*
  * Return the level of the lowest level SPTE added to sptes.
  * That SPTE may be non-present.

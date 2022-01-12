@@ -2345,6 +2345,40 @@ bool kvm_tdp_mmu_write_protect_gfn(struct kvm *kvm,
 	return spte_set;
 }
 
+int kvm_tdp_mmu_map_private(struct kvm *kvm,
+			    gfn_t *startp, gfn_t end, bool map_private)
+{
+	struct kvm_mmu_page *root;
+	gfn_t start = *startp;
+	bool flush = false;
+	int i;
+
+	lockdep_assert_held_write(&kvm->mmu_lock);
+	KVM_BUG_ON(!kvm->mmu_invalidate_in_progress, kvm);
+	KVM_BUG_ON(start & kvm_gfn_shared_mask(kvm), kvm);
+	KVM_BUG_ON(end & kvm_gfn_shared_mask(kvm), kvm);
+
+	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++) {
+		for_each_tdp_mmu_root_yield_safe(kvm, root, i) {
+			if (is_private_sp(root) == map_private)
+				continue;
+
+			/*
+			 * TODO: If necessary, return to the caller with -EAGAIN
+			 * instead of yield-and-resume within
+			 * tdp_mmu_zap_leafs().
+			 */
+			flush = tdp_mmu_zap_leafs(kvm, root, start, end,
+						  /*can_yield=*/true, flush,
+						  /*zap_private=*/is_private_sp(root));
+		}
+	}
+	if (flush)
+		kvm_flush_remote_tlbs_with_address(kvm, start, end - start);
+
+	return 0;
+}
+
 /*
  * Return the level of the lowest level SPTE added to sptes.
  * That SPTE may be non-present.

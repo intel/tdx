@@ -2990,12 +2990,14 @@ void disallowed_hugepage_adjust(struct kvm_page_fault *fault, u64 spte, int cur_
 	}
 }
 
-static int __direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+static void __direct_populate_nonleaf(struct kvm_vcpu *vcpu,
+				struct kvm_page_fault *fault,
+				struct kvm_shadow_walk_iterator *itp,
+				gfn_t *base_gfnp)
 {
 	struct kvm_shadow_walk_iterator it;
 	struct kvm_mmu_page *sp;
-	int ret;
-	gfn_t base_gfn = fault->gfn;
+	gfn_t base_gfn;
 
 	kvm_mmu_hugepage_adjust(vcpu, fault);
 
@@ -3025,6 +3027,18 @@ static int __direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 			account_huge_nx_page(vcpu->kvm, sp);
 	}
 
+	*itp = it;
+	if (base_gfnp)
+		*base_gfnp = base_gfn;
+}
+
+static int __direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
+{
+	struct kvm_shadow_walk_iterator it;
+	int ret;
+	gfn_t base_gfn = fault->gfn;
+
+	__direct_populate_nonleaf(vcpu, fault, &it, &base_gfn);
 	if (WARN_ON_ONCE(it.level != fault->goal_level))
 		return -EFAULT;
 

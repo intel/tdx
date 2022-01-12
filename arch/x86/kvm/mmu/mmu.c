@@ -6664,6 +6664,76 @@ void kvm_mmu_invalidate_mmio_sptes(struct kvm *kvm, u64 gen)
 	}
 }
 
+static int mmu_map_gpa(struct kvm_vcpu *vcpu, gfn_t gfn, bool allow_private)
+{
+	struct kvm *kvm = vcpu->kvm;
+	struct kvm_mmu *mmu = vcpu->arch.mmu;
+	struct kvm_shadow_walk_iterator it;
+	struct kvm_mmu_page *sp;
+	u64 spte;
+	int ret = 0;
+
+	lockdep_assert_held_write(&kvm->mmu_lock);
+
+	if (!VALID_PAGE(mmu->root.hpa) || !VALID_PAGE(mmu->private_root_hpa))
+		return -EINVAL;
+
+	WARN_ON_ONCE(shadow_nonpresent_value != SHADOW_NONPRESENT_VALUE);
+	if (allow_private) {
+		gfn_t gfn_shared = kvm_gfn_shared(kvm, gfn);
+
+		if (__kvm_zap_rmaps(kvm, gfn_shared, gfn_shared + 1))
+			kvm_flush_remote_tlbs_with_address(kvm, gfn_shared, 1);
+
+		/* Clear SPTE_SHARED_MASK bit in 4K leaf spte. */
+		for_each_shadow_entry(vcpu, gfn_to_gpa(gfn), it) {
+			if (!is_shadow_present_pte(*it.sptep))
+				break;
+		}
+
+		sp = sptep_to_sp(it.sptep);
+		spte = *it.sptep;
+		if (is_last_spte(spte, sp->role.level) &&
+			spte_shared_mask(spte)) {
+			WARN_ON(it.level != PG_LEVEL_4K);
+			WARN_ON(is_shadow_present_pte(*it.sptep));
+			__mmu_spte_clear_track_bits(kvm, it.sptep,
+						    SHADOW_NONPRESENT_VALUE);
+		}
+	} else {
+		/* Zap and set SPTE_SHARED_MASK. */
+		struct kvm_page_fault fault = {
+			.addr = gfn_to_gpa(gfn),
+
+			/* SPTE_SHARED_MASK is recorded in 4K spte entry. */
+			.max_level = PG_LEVEL_4K,
+			.req_level = PG_LEVEL_4K,
+			.goal_level = PG_LEVEL_4K,
+
+			.gfn = gfn,
+			.is_private = true,
+		};
+		ret = make_mmu_pages_available(vcpu);
+		if (ret)
+			return ret;
+
+		__direct_populate_nonleaf(vcpu, &fault, &it, NULL);
+
+		spte = *it.sptep;
+		if (spte_shared_mask(spte))
+			WARN_ON(is_shadow_present_pte(spte));
+		else {
+			__kvm_mmu_zap_private_spte(kvm, it.sptep);
+			spte = __mmu_spte_clear_track_bits(
+				kvm, it.sptep,
+				SHADOW_NONPRESENT_VALUE | SPTE_SHARED_MASK);
+			kvm_flush_remote_tlbs_with_address(kvm, gfn, 1);
+			rmap_remove(kvm, it.sptep, spte);
+		}
+	}
+	return ret;
+}
+
 static int kvm_mmu_populate_nonleaf(struct kvm_vcpu *vcpu, gfn_t start, gfn_t end)
 {
 	struct kvm *kvm = vcpu->kvm;
@@ -6752,8 +6822,13 @@ int kvm_mmu_map_gpa(struct kvm_vcpu *vcpu, gfn_t *startp, gfn_t end,
 				break;
 			}
 		} else {
-			ret = -EOPNOTSUPP;
-			break;
+			ret = mmu_map_gpa(vcpu, s, allow_private);
+			/* mmu_map_gpa() handles only 1 gfn. */
+			if (ret == 0 && s + 1 < end) {
+				ret = -EAGAIN;
+				start = s + 1;
+				break;
+			}
 		}
 	}
 

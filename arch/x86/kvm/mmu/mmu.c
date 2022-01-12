@@ -6850,6 +6850,72 @@ void kvm_mmu_invalidate_mmio_sptes(struct kvm *kvm, u64 gen)
 	}
 }
 
+static int __kvm_mmu_map_private(struct kvm *kvm, gfn_t *startp, gfn_t end,
+				 bool map_private)
+{
+	gfn_t start = *startp;
+	u64 attrs;
+	int ret;
+
+	if (!kvm_gfn_shared_mask(kvm))
+		return -EOPNOTSUPP;
+
+	attrs = KVM_MEMORY_ATTRIBUTE_READ | KVM_MEMORY_ATTRIBUTE_WRITE |
+		KVM_MEMORY_ATTRIBUTE_EXECUTE;
+	attrs |= map_private ? KVM_MEMORY_ATTRIBUTE_PRIVATE : 0;
+	start = start & ~kvm_gfn_shared_mask(kvm);
+	end = end & ~kvm_gfn_shared_mask(kvm);
+
+	/*
+	 * To make the following kvm_vm_set_memory_attributes() success within spinlock
+	 * without memory allocation.
+	 */
+	ret = kvm_vm_reserve_mem_attr_array(kvm, start, end);
+	if (ret)
+		return ret;
+
+	write_lock(&kvm->mmu_lock);
+	kvm_mmu_invalidate_begin(kvm);
+	kvm_mmu_invalidate_range_add(kvm, start, end);
+
+	if (is_tdp_mmu_enabled(kvm)) {
+		gfn_t s = start;
+
+		ret = kvm_tdp_mmu_map_private(kvm, &s, end, map_private);
+		if (!ret)
+			KVM_BUG_ON(kvm_vm_set_memory_attributes(kvm, attrs, start, end), kvm);
+		else if (ret == -EAGAIN) {
+			KVM_BUG_ON(kvm_vm_set_memory_attributes(kvm, attrs, start, s), kvm);
+			start = s;
+		}
+	} else {
+		ret = -EOPNOTSUPP;
+	}
+
+	kvm_mmu_invalidate_end(kvm);
+	write_unlock(&kvm->mmu_lock);
+
+	if (ret == -EAGAIN) {
+		if (map_private)
+			*startp = kvm_gfn_private(kvm, start);
+		else
+			*startp = kvm_gfn_shared(kvm, start);
+	}
+	return ret;
+}
+
+int kvm_mmu_map_private(struct kvm_vcpu *vcpu, gfn_t *startp, gfn_t end,
+		    bool map_private)
+{
+	struct kvm_mmu *mmu = vcpu->arch.mmu;
+
+	if (!VALID_PAGE(mmu->root.hpa) || !VALID_PAGE(mmu->private_root_hpa))
+		return -EINVAL;
+
+	return __kvm_mmu_map_private(vcpu->kvm, startp, end, map_private);
+}
+EXPORT_SYMBOL_GPL(kvm_mmu_map_private);
+
 static unsigned long
 mmu_shrink_scan(struct shrinker *shrink, struct shrink_control *sc)
 {

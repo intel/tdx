@@ -1217,6 +1217,8 @@ static int tdx_map_gpa(struct kvm_vcpu *vcpu)
 	gpa_t end = gpa + size;
 	gfn_t s = gpa_to_gfn(gpa) & ~kvm_gfn_shared_mask(kvm);
 	gfn_t e = gpa_to_gfn(end) & ~kvm_gfn_shared_mask(kvm);
+	bool map_private = kvm_is_private_gpa(kvm, gpa);
+	int ret;
 	int i;
 
 	if (!IS_ALIGNED(gpa, 4096) || !IS_ALIGNED(size, 4096) ||
@@ -1256,7 +1258,14 @@ static int tdx_map_gpa(struct kvm_vcpu *vcpu)
 		}
 	}
 
-	tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
+	ret = kvm_mmu_map_private(vcpu, &s, e, map_private);
+	if (ret == -EAGAIN) {
+		tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_RETRY);
+		tdvmcall_set_return_val(vcpu, gfn_to_gpa(s));
+	} else if (ret)
+		tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
+	else
+		tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_SUCCESS);
 	return 1;
 }
 

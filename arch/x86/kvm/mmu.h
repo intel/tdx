@@ -375,6 +375,11 @@ static inline gfn_t kvm_gfn_unalias(struct kvm *kvm, gfn_t gfn)
 	return gfn & ~kvm_gfn_stolen_mask(kvm);
 }
 
+static inline gfn_t kvm_gfn_shared(struct kvm *kvm, gfn_t gfn)
+{
+	return gfn | kvm_gfn_stolen_mask(kvm);
+}
+
 static inline bool kvm_is_private_gfn(struct kvm *kvm, gfn_t gfn)
 {
 	return  kvm->arch.gfn_shared_mask && !(gfn & kvm->arch.gfn_shared_mask);

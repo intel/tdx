@@ -116,6 +116,16 @@ static inline bool is_private_spte(u64 *sptep)
 	return is_private_sp(sptep_to_sp(sptep));
 }
 
+static inline void kvm_mmu_free_private_sp(struct kvm *kvm,
+					struct kvm_mmu_page *sp)
+{
+	if (sp->private_sp && !static_call(kvm_x86_free_private_sp)(
+			kvm, sp->gfn, sp->role.level, sp->private_sp)) {
+		free_page((unsigned long)sp->private_sp);
+		sp->private_sp = NULL;
+	}
+}
+
 static inline bool kvm_vcpu_ad_need_write_protect(struct kvm_vcpu *vcpu)
 {
 	/*

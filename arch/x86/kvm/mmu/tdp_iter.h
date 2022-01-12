@@ -85,4 +85,9 @@ void tdp_iter_start(struct tdp_iter *iter, struct kvm_mmu_page *root,
 void tdp_iter_next(struct tdp_iter *iter);
 void tdp_iter_restart(struct tdp_iter *iter);
 
+static inline bool tdp_iter_is_private(const struct tdp_iter *iter)
+{
+	return is_private_spte(iter->pt_path[iter->root_level - 1]);
+}
+
 #endif /* __KVM_X86_MMU_TDP_ITER_H */

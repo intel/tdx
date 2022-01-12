@@ -6101,6 +6101,41 @@ void kvm_mmu_invalidate_mmio_sptes(struct kvm *kvm, u64 gen)
 	}
 }
 
+int kvm_mmu_map_gpa(struct kvm_vcpu *vcpu, gfn_t *startp, gfn_t end)
+{
+	struct kvm *kvm = vcpu->kvm;
+	gfn_t start = *startp;
+	bool allow_private;
+	int ret;
+
+	if (!kvm_gfn_stolen_mask(kvm))
+		return -EOPNOTSUPP;
+
+	ret = mmu_topup_memory_caches(vcpu, false);
+	if (ret)
+		return ret;
+
+	allow_private = kvm_is_private_gfn(kvm, start);
+	start = kvm_gfn_unalias(kvm, start);
+	end = kvm_gfn_unalias(kvm, end);
+
+	write_lock(&kvm->mmu_lock);
+	if (is_tdp_mmu_enabled(kvm))
+		ret = kvm_tdp_mmu_map_gpa(vcpu, &start, end, allow_private);
+	else
+		ret = -EOPNOTSUPP;
+	write_unlock(&kvm->mmu_lock);
+
+	if (ret == -EAGAIN) {
+		if (allow_private)
+			*startp = kvm_gfn_unalias(kvm, start);
+		else
+			*startp = kvm_gfn_shared(kvm, start);
+	}
+	return ret;
+}
+EXPORT_SYMBOL_GPL(kvm_mmu_map_gpa);
+
 static unsigned long
 mmu_shrink_scan(struct shrinker *shrink, struct shrink_control *sc)
 {

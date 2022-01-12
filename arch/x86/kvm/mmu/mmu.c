@@ -6317,6 +6317,112 @@ void kvm_mmu_invalidate_mmio_sptes(struct kvm *kvm, u64 gen)
 	}
 }
 
+static int kvm_mmu_populate_nonleaf(struct kvm_vcpu *vcpu, gfn_t start, gfn_t end)
+{
+	struct kvm *kvm = vcpu->kvm;
+	struct kvm_memslots *slots;
+	struct kvm_memslot_iter iter;
+	int ret = 0;
+
+	/* No need to populate as mmu_map_gpa() handles single GPA. */
+	if (!is_tdp_mmu_enabled(kvm))
+		return 0;
+
+	slots = __kvm_memslots(kvm, 0 /* only normal ram. not SMM. */);
+	kvm_for_each_memslot_in_gfn_range(&iter, slots, start, end) {
+		struct kvm_memory_slot *memslot = iter.slot;
+		gfn_t s = max(start, memslot->base_gfn);
+		gfn_t e = min(end, memslot->base_gfn + memslot->npages);
+
+		if (WARN_ON_ONCE(s >= e))
+			continue;
+
+		ret = kvm_tdp_mmu_populate_nonleaf(vcpu, kvm_gfn_private(kvm, s),
+						kvm_gfn_private(kvm, e), true, false);
+		if (ret)
+			break;
+		ret = kvm_tdp_mmu_populate_nonleaf(vcpu, kvm_gfn_shared(kvm, s),
+						kvm_gfn_shared(kvm, e), false, false);
+		if (ret)
+			break;
+	}
+	return ret;
+}
+
+int kvm_mmu_map_gpa(struct kvm_vcpu *vcpu, gfn_t *startp, gfn_t end,
+		bool allow_private)
+{
+	struct kvm *kvm = vcpu->kvm;
+	struct kvm_memslots *slots;
+	struct kvm_memslot_iter iter;
+	gfn_t start = *startp;
+	int ret;
+
+	if (!kvm_gfn_shared_mask(kvm))
+		return -EOPNOTSUPP;
+
+	start = start & ~kvm_gfn_shared_mask(kvm);
+	end = end & ~kvm_gfn_shared_mask(kvm);
+
+	/*
+	 * Allocate S-EPT pages first so that the operations leaf SPTE entry
+	 * can be done without memory allocation.
+	 */
+	while (true) {
+		ret = mmu_topup_memory_caches(vcpu, false);
+		if (ret)
+			return ret;
+
+		mutex_lock(&kvm->slots_lock);
+		write_lock(&kvm->mmu_lock);
+
+		ret = kvm_mmu_populate_nonleaf(vcpu, start, end);
+		if (!ret)
+			break;
+
+		write_unlock(&kvm->mmu_lock);
+		mutex_unlock(&kvm->slots_lock);
+		if (ret == -EAGAIN) {
+			if (need_resched())
+				cond_resched();
+			continue;
+		}
+		return ret;
+	}
+
+	slots = __kvm_memslots(kvm, 0 /* only normal ram. not SMM. */);
+	kvm_for_each_memslot_in_gfn_range(&iter, slots, start, end) {
+		struct kvm_memory_slot *memslot = iter.slot;
+		gfn_t s = max(start, memslot->base_gfn);
+		gfn_t e = min(end, memslot->base_gfn + memslot->npages);
+
+		if (WARN_ON_ONCE(s >= e))
+			continue;
+		if (is_tdp_mmu_enabled(kvm)) {
+			ret = kvm_tdp_mmu_map_gpa(vcpu, &s, e, allow_private);
+			if (ret) {
+				start = s;
+				break;
+			}
+		} else {
+			ret = -EOPNOTSUPP;
+			break;
+		}
+	}
+
+	write_unlock(&kvm->mmu_lock);
+	mutex_unlock(&kvm->slots_lock);
+
+	if (ret == -EAGAIN) {
+		if (allow_private)
+			*startp = kvm_gfn_private(kvm, start);
+		else
+			*startp = kvm_gfn_shared(kvm, start);
+	}
+	return ret;
+}
+EXPORT_SYMBOL_GPL(kvm_mmu_map_gpa);
+
 static unsigned long
 mmu_shrink_scan(struct shrinker *shrink, struct shrink_control *sc)
 {

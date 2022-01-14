@@ -3121,6 +3121,9 @@ int kvm_mmu_max_mapping_level(struct kvm *kvm,
 	if (max_level == PG_LEVEL_4K)
 		return PG_LEVEL_4K;
 
+	if (kvm_slot_is_private(slot))
+		return max_level;
+
 	host_level = host_pfn_mapping_level(kvm, gfn, pfn, slot);
 	return min(host_level, max_level);
 }
@@ -4341,10 +4344,54 @@ static int kvm_faultin_pfn_private_mapped(struct kvm_vcpu *vcpu,
 	return RET_PF_CONTINUE;
 }
 
+static inline u8 order_to_level(int order)
+{
+	enum pg_level level;
+
+	for (level = KVM_MAX_HUGEPAGE_LEVEL; level > PG_LEVEL_4K; level--)
+		if (order >= page_level_shift(level) - PAGE_SHIFT)
+			return level;
+	return level;
+}
+
+static int kvm_faultin_pfn_private(struct kvm_vcpu *vcpu,
+				   struct kvm_page_fault *fault)
+{
+	int order;
+	struct kvm_memory_slot *slot = fault->slot;
+	bool private_exist = !kvm_private_mem_get_pfn(slot, fault->gfn,
+						      &fault->pfn, &order);
+
+	if (fault->is_private != private_exist) {
+		if (private_exist)
+			kvm_private_mem_put_pfn(slot, fault->pfn);
+
+		vcpu->run->exit_reason = KVM_EXIT_MEMORY_FAULT;
+		if (fault->is_private)
+			vcpu->run->memory.flags = KVM_MEMORY_EXIT_FLAG_PRIVATE;
+		else
+			vcpu->run->memory.flags = 0;
+		vcpu->run->memory.padding = 0;
+		vcpu->run->memory.gpa = fault->gfn << PAGE_SHIFT;
+		vcpu->run->memory.size = PAGE_SIZE;
+		return RET_PF_USER;
+	}
+
+	if (fault->is_private) {
+		fault->max_level = min(order_to_level(order), fault->max_level);
+		fault->map_writable = !(slot->flags & KVM_MEM_READONLY);
+		return RET_PF_FIXED;
+	}
+
+	/* Fault is shared, fallthrough to the standard path. */
+	return RET_PF_CONTINUE;
+}
+
 static int kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 {
 	struct kvm_memory_slot *slot = fault->slot;
 	bool async;
+	int r;
 
 	/*
 	 * Retry the page fault if the gfn hit a memslot that is being deleted
@@ -4373,7 +4420,11 @@ static int kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 			return RET_PF_EMULATE;
 	}
 
-	if (fault->is_private)
+	if (kvm_slot_is_private(slot)) {
+		r = kvm_faultin_pfn_private(vcpu, fault);
+		if (r != RET_PF_CONTINUE)
+			return r == RET_PF_FIXED ? RET_PF_CONTINUE : r;
+	} else if (fault->is_private)
 		return kvm_faultin_pfn_private_mapped(vcpu, fault);
 
 	async = false;
@@ -4424,8 +4475,11 @@ static bool is_page_fault_stale(struct kvm_vcpu *vcpu,
 	if (!sp && kvm_test_request(KVM_REQ_MMU_FREE_OBSOLETE_ROOTS, vcpu))
 		return true;
 
-	return fault->slot &&
-	       mmu_notifier_retry_hva(vcpu->kvm, mmu_seq, fault->hva);
+	if (fault->is_private && kvm_slot_is_private(fault->slot))
+		return mmu_notifier_retry(vcpu->kvm, mmu_seq);
+	else
+		return fault->slot &&
+			mmu_notifier_retry_hva(vcpu->kvm, mmu_seq, fault->hva);
 }
 
 void kvm_mmu_release_fault(struct kvm *kvm, struct kvm_page_fault *fault, int r)
@@ -4433,9 +4487,12 @@ void kvm_mmu_release_fault(struct kvm *kvm, struct kvm_page_fault *fault, int r)
 	if (is_error_noslot_pfn(fault->pfn) || kvm_is_reserved_pfn(fault->pfn))
 		return;
 
-	if (fault->is_private)
-		put_page(pfn_to_page(fault->pfn));
-	else
+	if (fault->is_private) {
+		if (kvm_slot_is_private(fault->slot))
+			kvm_private_mem_put_pfn(fault->slot, fault->pfn);
+		else
+			put_page(pfn_to_page(fault->pfn));
+	} else
 		kvm_release_pfn_clean(fault->pfn);
 }
 
@@ -5823,6 +5880,9 @@ int noinline kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 err
 		if (KVM_BUG_ON(r == RET_PF_INVALID, vcpu->kvm))
 			return -EIO;
 	}
+
+	if (r == RET_PF_USER)
+		return 0;
 
 	if (r < 0)
 		return r;

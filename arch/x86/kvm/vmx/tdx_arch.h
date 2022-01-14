@@ -203,6 +203,44 @@ enum tdx_ext_exit_qualification_type {
 	NUM_EXT_EXIT_QUAL,
 };
 
+union tdx_sept_entry {
+	struct {
+		u64 r		:  1;
+		u64 w		:  1;
+		u64 x		:  1;
+		u64 mt		:  3;
+		u64 ipat	:  1;
+		u64 leaf	:  1;
+		u64 reserved0	:  3;
+		u64 ignored0	:  1;
+		u64 pfn		: 40;
+		u64 reserved1	:  2;
+		u64 ignored1	:  1;
+		u64 reserved2	:  2;
+		u64 ignored2	:  1;
+		u64 sve		:  1;
+	};
+	u64 raw;
+};
+
+enum tdx_sept_entry_state {
+	TDX_SEPT_FREE = 0,
+	TDX_SEPT_BLOCKED = 1,
+	TDX_SEPT_PENDING = 2,
+	TDX_SEPT_PENDING_BLOCKED = 3,
+	TDX_SEPT_PRESENT = 4,
+};
+
+union tdx_sept_level_state {
+	struct {
+		u64 level	: 3;
+		u64 reserved0	: 5;
+		u64 state	: 8;
+		u64 reserved1	: 48;
+	};
+	u64 raw;
+};
+
 union tdx_md_field_id {
 	struct {
 		u64 field			: 24;

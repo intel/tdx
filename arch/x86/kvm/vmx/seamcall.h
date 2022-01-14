@@ -35,6 +35,16 @@ struct tdx_module_output {
  */
 union tdx_ex_ret {
 	struct tdx_module_output regs;
+	/* Functions that walk SEPT */
+	struct {
+		u64 septe;
+		struct {
+			u64 level		:3;
+			u64 sept_reserved_0	:5;
+			u64 state		:8;
+			u64 sept_reserved_1	:48;
+		};
+	} sept_walk;
 };
 
 static inline u64 seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10,

@@ -502,6 +502,10 @@ int tdx_vm_init(struct kvm *kvm)
 	}
 
 	spin_lock_init(&kvm_tdx->seamcall_lock);
+	kvm_tdx->has_private_zapped = false;
+	kvm_tdx->low_gfn = -1ULL;
+	kvm_tdx->high_gfn = 0;
+
 
 	/*
 	 * Note, TDH_MNG_INIT cannot be invoked here.  TDH_MNG_INIT requires a dedicated
@@ -1577,6 +1581,22 @@ static void tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn,
 		pr_tdx_error(TDH_MEM_RANGE_BLOCK, err, &out);
 }
 
+static void tdx_sept_unzap_private_spte(struct kvm *kvm, gfn_t gfn,
+					enum pg_level level)
+{
+	int tdx_level = pg_level_to_tdx_sept_level(level);
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	gpa_t gpa = gfn_to_gpa(gfn);
+	struct tdx_module_output out;
+	u64 err;
+
+	spin_lock(&kvm_tdx->seamcall_lock);
+	err = tdh_mem_range_unblock(kvm_tdx->tdr.pa, gpa, tdx_level, &out);
+	spin_unlock(&kvm_tdx->seamcall_lock);
+	if (KVM_BUG_ON(err, kvm))
+		pr_tdx_error(TDH_MEM_RANGE_UNBLOCK, err, &out);
+}
+
 static int tdx_sept_free_private_sp(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 				    void *sept_page)
 {
@@ -1597,10 +1617,32 @@ static int tdx_sept_free_private_sp(struct kvm *kvm, gfn_t gfn, enum pg_level le
 	return ret;
 }
 
-static int tdx_sept_tlb_remote_flush(struct kvm *kvm)
+static void tdx_track(struct kvm_tdx *kvm_tdx)
+{
+	u64 err;
+
+	WARN_ON(!is_hkid_assigned(kvm_tdx));
+	/* If TD isn't finalized, it's before any vcpu running. */
+	if (unlikely(!is_td_finalized(kvm_tdx)))
+		return;
+
+	kvm_tdx->tdh_mem_track = true;
+
+	kvm_make_all_cpus_request(&kvm_tdx->kvm, KVM_REQ_TLB_FLUSH);
+	err = tdh_mem_track(kvm_tdx->tdr.pa);
+	if (KVM_BUG_ON(err, &kvm_tdx->kvm))
+		pr_tdx_error(TDH_MEM_TRACK, err, NULL);
+
+	WRITE_ONCE(kvm_tdx->tdh_mem_track, false);
+}
+
+static int tdx_sept_tlb_remote_flush_with_range(struct kvm *kvm,
+						struct kvm_tlb_range *range)
 {
 	struct kvm_tdx *kvm_tdx;
-	u64 err;
+	gfn_t max_gfn_host = 1ULL << (boot_cpu_data.x86_phys_bits - PAGE_SHIFT);
+	gfn_t start = range->start_gfn;
+	gfn_t end = min(range->start_gfn + range->pages, max_gfn_host);
 
 	if (!is_td(kvm))
 		return -EOPNOTSUPP;
@@ -1609,34 +1651,85 @@ static int tdx_sept_tlb_remote_flush(struct kvm *kvm)
 	if (!is_hkid_assigned(kvm_tdx))
 		return 0;
 
-	/* If TD isn't finalized, it's before any vcpu running. */
-	if (unlikely(!is_td_finalized(kvm_tdx)))
+	if (kvm_tdx->has_private_zapped) {
+		start = max(start, kvm_tdx->low_gfn);
+		end = min(end, kvm_tdx->high_gfn);
+	}
+	if (!kvm_tdx->has_private_zapped || start >= end) {
+		kvm_make_all_cpus_request(kvm, KVM_REQ_TLB_FLUSH);
 		return 0;
+	}
 
-	kvm_tdx->tdh_mem_track = true;
+	lockdep_assert_held_write(&kvm->mmu_lock);
 
-	kvm_make_all_cpus_request(kvm, KVM_REQ_TLB_FLUSH);
-
-	err = tdh_mem_track(kvm_tdx->tdr.pa);
-	if (KVM_BUG_ON(err, kvm))
-		pr_tdx_error(TDH_MEM_TRACK, err, NULL);
-
-	WRITE_ONCE(kvm_tdx->tdh_mem_track, false);
+	tdx_track(kvm_tdx);
+	kvm_tdp_mmu_drop_private_zapped_gfn(kvm, start, end);
+	if (start <= kvm_tdx->low_gfn &&
+		kvm_tdx->high_gfn <= end) {
+		kvm_tdx->has_private_zapped = false;
+		kvm_tdx->low_gfn = -1;
+		kvm_tdx->high_gfn = 0;
+	} else if (kvm_tdx->low_gfn < start &&
+		start + 1 < kvm_tdx->high_gfn &&
+		kvm_tdx->high_gfn <= end) {
+		kvm_tdx->high_gfn = start;
+	} else if (start <= kvm_tdx->low_gfn &&
+		kvm_tdx->low_gfn < end &&
+		end < kvm_tdx->high_gfn) {
+		kvm_tdx->low_gfn = end;
+	}
 
 	return 0;
+}
+
+static int tdx_sept_tlb_remote_flush(struct kvm *kvm)
+{
+	struct kvm_tlb_range range = {
+		.start_gfn = 0,
+		.pages = -1ULL,
+	};
+
+	return tdx_sept_tlb_remote_flush_with_range(kvm, &range);
+}
+
+static void tdx_handle_private_zapped_spte(
+	struct kvm *kvm, gfn_t gfn, enum pg_level level,
+	kvm_pfn_t old_pfn, bool is_present)
+{
+	WARN_ON(!is_td(kvm));
+	lockdep_assert_held_read(&kvm->mmu_lock);
+
+	/*
+	 * Handle special case of old_spte being temporarily blocked private
+	 * SPTE.  There are two cases: 1) Need to restore the original mapping
+	 * (unblock) when guest accesses the private page; 2) Need to truly
+	 * zap the SPTE because of zapping aliasing in fault handler, or when
+	 * VM is being destroyed.
+	 *
+	 * Do this before handling "!was_present && !is_present" case below,
+	 * because blocked private SPTE is also non-present.
+	 */
+	if (is_present)
+		tdx_sept_unzap_private_spte(kvm, gfn, level);
+	else
+		tdx_sept_drop_private_spte(kvm, gfn, level, old_pfn);
 }
 
 static void tdx_handle_changed_private_spte(
 	struct kvm *kvm, gfn_t gfn, enum pg_level level,
 	kvm_pfn_t old_pfn, bool was_present, bool was_leaf,
-	kvm_pfn_t new_pfn, bool is_present, bool is_leaf, void *sept_page)
+	kvm_pfn_t new_pfn, bool is_present, bool is_leaf, bool is_private_zapped,
+	void *sept_page)
 {
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+
 	WARN_ON(!is_td(kvm));
 	lockdep_assert_held(&kvm->mmu_lock);
 
 	if (is_present) {
-		/* TDP MMU doesn't change present -> present */
+		/* TDP MMU doesn't change present -> present/private_zapped */
 		WARN_ON(was_present);
+		WARN_ON(is_private_zapped);
 
 		/*
 		 * Use different call to either set up middle level
@@ -1660,21 +1753,26 @@ static void tdx_handle_changed_private_spte(
 		 */
 		tdx_sept_zap_private_spte(kvm, gfn, level);
 
-		/*
-		 * TDX requires TLB tracking before dropping private page.  Do
-		 * it here, although it is also done later.
-		 * If hkid isn't assigned, the guest is destroying and no vcpu
-		 * runs further.  TLB shootdown isn't needed.
-		 *
-		 * TODO: implement with_range version for optimization.
-		 * kvm_flush_remote_tlbs_with_address(kvm, gfn, 1);
-		 *   => tdx_sept_tlb_remote_flush_with_range(kvm, gfn,
-		 *                                 KVM_PAGES_PER_HPAGE(level));
-		 */
-		if (is_hkid_assigned(to_kvm_tdx(kvm)))
-			kvm_flush_remote_tlbs(kvm);
+		if (is_private_zapped) {
+			lockdep_assert_held_write(&kvm->mmu_lock);
 
-		tdx_sept_drop_private_spte(kvm, gfn, level, old_pfn);
+			kvm_tdx->has_private_zapped = true;
+			if (gfn < kvm_tdx->low_gfn)
+				kvm_tdx->low_gfn = gfn;
+			if (kvm_tdx->high_gfn < gfn + 1)
+				kvm_tdx->high_gfn = gfn + 1;
+		} else {
+			lockdep_assert_held_read(&kvm->mmu_lock);
+
+			/*
+			 * TDX requires TLB tracking before dropping private
+			 * page.
+			 */
+			if (is_hkid_assigned(kvm_tdx))
+				tdx_track(kvm_tdx);
+
+			tdx_sept_drop_private_spte(kvm, gfn, level, old_pfn);
+		}
 	}
 }
 
@@ -2517,8 +2615,10 @@ static int __init __tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	hkid_start_pos = boot_cpu_data.x86_phys_bits;
 	hkid_mask = GENMASK_ULL(max_pa - 1, hkid_start_pos);
 
+	x86_ops->tlb_remote_flush_with_range = tdx_sept_tlb_remote_flush_with_range;
 	x86_ops->tlb_remote_flush = tdx_sept_tlb_remote_flush;
 	x86_ops->free_private_sp = tdx_sept_free_private_sp;
+	x86_ops->handle_private_zapped_spte = tdx_handle_private_zapped_spte;
 	x86_ops->handle_changed_private_spte = tdx_handle_changed_private_spte;
 
 	return 0;

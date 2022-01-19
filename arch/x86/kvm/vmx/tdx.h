@@ -36,6 +36,11 @@ struct kvm_tdx {
 	u64 tsc_offset;
 	unsigned long tsc_khz;
 
+	/* TDP MMU */
+	gfn_t low_gfn;
+	gfn_t high_gfn;
+	bool has_private_zapped;
+
 	/*
 	 * Lock to prevent seamcalls from running concurrently
 	 * when TDP MMU is enabled, because TDP fault handler

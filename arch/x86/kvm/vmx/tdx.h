@@ -36,6 +36,9 @@ struct kvm_tdx {
 	u64 tsc_offset;
 	unsigned long tsc_khz;
 
+	/* TDP MMU */
+	bool has_range_blocked;
+
 	/*
 	 * Lock to prevent seamcalls from running concurrently
 	 * when TDP MMU is enabled, because TDP fault handler

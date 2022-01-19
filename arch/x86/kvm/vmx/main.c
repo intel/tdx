@@ -570,7 +570,7 @@ static int vt_tlb_remote_flush_with_range(struct kvm *kvm,
 					  struct kvm_tlb_range *range)
 {
 	if (is_td(kvm))
-		return -EOPNOTSUPP; /* fall back to tlb_remote_flush */
+		return tdx_sept_tlb_remote_flush_with_range(kvm, range);
 
 	return vmx_tlb_remote_flush_with_range(kvm, range);
 }

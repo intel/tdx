@@ -475,6 +475,7 @@ int tdx_vm_init(struct kvm *kvm)
 	kvm_tdx->hkid = -1;
 
 	spin_lock_init(&kvm_tdx->seamcall_lock);
+	kvm_tdx->has_range_blocked = false;
 
 	/*
 	 * This function initializes only KVM software construct.  It doesn't
@@ -1579,6 +1580,8 @@ static void tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn,
 	spin_unlock(&kvm_tdx->seamcall_lock);
 	if (KVM_BUG_ON(err, kvm))
 		pr_tdx_error(TDH_MEM_RANGE_BLOCK, err, &out);
+
+	WRITE_ONCE(kvm_tdx->has_range_blocked, true);
 }
 
 /*
@@ -1627,6 +1630,24 @@ static void tdx_track(struct kvm_tdx *kvm_tdx)
 
 }
 
+static void tdx_sept_unzap_private_spte(struct kvm *kvm, gfn_t gfn,
+					enum pg_level level)
+{
+	int tdx_level = pg_level_to_tdx_sept_level(level);
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	gpa_t gpa = gfn_to_gpa(gfn);
+	struct tdx_module_output out;
+	u64 err;
+
+	tdx_track(kvm_tdx);
+
+	spin_lock(&kvm_tdx->seamcall_lock);
+	err = tdh_mem_range_unblock(kvm_tdx->tdr.pa, gpa, tdx_level, &out);
+	spin_unlock(&kvm_tdx->seamcall_lock);
+	if (KVM_BUG_ON(err, kvm))
+		pr_tdx_error(TDH_MEM_RANGE_UNBLOCK, err, &out);
+}
+
 static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 				     enum pg_level level, void *private_spt)
 {
@@ -1644,8 +1665,43 @@ static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 	 * can be freed when promoting 4K page to 2M/1G page during TD running.
 	 * In such case, flush cache and TDH.PAGE.RECLAIM.
 	 */
-	if (KVM_BUG_ON(is_hkid_assigned(to_kvm_tdx(kvm)), kvm))
-		return -EINVAL;
+
+	if (is_hkid_assigned(kvm_tdx)) {
+		/*
+		 * Inefficient. But this is only called for deleting memslot
+		 * which isn't performance critical path.
+		 *
+		 * +1: remove this SEPT page from the parent's entry.
+		 */
+		gpa_t parent_gpa = gfn_to_gpa(gfn) & KVM_HPAGE_MASK(level + 1);
+		int parent_tdx_level = pg_level_to_tdx_sept_level(level + 1);
+		struct tdx_module_output out;
+		u64 err;
+
+		err = tdh_mem_range_block(kvm_tdx->tdr.pa, parent_gpa,
+					  parent_tdx_level, &out);
+		if (KVM_BUG_ON(err, kvm)) {
+			pr_tdx_error(TDH_MEM_RANGE_BLOCK, err, &out);
+			return -EIO;
+		}
+
+		tdx_track(kvm_tdx);
+
+		err = tdh_mem_sept_remove(kvm_tdx->tdr.pa, parent_gpa,
+					parent_tdx_level, &out);
+		if (KVM_BUG_ON(err, kvm)) {
+			pr_tdx_error(TDH_MEM_PAGE_REMOVE, err, &out);
+			return -EIO;
+		}
+
+		err = tdh_phymem_page_wbinvd(set_hkid_to_hpa(__pa(private_spt),
+							     kvm_tdx->hkid));
+		if (WARN_ON_ONCE(err)) {
+			pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
+			return -EIO;
+		}
+		return 0;
+	}
 
 	/*
 	 * The HKID assigned to this TD was already freed and cache was
@@ -1659,7 +1715,8 @@ static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 	return ret;
 }
 
-int tdx_sept_tlb_remote_flush(struct kvm *kvm)
+int tdx_sept_tlb_remote_flush_with_range(struct kvm *kvm,
+					 struct kvm_tlb_range *range)
 {
 	struct kvm_tdx *kvm_tdx;
 
@@ -1671,6 +1728,16 @@ int tdx_sept_tlb_remote_flush(struct kvm *kvm)
 		tdx_track(kvm_tdx);
 
 	return 0;
+}
+
+int tdx_sept_tlb_remote_flush(struct kvm *kvm)
+{
+	struct kvm_tlb_range range = {
+		.start_gfn = 0,
+		.pages = -1ULL,
+	};
+
+	return tdx_sept_tlb_remote_flush_with_range(kvm, &range);
 }
 
 static void tdx_sept_remove_private_spte(struct kvm *kvm, gfn_t gfn,
@@ -2797,6 +2864,7 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	x86_ops->set_private_spte = tdx_sept_set_private_spte;
 	x86_ops->remove_private_spte = tdx_sept_remove_private_spte;
 	x86_ops->zap_private_spte = tdx_sept_zap_private_spte;
+	x86_ops->unzap_private_spte = tdx_sept_unzap_private_spte;
 
 	return 0;
 }

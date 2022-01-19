@@ -280,6 +280,7 @@ int kvm_arch_flush_remote_tlbs_range(struct kvm *kvm, gfn_t gfn, u64 nr_pages)
 	if (!kvm_x86_ops.flush_remote_tlbs_range)
 		return -EOPNOTSUPP;
 
+	/* Callback should flush both private GFN and shared GFN. */
 	return static_call(kvm_x86_flush_remote_tlbs_range)(kvm, gfn, nr_pages);
 }
 

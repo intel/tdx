@@ -1442,10 +1442,14 @@ struct kvm_x86_ops {
 
 	int (*free_private_sp)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 			       void *private_sp);
+	void (*handle_private_zapped_spte)(
+		struct kvm *kvm, gfn_t gfn, enum pg_level level,
+		kvm_pfn_t old_pfn, bool is_present);
 	void (*handle_changed_private_spte)(
 		struct kvm *kvm, gfn_t gfn, enum pg_level level,
 		kvm_pfn_t old_pfn, bool was_present, bool was_leaf,
-		kvm_pfn_t new_pfn, bool is_present, bool is_leaf, void *sept_page);
+		kvm_pfn_t new_pfn, bool is_present, bool is_leaf,
+		bool is_private_zapped, void *sept_page);
 
 	bool (*has_wbinvd_exit)(void);
 

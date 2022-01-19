@@ -1512,6 +1512,7 @@ struct kvm_spte {
 	kvm_pfn_t pfn;
 	bool is_present;
 	bool is_last;
+	bool is_private_zapped;
 };
 
 struct kvm_spte_change {
@@ -1638,6 +1639,8 @@ struct kvm_x86_ops {
 				void *private_spt);
 	void (*handle_changed_private_spte)(struct kvm *kvm,
 					    const struct kvm_spte_change *change);
+	void (*handle_private_zapped_spte)(struct kvm *kvm,
+					   const struct kvm_spte_change *change);
 
 	bool (*has_wbinvd_exit)(void);
 

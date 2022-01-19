@@ -184,6 +184,7 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp);
 void tdx_flush_tlb(struct kvm_vcpu *vcpu);
 void tdx_flush_tlb_current(struct kvm_vcpu *vcpu);
 int tdx_sept_flush_remote_tlbs(struct kvm *kvm);
+int tdx_sept_flush_remote_tlbs_range(struct kvm *kvm, gfn_t gfn, gfn_t nr_pages);
 void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int root_level);
 bool tdx_set_memory_attributes(struct kvm *kvm, struct kvm_gfn_range *range);
 #else
@@ -240,6 +241,10 @@ static inline int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp) { ret
 
 static inline void tdx_flush_tlb(struct kvm_vcpu *vcpu) {}
 static inline int tdx_sept_flush_remote_tlbs(struct kvm *kvm) { return 0; }
+static inline int tdx_sept_flush_remote_tlbs_range(struct kvm *kvm, gfn_t gfn, gfn_t nr_pages)
+{
+	return -EOPNOTSUPP;
+}
 static inline void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int root_level) {}
 static inline bool tdx_set_memory_attributes(struct kvm *kvm, struct kvm_gfn_range *range) { return false; };
 #endif

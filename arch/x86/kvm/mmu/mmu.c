@@ -285,6 +285,7 @@ void kvm_flush_remote_tlbs_range(struct kvm *kvm, gfn_t start_gfn,
 	int ret = -EOPNOTSUPP;
 
 	if (kvm_x86_ops.flush_remote_tlbs_range)
+		/* Callback should flush both private GFN and shared GFN. */
 		ret = static_call(kvm_x86_flush_remote_tlbs_range)(kvm, start_gfn,
 								   nr_pages);
 	if (ret)

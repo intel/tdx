@@ -37,6 +37,9 @@ struct kvm_tdx {
 
 	u64 tsc_offset;
 
+	/* TDP MMU */
+	bool has_range_blocked;
+
 	/*
 	 * For KVM_SET_CPUID to check consistency. Remember the one passed to
 	 * TDH.MNG_INIT

@@ -15,6 +15,8 @@
 
 #include <linux/types.h>
 
+#include "boot.h"
+
 /*
  * This code uses an extended set of video mode numbers. These include:
  * Aliases for standard modes
@@ -96,13 +98,13 @@ extern int graphic_mode;	/* Graphics mode with linear frame buffer */
 /* Accessing VGA indexed registers */
 static inline u8 in_idx(u16 port, u8 index)
 {
-	outb(index, port);
-	return inb(port+1);
+	pio_ops.outb(index, port);
+	return pio_ops.inb(port+1);
 }
 
 static inline void out_idx(u8 v, u16 port, u8 index)
 {
-	outw(index+(v << 8), port);
+	pio_ops.outw(index+(v << 8), port);
 }
 
 /* Writes a value to an indexed port and then reads the port again */

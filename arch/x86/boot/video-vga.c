@@ -131,7 +131,7 @@ static void vga_set_80x43(void)
 /* I/O address of the VGA CRTC */
 u16 vga_crtc(void)
 {
-	return (inb(0x3cc) & 1) ? 0x3d4 : 0x3b4;
+	return (pio_ops.inb(0x3cc) & 1) ? 0x3d4 : 0x3b4;
 }
 
 static void vga_set_480_scanlines(void)
@@ -148,10 +148,10 @@ static void vga_set_480_scanlines(void)
 	out_idx(0xdf, crtc, 0x12); /* Vertical display end */
 	out_idx(0xe7, crtc, 0x15); /* Vertical blank start */
 	out_idx(0x04, crtc, 0x16); /* Vertical blank end */
-	csel = inb(0x3cc);
+	csel = pio_ops.inb(0x3cc);
 	csel &= 0x0d;
 	csel |= 0xe2;
-	outb(csel, 0x3c2);
+	pio_ops.outb(csel, 0x3c2);
 }
 
 static void vga_set_vertical_end(int lines)

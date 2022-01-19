@@ -51,6 +51,7 @@ static inline u64 tdh_vp_addcx(hpa_t tdvpr, hpa_t addr)
 static inline u64 tdh_mem_page_relocate(hpa_t tdr, gpa_t gpa, hpa_t hpa,
 					struct tdx_module_output *out)
 {
+	clflush_cache_range(__va(hpa), PAGE_SIZE);
 	return kvm_seamcall(TDH_MEM_PAGE_RELOCATE, gpa, tdr, hpa, 0, out);
 }
 

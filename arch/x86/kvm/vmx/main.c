@@ -45,6 +45,8 @@ static int vt_max_vcpus(struct kvm *kvm)
 	return kvm->max_vcpus;
 }
 static int vt_tlb_remote_flush(struct kvm *kvm);
+static int vt_tlb_remote_flush_with_range(struct kvm *kvm,
+					  struct kvm_tlb_range *range);
 
 static void vt_hardware_disable(void)
 {
@@ -94,9 +96,10 @@ static __init int vt_hardware_setup(void)
 
 	enable_tdx = enable_tdx && !tdx_hardware_setup(&vt_x86_ops);
 
-	if (enable_tdx)
+	if (enable_tdx) {
 		vt_x86_ops.tlb_remote_flush = vt_tlb_remote_flush;
-	else
+		vt_x86_ops.tlb_remote_flush_with_range = vt_tlb_remote_flush_with_range;
+	} else
 		vt_x86_ops.protected_apic_has_interrupt = NULL;
 
 	return 0;
@@ -652,6 +655,16 @@ static int vt_tlb_remote_flush(struct kvm *kvm)
 	 * fallback to KVM_REQ_TLB_FLUSH.
 	 * See kvm_arch_flush_remote_tlb() and kvm_flush_remote_tlbs().
 	 */
+	return -EOPNOTSUPP;
+}
+
+static int vt_tlb_remote_flush_with_range(struct kvm *kvm,
+					  struct kvm_tlb_range *range)
+{
+	if (is_td(kvm))
+		return tdx_sept_tlb_remote_flush_with_range(kvm, range);
+
+	/* fallback to tlb_remote_flush method */
 	return -EOPNOTSUPP;
 }
 

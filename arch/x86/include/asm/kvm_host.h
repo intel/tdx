@@ -1511,6 +1511,7 @@ struct kvm_spte {
 	kvm_pfn_t pfn;
 	bool is_present;
 	bool is_last;
+	bool is_private_zapped;
 };
 
 struct kvm_spte_change {
@@ -1635,6 +1636,8 @@ struct kvm_x86_ops {
 
 	int (*free_private_sp)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 			       void *private_sp);
+	void (*handle_private_zapped_spte)(
+		struct kvm *kvm, const struct kvm_spte_change *change);
 	void (*handle_changed_private_spte)(
 		struct kvm *kvm, const struct kvm_spte_change *change);
 

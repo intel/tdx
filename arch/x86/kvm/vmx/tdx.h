@@ -34,6 +34,9 @@ struct kvm_tdx {
 	u64 tsc_offset;
 	unsigned long tsc_khz;
 
+	/* TDP MMU */
+	bool has_range_blocked;
+
 	/*
 	 * Some SEAMCALLs try to lock TD resources (e.g. Secure-EPT) they use or
 	 * update.  If TDX module fails to obtain the lock, it returns

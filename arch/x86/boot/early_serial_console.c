@@ -28,17 +28,17 @@ static void early_serial_init(int port, int baud)
 	unsigned char c;
 	unsigned divisor;
 
-	outb(0x3, port + LCR);	/* 8n1 */
-	outb(0, port + IER);	/* no interrupt */
-	outb(0, port + FCR);	/* no fifo */
-	outb(0x3, port + MCR);	/* DTR + RTS */
+	pio_ops.outb(0x3, port + LCR);	/* 8n1 */
+	pio_ops.outb(0, port + IER);	/* no interrupt */
+	pio_ops.outb(0, port + FCR);	/* no fifo */
+	pio_ops.outb(0x3, port + MCR);	/* DTR + RTS */
 
 	divisor	= 115200 / baud;
-	c = inb(port + LCR);
-	outb(c | DLAB, port + LCR);
-	outb(divisor & 0xff, port + DLL);
-	outb((divisor >> 8) & 0xff, port + DLH);
-	outb(c & ~DLAB, port + LCR);
+	c = pio_ops.inb(port + LCR);
+	pio_ops.outb(c | DLAB, port + LCR);
+	pio_ops.outb(divisor & 0xff, port + DLL);
+	pio_ops.outb((divisor >> 8) & 0xff, port + DLH);
+	pio_ops.outb(c & ~DLAB, port + LCR);
 
 	early_serial_base = port;
 }
@@ -104,11 +104,11 @@ static unsigned int probe_baud(int port)
 	unsigned char lcr, dll, dlh;
 	unsigned int quot;
 
-	lcr = inb(port + LCR);
-	outb(lcr | DLAB, port + LCR);
-	dll = inb(port + DLL);
-	dlh = inb(port + DLH);
-	outb(lcr, port + LCR);
+	lcr = pio_ops.inb(port + LCR);
+	pio_ops.outb(lcr | DLAB, port + LCR);
+	dll = pio_ops.inb(port + DLL);
+	dlh = pio_ops.inb(port + DLH);
+	pio_ops.outb(lcr, port + LCR);
 	quot = (dlh << 8) | dll;
 
 	return BASE_BAUD / quot;

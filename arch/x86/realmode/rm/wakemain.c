@@ -17,18 +17,18 @@ static void beep(unsigned int hz)
 	} else {
 		u16 div = 1193181/hz;
 
-		outb(0xb6, 0x43);	/* Ctr 2, squarewave, load, binary */
+		pio_ops.outb(0xb6, 0x43);	/* Ctr 2, squarewave, load, binary */
 		io_delay();
-		outb(div, 0x42);	/* LSB of counter */
+		pio_ops.outb(div, 0x42);	/* LSB of counter */
 		io_delay();
-		outb(div >> 8, 0x42);	/* MSB of counter */
+		pio_ops.outb(div >> 8, 0x42);	/* MSB of counter */
 		io_delay();
 
 		enable = 0x03;		/* Turn on speaker */
 	}
-	inb(0x61);		/* Dummy read of System Control Port B */
+	pio_ops.inb(0x61);		/* Dummy read of System Control Port B */
 	io_delay();
-	outb(enable, 0x61);	/* Enable timer 2 output to speaker */
+	pio_ops.outb(enable, 0x61);	/* Enable timer 2 output to speaker */
 	io_delay();
 }
 
@@ -62,8 +62,12 @@ static void send_morse(const char *pattern)
 	}
 }
 
+struct port_io_ops pio_ops;
+
 void main(void)
 {
+	init_io_ops();
+
 	/* Kill machine if structures are wrong */
 	if (wakeup_header.real_magic != 0x12345678)
 		while (1)

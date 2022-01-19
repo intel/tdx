@@ -497,7 +497,13 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
 			 * unreachable.
 			 */
 			old_spte = kvm_tdp_mmu_read_spte(sptep);
-			if (!is_shadow_present_pte(old_spte))
+			/*
+			 * It comes here when zapping all pages when destroying
+			 * vm.  It means TLB shootdown optimization doesn't make
+			 * sense.  Zap private_zapped entry.
+			 */
+			if (!is_shadow_present_pte(old_spte) &&
+			    !is_private_zapped_spte(old_spte))
 				continue;
 
 			/*
@@ -572,6 +578,59 @@ static void *get_private_spt(gfn_t gfn, u64 new_spte, int level)
 	return NULL;
 }
 
+static int __must_check handle_private_zapped_spte(struct kvm *kvm, gfn_t gfn,
+						   u64 old_spte, u64 new_spte,
+						   int level)
+{
+	bool was_private_zapped = is_private_zapped_spte(old_spte);
+	bool is_private_zapped = is_private_zapped_spte(new_spte);
+	bool was_present = is_shadow_present_pte(old_spte);
+	bool is_present = is_shadow_present_pte(new_spte);
+	kvm_pfn_t old_pfn = spte_to_pfn(old_spte);
+	kvm_pfn_t new_pfn = spte_to_pfn(new_spte);
+	int ret = 0;
+
+	/* Temporarily blocked private SPTE can only be leaf. */
+	KVM_BUG_ON(!is_last_spte(old_spte, level), kvm);
+	KVM_BUG_ON(is_private_zapped, kvm);
+	KVM_BUG_ON(was_present, kvm);
+	KVM_BUG_ON(!was_private_zapped, kvm);
+
+	/*
+	 * Handle special case of old_spte being temporarily blocked private
+	 * SPTE.  There are two cases: 1) Need to restore the original mapping
+	 * (unblock) when guest accesses the private page; 2) Need to truly
+	 * zap the SPTE because of zapping aliasing in fault handler, or when
+	 * VM is being destroyed.
+	 *
+	 * Do this before handling "!was_present && !is_present" case below,
+	 * because blocked private SPTE is also non-present.
+	 */
+	if (is_present) {
+		lockdep_assert_held_read(&kvm->mmu_lock);
+
+		if (old_pfn == new_pfn) {
+			ret = static_call(kvm_x86_unzap_private_spte)(kvm, gfn, level);
+		} else {
+			/*
+			 * Because page is pined (refer to
+			 * kvm_faultin_pfn_private()), page migration shouldn't
+			 * be triggered for private page.  kvm private memory
+			 * slot case should also prevent page migration.
+			 */
+			pr_err("gfn 0x%llx old_spte 0x%llx new_spte 0x%llx level %d\n",
+			       gfn, old_spte, new_spte, level);
+			WARN_ON(1);
+		}
+	} else {
+		lockdep_assert_held_write(&kvm->mmu_lock);
+		ret = static_call(kvm_x86_remove_private_spte)(kvm, gfn, level, old_pfn);
+		WARN_ON_ONCE(ret);
+	}
+
+	return ret;
+}
+
 static int __must_check handle_changed_private_spte(struct kvm *kvm, gfn_t gfn,
 						    u64 old_spte, u64 new_spte,
 						    int level)
@@ -580,6 +639,7 @@ static int __must_check handle_changed_private_spte(struct kvm *kvm, gfn_t gfn,
 	bool is_present = is_shadow_present_pte(new_spte);
 	bool was_leaf = was_present && is_last_spte(old_spte, level);
 	bool is_leaf = is_present && is_last_spte(new_spte, level);
+	bool is_private_zapped = is_private_zapped_spte(new_spte);
 	kvm_pfn_t old_pfn = spte_to_pfn(old_spte);
 	kvm_pfn_t new_pfn = spte_to_pfn(new_spte);
 	int ret = 0;
@@ -608,17 +668,24 @@ static int __must_check handle_changed_private_spte(struct kvm *kvm, gfn_t gfn,
 			ret = static_call(kvm_x86_link_private_spt)(kvm, gfn, level, private_spt);
 		}
 	} else if (was_leaf) {
-		/* non-present -> non-present doesn't make sense. */
-		KVM_BUG_ON(!was_present, kvm);
 		/*
 		 * Zap private leaf SPTE.  Zapping private table is done
 		 * below in handle_removed_tdp_mmu_page().
 		 */
 		lockdep_assert_held_write(&kvm->mmu_lock);
 		ret = static_call(kvm_x86_zap_private_spte)(kvm, gfn, level);
-		if (!ret) {
-			ret = static_call(kvm_x86_remove_private_spte)(kvm, gfn, level, old_pfn);
-			WARN_ON_ONCE(ret);
+		if (is_private_zapped) {
+			KVM_BUG_ON(new_pfn != old_pfn, kvm);
+		} else {
+			/* non-present -> non-present doesn't make sense. */
+			KVM_BUG_ON(!was_present, kvm);
+			KVM_BUG_ON(new_pfn, kvm);
+
+			if (!ret) {
+				ret = static_call(kvm_x86_remove_private_spte)(kvm, gfn,
+									       level, old_pfn);
+				WARN_ON_ONCE(ret);
+			}
 		}
 	}
 	return ret;
@@ -652,11 +719,14 @@ static int __must_check __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t 
 	kvm_pfn_t old_pfn = spte_to_pfn(old_spte);
 	kvm_pfn_t new_pfn = spte_to_pfn(new_spte);
 	bool pfn_changed = old_pfn != new_pfn;
+	bool was_private_zapped = is_private_zapped_spte(old_spte);
+	bool is_private_zapped = is_private_zapped_spte(new_spte);
 
 	WARN_ON(level > PT64_ROOT_MAX_LEVEL);
 	WARN_ON(level < PG_LEVEL_4K);
 	WARN_ON(gfn & (KVM_PAGES_PER_HPAGE(level) - 1));
 	KVM_BUG_ON(kvm_is_private_gpa(kvm, gfn_to_gpa(gfn)) != is_private, kvm);
+	KVM_BUG_ON(was_private_zapped && !is_private, kvm);
 
 	/*
 	 * If this warning were to trigger it would indicate that there was a
@@ -688,6 +758,9 @@ static int __must_check __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t 
 
 	if (is_leaf)
 		check_spte_writable_invariants(new_spte);
+
+	if (was_private_zapped)
+		return handle_private_zapped_spte(kvm, gfn, old_spte, new_spte, level);
 
 	/*
 	 * The only times a SPTE should be changed from a non-present to
@@ -745,8 +818,16 @@ static int __must_check __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t 
 	 */
 	if (is_private &&
 	    /* Ignore change of software only bits. e.g. host_writable */
-	    (was_leaf != is_leaf || was_present != is_present || pfn_changed))
+	    (was_leaf != is_leaf || was_present != is_present || pfn_changed ||
+	     was_private_zapped != is_private_zapped)) {
+		KVM_BUG_ON(was_private_zapped && is_private_zapped, kvm);
+		/*
+		 * When write lock is held, leaf pte should be zapping or
+		 * prohibiting.  Not directly was_present=1 -> zero EPT entry.
+		 */
+		KVM_BUG_ON(!shared && is_leaf && !is_private_zapped, kvm);
 		return handle_changed_private_spte(kvm, gfn, old_spte, new_spte, role.level);
+	}
 	return 0;
 }
 
@@ -847,6 +928,19 @@ static inline int __must_check tdp_mmu_set_spte_atomic(struct kvm *kvm,
 	return ret;
 }
 
+static u64 private_zapped_spte(struct kvm *kvm, const struct tdp_iter *iter)
+{
+	if (!kvm_gfn_shared_mask(kvm))
+		return SHADOW_NONPRESENT_VALUE;
+
+	if (!is_private_sptep(iter->sptep))
+		return SHADOW_NONPRESENT_VALUE;
+
+	return SHADOW_NONPRESENT_VALUE | SPTE_PRIVATE_ZAPPED |
+		(spte_to_pfn(iter->old_spte) << PAGE_SHIFT) |
+		(is_large_pte(iter->old_spte) ? PT_PAGE_SIZE_MASK : 0);
+}
+
 static inline int __must_check tdp_mmu_zap_spte_atomic(struct kvm *kvm,
 						       struct tdp_iter *iter)
 {
@@ -880,7 +974,7 @@ static inline int __must_check tdp_mmu_zap_spte_atomic(struct kvm *kvm,
 	 * SHADOW_NONPRESENT_VALUE (which sets "suppress #VE" bit) so it
 	 * can be set when EPT table entries are zapped.
 	 */
-	__kvm_tdp_mmu_write_spte(iter->sptep, SHADOW_NONPRESENT_VALUE);
+	__kvm_tdp_mmu_write_spte(iter->sptep, private_zapped_spte(kvm, iter));
 
 	return 0;
 }
@@ -979,12 +1073,18 @@ static inline void tdp_mmu_set_spte_no_dirty_log(struct kvm *kvm,
 #define tdp_root_for_each_pte(_iter, _root, _start, _end) \
 	for_each_tdp_pte(_iter, _root, _start, _end)
 
-#define tdp_root_for_each_leaf_pte(_iter, _root, _start, _end)	\
+/*
+ * Note temporarily blocked private SPTE is considered as valid leaf, although
+ * !is_shadow_present_pte() returns true for it, since the target page (which
+ * the mapping maps to ) is still there.
+ */
+#define tdp_root_for_each_leaf_pte(_iter, _root, _start, _end)		\
 	tdp_root_for_each_pte(_iter, _root, _start, _end)		\
-		if (!is_shadow_present_pte(_iter.old_spte) ||		\
-		    !is_last_spte(_iter.old_spte, _iter.level))		\
+		if ((!is_shadow_present_pte(_iter.old_spte) &&		\
+		     !is_private_zapped_spte(_iter.old_spte)) ||	\
+		     !is_last_spte(_iter.old_spte, _iter.level)) {	\
 			continue;					\
-		else
+		} else
 
 #define tdp_mmu_for_each_pte(_iter, _mmu, _private, _start, _end)	\
 	for_each_tdp_pte(_iter,						\
@@ -1158,10 +1258,7 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 	end = min(end, tdp_mmu_max_gfn_exclusive());
 
 	lockdep_assert_held_write(&kvm->mmu_lock);
-
 	WARN_ON_ONCE(zap_private && !is_private);
-	if (!zap_private && is_private_sp(root))
-		return false;
 
 	/*
 	 * start and end doesn't have GFN shared bit.  This function zaps
@@ -1180,8 +1277,15 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 			continue;
 		}
 
-		if (!is_shadow_present_pte(iter.old_spte) ||
-		    !is_last_spte(iter.old_spte, iter.level))
+		if (!is_last_spte(iter.old_spte, iter.level))
+			continue;
+
+		/*
+		 * Skip non-present SPTE, with exception of temporarily
+		 * blocked private SPTE, which also needs to be zapped.
+		 */
+		if (!is_shadow_present_pte(iter.old_spte) &&
+		    !is_private_zapped_spte(iter.old_spte))
 			continue;
 
 		if (is_private && kvm_gfn_shared_mask(kvm) &&
@@ -1226,7 +1330,13 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 			}
 		}
 
-		tdp_mmu_set_spte(kvm, &iter, SHADOW_NONPRESENT_VALUE);
+		if (!zap_private && is_private_zapped_spte(iter.old_spte))
+			continue;
+
+		tdp_mmu_set_spte(kvm, &iter,
+				 zap_private ?
+				 SHADOW_NONPRESENT_VALUE :
+				 private_zapped_spte(kvm, &iter));
 		flush = true;
 	}
 
@@ -1798,7 +1908,7 @@ static bool set_spte_gfn(struct kvm *kvm, struct tdp_iter *iter,
 	 * invariant that the PFN of a present * leaf SPTE can never change.
 	 * See __handle_changed_spte().
 	 */
-	tdp_mmu_set_spte(kvm, iter, SHADOW_NONPRESENT_VALUE);
+	tdp_mmu_set_spte(kvm, iter, private_zapped_spte(kvm, iter));
 
 	if (!pte_write(range->pte)) {
 		new_spte = kvm_mmu_changed_pte_notifier_make_spte(iter->old_spte,

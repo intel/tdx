@@ -1030,9 +1030,20 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
 
 	WARN_ON(sp->role.level != fault->goal_level);
 
-	/* TDX shared GPAs are no executable, enforce this for the SDV. */
-	if (!kvm_is_private_gfn(vcpu->kvm, iter->gfn))
-		pte_access &= ~ACC_EXEC_MASK;
+	if (kvm_gfn_stolen_mask(vcpu->kvm)) {
+		if (is_private_spte(iter->sptep)) {
+			/*
+			 * This GPA is not allowed to map as private.  Let
+			 * vcpu loop in page fault until other vcpu change it
+			 * by MapGPA hypercall.
+			 */
+			if (is_private_prohibit_spte(iter->old_spte))
+				return RET_PF_RETRY;
+		} else {
+			/* TDX shared GPAs are no executable, enforce this. */
+			pte_access &= ~ACC_EXEC_MASK;
+		}
+	}
 
 	if (unlikely(!fault->slot))
 		new_spte = make_mmio_spte(vcpu,
@@ -1106,6 +1117,35 @@ static bool tdp_mmu_populate_nonleaf(
 }
 
 /*
+ * Check if the given gfn can be mapped as shared or private by
+ * TGH.VP.VMCALL<MapGpa>.  It's recored as a bit of SPTE_PRIVATE_PROHIBIT in
+ * private spte. (set: shared, unset: private as default)
+ * true: mapped as shared
+ * false: mapped as private
+ */
+static bool tdp_mmu_private_prohibit(struct kvm_vcpu *vcpu, gfn_t gfn)
+{
+	gfn_t gfn_private = kvm_gfn_unalias(vcpu->kvm, gfn);
+	struct tdp_iter iter;
+	struct kvm_mmu *mmu = vcpu->arch.mmu;
+
+	tdp_mmu_for_each_pte(iter, mmu, true, gfn_private, gfn_private + 1) {
+		if (is_private_prohibit_spte(iter.old_spte))
+			return true;
+
+		if (!is_last_spte(iter.old_spte, iter.level))
+			continue;
+		/*
+		 * Large page is not supported by TDP MMU for TDX now.
+		 * TODO: large page support.
+		 */
+		WARN_ON(iter.level != PG_LEVEL_4K);
+	}
+
+	return false;
+}
+
+/*
  * Handle a TDP page fault (NPT/EPT violation/misconfiguration) by installing
  * page tables and SPTEs to translate the faulting guest physical address.
  */
@@ -1130,6 +1170,16 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		if (is_private) {
 			rcu_read_unlock();
 			return -EFAULT;
+		}
+	} else if (vcpu->kvm->arch.gfn_shared_mask) {
+		if (!is_private) {
+			/*
+			 * If raw_gfn is shared gfn, check if shared mapping
+			 * is allowed.  Private mapping case is checked by
+			 * tdp_mmu_map_handle_target_level().
+			 */
+			if (!tdp_mmu_private_prohibit(vcpu, raw_gfn))
+				return RET_PF_RETRY;
 		}
 	}
 

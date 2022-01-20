@@ -29,9 +29,17 @@ struct kvm_tdx {
 	struct kvm_cpuid_entry2 cpuid_entries[KVM_MAX_CPUID_ENTRIES];
 
 	bool finalized;
+	bool tdh_mem_track;
 
 	u64 tsc_offset;
 	unsigned long tsc_khz;
+
+	/*
+	 * Lock to prevent seamcalls from running concurrently
+	 * when TDP MMU is enabled, because TDP fault handler
+	 * runs concurrently.
+	 */
+	spinlock_t seamcall_lock;
 };
 
 struct vcpu_tdx {
@@ -164,6 +172,12 @@ static __always_inline u64 td_tdcs_exec_read64(struct kvm_tdx *kvm_tdx, u32 fiel
 		return 0;
 	}
 	return out.r8;
+}
+
+static __always_inline int pg_level_to_tdx_sept_level(enum pg_level level)
+{
+	WARN_ON(level == PG_LEVEL_NONE);
+	return level - 1;
 }
 
 #else

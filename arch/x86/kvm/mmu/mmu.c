@@ -2487,7 +2487,8 @@ static int mmu_page_zap_pte(struct kvm *kvm, struct kvm_mmu_page *sp,
 				return kvm_mmu_prepare_zap_page(kvm, child,
 								invalid_list);
 		}
-	} else if (is_mmio_spte(kvm, pte)) {
+	} else if (!(is_private_sp(sp) &&
+		     spte_shared_mask(pte)) && is_mmio_spte(kvm, pte)) {
 		mmu_spte_clear_no_track(spte);
 	}
 	return 0;
@@ -3225,6 +3226,18 @@ static void __direct_populate_nonleaf(struct kvm_vcpu *vcpu,
 		*base_gfnp = base_gfn;
 }
 
+static bool mmu_spte_shared(struct kvm_vcpu *vcpu, gpa_t gpa_private)
+{
+	struct kvm_shadow_walk_iterator it;
+
+	for_each_shadow_entry(vcpu, gpa_private, it) {
+		if (!is_shadow_present_pte(*it.sptep))
+			break;
+	}
+
+	return spte_shared_mask(*it.sptep);
+}
+
 static int __direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 {
 	struct kvm_shadow_walk_iterator it;
@@ -3237,11 +3250,27 @@ static int __direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	if (is_error_noslot_pfn(fault->pfn) || kvm_is_reserved_pfn(fault->pfn)) {
 		if (is_private)
 			return -EFAULT;
+	} else if (kvm_gfn_shared_mask(vcpu->kvm)) {
+		/*
+		 * This GPA is used for private GPA.  Let vcpu looping on EPT
+		 * violation until other vcpu map the GPA as shared.
+		 */
+		if (!is_private &&
+		    !mmu_spte_shared(vcpu,
+				     kvm_gpa_private(vcpu->kvm, fault->addr)))
+			return RET_PF_RETRY;
 	}
 
 	__direct_populate_nonleaf(vcpu, fault, &it, &base_gfn);
 	if (WARN_ON_ONCE(it.level != fault->goal_level))
 		return -EFAULT;
+
+	/*
+	 * This GPA is used for shared GPA.  Let vcpu looping on EPT violation
+	 * until other vcpu map this GPA as private.
+	 */
+	if (is_private && spte_shared_mask(*it.sptep))
+		return RET_PF_RETRY;
 
 	is_zapped_pte = is_private_zapped_spte(*it.sptep);
 

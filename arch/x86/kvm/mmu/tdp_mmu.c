@@ -1038,9 +1038,25 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
 
 	WARN_ON(sp->role.level != fault->goal_level);
 
-	/* TDX shared GPAs are no executable, enforce this for the SDV. */
-	if (!kvm_is_private_gfn(vcpu->kvm, iter->gfn))
-		pte_access &= ~ACC_EXEC_MASK;
+	if (kvm_gfn_stolen_mask(vcpu->kvm)) {
+		if (is_private_spte(iter->sptep)) {
+			/*
+			 * This GPA is not allowed to map as private.  Let
+			 * vcpu loop in page fault until other vcpu change it
+			 * by MapGPA hypercall.
+			 */
+			if (fault->slot &&
+				is_private_prohibit_spte(iter->old_spte))
+				return RET_PF_RETRY;
+		} else {
+			/* This GPA is not allowed to map as shared. */
+			if (fault->slot &&
+				!is_private_prohibit_spte(iter->old_spte))
+				return RET_PF_RETRY;
+			/* TDX shared GPAs are no executable, enforce this. */
+			pte_access &= ~ACC_EXEC_MASK;
+		}
+	}
 
 	if (unlikely(!fault->slot))
 		new_spte = make_mmio_spte(vcpu,

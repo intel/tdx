@@ -21,4 +21,5 @@ KVM
    review-checklist
 
    intel-tdx
+   tdx-tdp-mmu
    intel-tdx-layer-status.rst

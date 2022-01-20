@@ -21,3 +21,4 @@ KVM
    review-checklist
 
    intel-tdx
+   tdx-tdp-mmu

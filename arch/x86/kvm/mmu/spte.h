@@ -223,7 +223,7 @@ extern u64 __read_mostly shadow_init_value;
 
 static inline bool is_removed_spte(u64 spte)
 {
-	return spte == SHADOW_REMOVED_SPTE;
+	return (spte & ~SPTE_PRIVATE_PROHIBIT) == SHADOW_REMOVED_SPTE;
 }
 
 static inline bool is_private_prohibit_spte(u64 spte)

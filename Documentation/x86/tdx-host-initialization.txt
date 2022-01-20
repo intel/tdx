@@ -1,0 +1,344 @@
+Intel Trusted Domain Extensions (TDX) protects guest VMs from malicious
+host and certain physical attacks.  This series enables necessary TDX
+support in host kernel to run protected guest VMs.
+
+== Background ==
+
+1. Introduction
+
+To support TDX, Intel introduced a new isolated and protected CPU mode
+called Secure Arbitration Mode (SEAM).  SEAM is an extension of VMX
+architecture to allow running CPU-attested SEAM firmware securely in an
+isolated memory region specified by SEAM ranger register (SEAMRR).
+Similar to VMX, SEAM mode also defines two submodes called SEAM VMX root
+mode and SEAM VMX non-root mode.  The TDX module is essentially a trusted
+hypervisor running inside SEAM root mode, allowing creating and running
+crypto-protected guest VMs called Turst Domains (TD).
+
+Host kernel transits to SEAM firmware via the new SEAMCALL instruction,
+which is essentially a VMExit from VMX root mode to SEAM VMX root mode.
+SEAMCALLs are leaf functions defined by SEAM firmware around the new
+SEAMCALL instruction.  They are similar to a hypercall, except that they
+are made from host kernel to the SEAM firmware.  SEAM firmware can be
+either P-SEAMLDR (persistent SEAM loader), or TDX module (P-SEAMLDR is
+a small SEAM firmware which is used to actually load TDX module).
+
+Before being able to use TDX module to create TD guests, the TDX module
+must be loaded into SEAMRR and properly initialized, using SEAMCALLs
+defined by TDX archtecture.  Both P-SEAMLDR and TDX module are expected
+to be loaded by BIOS (for instance, using UEFI shell application).
+However, kernel is expected to detect the TDX module, and initialize it.
+
+2. Detect TDX module (and P-SEAMLDR)
+
+There is no CPUID or MSR defined to query whether TDX module or P-SEAMLDR
+has been loaded.  In general, SEAMCALL can be used to detect whether SEAM
+firmware has been loaded.  This is because SEAMCALL instruction basically
+is a VMExit from VMX root mode to SEAM VMX root mode, and it will fail
+with VMFailInvalid if SEAM firmware is not loaded.  Therefore, both
+P-SEAMLDR and TDX module can be detected via calling their SEAMCALL to
+see whether the SEAMCALL has actually been executed.  However, P-SEAMLDR
+information (via SEAMLDR.INFO SEAMCALL) also contains whether TDX module
+has been loaded and ready for SEAMCALL.  Therefore, detecting TDX module
+can be done via detecting P-SEAMLDR, by calling SEAMLDR.INFO SEAMCALL.
+
+3. Initialize TDX module
+
+Overall, initializing TDX module involves below steps:
+
+1) One-time platform level initialization;
+2) Logical cpu level initialization on all logical cpus;
+3) Get TDX system information;
+4) Build the TDX usable memory based on 3);
+5) Reserve one TDX keyID as global KeyID to protect TDX metadata;
+6) Configure TDX module with TDX usable memory and global KeyID
+   information;
+7) Generating keys for the global KeyID on all CPU packages;
+8) Initialize TDX usable memory based on 4).
+
+The above initialization process can only be done once during TDX
+module's life time.  And there are some special requirements for some
+steps in above process:
+
+1) Almost all steps in above process require calling some SEAMCALLs on
+   local or multiple cpus, and those cpus must be already in VMX
+   operation (VMXON has been done) before calling SEAMCALLs.
+2) Logical cpu level initialization requires calling one SEAMCALL on all
+   cpus reported by BIOS.  If number of possible cpus is limited by
+   kernel command line (i.e. nr_cpus), or there is any offline cpu, the
+   further initialization would fail.
+3) Similarly, generating keys for global KeyID on all cpu packages
+   requires calling one SEAMCALL on one cpu for eack package.
+4) TDX provides additional crypto protection to TD guests, so the memory
+   used by TDX requires additional hardware feature support like memory
+   encryption and integrity support.  TDX reports TDX capable memory to
+   VMM.  VMM is responsible for choosing which memory to be used by TDX
+   and configuring TDX module with TDX usable memory.  Building the TDX
+   usable memory requires reserving part of TDX capable memory as
+   metadata (which consumes roughly 1/256th of TDX capable memory for
+   the first generation of TDX).
+
+In case of any fatal error during initializing TDX module, the module
+should be put into shutdown mode so that no further SEAMCALL can be made
+on any logical cpu.  It is pointless to leave TDX module in some middle
+status during initializing TDX module.  Shutting down TDX module also
+requires calling SEAMCALL on all logical cpus reported by BIOS.
+
+4. Memory management in TDX
+
+TDX provides increased levels of memory confidentiality and integrity.
+This requires special hardware support for features like memory
+encryption and storage of memory integrity checksums.  Not all memory
+satisfies these requirements.
+
+As a result, TDX introduced the concept of a "Convertible Memory Region"
+(CMR).  During boot, the firmware builds a list of all of the memory
+ranges which can provide the TDX security guarantees.  The list of these
+ranges, along with TDX module information, is available to the kernel by
+querying the TDX module.
+
+In order to provide crypto protection to TD guests, the TDX architecture
+also needs additional metadata to record things like which TD guest
+"owns" a given page of memory.  This metadata essentially serves as the
+'struct page' for the TDX module.  The space for this metadata is not
+reserved by the hardware up front and must be allocated by the kernel
+and given to the TDX module.
+
+Since this metadata consumes space, the VMM can choose whether or not to
+allocate it for a given area of convertible memory.  If it chooses not
+to, the memory cannot receive TDX protections and can not be used by TDX
+guests as private memory.
+
+For every TDX memory block that the VMM wants to use as TDX memory, it
+sets up a "TD Memory Region" (TDMR).  Each TDMR represents a physically
+contiguous convertible range and must also have its own physically
+contiguous metadata table, referred to as a Physical Address Metadata
+Table (PAMT), to track status for each page in TDMR range.
+
+Unlike a CMRs, each TDMR requires 1G granularity and alignment.  To
+support physical RAM areas that don't meet those strict requirements,
+each TDMR permits a number of internal "reserved areas" which can be
+placed over memory holes.  If PAMT metadata is placed within a TDMR it
+must be covered by one of these reserved areas.
+
+Summerize the concepts:
+
+ CMR - Firmware-enumerated physical ranges that support TDX.  CMRs are
+       4K aligned.
+TDMR - Physical address range which is chosen by the kernel to support
+       TDX.  1G granularity and alignment required.  Each TDMR has
+       reserved areas where TDX memory holes and overlapping PAMTs can
+       be put into.
+PAMT - Physically contiguous TDX metadata.  One table for each page size
+       per TDMR.  Roughly 1/256th of TDMR in size.  256G TDMR =~ 1G
+       PAMT.
+
+As one step of initializing TDX module, VMM needs to configure TDX
+module with an array of TDMRs which covers all memory regions that VMM
+wants to use as TDX memory.
+
+5. Initializing TDMRs.
+
+After VMM configures TDX module with TDMRs, VMM needs to initialize
+those TDMRs before the TDX usable memory can be used to create TD guests.
+
+The SEAMCALL used to initialize TDMR doesn't initialize the entire TDMR
+in once because of the latency requirement of the SEAMCALL.  Instead, it
+only initializes part of TDMR and returns next-to-initialize address
+(rounded down to 1G) which next SEAMCALL will start to initialize.  After
+each 1G range of a TDMR has been initialized, it immediately becomes
+available to run TD guest.  When the next-to-initialize address spans
+the entire TDMR range, the TDMR becomes fully initialized.
+
+Initializing one TDMR could be time consuming.  For current generation
+of TDX, for instance, on a machine with 2.2G cpu, one SEAMCALL internally
+initializes 2M memory, and it roughly takes 64ns.  Therefore, a 32G TDMR
+roughly takes 1s to initialize.
+
+At last, although SEAMCALLs to initializing one TDMR cannot run in
+parallel on different cpus, SEAMCALLs to initialize different TDMRs can.
+
+== Design ==
+
+1. Allow on-demand TDX module detection and initialization
+
+Technically, the TDX initialization process can be done in either kernel
+boot phase, or in later phase when TDX is going to be actually used.  So
+far, the only user of TDX module is KVM, but other kernel components may
+be the user of it too in future generations of TDX.  Choose to allow to
+detect and initialize TDX on demand by user as it is more flexible, for
+instance, the TDX metadata can only be allocated when TDX is actually
+going to be used.  Another benefit is so far KVM is the only user of TDX
+module, and letting KVM to initialize TDX module avoids the duplicated
+code to handle entering/exiting VMX operation since KVM already handles
+it.
+
+Specifically, provide two functions detect_tdx() and init_tdx() to
+allow caller to detect and enable TDX on demand.  A typical usage could
+be:
+
+	/* Caller guarantees all cpus are online and in VMX operation */
+	/* enable_tdx indicates whether caller wants to use TDX */
+
+	/* Detect TDX when caller wants to detect TDX feature */
+	if (enable_tdx && detect_tdx())
+		enable_tdx = 0;
+
+	/* Initialize TDX when caller wants to use TDX */
+	if (enable_tdx && init_tdx())
+		enable_tdx = 0;
+
+	/* TDX can be used from this point */
+
+2. Convert all system memory to RAM
+
+Architecturally, as long as a memory or resource range falls into CMR, it
+can be used as TDX memory.  The first generation of TDX essentially only
+supports all system RAM as TDX memory.  To avoid having to modify page
+allocator to distinguish non-TDX and TDX memory allocation, convert all
+system RAM to TDX memory.
+
+Construct an array of TDMRs to cover all system memory regions, so that
+all system memory can be used by TDX.  Find all system RAM via e820
+table, as it contains all RAM information.  Don't choose to use memblock,
+because: 1) memblock will be gone after kernel boot, while e820 remains;
+2) memblock doesn't have x86 legacy PMEMs, which is underneath also RAM.a
+
+Use e820_table, rather than e820_table_firmware, or e820_table_kexec to
+find all RAM entries to honor 'mem' and 'memmap' kernel command line,
+for instance, the unusable memory won't be included into TDMRs (thus
+unnecessary PAMTs can be avoided).
+
+X86 legacy PMEMs reserved by 'memmap=nn!ss' are also treated as RAM
+entries, since underneath they are also RAM.  User may have desire to
+use legacy PMEMs as TD guest memory if legacy PMEMs are enabled on TDX
+enabled systems.
+
+3. Constructing TDMRs
+
+TDX configures TDX module with TDX usable memory information via TDMRs.
+Constructing TDMRs overall has below steps:
+
+1) Create a number of TDMRs to cover all system RAM entries in e820;
+2) Allocate and set up PAMTs for each TDMR;
+3) Put memory region holes and PAMTs into each TDMR's reserved areas.
+
+TDX only supports limited number of TDMRs (currently 64).  And for each
+TDMR, TDX only supports limited number of reserved areas (currently 16).
+As the first version of supporting TDX in host kernel, use a simple way
+to construct TDMRs which works in practice in most common cases.
+
+Firstly, use a simple way to create TDMRs to cover all RAM entries:
+always try to create one TDMR to cover one RAM entry.  Due to TDMR's 1G
+alignment requirement, one TDMR could cover more than one small RAM
+entries.  This is because in practice, on a real machine, the RAM entreis
+should never exceed the limited number of TDMRs (currently 64).
+
+Secondly, PAMTs must be put into one TDMR's reserved areas when they
+overlap with the address range of the TDMR.  However TDX only supports
+limited number of reserved areas per TDMR (currently 16).  Therefore, to
+avoid constructing TDMR failure, PAMTs in general should take as less
+reserved areas as possible, since TDX usable memory holes also occupy
+reserved areas.
+
+Use alloc_contig_pages() to allocate PAMT since PAMT needs to be
+physically contiguous, and always try to allocate from local NUMA node
+to avoid remote node PAMT access.  For simplicity, allocate PAMT
+separately for each TDMR. In this way in practice the TDMR's reserved
+areas should not exceed the limited number (currently 16).
+
+This is because in practice on a real machine, address range [2G, 4G) is
+typically reserved as PCIE MMIO space, and [0, 2G) normally has 3, or 4
+small RAM regions.  However RAM regions above 4G are typically organized
+in such way that one NUMA node normally has 1 big RAM region to cover all
+the RAM on that NUMA node.  As a result, in practice, TDMRs are normally
+created in such way that NUMA node 0 has two TDMRs (splitted by PCIE MMIO
+space), and other nodes normally have one TDMR for each node.
+
+For example, below is the e820 table of a 2 sockets (nodes) machine,
+with each node has 32G RAM:
+
+	BIOS-e820: [mem 0x0000000000000000-0x000000000009efff] usable
+	BIOS-e820: [mem 0x000000000009f000-0x00000000000fffff] reserved
+	BIOS-e820: [mem 0x0000000000100000-0x00000000730bafff] usable
+	BIOS-e820: [mem 0x00000000730bb000-0x00000000751fffff] reserved
+	BIOS-e820: [mem 0x0000000075200000-0x0000000077213fff] ACPI NVS
+	BIOS-e820: [mem 0x0000000077214000-0x00000000777fefff] ACPI data
+	BIOS-e820: [mem 0x00000000777ff000-0x00000000777fffff] usable
+	BIOS-e820: [mem 0x0000000077800000-0x000000008fffffff] reserved
+	BIOS-e820: [mem 0x00000000fe010000-0x00000000fe010fff] reserved
+	BIOS-e820: [mem 0x0000000100000000-0x000000086dffffff] usable
+	BIOS-e820: [mem 0x000000086e000000-0x000000087fffffff] reserved
+	BIOS-e820: [mem 0x0000000880000000-0x000000106fffffff] usable
+	BIOS-e820: [mem 0x0000001070000000-0x000000107fffffff] reserved
+
+The CMRs generated by BIOS:
+
+	CMR[0]: [0x100000, 0x77800000)
+	CMR[1]: [0x100000000, 0x86e000000)
+	CMR[2]: [0x880000000, 0x1070000000)
+
+And the kernel generated TDMRs are:
+
+	TDMR[0]: [0x0, 0x80000000)
+	TDMR[1]: [0x100000000, 0x880000000)
+	TDMR[2]: [0x880000000, 0x1080000000)
+
+Where TDMR[0] and TDMR[1] belongs to node 0, and TDMR[2] is on node 1.
+
+In this example, TDMR[0] covers two usable memory regions (excluding
+memory below 1MB): [0x100000, 0x730bb000) and [0x777ff000, 0x77800000),
+while other TDMRs cover only one memory region.  And node 0 has more
+TDMRs (two TDMRs) than node 1.  Therefore, the worst case is the PAMTs
+allocated for TDMR[0] and TDMR[1] are all within TDMR[0], resulting in
+TDMR[0] to have 4 usable memory regions, thus 5 holes needing to be put
+to reserved areas, which is far smaller than TDMR's maximum reserved
+areas (currently 16).
+
+Note in current implementation 'e820_table' is used to find all system
+RAM entries, rather than 'e820_table_firmware' or 'e820_table_kexec' to
+honor 'mem' and 'memmap' kernel command line.  However, honoring 'memmap'
+also has a disadvantage, that it can result in a lot of discrete RAM
+entries in e820, in which case constructing TDMRs may fail due to
+exceeding the maximum supported number of TDMRs, or maximum supported
+number of reserved areas.  It is user's responsibility not to do so.
+This is a limitation of current code, and can be further improved by
+supporting merging adjacent TDMRs.
+
+3) Initialize TDMRs
+
+Initializing one TDMR could be time consuming.  For current generation
+of TDX, on a machine with 2.2G cpu, one SEAMCALL to initialize part of
+TDMR internally initializes 2M memory, and it roughly takes 64ns.
+For some context, this means a 32G TDMR roughly takes 1s to initialize.
+
+Therefore, to avoid taking the cpu for long time during initializing one
+TDMR, always check rescheduling during the loop of calling the SEAMCALL
+to initialize the TDMR.
+
+For the first support of TDX in host kernel, to keep it simple, just
+initialize all TDMRs one by one, although initializing different TDMRs
+can be done in parallel on different cpus.
+
+4) Interaction with CPU and memory hotplug
+
+For current genration of TDX, a machine capable of TDX support neither
+CPU hotplug and memory hotplug.  Therefore, this series doesn't handle
+them at all.
+
+A special case of memory hotplug is adding NVDIMM as system RAM using
+kmem driver.  For real NVDIMM hotplug, the first generation of TDX
+capable machine doesn't support NVDIMM, therefore it's not possible to
+have both NVDIMM and TDX present on one single machine.  For legacy
+PMEMs enabled via 'memmap' kernel command line, they are also treated as
+RAM entries when walking over e820_table to construct TDMRs, therefore
+they are always converted to TDX memory, and kmem driver can just work
+with them normally.  Therefore, there's no special handling for memory
+hotplug for kmem driver.
+
+Also, there's no special handling for memremap_pages().  It should
+continue to work, as the pages added by memremap_pages() are added to
+ZONE_DEVICE which isn't managed by page allocator, therefore it's fine
+they are not included into TDMRs.  For the case of using legacy PMEMs as
+TD guest memory, it's also fine since they are always included into
+TDMRs.

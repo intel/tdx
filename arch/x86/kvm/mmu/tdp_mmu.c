@@ -16,7 +16,12 @@ module_param_named(tdp_mmu, tdp_mmu_enabled, bool, 0644);
 /* Initializes the TDP MMU for the VM, if enabled. */
 bool kvm_mmu_init_tdp_mmu(struct kvm *kvm)
 {
-	if (!tdp_enabled || !READ_ONCE(tdp_mmu_enabled))
+	/*
+	 *  Because TDX supports only TDP MMU, forcibly use TDP MMU in the case
+	 *  of TDX.
+	 */
+	if (kvm->arch.vm_type != KVM_X86_TDX_VM &&
+		(!tdp_enabled || !READ_ONCE(tdp_mmu_enabled)))
 		return false;
 
 	/* This should not be changed for the lifetime of the VM. */

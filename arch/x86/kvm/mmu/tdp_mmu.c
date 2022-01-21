@@ -18,8 +18,12 @@ int kvm_mmu_init_tdp_mmu(struct kvm *kvm)
 {
 	struct workqueue_struct *wq;
 
+	/*
+	 * Because only the TDP MMU supports TDX, require the TDP MMU for guest
+	 * TDs.
+	 */
 	if (!tdp_enabled || !READ_ONCE(tdp_mmu_enabled))
-		return 0;
+		return kvm->arch.vm_type == KVM_X86_TDX_VM ? -EOPNOTSUPP : 0;
 
 	wq = alloc_workqueue("kvm", WQ_UNBOUND|WQ_MEM_RECLAIM|WQ_CPU_INTENSIVE, 0);
 	if (!wq)

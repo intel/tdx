@@ -1411,6 +1411,9 @@ static bool __init kvm_can_support_tdx(void)
 	if (!cpu_feature_enabled(X86_FEATURE_TDX_HOST_PLATFORM))
 		return false;
 
+	if (!tdp_mmu_enabled || !enable_mmio_caching)
+		return false;
+
 	if (!cpu_feature_enabled(X86_FEATURE_MOVDIR64B)) {
 		pr_warn("MOVDIR64B is reqiured for TDX\n");
 		return false;

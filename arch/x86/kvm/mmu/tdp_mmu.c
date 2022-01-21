@@ -27,6 +27,13 @@ int kvm_mmu_init_tdp_mmu(struct kvm *kvm)
 	if (kvm->arch.vm_type == KVM_X86_TDX_VM && !enable_mmio_caching)
 		return -EOPNOTSUPP;
 
+	/*
+	 * Because only the TDP MMU supports TDX, require the TDP MMU for guest
+	 * TDs.
+	 */
+	if (kvm->arch.vm_type == KVM_X86_TDX_VM && !tdp_enabled)
+		return -EOPNOTSUPP;
+
 	if (!tdp_enabled || !READ_ONCE(tdp_mmu_enabled))
 		return 0;
 

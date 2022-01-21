@@ -1481,14 +1481,12 @@ static int __init __tdx_bringup(void)
 	const struct tdx_sysinfo_td_conf *td_conf;
 	int r;
 
+	if (!tdp_mmu_enabled || !enable_mmio_caching)
+		return -EOPNOTSUPP;
+
 	if (!cpu_feature_enabled(X86_FEATURE_MOVDIR64B)) {
 		pr_warn("MOVDIR64B is reqiured for TDX\n");
 		return -EOPNOTSUPP;
-	}
-
-	if (!enable_ept) {
-		pr_err("Cannot enable TDX with EPT disabled.\n");
-		return -EINVAL;
 	}
 
 	/*

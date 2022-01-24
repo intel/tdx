@@ -45,8 +45,8 @@ static enum tdx_module_status_t tdx_module_status;
 static DEFINE_MUTEX(tdx_module_lock);
 
 /* Base address of CMR array needs to be 512 bytes aligned. */
-static struct cmr_info tdx_cmr_array[MAX_CMRS] __aligned(CMR_INFO_ARRAY_ALIGNMENT);
-static int tdx_cmr_num;
+struct cmr_info tdx_cmr_array[MAX_CMRS] __aligned(CMR_INFO_ARRAY_ALIGNMENT);
+int tdx_cmr_num;
 struct tdsysinfo_struct tdx_sysinfo;
 
 /* Array of pointer of TDMRs (TDMR_INFO) */

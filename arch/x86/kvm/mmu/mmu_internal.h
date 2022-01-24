@@ -5,6 +5,7 @@
 #include <linux/types.h>
 #include <linux/kvm_host.h>
 #include <asm/kvm_host.h>
+#include "mmu.h"
 
 #include "mmu.h"
 

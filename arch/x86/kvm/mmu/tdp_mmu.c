@@ -257,10 +257,19 @@ static void handle_changed_spte_acc_track(u64 old_spte, u64 new_spte, int level)
 }
 
 static void handle_changed_spte_dirty_log(struct kvm *kvm, int as_id, gfn_t gfn,
+					  bool private_spte,
 					  u64 old_spte, u64 new_spte, int level)
 {
 	bool pfn_changed;
 	struct kvm_memory_slot *slot;
+
+	/*
+	 * TDX doesn't support live migration.  Never mark private page as
+	 * dirty in log-dirty bitmap, since it's not possible for userspace
+	 * hypervisor to live migrate private page anyway.
+	 */
+	if (private_spte)
+		return;
 
 	if (level > PG_LEVEL_4K)
 		return;
@@ -269,6 +278,8 @@ static void handle_changed_spte_dirty_log(struct kvm *kvm, int as_id, gfn_t gfn,
 
 	if ((!is_writable_pte(old_spte) || pfn_changed) &&
 	    is_writable_pte(new_spte)) {
+		/* For memory slot operations, use GFN without aliasing */
+		gfn = kvm_gfn_unalias(kvm, gfn);
 		slot = __gfn_to_memslot(__kvm_memslots(kvm, as_id), gfn);
 		mark_page_dirty_in_slot(kvm, slot, gfn);
 	}
@@ -549,7 +560,7 @@ static void handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 	__handle_changed_spte(kvm, as_id, gfn, private_spte,
 			old_spte, new_spte, level, shared);
 	handle_changed_spte_acc_track(old_spte, new_spte, level);
-	handle_changed_spte_dirty_log(kvm, as_id, gfn, old_spte,
+	handle_changed_spte_dirty_log(kvm, as_id, gfn, private_spte, old_spte,
 				      new_spte, level);
 }
 
@@ -680,6 +691,7 @@ static inline void __tdp_mmu_set_spte(struct kvm *kvm, struct tdp_iter *iter,
 					      iter->level);
 	if (record_dirty_log)
 		handle_changed_spte_dirty_log(kvm, iter->as_id, iter->gfn,
+					      is_private_spte(iter->sptep),
 					      iter->old_spte, new_spte,
 					      iter->level);
 }
@@ -1217,7 +1229,23 @@ static __always_inline bool kvm_tdp_mmu_handle_gfn(struct kvm *kvm,
 	 * into this helper allow blocking; it'd be dead, wasteful code.
 	 */
 	for_each_tdp_mmu_root(kvm, root, range->slot->as_id) {
-		tdp_root_for_each_leaf_pte(iter, root, range->start, range->end)
+		/*
+		 * For TDX shared mapping, set GFN shared bit to the range,
+		 * so the handler() doesn't need to set it, to avoid duplicated
+		 * code in multiple handler()s.
+		 */
+		gfn_t start;
+		gfn_t end;
+
+		if (is_private_sp(root)) {
+			start = kvm_gfn_private(kvm, range->start);
+			end = kvm_gfn_private(kvm, range->end);
+		} else {
+			start = kvm_gfn_shared(kvm, range->start);
+			end = kvm_gfn_shared(kvm, range->end);
+		}
+
+		tdp_root_for_each_leaf_pte(iter, root, start, end)
 			ret |= handler(kvm, &iter, range);
 	}
 
@@ -1237,6 +1265,15 @@ static bool age_gfn_range(struct kvm *kvm, struct tdp_iter *iter,
 
 	/* If we have a non-accessed entry we don't need to change the pte. */
 	if (!is_accessed_spte(iter->old_spte))
+		return false;
+
+	/*
+	 * First TDX generation doesn't support clearing A bit for private
+	 * mapping, since there's no secure EPT API to support it.  However
+	 * it's a legitimate request for TDX guest, so just return w/o a
+	 * WARN().
+	 */
+	if (is_private_spte(iter->sptep))
 		return false;
 
 	new_spte = iter->old_spte;
@@ -1282,6 +1319,13 @@ static bool set_spte_gfn(struct kvm *kvm, struct tdp_iter *iter,
 
 	/* Huge pages aren't expected to be modified without first being zapped. */
 	WARN_ON(pte_huge(range->pte) || range->start + 1 != range->end);
+
+	/*
+	 * .change_pte() callback should not happen for private page, because
+	 * for now TDX private pages are pinned during VM's life time.
+	 */
+	if (WARN_ON(is_private_spte(iter->sptep)))
+		return false;
 
 	if (iter->level != PG_LEVEL_4K ||
 	    !is_shadow_present_pte(iter->old_spte))
@@ -1333,6 +1377,16 @@ static bool wrprot_gfn_range(struct kvm *kvm, struct kvm_mmu_page *root,
 	struct tdp_iter iter;
 	u64 new_spte;
 	bool spte_set = false;
+
+	/*
+	 * First TDX generation doesn't support write protecting private
+	 * mappings, since there's no secure EPT API to support it.  It
+	 * is a bug to reach here for TDX guest.
+	 */
+	if (WARN_ON(is_private_sp(root)))
+		return spte_set;
+	start = kvm_gfn_shared(kvm, start);
+	end = kvm_gfn_shared(kvm, end);
 
 	rcu_read_lock();
 
@@ -1399,6 +1453,16 @@ static bool clear_dirty_gfn_range(struct kvm *kvm, struct kvm_mmu_page *root,
 	struct tdp_iter iter;
 	u64 new_spte;
 	bool spte_set = false;
+
+	/*
+	 * First TDX generation doesn't support clearing dirty bit,
+	 * since there's no secure EPT API to support it.  It is a
+	 * bug to reach here for TDX guest.
+	 */
+	if (WARN_ON(is_private_sp(root)))
+		return spte_set;
+	start = kvm_gfn_shared(kvm, start);
+	end = kvm_gfn_shared(kvm, end);
 
 	rcu_read_lock();
 
@@ -1469,6 +1533,15 @@ static void clear_dirty_pt_masked(struct kvm *kvm, struct kvm_mmu_page *root,
 	struct tdp_iter iter;
 	u64 new_spte;
 
+	/*
+	 * First TDX generation doesn't support clearing dirty bit,
+	 * since there's no secure EPT API to support it.  It is a
+	 * bug to reach here for TDX guest.
+	 */
+	if (WARN_ON(is_private_sp(root)))
+		return;
+	gfn = kvm_gfn_shared(kvm, gfn);
+
 	rcu_read_lock();
 
 	tdp_root_for_each_leaf_pte(iter, root, gfn + __ffs(mask),
@@ -1532,6 +1605,16 @@ static void zap_collapsible_spte_range(struct kvm *kvm,
 	struct tdp_iter iter;
 	kvm_pfn_t pfn;
 
+	/*
+	 * This should only be reachable in case of log-dirty, which TD
+	 * private mapping doesn't support so far.  Give a WARN() if it
+	 * hits private mapping.
+	 */
+	if (WARN_ON(is_private_sp(root)))
+		return;
+	start = kvm_gfn_shared(kvm, start);
+	end = kvm_gfn_shared(kvm, end);
+
 	rcu_read_lock();
 
 	tdp_root_for_each_pte(iter, root, start, end) {
@@ -1545,8 +1628,9 @@ retry:
 
 		pfn = spte_to_pfn(iter.old_spte);
 		if (kvm_is_reserved_pfn(pfn) ||
-		    iter.level >= kvm_mmu_max_mapping_level(kvm, slot, iter.gfn,
-							    pfn, PG_LEVEL_NUM))
+		    iter.level >= kvm_mmu_max_mapping_level(kvm, slot,
+			    tdp_iter_gfn_unalias(kvm, &iter), pfn,
+			    PG_LEVEL_NUM))
 			continue;
 
 		/* Note, a successful atomic zap also does a remote TLB flush. */
@@ -1591,6 +1675,14 @@ static bool write_protect_gfn(struct kvm *kvm, struct kvm_mmu_page *root,
 	bool spte_set = false;
 
 	BUG_ON(min_level > KVM_MAX_HUGEPAGE_LEVEL);
+
+	/*
+	 * First TDX generation doesn't support write protecting private
+	 * mappings, since there's no secure EPT API to support it.  It
+	 * is a bug to reach here for TDX guest.
+	 */
+	if (WARN_ON(is_private_sp(root)))
+		return spte_set;
 
 	rcu_read_lock();
 

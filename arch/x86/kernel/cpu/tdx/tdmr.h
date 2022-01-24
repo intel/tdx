@@ -10,6 +10,8 @@
 
 #include "tdx_arch.h"
 
+extern struct cmr_info tdx_cmr_array[];
+extern int tdx_cmr_num;
 extern struct tdsysinfo_struct tdx_sysinfo;
 
 int construct_tdmrs(struct tdmr_info **tdmr_array, int *tdmr_num);

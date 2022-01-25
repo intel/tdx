@@ -25,6 +25,7 @@ x86-specific Documentation
    intel_txt
    amd-memory-encryption
    tdx
+   tdx_host
    pti
    mds
    microcode

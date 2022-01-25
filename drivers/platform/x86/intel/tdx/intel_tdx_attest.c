@@ -132,9 +132,12 @@ static int __init tdx_attest_init(void)
 	dma_addr_t handle;
 	long ret = 0;
 
+	mutex_lock(&attestation_lock);
+
 	ret = misc_register(&tdx_attest_device);
 	if (ret) {
 		pr_err("misc device registration failed\n");
+		mutex_unlock(&attestation_lock);
 		return ret;
 	}
 
@@ -172,6 +175,8 @@ static int __init tdx_attest_init(void)
 	 */
 	WRITE_ONCE(tdx_event_notify_handler, attestation_callback_handler);
 
+	mutex_unlock(&attestation_lock);
+
 	pr_debug("module initialization success\n");
 
 	return 0;
@@ -181,6 +186,8 @@ failed:
 		free_pages((unsigned long)tdreport_data, 0);
 
 	misc_deregister(&tdx_attest_device);
+
+	mutex_unlock(&attestation_lock);
 
 	pr_debug("module initialization failed\n");
 

@@ -415,6 +415,7 @@ static void handle_removed_tdp_mmu_page(struct kvm *kvm, tdp_ptep_t pt,
 	kvm_flush_remote_tlbs_with_address(kvm, base_gfn,
 					   KVM_PAGES_PER_HPAGE(level + 1));
 
+	WARN_ON(private_sp && !kvm_mmu_private_sp(sp));
 	if (private_sp &&
 		WARN_ON(static_call(kvm_x86_free_private_sp)(
 				kvm, sp->gfn, sp->role.level,
@@ -460,6 +461,7 @@ static void __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 	WARN_ON(level > PT64_ROOT_MAX_LEVEL);
 	WARN_ON(level < PG_LEVEL_4K);
 	WARN_ON(gfn & (KVM_PAGES_PER_HPAGE(level) - 1));
+	WARN_ON(kvm_is_private_gfn(kvm, gfn) != private_spte);
 
 	/*
 	 * If this warning were to trigger it would indicate that there was a
@@ -600,6 +602,7 @@ static inline bool tdp_mmu_set_spte_atomic(struct kvm *kvm,
 	u64 tmp_spte = freeze_spte ? SHADOW_REMOVED_SPTE : new_spte;
 
 	WARN_ON_ONCE(iter->yielded);
+	WARN_ON(is_private_spte(iter->sptep) != kvm_is_private_gfn(kvm, iter->gfn));
 
 	lockdep_assert_held_read(&kvm->mmu_lock);
 
@@ -693,6 +696,7 @@ static inline void __tdp_mmu_set_spte(struct kvm *kvm, struct tdp_iter *iter,
 				      bool record_dirty_log)
 {
 	WARN_ON_ONCE(iter->yielded);
+	WARN_ON(is_private_spte(iter->sptep) != kvm_is_private_gfn(kvm, iter->gfn));
 
 	lockdep_assert_held_write(&kvm->mmu_lock);
 
@@ -1064,6 +1068,7 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
 	unsigned long pte_access = ACC_ALL;
 
 	WARN_ON(sp->role.level != fault->goal_level);
+	WARN_ON(is_private_sp(sp) != kvm_is_private_gfn(vcpu->kvm, iter->gfn));
 
 	if (kvm_gfn_stolen_mask(vcpu->kvm)) {
 		if (is_private_spte(iter->sptep)) {
@@ -1149,6 +1154,7 @@ static bool tdp_mmu_populate_nonleaf(
 
 	WARN_ON(is_shadow_present_pte(iter->old_spte));
 	WARN_ON(is_removed_spte(iter->old_spte));
+	WARN_ON(is_private_spte(rcu_dereference(iter->sptep)) != is_private);
 
 	sp = alloc_tdp_mmu_page(vcpu, iter->gfn, iter->level - 1, is_private);
 	child_pt = sp->spt;
@@ -1194,6 +1200,8 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	}
 
 	tdp_mmu_for_each_pte(iter, mmu, is_private, raw_gfn, raw_gfn + 1) {
+		WARN_ON(is_private_spte(iter.sptep) != is_private);
+
 		if (fault->nx_huge_page_workaround_enabled)
 			disallowed_hugepage_adjust(fault, iter.old_spte, iter.level);
 

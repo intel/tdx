@@ -82,6 +82,10 @@ struct kvm_mmu_page {
 	 */
 	u64 *shadowed_translation;
 
+#ifdef CONFIG_KVM_MMU_PRIVATE
+	/* associated private shadow page, e.g. SEPT page. */
+	void *private_sp;
+#endif
 	/* Currently serving as active root */
 	union {
 		int root_count;
@@ -152,6 +156,75 @@ static inline bool is_private_sptep(u64 *sptep)
 	WARN_ON(!sptep);
 	return is_private_sp(sptep_to_sp(sptep));
 }
+
+#ifdef CONFIG_KVM_MMU_PRIVATE
+static inline void *kvm_mmu_private_sp(struct kvm_mmu_page *sp)
+{
+	return sp->private_sp;
+}
+
+static inline void kvm_mmu_init_private_sp(struct kvm_mmu_page *sp, void *private_sp)
+{
+	sp->private_sp = private_sp;
+}
+
+static inline void kvm_mmu_alloc_private_sp(
+	struct kvm_vcpu *vcpu, struct kvm_mmu_memory_cache *private_sp_cache,
+	struct kvm_mmu_page *sp)
+{
+	/*
+	 * vcpu == NULL means non-root SPT:
+	 * vcpu == NULL is used to split a large SPT into smaller SPT.  Root SPT
+	 * is not a large SPT.
+	 */
+	bool is_root = vcpu &&
+		vcpu->arch.root_mmu.root_role.level == sp->role.level;
+
+	if (vcpu)
+		private_sp_cache = &vcpu->arch.mmu_private_sp_cache;
+	WARN_ON(!kvm_mmu_page_role_is_private(sp->role));
+	if (is_root)
+		/*
+		 * Because TDX module assigns root Secure-EPT page and set it to
+		 * Secure-EPTP when TD vcpu is created, secure page table for
+		 * root isn't needed.
+		 */
+		sp->private_sp = NULL;
+	else {
+		sp->private_sp = kvm_mmu_memory_cache_alloc(private_sp_cache);
+		/*
+		 * Because mmu_private_sp_cache is topped up before staring kvm
+		 * page fault resolving, the allocation above shouldn't fail.
+		 */
+		WARN_ON_ONCE(!sp->private_sp);
+	}
+}
+
+static inline void kvm_mmu_free_private_sp(struct kvm_mmu_page *sp)
+{
+	if (sp->private_sp)
+		free_page((unsigned long)sp->private_sp);
+}
+#else
+static inline void *kvm_mmu_private_sp(struct kvm_mmu_page *sp)
+{
+	return NULL;
+}
+
+static inline void kvm_mmu_init_private_sp(struct kvm_mmu_page *sp, void *private_sp)
+{
+}
+
+static inline void kvm_mmu_alloc_private_sp(
+	struct kvm_vcpu *vcpu, struct kvm_mmu_memory_cache *private_sp_cache,
+	struct kvm_mmu_page *sp)
+{
+}
+
+static inline void kvm_mmu_free_private_sp(struct kvm_mmu_page *sp)
+{
+}
+#endif
 
 static inline bool kvm_mmu_page_ad_need_write_protect(struct kvm_mmu_page *sp)
 {

@@ -53,6 +53,10 @@ struct kvm_mmu_page {
 	u64 *spt;
 	/* hold the gfn of each spte inside spt */
 	gfn_t *gfns;
+#ifdef CONFIG_KVM_MMU_PRIVATE
+	/* associated private shadow page, e.g. SEPT page */
+	void *private_sp;
+#endif
 	/* Currently serving as active root */
 	union {
 		int root_count;
@@ -103,6 +107,86 @@ static inline int kvm_mmu_page_as_id(struct kvm_mmu_page *sp)
 {
 	return kvm_mmu_role_as_id(sp->role);
 }
+
+/*
+ * TDX vcpu allocates page for root Secure EPT page and assigns to CPU secure
+ * EPT pointer.  KVM doesn't need to allocate and link to the secure EPT.
+ * Dummy value to make is_pivate_sp() return true.
+ */
+#define KVM_MMU_PRIVATE_SP_ROOT	((void *)1)
+
+#ifdef CONFIG_KVM_MMU_PRIVATE
+static inline bool is_private_sp(struct kvm_mmu_page *sp)
+{
+	return !!sp->private_sp;
+}
+
+static inline bool is_private_spte(u64 *sptep)
+{
+	return is_private_sp(sptep_to_sp(sptep));
+}
+
+static inline void *kvm_mmu_private_sp(struct kvm_mmu_page *sp)
+{
+	return sp->private_sp;
+}
+
+static inline void kvm_mmu_init_private_sp(struct kvm_mmu_page *sp)
+{
+	sp->private_sp = NULL;
+}
+
+/* Valid sp->role.level is required. */
+static inline void kvm_mmu_alloc_private_sp(struct kvm_vcpu *vcpu,
+					struct kvm_mmu_page *sp)
+{
+	if (vcpu->arch.mmu->shadow_root_level == sp->role.level)
+		sp->private_sp = KVM_MMU_PRIVATE_SP_ROOT;
+	else
+		sp->private_sp =
+			kvm_mmu_memory_cache_alloc(
+				&vcpu->arch.mmu_private_sp_cache);
+	/*
+	 * Because mmu_private_sp_cache is topped up before staring kvm page
+	 * fault resolving, the allocation above shouldn't fail.
+	 */
+	WARN_ON_ONCE(!sp->private_sp);
+}
+
+static inline void kvm_mmu_free_private_sp(struct kvm_mmu_page *sp)
+{
+	if (sp->private_sp != KVM_MMU_PRIVATE_SP_ROOT)
+		free_page((unsigned long)sp->private_sp);
+}
+#else
+static inline bool is_private_sp(struct kvm_mmu_page *sp)
+{
+	return false;
+}
+
+static inline bool is_private_spte(u64 *sptep)
+{
+	return false;
+}
+
+static inline void *kvm_mmu_private_sp(struct kvm_mmu_page *sp)
+{
+	return NULL;
+}
+
+static inline void kvm_mmu_init_private_sp(struct kvm_mmu_page *sp)
+{
+}
+
+static inline void kvm_mmu_alloc_private_sp(struct kvm_vcpu *vcpu,
+					struct kvm_mmu_page *sp)
+{
+}
+
+static inline void kvm_mmu_free_private_sp(struct kvm_mmu_page *sp)
+{
+}
+#endif
 
 static inline bool kvm_mmu_page_ad_need_write_protect(struct kvm_mmu_page *sp)
 {

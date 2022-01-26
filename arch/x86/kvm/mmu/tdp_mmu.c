@@ -511,6 +511,7 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
 				    shared);
 	}
 
+	WARN_ON(private_sp && !kvm_mmu_private_sp(sp));
 	if (private_sp && WARN_ON(static_call(kvm_x86_free_private_sp)(
 					  kvm, sp->gfn, sp->role.level,
 					  kvm_mmu_private_sp(sp)))) {
@@ -570,6 +571,7 @@ static void __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 	WARN_ON(level > PT64_ROOT_MAX_LEVEL);
 	WARN_ON(level < PG_LEVEL_4K);
 	WARN_ON(gfn & (KVM_PAGES_PER_HPAGE(level) - 1));
+	WARN_ON(kvm_is_private_gfn(kvm, gfn) != private_spte);
 
 	/*
 	 * If this warning were to trigger it would indicate that there was a
@@ -720,6 +722,9 @@ static inline int tdp_mmu_set_spte_atomic(struct kvm *kvm,
 	u64 *sptep = rcu_dereference(iter->sptep);
 	u64 old_spte;
 
+	WARN_ON_ONCE(iter->yielded);
+	WARN_ON(is_private_spte(iter->sptep) != tdp_iter_is_private(iter));
+
 	/*
 	 * The caller is responsible for ensuring the old SPTE is not a REMOVED
 	 * SPTE.  KVM should never attempt to zap or manipulate a REMOVED SPTE,
@@ -827,6 +832,7 @@ static void __tdp_mmu_set_spte(struct kvm *kvm, int as_id, tdp_ptep_t sptep,
 			       u64 old_spte, u64 new_spte, gfn_t gfn, int level,
 			       bool record_acc_track, bool record_dirty_log)
 {
+	WARN_ON(is_private_spte(sptep) != kvm_is_private_gfn(kvm, gfn));
 	lockdep_assert_held_write(&kvm->mmu_lock);
 
 	/*
@@ -1205,6 +1211,7 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
 	unsigned long pte_access = ACC_ALL;
 
 	WARN_ON(sp->role.level != fault->goal_level);
+	WARN_ON(is_private_sp(sp) != kvm_is_private_fault(vcpu->kvm, fault));
 
 	if (kvm_mmu_supports_shared_bit(vcpu->kvm)) {
 		if (is_private_spte(iter->sptep)) {
@@ -1330,6 +1337,7 @@ static int tdp_mmu_populate_nonleaf(
 
 	WARN_ON(is_shadow_present_pte(iter->old_spte));
 	WARN_ON(is_removed_spte(iter->old_spte));
+	WARN_ON(is_private_spte(iter->sptep) != tdp_iter_is_private(iter));
 
 	sp = tdp_mmu_alloc_sp(vcpu, is_private_spte(iter->sptep), false);
 	tdp_mmu_init_child_sp(sp, iter);
@@ -1368,6 +1376,8 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	}
 
 	tdp_mmu_for_each_pte(iter, mmu, is_private, raw_gfn, raw_gfn + 1) {
+		WARN_ON(is_private_spte(iter.sptep) != is_private);
+
 		if (fault->nx_huge_page_workaround_enabled)
 			disallowed_hugepage_adjust(fault, iter.old_spte, iter.level);
 

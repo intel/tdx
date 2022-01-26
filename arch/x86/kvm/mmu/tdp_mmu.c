@@ -542,6 +542,7 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
 		WARN_ON_ONCE(ret);
 	}
 
+	KVM_BUG_ON(is_private_sp(sp) && !kvm_mmu_private_spt(sp), kvm);
 	if (is_private_sp(sp) &&
 	    WARN_ON(static_call(kvm_x86_free_private_spt)(kvm, sp->gfn, sp->role.level,
 							  kvm_mmu_private_spt(sp)))) {
@@ -655,6 +656,7 @@ static int __must_check __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t 
 	WARN_ON(level > PT64_ROOT_MAX_LEVEL);
 	WARN_ON(level < PG_LEVEL_4K);
 	WARN_ON(gfn & (KVM_PAGES_PER_HPAGE(level) - 1));
+	KVM_BUG_ON(kvm_is_private_gpa(kvm, gfn_to_gpa(gfn)) != is_private, kvm);
 
 	/*
 	 * If this warning were to trigger it would indicate that there was a
@@ -808,6 +810,8 @@ static inline int __must_check tdp_mmu_set_spte_atomic(struct kvm *kvm,
 	u64 *sptep = rcu_dereference(iter->sptep);
 	int ret;
 
+	KVM_BUG_ON(iter->yielded, kvm);
+
 	/*
 	 * The caller is responsible for ensuring the old SPTE is not a REMOVED
 	 * SPTE.  KVM should never attempt to zap or manipulate a REMOVED SPTE,
@@ -912,6 +916,7 @@ static u64 __tdp_mmu_set_spte(struct kvm *kvm, int as_id, tdp_ptep_t sptep,
 	union kvm_mmu_page_role role;
 	int ret;
 
+	KVM_BUG_ON(is_private_sptep(sptep) != kvm_is_private_gpa(kvm, gfn_to_gpa(gfn)), kvm);
 	lockdep_assert_held_write(&kvm->mmu_lock);
 
 	/*
@@ -1602,6 +1607,7 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	tdp_mmu_for_each_pte(iter, mmu, is_private, raw_gfn, raw_gfn + 1) {
 		int r;
 
+		KVM_BUG_ON(is_private_sptep(iter.sptep) != is_private, vcpu->kvm);
 		if (fault->nx_huge_page_workaround_enabled ||
 		    kvm_gfn_shared_mask(vcpu->kvm))
 			disallowed_hugepage_adjust(fault, iter.old_spte, iter.level);

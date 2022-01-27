@@ -433,6 +433,7 @@ struct kvm_mmu {
 			 struct kvm_mmu_page *sp);
 	void (*invlpg)(struct kvm_vcpu *vcpu, gva_t gva, hpa_t root_hpa);
 	hpa_t root_hpa;
+	hpa_t private_root_hpa;
 	gpa_t root_pgd;
 	union kvm_mmu_role mmu_role;
 	u8 root_level;
@@ -1432,6 +1433,13 @@ struct kvm_x86_ops {
 
 	void (*load_mmu_pgd)(struct kvm_vcpu *vcpu, hpa_t root_hpa,
 			     int root_level);
+
+	int (*free_private_sp)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+			       void *private_sp);
+	void (*handle_changed_private_spte)(
+		struct kvm *kvm, gfn_t gfn, enum pg_level level,
+		kvm_pfn_t old_pfn, bool was_present, bool was_leaf,
+		kvm_pfn_t new_pfn, bool is_present, bool is_leaf, void *sept_page);
 
 	bool (*has_wbinvd_exit)(void);
 

@@ -41,7 +41,7 @@ struct tdp_iter {
 	tdp_ptep_t pt_path[PT64_ROOT_MAX_LEVEL];
 	/* A pointer to the current SPTE */
 	tdp_ptep_t sptep;
-	/* The lowest GFN mapped by the current SPTE */
+	/* The lowest GFN (shared bits included) mapped by the current SPTE */
 	gfn_t gfn;
 	/* The level of the root page given to the iterator */
 	int root_level;
@@ -64,6 +64,9 @@ struct tdp_iter {
 	 * level instead of advancing to the next entry.
 	 */
 	bool yielded;
+
+	/* True if this iter is handling private KVM page fault. */
+	bool is_private;
 };
 
 /*

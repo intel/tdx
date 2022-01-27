@@ -1600,7 +1600,11 @@ bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)
 		flush = kvm_handle_gfn_range(kvm, range, kvm_unmap_rmapp);
 
 	if (is_tdp_mmu_enabled(kvm))
-		flush = kvm_tdp_mmu_unmap_gfn_range(kvm, range, flush);
+		/*
+		 * private page needs to be kept and handle page migration
+		 * on next EPT violation.
+		 */
+		flush = kvm_tdp_mmu_unmap_gfn_range(kvm, range, flush, false);
 
 	return flush;
 }
@@ -3107,7 +3111,8 @@ static bool handle_abnormal_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fa
 		 * SPTE value without #VE suppress bit cleared
 		 * (kvm->arch.shadow_mmio_value = 0).
 		 */
-		if (unlikely(!vcpu->kvm->arch.enable_mmio_caching) ||
+		if (unlikely(!vcpu->kvm->arch.enable_mmio_caching &&
+			     !kvm_gfn_shared_mask(vcpu->kvm)) ||
 		    unlikely(fault->gfn > kvm_mmu_max_gfn())) {
 			*ret_val = RET_PF_EMULATE;
 			return true;
@@ -3461,7 +3466,12 @@ static int mmu_alloc_direct_roots(struct kvm_vcpu *vcpu)
 		goto out_unlock;
 
 	if (is_tdp_mmu_enabled(vcpu->kvm)) {
-		root = kvm_tdp_mmu_get_vcpu_root_hpa(vcpu);
+		if (kvm_gfn_shared_mask(vcpu->kvm) &&
+		    !VALID_PAGE(mmu->private_root_hpa)) {
+			root = kvm_tdp_mmu_get_vcpu_root_hpa(vcpu, true);
+			mmu->private_root_hpa = root;
+		}
+		root = kvm_tdp_mmu_get_vcpu_root_hpa(vcpu, false);
 		mmu->root.hpa = root;
 	} else if (shadow_root_level >= PT64_ROOT_4LEVEL) {
 		root = mmu_alloc_root(vcpu, 0, 0, shadow_root_level, true);
@@ -4014,6 +4024,38 @@ static bool kvm_arch_setup_async_pf(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 				  kvm_vcpu_gfn_to_hva(vcpu, gfn), &arch);
 }
 
+/*
+ * Private page can't be release on mmu_notifier without losing page contents.
+ * The help, callback, from backing store is needed to allow page migration.
+ * For now, pin the page.
+ */
+static bool kvm_faultin_pfn_private(struct kvm_vcpu *vcpu,
+				    struct kvm_page_fault *fault, int *r)
+{
+	hva_t hva = gfn_to_hva_memslot(fault->slot, fault->gfn);
+	struct page *page[1];
+	unsigned int flags;
+	int npages;
+
+	fault->map_writable = false;
+	fault->pfn = KVM_PFN_ERR_FAULT;
+	*r = -1;
+	if (hva == KVM_HVA_ERR_RO_BAD || hva == KVM_HVA_ERR_BAD)
+		return true;
+
+	/* TDX allows only RWX.  Read-only isn't supported. */
+	WARN_ON_ONCE(!fault->write);
+	flags = FOLL_WRITE | FOLL_LONGTERM;
+
+	npages = pin_user_pages_fast(hva, 1, flags, page);
+	if (npages != 1)
+		return true;
+
+	fault->map_writable = true;
+	fault->pfn = page_to_pfn(page[0]);
+	return false;
+}
+
 static bool kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault, int *r)
 {
 	struct kvm_memory_slot *slot = fault->slot;
@@ -4047,6 +4089,9 @@ static bool kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
 			return true;
 		}
 	}
+
+	if (fault->is_private)
+		return kvm_faultin_pfn_private(vcpu, fault, r);
 
 	async = false;
 	fault->pfn = __gfn_to_pfn_memslot(slot, fault->gfn, false, &async,
@@ -4103,6 +4148,18 @@ static bool is_page_fault_stale(struct kvm_vcpu *vcpu,
 	       mmu_notifier_retry_hva(vcpu->kvm, mmu_seq, fault->hva);
 }
 
+void kvm_mmu_release_fault(struct kvm *kvm, struct kvm_page_fault *fault, int r)
+{
+	if (is_error_noslot_pfn(fault->pfn) || kvm_is_reserved_pfn(fault->pfn))
+		return;
+
+	if (fault->is_private) {
+		if (r != RET_PF_FIXED)
+			unpin_user_page(pfn_to_page(fault->pfn));
+	} else
+		kvm_release_pfn_clean(fault->pfn);
+}
+
 static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 {
 	bool is_tdp_mmu_fault = is_tdp_mmu(vcpu->arch.mmu);
@@ -4157,7 +4214,7 @@ out_unlock:
 		read_unlock(&vcpu->kvm->mmu_lock);
 	else
 		write_unlock(&vcpu->kvm->mmu_lock);
-	kvm_release_pfn_clean(fault->pfn);
+	kvm_mmu_release_fault(vcpu->kvm, fault, r);
 	return r;
 }
 
@@ -5654,6 +5711,7 @@ static int __kvm_mmu_create(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu)
 
 	mmu->root.hpa = INVALID_PAGE;
 	mmu->root.pgd = 0;
+	mmu->private_root_hpa = INVALID_PAGE;
 	for (i = 0; i < KVM_MMU_NUM_PREV_ROOTS; i++)
 		mmu->prev_roots[i] = KVM_MMU_ROOT_INFO_INVALID;
 
@@ -5842,6 +5900,10 @@ static void kvm_mmu_zap_all_fast(struct kvm *kvm)
 	 * lead to use-after-free.
 	 */
 	if (is_tdp_mmu_enabled(kvm))
+		/*
+		 * For now private root is never invalidate during VM is running,
+		 * so this can only happen for shared roots.
+		 */
 		kvm_tdp_mmu_zap_invalidated_roots(kvm);
 }
 
@@ -5869,7 +5931,8 @@ static void kvm_mmu_zap_memslot(struct kvm *kvm, struct kvm_memory_slot *slot)
 		      .may_block = false,
 		};
 
-		flush = kvm_tdp_mmu_unmap_gfn_range(kvm, &range, flush);
+		/* All private page should be zapped on memslot deletion. */
+		flush = kvm_tdp_mmu_unmap_gfn_range(kvm, &range, flush, true);
 	} else {
 		flush = slot_handle_level(kvm, slot, kvm_zap_rmapp, PG_LEVEL_4K,
 					  KVM_MAX_HUGEPAGE_LEVEL, true);
@@ -5977,7 +6040,7 @@ void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end)
 	if (is_tdp_mmu_enabled(kvm)) {
 		for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++)
 			flush = kvm_tdp_mmu_zap_leafs(kvm, i, gfn_start,
-						      gfn_end, true, flush);
+						      gfn_end, true, flush, false);
 	}
 
 	if (flush)
@@ -6010,6 +6073,11 @@ void kvm_mmu_slot_remove_write_access(struct kvm *kvm,
 		write_unlock(&kvm->mmu_lock);
 	}
 
+	/*
+	 * For now this can only happen for non-TD VM, because TD private
+	 * mapping doesn't support write protection.  kvm_tdp_mmu_wrprot_slot()
+	 * will give a WARN() if it hits for TD.
+	 */
 	if (is_tdp_mmu_enabled(kvm)) {
 		read_lock(&kvm->mmu_lock);
 		flush |= kvm_tdp_mmu_wrprot_slot(kvm, memslot, start_level);
@@ -6098,6 +6166,9 @@ restart:
 		sp = sptep_to_sp(sptep);
 		pfn = spte_to_pfn(*sptep);
 
+		/* Private page dirty logging is not supported. */
+		KVM_BUG_ON(is_private_sptep(sptep), kvm);
+
 		/*
 		 * We cannot do huge page mapping for indirect shadow pages,
 		 * which are found on the last rmap (level = 1) when not using
@@ -6138,6 +6209,11 @@ void kvm_mmu_zap_collapsible_sptes(struct kvm *kvm,
 		write_unlock(&kvm->mmu_lock);
 	}
 
+	/*
+	 * This should only be reachable in case of log-dirty, wihch TD private
+	 * mapping doesn't support so far.  kvm_tdp_mmu_zap_collapsible_sptes()
+	 * internally gives a WARN() when it hits.
+	 */
 	if (is_tdp_mmu_enabled(kvm)) {
 		read_lock(&kvm->mmu_lock);
 		kvm_tdp_mmu_zap_collapsible_sptes(kvm, slot);
@@ -6424,6 +6500,9 @@ out:
 void kvm_mmu_destroy(struct kvm_vcpu *vcpu)
 {
 	kvm_mmu_unload(vcpu);
+	if (is_tdp_mmu_enabled(vcpu->kvm))
+		mmu_free_root_page(vcpu->kvm, &vcpu->arch.mmu->private_root_hpa,
+				NULL);
 	free_mmu_pages(&vcpu->arch.root_mmu);
 	free_mmu_pages(&vcpu->arch.guest_mmu);
 	mmu_free_memory_caches(vcpu);

@@ -6,6 +6,8 @@
 #include <linux/kvm_host.h>
 #include <asm/kvm_host.h>
 
+#include "mmu.h"
+
 #undef MMU_DEBUG
 
 #ifdef MMU_DEBUG
@@ -164,10 +166,29 @@ static inline void kvm_mmu_alloc_private_sp(
 	WARN_ON_ONCE(!sp->private_sp);
 }
 
+static inline int kvm_alloc_private_sp_for_split(
+	struct kvm_mmu_page *sp, gfp_t gfp)
+{
+	gfp &= ~__GFP_ZERO;
+	sp->private_sp = (void*)__get_free_page(gfp);
+	if (!sp->private_sp)
+		return -ENOMEM;
+	return 0;
+}
+
 static inline void kvm_mmu_free_private_sp(struct kvm_mmu_page *sp)
 {
 	if (sp->private_sp != KVM_MMU_PRIVATE_SP_ROOT)
 		free_page((unsigned long)sp->private_sp);
+}
+
+static inline gfn_t kvm_gfn_for_root(struct kvm *kvm, struct kvm_mmu_page *root,
+				     gfn_t gfn)
+{
+	if (is_private_sp(root))
+		return kvm_gfn_private(kvm, gfn);
+	else
+		return kvm_gfn_shared(kvm, gfn);
 }
 #else
 static inline bool is_private_sp(struct kvm_mmu_page *sp)
@@ -194,10 +215,24 @@ static inline void kvm_mmu_alloc_private_sp(
 {
 }
 
+static inline int kvm_alloc_private_sp_for_split(
+	struct kvm_mmu_page *sp, gfp_t gfp)
+{
+	return -ENOMEM;
+}
+
 static inline void kvm_mmu_free_private_sp(struct kvm_mmu_page *sp)
 {
 }
+
+static inline gfn_t kvm_gfn_for_root(struct kvm *kvm, struct kvm_mmu_page *root,
+				     gfn_t gfn)
+{
+	return gfn;
+}
 #endif
+
+void kvm_mmu_release_fault(struct kvm *kvm, struct kvm_page_fault *fault, int r);
 
 static inline bool kvm_mmu_page_ad_need_write_protect(struct kvm_mmu_page *sp)
 {

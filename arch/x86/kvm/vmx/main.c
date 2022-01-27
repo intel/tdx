@@ -44,7 +44,7 @@ static int vt_vm_init(struct kvm *kvm)
 	return vmx_vm_init(kvm);
 }
 
-static void vt_vm_destroy(struct kvm *kvm)
+static void vt_mmu_prezap(struct kvm *kvm)
 {
 	if (is_td(kvm))
 		return tdx_vm_teardown(kvm);
@@ -134,7 +134,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.is_vm_type_supported = vt_is_vm_type_supported,
 	.vm_size = sizeof(struct kvm_vmx),
 	.vm_init = vt_vm_init,
-	.vm_destroy = vt_vm_destroy,
+	.mmu_prezap = vt_mmu_prezap,
 	.vm_free = vt_vm_free,
 
 	.vcpu_create = vt_vcpu_create,

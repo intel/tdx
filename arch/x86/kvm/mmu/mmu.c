@@ -3430,6 +3430,7 @@ static int mmu_alloc_direct_roots(struct kvm_vcpu *vcpu)
 {
 	struct kvm_mmu *mmu = vcpu->arch.mmu;
 	u8 shadow_root_level = mmu->shadow_root_level;
+	gfn_t gfn_stolen = kvm_gfn_stolen_mask(vcpu->kvm);
 	hpa_t root;
 	unsigned i;
 	int r;
@@ -3440,7 +3441,11 @@ static int mmu_alloc_direct_roots(struct kvm_vcpu *vcpu)
 		goto out_unlock;
 
 	if (is_tdp_mmu_enabled(vcpu->kvm)) {
-		root = kvm_tdp_mmu_get_vcpu_root_hpa(vcpu);
+		if (gfn_stolen && !VALID_PAGE(mmu->private_root_hpa)) {
+			root = kvm_tdp_mmu_get_vcpu_root_hpa(vcpu, true);
+			mmu->private_root_hpa = root;
+		}
+		root = kvm_tdp_mmu_get_vcpu_root_hpa(vcpu, false);
 		mmu->root_hpa = root;
 	} else if (shadow_root_level >= PT64_ROOT_4LEVEL) {
 		root = mmu_alloc_root(vcpu, 0, 0, shadow_root_level, true);
@@ -5598,6 +5603,7 @@ static int __kvm_mmu_create(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu)
 	int i;
 
 	mmu->root_hpa = INVALID_PAGE;
+	mmu->private_root_hpa = INVALID_PAGE;
 	mmu->root_pgd = 0;
 	mmu->translate_gpa = translate_gpa;
 	for (i = 0; i < KVM_MMU_NUM_PREV_ROOTS; i++)
@@ -5773,6 +5779,10 @@ static void kvm_mmu_zap_all_fast(struct kvm *kvm)
 
 	write_unlock(&kvm->mmu_lock);
 
+	/*
+	 * For now private root is never invalidate during VM is running,
+	 * so this can only happen for shared roots.
+	 */
 	if (is_tdp_mmu_enabled(kvm)) {
 		read_lock(&kvm->mmu_lock);
 		kvm_tdp_mmu_zap_invalidated_roots(kvm);
@@ -5865,7 +5875,8 @@ void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end)
 	if (is_tdp_mmu_enabled(kvm)) {
 		for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++)
 			flush = kvm_tdp_mmu_zap_gfn_range(kvm, i, gfn_start,
-							  gfn_end, flush);
+							  gfn_end, flush,
+							  false);
 	}
 
 	if (flush)
@@ -5898,6 +5909,11 @@ void kvm_mmu_slot_remove_write_access(struct kvm *kvm,
 		write_unlock(&kvm->mmu_lock);
 	}
 
+	/*
+	 * For now this can only happen for non-TD VM, because TD private
+	 * mapping doesn't support write protection.  kvm_tdp_mmu_wrprot_slot()
+	 * will give a WARN() if it hits for TD.
+	 */
 	if (is_tdp_mmu_enabled(kvm)) {
 		read_lock(&kvm->mmu_lock);
 		flush |= kvm_tdp_mmu_wrprot_slot(kvm, memslot, start_level);
@@ -5933,6 +5949,9 @@ restart:
 	for_each_rmap_spte(rmap_head, &iter, sptep) {
 		sp = sptep_to_sp(sptep);
 		pfn = spte_to_pfn(*sptep);
+
+		/* Private page dirty logging is not supported. */
+		KVM_BUG_ON(is_private_spte(sptep), kvm);
 
 		/*
 		 * We cannot do huge page mapping for indirect shadow pages,
@@ -5974,6 +5993,11 @@ void kvm_mmu_zap_collapsible_sptes(struct kvm *kvm,
 		write_unlock(&kvm->mmu_lock);
 	}
 
+	/*
+	 * This should only be reachable in case of log-dirty, wihch TD private
+	 * mapping doesn't support so far.  kvm_tdp_mmu_zap_collapsible_sptes()
+	 * internally gives a WARN() when it hits.
+	 */
 	if (is_tdp_mmu_enabled(kvm)) {
 		read_lock(&kvm->mmu_lock);
 		kvm_tdp_mmu_zap_collapsible_sptes(kvm, slot);
@@ -6272,6 +6296,9 @@ unsigned long kvm_mmu_calculate_default_mmu_pages(struct kvm *kvm)
 void kvm_mmu_destroy(struct kvm_vcpu *vcpu)
 {
 	kvm_mmu_unload(vcpu);
+	if (is_tdp_mmu_enabled(vcpu->kvm))
+		mmu_free_root_page(vcpu->kvm, &vcpu->arch.mmu->private_root_hpa,
+				NULL);
 	free_mmu_pages(&vcpu->arch.root_mmu);
 	free_mmu_pages(&vcpu->arch.guest_mmu);
 	mmu_free_memory_caches(vcpu);

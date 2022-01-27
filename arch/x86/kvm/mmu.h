@@ -383,4 +383,10 @@ static inline bool kvm_is_private_gpa(const struct kvm *kvm, gpa_t gpa)
 {
 	return kvm_is_private_gfn(kvm, gpa_to_gfn(gpa));
 }
+
+static inline bool kvm_is_private_fault(const struct kvm *kvm,
+					const struct kvm_page_fault *fault)
+{
+	return kvm_is_private_gpa(kvm, fault->addr);
+}
 #endif

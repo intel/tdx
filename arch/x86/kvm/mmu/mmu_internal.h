@@ -56,7 +56,7 @@ struct kvm_mmu_page {
 	/* hold the gfn of each spte inside spt */
 	gfn_t *gfns;
 #ifdef CONFIG_KVM_MMU_PRIVATE
-	/* associated private shadow page, e.g. SEPT page */
+	/* associated private shadow page, e.g. SEPT page. */
 	void *private_sp;
 #endif
 	/* Currently serving as active root */
@@ -149,20 +149,29 @@ static inline void kvm_mmu_init_private_sp(struct kvm_mmu_page *sp)
 }
 
 /* Valid sp->role.level is required. */
-static inline void kvm_mmu_alloc_private_sp(struct kvm_vcpu *vcpu,
-					struct kvm_mmu_page *sp)
+static inline void kvm_mmu_alloc_private_sp(
+	struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp, bool is_root)
 {
-	if (vcpu->arch.mmu->shadow_root_level == sp->role.level)
+	if (is_root)
 		sp->private_sp = KVM_MMU_PRIVATE_SP_ROOT;
 	else
-		sp->private_sp =
-			kvm_mmu_memory_cache_alloc(
-				&vcpu->arch.mmu_private_sp_cache);
+		sp->private_sp = kvm_mmu_memory_cache_alloc(
+			&vcpu->arch.mmu_private_sp_cache);
 	/*
 	 * Because mmu_private_sp_cache is topped up before staring kvm page
 	 * fault resolving, the allocation above shouldn't fail.
 	 */
 	WARN_ON_ONCE(!sp->private_sp);
+}
+
+static inline int kvm_alloc_private_sp_for_split(
+	struct kvm_mmu_page *sp, gfp_t gfp)
+{
+	gfp &= ~__GFP_ZERO;
+	sp->private_sp = (void*)__get_free_page(gfp);
+	if (!sp->private_sp)
+		return -ENOMEM;
+	return 0;
 }
 
 static inline void kvm_mmu_free_private_sp(struct kvm_mmu_page *sp)
@@ -190,9 +199,15 @@ static inline void kvm_mmu_init_private_sp(struct kvm_mmu_page *sp)
 {
 }
 
-static inline void kvm_mmu_alloc_private_sp(struct kvm_vcpu *vcpu,
-					struct kvm_mmu_page *sp)
+static inline void kvm_mmu_alloc_private_sp(
+	struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp, bool is_root)
 {
+}
+
+static inline int kvm_alloc_private_sp_for_split(
+	struct kvm_mmu_page *sp, gfp_t gfp)
+{
+	return -ENOMEM;
 }
 
 static inline void kvm_mmu_free_private_sp(struct kvm_mmu_page *sp)

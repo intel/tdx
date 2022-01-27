@@ -159,6 +159,14 @@ static inline void kvm_mmu_free_private_sp(struct kvm_mmu_page *sp)
 	if (sp->private_sp != KVM_MMU_PRIVATE_SP_ROOT)
 		free_page((unsigned long)sp->private_sp);
 }
+
+static inline int kvm_mmu_link_private_sp(struct kvm *kvm,
+					struct kvm_mmu_page *sp)
+{
+	/* Link this sp to its parent spte.  + 1 for parent spte. */
+	return static_call(kvm_x86_link_private_sp)(
+		kvm, sp->gfn, sp->role.level + 1, sp->private_sp);
+}
 #else
 static inline bool is_private_sp(struct kvm_mmu_page *sp)
 {
@@ -186,6 +194,12 @@ static inline void kvm_mmu_alloc_private_sp(struct kvm_vcpu *vcpu,
 
 static inline void kvm_mmu_free_private_sp(struct kvm_mmu_page *sp)
 {
+}
+
+static inline int kvm_mmu_link_private_sp(struct kvm *kvm,
+					struct kvm_mmu_page *sp)
+{
+	return 0;
 }
 #endif
 

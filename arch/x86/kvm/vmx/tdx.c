@@ -568,6 +568,7 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	vcpu->arch.switch_db_regs = KVM_DEBUGREG_AUTO_SWITCH;
 	vcpu->arch.cr0_guest_owned_bits = -1ul;
 	vcpu->arch.cr4_guest_owned_bits = -1ul;
+	vcpu->arch.root_mmu.no_prefetch = true;
 
 	vcpu->arch.tsc_offset = to_kvm_tdx(vcpu->kvm)->tsc_offset;
 	vcpu->arch.l1_tsc_offset = vcpu->arch.tsc_offset;
@@ -2637,6 +2638,11 @@ static int __init __tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	x86_ops->free_private_sp = tdx_sept_free_private_sp;
 	x86_ops->handle_private_zapped_spte = tdx_handle_private_zapped_spte;
 	x86_ops->handle_changed_private_spte = tdx_handle_changed_private_spte;
+	x86_ops->set_private_spte = tdx_sept_set_private_spte;
+	x86_ops->drop_private_spte = tdx_sept_drop_private_spte;
+	x86_ops->zap_private_spte = tdx_sept_zap_private_spte;
+	x86_ops->unzap_private_spte = tdx_sept_unzap_private_spte;
+	x86_ops->link_private_sp = tdx_sept_link_private_sp;
 
 	return 0;
 }

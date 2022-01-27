@@ -371,8 +371,11 @@ static inline gpa_t kvm_translate_gpa(struct kvm_vcpu *vcpu,
 
 static inline gfn_t kvm_gfn_stolen_mask(struct kvm *kvm)
 {
-	/* Currently there are no stolen bits in KVM */
+#ifdef CONFIG_KVM_MMU_PRIVATE
+	return kvm->arch.gfn_shared_mask;
+#else
 	return 0;
+#endif
 }
 
 static inline gpa_t kvm_gpa_stolen_mask(struct kvm *kvm)

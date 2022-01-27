@@ -470,6 +470,8 @@ struct kvm_mmu {
 
 	struct rsvd_bits_validate guest_rsvd_check;
 
+	bool no_prefetch;
+
 	u64 pdptrs[4]; /* pae */
 };
 
@@ -1451,6 +1453,15 @@ struct kvm_x86_ops {
 		kvm_pfn_t old_pfn, bool was_present, bool was_leaf,
 		kvm_pfn_t new_pfn, bool is_present, bool is_leaf,
 		bool is_private_zapped, void *sept_page);
+
+	void (*set_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+				 kvm_pfn_t pfn);
+	void (*drop_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+				  kvm_pfn_t pfn);
+	void (*zap_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level);
+	void (*unzap_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level);
+	int (*link_private_sp)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+			       void *private_sp);
 
 	bool (*has_wbinvd_exit)(void);
 

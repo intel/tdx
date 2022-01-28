@@ -3185,6 +3185,13 @@ static int fast_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	u64 *sptep = NULL;
 	uint retry_count = 0;
 
+	/*
+	 * TDX private mapping doesn't support fast page fault because the EPT
+	 * entry needs TDX SEAMCALL. not direct memory access.
+	 */
+	if (kvm_is_private_gpa(vcpu->kvm, fault->addr))
+		return ret;
+
 	if (!page_fault_can_be_fast(fault))
 		return ret;
 

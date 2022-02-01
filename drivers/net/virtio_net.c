@@ -1108,8 +1108,10 @@ static struct page *xdp_linearize_page(struct receive_queue *rq,
 
 		/* guard against a misconfigured or uncooperative backend that
 		 * is sending packet larger than the MTU.
+		 * At the same time, make sure that an especially uncooperative
+		 * backend can't overflow the test by supplying a large buflen.
 		 */
-		if ((page_off + buflen + tailroom) > PAGE_SIZE) {
+		if (buflen > PAGE_SIZE - page_off - tailroom) {
 			put_page(p);
 			goto err_buf;
 		}

@@ -16,6 +16,7 @@
 #include <linux/sort.h>
 #include <asm/e820/api.h>
 #include <asm/pgtable.h>
+#include <asm/tdx_host.h>
 #include "tdmr.h"
 
 /*

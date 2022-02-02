@@ -49,6 +49,18 @@ struct cmr_info tdx_cmr_array[MAX_CMRS] __aligned(CMR_INFO_ARRAY_ALIGNMENT);
 int tdx_cmr_num;
 struct tdsysinfo_struct tdx_sysinfo;
 
+const struct tdsysinfo_struct *tdx_get_sysinfo(void)
+{
+	const struct tdsysinfo_struct *r = NULL;
+
+	mutex_lock(&tdx_module_lock);
+	if (tdx_module_status == TDX_MODULE_INITIALIZED)
+		r = &tdx_sysinfo;
+	mutex_unlock(&tdx_module_lock);
+	return r;
+}
+EXPORT_SYMBOL_GPL(tdx_get_sysinfo);
+
 /* Array of pointer of TDMRs (TDMR_INFO) */
 static struct tdmr_info **tdx_tdmr_array;
 /* Actual number of TDMRs */

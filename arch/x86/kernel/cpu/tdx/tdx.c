@@ -674,7 +674,7 @@ EXPORT_SYMBOL_GPL(detect_tdx);
  * * -ENODEV: The TDX module is not loaded.
  * * -EFAULT: Fatal error during TDX module initialization.
  */
-int init_tdx(void)
+int init_tdx(struct tdsysinfo_struct *r)
 {
 	int ret;
 
@@ -698,6 +698,8 @@ int init_tdx(void)
 		ret = -EFAULT;
 		break;
 	}
+	if (r && !ret)
+		*r = tdx_sysinfo;
 	mutex_unlock(&tdx_module_lock);
 
 	return ret;

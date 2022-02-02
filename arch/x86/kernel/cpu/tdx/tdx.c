@@ -429,7 +429,14 @@ static void smp_call_tdh_sys_key_config(void *data)
 	 * Assume they are exceedingly rare and WARN() if one is
 	 * encountered instead of retrying.
 	 */
+retry:
 	if (tdh_sys_key_config(&seamcall_ret)) {
+#define TDX_KEY_GENERATION_FAILED	0x8000080000000000ULL
+		if (seamcall_ret == TDX_KEY_GENERATION_FAILED) {
+			/* Entropy to generate key is lacking. Try again. */
+			goto retry;
+		}
+
 #define TDX_SEAMCALL_STATUS_MASK	0xFFFFFFFF00000000ULL
 #define TDX_SYSCONFIG_NOT_DONE		0xC000050700000000ULL
 		/*

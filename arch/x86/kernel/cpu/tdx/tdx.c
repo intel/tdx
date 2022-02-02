@@ -430,8 +430,16 @@ static void smp_call_tdh_sys_key_config(void *data)
 	 * encountered instead of retrying.
 	 */
 	if (tdh_sys_key_config(&seamcall_ret)) {
-		WARN_ON(seamcall_ret);
-		*err = -1;
+#define TDX_SEAMCALL_STATUS_MASK	0xFFFFFFFF00000000ULL
+#define TDX_SYSCONFIG_NOT_DONE		0xC000050700000000ULL
+		/*
+		 * Key configuration is per-memory controller.  If cpu shares
+		 * memory controller, other CPU may have already configured it.
+		 */
+		if ((seamcall_ret & TDX_SEAMCALL_STATUS_MASK) != TDX_SYSCONFIG_NOT_DONE) {
+			WARN_ON(seamcall_ret);
+			*err = -1;
+		}
 	}
 }
 

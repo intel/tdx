@@ -78,8 +78,6 @@ __setup("tdx_host=", tdx_host_setup);
  *
  * TDX private KeyIDs start with the last MKTME KeyID.
  */
-#define MSR_IA32_MKTME_KEYID_PARTITIONING	0x00000087
-
 #define TDX_KEYID_START(_keyid_part)	\
 		((u32)(((_keyid_part) & 0xffffffffull) + 1))
 #define TDX_KEYID_NUM(_keyid_part)	((u32)((_keyid_part) >> 32))

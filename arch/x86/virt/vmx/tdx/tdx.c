@@ -51,6 +51,53 @@ static LIST_HEAD(tdx_memlist);
 /* The list of TDMRs passed to TDX module */
 struct tdmr_info_list tdx_tdmr_list;
 
+/* REVERTME: tdx module debug */
+/* Non-architectural debug configuration SEAMCALLs. */
+#define SEAMCALL_TDDEBUGCONFIG		0xFE
+
+#define DEBUGCONFIG_SET_TRACE_LEVEL	3
+#define DEBUGCONFIG_TRACE_ALL		0
+#define DEBUGCONFIG_TRACE_WARN		1
+#define DEBUGCONFIG_TRACE_ERROR		2
+#define DEBUGCONFIG_TRACE_CUSTOM	1000
+#define DEBUGCONFIG_TRACE_NONE		-1ULL
+
+static bool trace_boot_seamcalls;
+
+static int __init trace_seamcalls(char *s)
+{
+	trace_boot_seamcalls = true;
+	return 1;
+}
+__setup("trace_boot_seamcalls", trace_seamcalls);
+
+static u64 tdx_trace_level = DEBUGCONFIG_TRACE_CUSTOM;
+
+static void tdx_trace_seamcalls(u64 level);
+static int trace_level_set(const char *val, const struct kernel_param *kp)
+{
+	int r;
+
+	r = param_set_ulong(val, kp);
+	if (tdx_trace_level == DEBUGCONFIG_TRACE_ALL ||
+		tdx_trace_level == DEBUGCONFIG_TRACE_WARN ||
+		tdx_trace_level == DEBUGCONFIG_TRACE_ERROR ||
+		tdx_trace_level == DEBUGCONFIG_TRACE_CUSTOM ||
+		tdx_trace_level == DEBUGCONFIG_TRACE_NONE) {
+		tdx_trace_seamcalls(tdx_trace_level);
+	}
+
+	return r;
+}
+
+static const struct kernel_param_ops tdx_trace_ops = {
+	.set = trace_level_set,
+	.get = param_get_ulong,
+};
+
+module_param_cb(tdx_trace_level, &tdx_trace_ops, &tdx_trace_level, 0644);
+MODULE_PARM_DESC(tdx_trace_level, "TDX module trace level");
+
 /*
  * Use tdx_global_keyid to indicate that TDX is uninitialized.
  * This is used in TDX initialization error paths to take it from
@@ -1184,6 +1231,21 @@ static int init_tdmrs(struct tdmr_info_list *tdmr_list)
 	return 0;
 }
 
+static void tdx_trace_seamcalls(u64 level)
+{
+	static bool debugconfig_supported = true;
+	int ret;
+
+	if (debugconfig_supported) {
+		ret = seamcall(SEAMCALL_TDDEBUGCONFIG,
+			       DEBUGCONFIG_SET_TRACE_LEVEL, level, 0, 0, NULL, NULL);
+		if (ret) {
+			pr_info("TDDEBUGCONFIG isn't supported.\n");
+			debugconfig_supported = false;
+		}
+	}
+}
+
 static int init_tdx_module(void)
 {
 	static struct cmr_info cmr_array[MAX_CMRS]
@@ -1203,6 +1265,11 @@ static int init_tdx_module(void)
 	preempt_enable();
 	if (ret)
 		return ret;
+
+	if (trace_boot_seamcalls)
+		tdx_trace_seamcalls(DEBUGCONFIG_TRACE_ALL);
+	else
+		tdx_trace_seamcalls(tdx_trace_level);
 
 	/*
 	 * TDX module per-cpu initialization SEAMCALL must be done on

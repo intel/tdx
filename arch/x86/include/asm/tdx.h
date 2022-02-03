@@ -82,6 +82,13 @@ u64 __seamcall(u64 fn, struct tdx_module_args *args);
 u64 __seamcall_ret(u64 fn, struct tdx_module_args *args);
 u64 __seamcall_saved_ret(u64 fn, struct tdx_module_args *args);
 
+#define DEBUGCONFIG_TRACE_ALL		0
+#define DEBUGCONFIG_TRACE_WARN		1
+#define DEBUGCONFIG_TRACE_ERROR		2
+#define DEBUGCONFIG_TRACE_CUSTOM	1000
+#define DEBUGCONFIG_TRACE_NONE		-1ULL
+void tdx_trace_seamcalls(u64 level);
+
 /* -1 indicates CPUID leaf with no sub-leaves. */
 #define TDX_CPUID_NO_SUBLEAF	((u32)-1)
 struct tdx_cpuid_config {

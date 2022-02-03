@@ -60,6 +60,47 @@ static struct tdmr_info_list tdx_tdmr_list;
 
 static atomic_t tdx_may_has_private_mem;
 
+/* REVERTME: tdx module debug */
+/* Non-architectural debug configuration SEAMCALLs. */
+#define SEAMCALL_TDDEBUGCONFIG		0xFE
+
+#define DEBUGCONFIG_SET_TRACE_LEVEL	3
+
+static bool trace_boot_seamcalls;
+
+static int __init trace_seamcalls(char *s)
+{
+	trace_boot_seamcalls = true;
+	return 1;
+}
+__setup("trace_boot_seamcalls", trace_seamcalls);
+
+static u64 tdx_trace_level = DEBUGCONFIG_TRACE_CUSTOM;
+
+static int trace_level_set(const char *val, const struct kernel_param *kp)
+{
+	int r;
+
+	r = param_set_ulong(val, kp);
+	if (tdx_trace_level == DEBUGCONFIG_TRACE_ALL ||
+		tdx_trace_level == DEBUGCONFIG_TRACE_WARN ||
+		tdx_trace_level == DEBUGCONFIG_TRACE_ERROR ||
+		tdx_trace_level == DEBUGCONFIG_TRACE_CUSTOM ||
+		tdx_trace_level == DEBUGCONFIG_TRACE_NONE) {
+		tdx_trace_seamcalls(tdx_trace_level);
+	}
+
+	return r;
+}
+
+static const struct kernel_param_ops tdx_trace_ops = {
+	.set = trace_level_set,
+	.get = param_get_ulong,
+};
+
+module_param_cb(tdx_trace_level, &tdx_trace_ops, &tdx_trace_level, 0644);
+MODULE_PARM_DESC(tdx_trace_level, "TDX module trace level");
+
 /* TDX KeyID pool */
 static DEFINE_IDA(tdx_guest_keyid_pool);
 
@@ -146,6 +187,22 @@ static int __always_unused seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
 	}
 }
 
+void tdx_trace_seamcalls(u64 level)
+{
+	static bool debugconfig_supported = true;
+	int ret;
+
+	if (debugconfig_supported) {
+		ret = seamcall(SEAMCALL_TDDEBUGCONFIG,
+			       DEBUGCONFIG_SET_TRACE_LEVEL, level, 0, 0, NULL, NULL);
+		if (ret) {
+			pr_info_once("TDDEBUGCONFIG isn't supported.\n");
+			debugconfig_supported = false;
+		}
+	}
+}
+EXPORT_SYMBOL_GPL(tdx_trace_seamcalls);
+
 /*
  * Do the module global initialization if not done yet.
  * It's always called with interrupts and preemption disabled.
@@ -172,6 +229,13 @@ static int try_init_module_global(void)
 		tdx_global_initialized = true;
 out:
 	raw_spin_unlock_irqrestore(&tdx_global_init_lock, flags);
+
+	if (!ret) {
+		if (trace_boot_seamcalls)
+			tdx_trace_seamcalls(DEBUGCONFIG_TRACE_ALL);
+		else
+			tdx_trace_seamcalls(tdx_trace_level);
+	}
 
 	return ret;
 }

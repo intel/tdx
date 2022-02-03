@@ -111,6 +111,13 @@ static inline u64 sc_retry(sc_func_t func, u64 fn,
 #define seamcall_ret(_fn, _args)	sc_retry(__seamcall_ret, (_fn), (_args))
 #define seamcall_saved_ret(_fn, _args)	sc_retry(__seamcall_saved_ret, (_fn), (_args))
 
+#define DEBUGCONFIG_TRACE_ALL		0
+#define DEBUGCONFIG_TRACE_WARN		1
+#define DEBUGCONFIG_TRACE_ERROR		2
+#define DEBUGCONFIG_TRACE_CUSTOM	1000
+#define DEBUGCONFIG_TRACE_NONE		-1ULL
+void tdx_trace_seamcalls(u64 level);
+
 /* -1 indicates CPUID leaf with no sub-leaves. */
 #define TDX_CPUID_NO_SUBLEAF	((u32)-1)
 struct tdx_cpuid_config {
@@ -125,6 +132,8 @@ struct tdx_cpuid_config {
 		u32 edx;
 	);
 } __packed;
+
+#define TDSYSINFO_ATTRIBUTES_DEBUG	BIT(31)
 
 bool platform_tdx_enabled(void);
 int tdx_cpu_enable(void);

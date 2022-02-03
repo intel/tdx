@@ -135,4 +135,26 @@ static inline int tdh_sys_config(u64 *tdmr_pa_array, u64 tdmr_num,
 	return ret;
 }
 
+/* REVERTME: tdx module debug */
+/* Non-architectural debug configuration SEAMCALLs. */
+#define SEAMCALL_TDDEBUGCONFIG		0xFE
+
+#define DEBUGCONFIG_SET_TRACE_LEVEL	3
+#define DEBUGCONFIG_TRACE_ALL		0
+#define DEBUGCONFIG_TRACE_WARN		1
+#define DEBUGCONFIG_TRACE_ERROR		2
+#define DEBUGCONFIG_TRACE_CUSTOM	1000
+#define DEBUGCONFIG_TRACE_NONE		-1ULL
+
+static inline void tdx_trace_seamcalls(u64 level)
+{
+	struct seamcall_regs_in in;
+	int ret;
+
+	in.rcx = DEBUGCONFIG_SET_TRACE_LEVEL;
+	in.rdx = level;
+	ret = tdx_seamcall(SEAMCALL_TDDEBUGCONFIG, &in, NULL, NULL);
+	WARN_ON(ret);
+}
+
 #endif /* _X86_TDX_SEAMCALL_H */

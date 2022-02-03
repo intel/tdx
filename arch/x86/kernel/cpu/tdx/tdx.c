@@ -86,6 +86,41 @@ static int __init tdx_host_setup(char *s)
 }
 __setup("tdx_host=", tdx_host_setup);
 
+static bool trace_boot_seamcalls;
+
+static int __init trace_seamcalls(char *s)
+{
+	trace_boot_seamcalls = true;
+	return 1;
+}
+__setup("trace_boot_seamcalls", trace_seamcalls);
+
+static u64 tdx_trace_level = DEBUGCONFIG_TRACE_CUSTOM;
+
+static int trace_level_set(const char *val, const struct kernel_param *kp)
+{
+	int r;
+
+	r = param_set_ulong(val, kp);
+	if (tdx_trace_level == DEBUGCONFIG_TRACE_ALL ||
+		tdx_trace_level == DEBUGCONFIG_TRACE_WARN ||
+		tdx_trace_level == DEBUGCONFIG_TRACE_ERROR ||
+		tdx_trace_level == DEBUGCONFIG_TRACE_CUSTOM ||
+		tdx_trace_level == DEBUGCONFIG_TRACE_NONE) {
+		tdx_trace_seamcalls(tdx_trace_level);
+	}
+
+	return r;
+}
+
+static const struct kernel_param_ops tdx_trace_ops = {
+	.set = trace_level_set,
+	.get = param_get_ulong,
+};
+
+module_param_cb(tdx_trace_level, &tdx_trace_ops, &tdx_trace_level, 0644);
+MODULE_PARM_DESC(tdx_trace_level, "TDX module trace level");
+
 /*
  * Intel Trusted Domain CPU Architecture Extension spec:
  *
@@ -565,6 +600,11 @@ static int init_tdx_module(void)
 	ret = config_global_keyid_on_all_pkgs();
 	if (ret)
 		goto out;
+
+	if (trace_boot_seamcalls)
+		tdx_trace_seamcalls(DEBUGCONFIG_TRACE_ALL);
+	else
+		tdx_trace_seamcalls(tdx_trace_level);
 
 	/* Initialize TDMRs to complete the TDX module initialization */
 	ret = init_tdmrs();

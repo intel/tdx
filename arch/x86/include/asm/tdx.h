@@ -118,6 +118,16 @@ static inline u64 sc_retry(sc_func_t func, u64 fn,
 #define seamcall(_fn, _args)		sc_retry(__seamcall, (_fn), (_args))
 #define seamcall_ret(_fn, _args)	sc_retry(__seamcall_ret, (_fn), (_args))
 #define seamcall_saved_ret(_fn, _args)	sc_retry(__seamcall_saved_ret, (_fn), (_args))
+
+#define DEBUGCONFIG_TRACE_ALL		0
+#define DEBUGCONFIG_TRACE_WARN		1
+#define DEBUGCONFIG_TRACE_ERROR		2
+#define DEBUGCONFIG_TRACE_CUSTOM	1000
+#define DEBUGCONFIG_TRACE_NONE		-1ULL
+void tdx_trace_seamcalls(u64 level);
+
+#define TDSYSINFO_ATTRIBUTES_DEBUG	BIT(31)
+
 int tdx_cpu_enable(void);
 int tdx_enable(void);
 const char *tdx_dump_mce_info(struct mce *m);

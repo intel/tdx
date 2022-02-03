@@ -162,6 +162,13 @@ void tdx_guest_keyid_free(int keyid);
 
 u64 __seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
 	       struct tdx_module_output *out);
+
+#define DEBUGCONFIG_TRACE_ALL		0
+#define DEBUGCONFIG_TRACE_WARN		1
+#define DEBUGCONFIG_TRACE_ERROR		2
+#define DEBUGCONFIG_TRACE_CUSTOM	1000
+#define DEBUGCONFIG_TRACE_NONE		-1ULL
+void tdx_trace_seamcalls(u64 level);
 #else	/* !CONFIG_INTEL_TDX_HOST */
 struct tdsysinfo_struct;
 static inline const struct tdsysinfo_struct *tdx_get_sysinfo(void) { return NULL; }

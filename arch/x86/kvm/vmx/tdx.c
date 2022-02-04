@@ -34,8 +34,55 @@ static void __init tdx_keyids_init(void)
 	tdx_seam_keyid = tdx_keyids_start;
 }
 
+/* Capabilities of KVM + the TDX module. */
+struct tdx_capabilities tdx_caps;
+
 static u64 hkid_mask __ro_after_init;
 static u8 hkid_start_pos __ro_after_init;
+
+int tdx_module_setup(void)
+{
+	struct tdsysinfo_struct *tdsysinfo;
+	int ret = 0;
+
+	BUILD_BUG_ON(sizeof(*tdsysinfo) != 1024);
+	BUILD_BUG_ON(TDX_MAX_NR_CPUID_CONFIGS != 37);
+
+	tdsysinfo = kmalloc(sizeof(*tdsysinfo), GFP_KERNEL);
+	if (!tdsysinfo)
+		return -ENOMEM;
+
+	ret = init_tdx(tdsysinfo);
+	if (ret) {
+		pr_info("Failed to initialize TDX module.\n");
+		goto out;
+	}
+
+	tdx_caps.tdcs_nr_pages = tdsysinfo->tdcs_base_size / PAGE_SIZE;
+	tdx_caps.tdvpx_nr_pages = tdsysinfo->tdvps_base_size / PAGE_SIZE - 1;
+
+	tdx_caps.attrs_fixed0 = tdsysinfo->attributes_fixed0;
+	tdx_caps.attrs_fixed1 = tdsysinfo->attributes_fixed1;
+	tdx_caps.xfam_fixed0 =	tdsysinfo->xfam_fixed0;
+	tdx_caps.xfam_fixed1 = tdsysinfo->xfam_fixed1;
+
+	tdx_caps.nr_cpuid_configs = tdsysinfo->num_cpuid_config;
+	if (tdx_caps.nr_cpuid_configs > TDX_MAX_NR_CPUID_CONFIGS) {
+		ret = -EIO;
+		goto out;
+	}
+
+	if (!memcpy(tdx_caps.cpuid_configs, tdsysinfo->cpuid_configs,
+			tdsysinfo->num_cpuid_config *
+			sizeof(struct tdx_cpuid_config))) {
+		ret = -EIO;
+		goto out;
+	}
+
+out:
+	kfree(tdsysinfo);
+	return ret;
+}
 
 int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 {

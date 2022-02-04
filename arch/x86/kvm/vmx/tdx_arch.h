@@ -7,6 +7,62 @@
 #include <linux/types.h>
 
 /*
+ * workaround to compile.
+ * TODO: once the TDX module initiation code in x86 host is merged, remove this.
+ * The function returns struct tdsysinfo_struct from TDX module provides which
+ * is the system wide information about the TDX module.
+ * Return NULL if the TDX module is not ready for KVM to use for TDX VM guest
+ * life cycle.
+ */
+#if __has_include(<asm/tdx_host.h>)
+#include <asm/tdx_host.h>
+#else
+struct tdx_cpuid_config {
+	u32 leaf;
+	u32 sub_leaf;
+	u32 eax;
+	u32 ebx;
+	u32 ecx;
+	u32 edx;
+} __packed;
+
+struct tdsysinfo_struct {
+	/* The TDX Module Info */
+	u32 attributes;
+	u32 vendor_id;
+	u32 build_date;
+	u16 build_num;
+	u16 minor_version;
+	u16 major_version;
+	u8 reserved0[14];
+	/* Memory Info */
+	u16 max_tdmrs;
+	u16 max_reserved_per_tdmr;
+	u16 pamt_entry_size;
+	u8 reserved1[10];
+	/* Control Struct Info */
+	u16 tdcs_base_size;
+	u8 reserved2[2];
+	u16 tdvps_base_size;
+	u8 tdvps_xfam_dependent_size;
+	u8 reserved3[9];
+	/* TD Capabilities */
+	u64 attributes_fixed0;
+	u64 attributes_fixed1;
+	u64 xfam_fixed0;
+	u64 xfam_fixed1;
+	u8 reserved4[32];
+	u32 num_cpuid_config;
+	union {
+		struct tdx_cpuid_config cpuid_configs[0];
+		u8 reserved5[892];
+	};
+} __packed __aligned(1024);
+
+static inline int init_tdx(struct tdsysinfo_struct *tdsysinfo) { return -ENODEV; }
+#endif
+
+/*
  * TDX SEAMCALL API function leaves
  */
 #define TDH_VP_ENTER			0

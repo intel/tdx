@@ -10,6 +10,8 @@
 #include "tdx_ops.h"
 
 #ifdef CONFIG_INTEL_TDX_HOST
+int tdx_module_setup(void);
+int tdx_enable(void);
 
 struct tdx_td_page {
 	unsigned long va;
@@ -29,6 +31,24 @@ struct vcpu_tdx {
 
 	struct tdx_td_page tdvpr;
 	struct tdx_td_page *tdvpx;
+};
+
+#define TDX_MAX_NR_CPUID_CONFIGS					\
+	((sizeof(struct tdsysinfo_struct) -				\
+		offsetof(struct tdsysinfo_struct, cpuid_configs))	\
+		/ sizeof(struct tdx_cpuid_config))
+
+struct tdx_capabilities {
+	u8 tdcs_nr_pages;
+	u8 tdvpx_nr_pages;
+
+	u64 attrs_fixed0;
+	u64 attrs_fixed1;
+	u64 xfam_fixed0;
+	u64 xfam_fixed1;
+
+	u32 nr_cpuid_configs;
+	struct tdx_cpuid_config cpuid_configs[TDX_MAX_NR_CPUID_CONFIGS];
 };
 
 static inline bool is_td(struct kvm *kvm)
@@ -137,6 +157,8 @@ TDX_BUILD_TDVPS_ACCESSORS(64, STATE_NON_ARCH, state_non_arch);
 TDX_BUILD_TDVPS_ACCESSORS(8, MANAGEMENT, management);
 
 #else
+static inline int tdx_module_setup(void) { return -EOPNOTSUPP; };
+
 struct kvm_tdx;
 struct vcpu_tdx;
 

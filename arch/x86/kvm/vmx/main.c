@@ -5,6 +5,7 @@
 #include "vmx.h"
 #include "nested.h"
 #include "pmu.h"
+#include "tdx.h"
 
 #ifdef CONFIG_INTEL_TDX_HOST
 static bool __read_mostly enable_tdx = true;
@@ -30,6 +31,31 @@ static __init int vt_hardware_setup(void)
 		disable_tdx();
 
 	return 0;
+}
+
+int tdx_enable(void)
+{
+	static DEFINE_MUTEX(tdx_init_lock);
+	static bool __read_mostly tdx_module_initialized;
+	int ret = 0;
+
+	mutex_lock(&tdx_init_lock);
+	if (!enable_tdx) {
+		ret = -EOPNOTSUPP;
+		goto out;
+	}
+
+	if (!tdx_module_initialized) {
+		ret = tdx_module_setup();
+		if (!ret)
+			tdx_module_initialized = true;
+		else
+			disable_tdx();
+	}
+
+out:
+	mutex_unlock(&tdx_init_lock);
+	return ret;
 }
 
 struct kvm_x86_ops vt_x86_ops __initdata = {

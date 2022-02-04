@@ -34,6 +34,8 @@ struct tdx_capabilities {
 /* Capabilities of KVM + the TDX module. */
 struct tdx_capabilities tdx_caps;
 
+static struct mutex *tdx_mng_key_config_lock;
+
 static u64 hkid_mask __ro_after_init;
 static u8 hkid_start_pos __ro_after_init;
 
@@ -112,7 +114,9 @@ bool tdx_is_vm_type_supported(unsigned long type)
 
 static int __init __tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 {
+	int max_pkgs;
 	u32 max_pa;
+	int i;
 
 	if (!enable_ept) {
 		pr_warn("Cannot enable TDX with EPT disabled\n");
@@ -127,6 +131,14 @@ static int __init __tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 
 	if (WARN_ON_ONCE(x86_ops->tlb_remote_flush))
 		return -EIO;
+
+	max_pkgs = topology_max_packages();
+	tdx_mng_key_config_lock = kcalloc(max_pkgs, sizeof(*tdx_mng_key_config_lock),
+				   GFP_KERNEL);
+	if (!tdx_mng_key_config_lock)
+		return -ENOMEM;
+	for (i = 0; i < max_pkgs; i++)
+		mutex_init(&tdx_mng_key_config_lock[i]);
 
 	max_pa = cpuid_eax(0x80000008) & 0xff;
 	hkid_start_pos = boot_cpu_data.x86_phys_bits;
@@ -146,4 +158,10 @@ void __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 
 	if (__tdx_hardware_setup(&vt_x86_ops))
 		enable_tdx = false;
+}
+
+void tdx_hardware_unsetup(void)
+{
+	/* kfree accepts NULL. */
+	kfree(tdx_mng_key_config_lock);
 }

@@ -5686,6 +5686,11 @@ void kvm_unregister_perf_callbacks(void)
 }
 #endif
 
+__weak int kvm_arch_post_hardware_enable_setup(void *opaque)
+{
+	return 0;
+}
+
 int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
 		  struct module *module)
 {
@@ -5720,6 +5725,12 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
 	r = hardware_enable_all();
 	if (r)
 		goto out_free_2;
+	/*
+	 * Arch specific initialization that requires to enable virtualization
+	 * feature.  e.g. TDX module initialization requires VMXON on all
+	 * present CPUs.
+	 */
+	kvm_arch_post_hardware_enable_setup(opaque);
 	hardware_disable_all();
 
 	r = cpuhp_setup_state_nocalls(CPUHP_AP_KVM_STARTING, "kvm/cpu:starting",

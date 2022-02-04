@@ -23,6 +23,16 @@ static __init int vt_hardware_setup(void)
 	return 0;
 }
 
+static int __init vt_post_hardware_enable_setup(void)
+{
+	enable_tdx = enable_tdx && !tdx_module_setup();
+	/*
+	 * Even if it failed to initialize TDX module, conventional VMX is
+	 * available.  Keep VMX usable.
+	 */
+	return 0;
+}
+
 struct kvm_x86_ops vt_x86_ops __initdata = {
 	.name = "kvm_intel",
 
@@ -165,6 +175,7 @@ struct kvm_x86_init_ops vt_init_ops __initdata = {
 	.cpu_has_kvm_support = vmx_cpu_has_kvm_support,
 	.disabled_by_bios = vmx_disabled_by_bios,
 	.hardware_setup = vt_hardware_setup,
+	.post_hardware_enable_setup = vt_post_hardware_enable_setup,
 	.handle_intel_pt_intr = NULL,
 
 	.runtime_ops = &vt_x86_ops,

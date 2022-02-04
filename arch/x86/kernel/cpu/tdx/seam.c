@@ -66,6 +66,7 @@ static void detect_seam_bsp(struct cpuinfo_x86 *c)
 
 	seamrr_base = base;
 	seamrr_mask = mask;
+	setup_force_cpu_cap(X86_FEATURE_SEAM);
 }
 
 static void detect_seam_ap(struct cpuinfo_x86 *c)
@@ -89,6 +90,7 @@ static void detect_seam_ap(struct cpuinfo_x86 *c)
 	/* Mark SEAMRR as disabled. */
 	seamrr_base = 0;
 	seamrr_mask = 0;
+	setup_clear_cpu_cap(X86_FEATURE_SEAM);
 }
 
 void detect_seam(struct cpuinfo_x86 *c)

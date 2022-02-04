@@ -6,6 +6,7 @@
 
 #include <linux/compiler.h>
 
+#include <asm/cacheflush.h>
 #include <asm/asm.h>
 #include <asm/kvm_host.h>
 
@@ -17,6 +18,7 @@
 
 static inline u64 tdh_mng_addcx(hpa_t tdr, hpa_t addr)
 {
+	clflush_cache_range(__va(addr), PAGE_SIZE);
 	return kvm_seamcall(TDH_MNG_ADDCX, addr, tdr, 0, 0, NULL);
 }
 
@@ -68,6 +70,7 @@ static inline u64 tdh_mng_key_config(hpa_t tdr)
 
 static inline u64 tdh_mng_create(hpa_t tdr, int hkid)
 {
+	clflush_cache_range(__va(tdr), PAGE_SIZE);
 	return kvm_seamcall(TDH_MNG_CREATE, tdr, hkid, 0, 0, NULL);
 }
 

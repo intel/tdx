@@ -25,6 +25,12 @@ static __init int vt_hardware_setup(void)
 	return 0;
 }
 
+static void vt_hardware_unsetup(void)
+{
+	tdx_hardware_unsetup();
+	vmx_hardware_unsetup();
+}
+
 static int vt_vm_init(struct kvm *kvm)
 {
 	int ret;
@@ -33,16 +39,28 @@ static int vt_vm_init(struct kvm *kvm)
 		ret = tdx_module_setup();
 		if (ret)
 			return ret;
-		return -EOPNOTSUPP;	/* Not ready to create guest TD yet. */
+		return tdx_vm_init(kvm);
 	}
 
 	return vmx_vm_init(kvm);
 }
 
+static void vt_mmu_prezap(struct kvm *kvm)
+{
+	if (is_td(kvm))
+		return tdx_mmu_prezap(kvm);
+}
+
+static void vt_vm_free(struct kvm *kvm)
+{
+	if (is_td(kvm))
+		return tdx_vm_free(kvm);
+}
+
 struct kvm_x86_ops vt_x86_ops __initdata = {
 	.name = "kvm_intel",
 
-	.hardware_unsetup = vmx_hardware_unsetup,
+	.hardware_unsetup = vt_hardware_unsetup,
 
 	.hardware_enable = vmx_hardware_enable,
 	.hardware_disable = vmx_hardware_disable,
@@ -51,6 +69,8 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.is_vm_type_supported = vt_is_vm_type_supported,
 	.vm_size = sizeof(struct kvm_vmx),
 	.vm_init = vt_vm_init,
+	.mmu_prezap = vt_mmu_prezap,
+	.vm_free = vt_vm_free,
 
 	.vcpu_create = vmx_vcpu_create,
 	.vcpu_free = vmx_vcpu_free,

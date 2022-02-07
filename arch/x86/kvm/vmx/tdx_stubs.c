@@ -11,3 +11,5 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops) { return -EOPNOTSUPP;
 void tdx_hardware_unsetup(void) {}
 
 int tdx_vm_init(struct kvm *kvm) { return -EOPNOTSUPP; }
+
+int tdx_vm_ioctl(struct kvm *kvm, void __user *argp) { return -EOPNOTSUPP; }

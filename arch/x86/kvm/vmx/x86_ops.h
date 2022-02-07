@@ -135,4 +135,6 @@ int tdx_vm_init(struct kvm *kvm);
 void tdx_vm_teardown(struct kvm *kvm);
 void tdx_vm_free(struct kvm *kvm);
 
+int tdx_vm_ioctl(struct kvm *kvm, void __user *argp);
+
 #endif /* __KVM_X86_VMX_X86_OPS_H */

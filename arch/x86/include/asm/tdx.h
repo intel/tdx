@@ -91,6 +91,7 @@ static inline long tdx_kvm_hypercall(unsigned int nr, unsigned long p1,
 #endif /* CONFIG_INTEL_TDX_GUEST && CONFIG_KVM_GUEST */
 
 #ifdef CONFIG_INTEL_TDX_HOST
+
 struct tdx_cpuid_config {
 	u32	leaf;
 	u32	sub_leaf;

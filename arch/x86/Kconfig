@@ -1964,6 +1964,18 @@ config INTEL_TDX_HOST
 
 	  If unsure, say N.
 
+config INTEL_TDX_HOST_DEBUG
+	tristate "TDX host debugfs"
+	default n
+	depends on INTEL_TDX_HOST
+	depends on DEBUG_FS
+	depends on KVM
+	help
+	  TDX module debug support via debug fs.  The debug version of TDX
+	  module is required.
+
+	  If unsure, say N.
+
 config EFI
 	bool "EFI runtime service support"
 	depends on ACPI

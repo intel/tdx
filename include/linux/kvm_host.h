@@ -2423,4 +2423,7 @@ static inline int kvm_gmem_get_pfn(struct kvm *kvm,
 static inline void kvm_arch_gmem_invalidate(struct kvm *kvm, kvm_pfn_t start, kvm_pfn_t end) { }
 #endif /* CONFIG_KVM_PRIVATE_MEM */
 
+void kvm_hardware_enable_lock(void);
+void kvm_hardware_enable_unlock(void);
+
 #endif

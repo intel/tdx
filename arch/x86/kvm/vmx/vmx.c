@@ -2812,6 +2812,40 @@ fault:
 	return -EFAULT;
 }
 
+void vmxoff_put(int off)
+{
+	WARN_ON_ONCE(off < 0);
+
+	if (off)
+		kvm_cpu_vmxoff();
+
+	kvm_hardware_enable_unlock();
+	cpus_read_unlock();
+}
+EXPORT_SYMBOL_GPL(vmxoff_put);
+
+int vmxon_get(void)
+{
+	cpus_read_lock();
+	kvm_hardware_enable_lock();
+
+	/*
+	 * only check local cr4.vmxe is enough due to
+	 * kvm_hardware_enable_lock() holds kvm_lock
+	 */
+	if (cr4_read_shadow() & X86_CR4_VMXE)
+		return 0;
+
+       if (!kvm_cpu_vmxon(__pa(this_cpu_read(vmxarea))))
+	       return 1;
+
+       preempt_enable();
+       kvm_hardware_enable_unlock();
+       cpus_read_unlock();
+       return -EFAULT;
+}
+EXPORT_SYMBOL_GPL(vmxon_get);
+
 int vmx_hardware_enable(void)
 {
 	int cpu = raw_smp_processor_id();

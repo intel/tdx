@@ -6654,3 +6654,15 @@ int kvm_vm_create_worker_thread(struct kvm *kvm, kvm_vm_thread_fn_t thread_fn,
 
 	return init_context.err;
 }
+
+void kvm_hardware_enable_lock(void)
+{
+	mutex_lock(&kvm_lock);
+}
+EXPORT_SYMBOL_GPL(kvm_hardware_enable_lock);
+
+void kvm_hardware_enable_unlock(void)
+{
+	mutex_unlock(&kvm_lock);
+}
+EXPORT_SYMBOL_GPL(kvm_hardware_enable_unlock);

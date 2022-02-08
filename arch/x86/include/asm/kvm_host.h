@@ -2297,4 +2297,9 @@ void kvm_memory_attributes_create_memslot(struct kvm *kvm,
 					  struct kvm_memory_slot *slot);
 #endif
 
+#if IS_ENABLED(CONFIG_KVM_INTEL)
+int vmxon_get(void);
+void vmxoff_put(void);
+#endif
+
 #endif /* _ASM_X86_KVM_HOST_H */

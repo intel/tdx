@@ -2475,7 +2475,7 @@ int vmx_hardware_enable(void)
 	return 0;
 }
 
-static void __init vmxon(void *arg)
+static void vmxon(void *arg)
 {
 	int cpu = raw_smp_processor_id();
 	u64 phys_addr = __pa(per_cpu(vmxarea, cpu));
@@ -2493,7 +2493,7 @@ out:
 		atomic_inc(failed);
 }
 
-int __init vmxon_all(void)
+int vmxon_all(void)
 {
 	atomic_t failed = ATOMIC_INIT(0);
 
@@ -2503,6 +2503,7 @@ int __init vmxon_all(void)
 		return -EBUSY;
 	return 0;
 }
+EXPORT_SYMBOL_GPL(vmxon_all);
 
 static void vmclear_local_loaded_vmcss(void)
 {
@@ -2524,15 +2525,16 @@ void vmx_hardware_disable(void)
 	intel_pt_handle_vmx(0);
 }
 
-static void __init vmxoff(void *junk)
+static void vmxoff(void *junk)
 {
 	cpu_vmxoff();
 }
 
-void __init vmxoff_all(void)
+void vmxoff_all(void)
 {
 	on_each_cpu(vmxoff, NULL, 1);
 }
+EXPORT_SYMBOL_GPL(vmxoff_all);
 
 /*
  * There is no X86_FEATURE for SGX yet, but anyway we need to query CPUID

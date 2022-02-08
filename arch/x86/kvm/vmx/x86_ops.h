@@ -20,8 +20,8 @@ bool kvm_is_vmx_supported(void);
 int __init vmx_init(void);
 void vmx_exit(void);
 
-__init int vmxon_all(void);
-__init void vmxoff_all(void);
+int vmxon_all(void);
+void vmxoff_all(void);
 __init int vmx_hardware_setup(void);
 
 extern struct kvm_x86_ops vt_x86_ops __initdata;

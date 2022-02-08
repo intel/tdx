@@ -2421,4 +2421,7 @@ static inline int kvm_gmem_get_pfn(struct kvm *kvm,
 }
 #endif /* CONFIG_KVM_PRIVATE_MEM */
 
+void kvm_hardware_enable_lock(void);
+void kvm_hardware_enable_unlock(void);
+
 #endif

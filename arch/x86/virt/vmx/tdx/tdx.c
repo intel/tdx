@@ -1708,6 +1708,17 @@ bool platform_tdx_enabled(void)
 	return !!tdx_global_keyid;
 }
 
+bool tdx_is_enabled(void)
+{
+	bool r;
+
+	mutex_lock(&tdx_module_lock);
+	r = tdx_module_status == TDX_MODULE_INITIALIZED;
+	mutex_unlock(&tdx_module_lock);
+	return  r;
+}
+EXPORT_SYMBOL(tdx_is_enabled);
+
 #ifdef CONFIG_SYSFS
 
 static struct kobject *tdx_kobj;

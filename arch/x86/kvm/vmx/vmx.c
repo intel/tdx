@@ -2783,6 +2783,32 @@ fault:
 	return -EFAULT;
 }
 
+static int __vmxon_get(void)
+{
+	if (cr4_read_shadow() & X86_CR4_VMXE)
+		return -EBUSY;
+	return kvm_cpu_vmxon(__pa(this_cpu_read(vmxarea)));
+}
+
+int vmxon_get(void)
+{
+	int r;
+
+	preempt_disable();
+	r = __vmxon_get();
+	if (r)
+		preempt_enable();
+	return r;
+}
+EXPORT_SYMBOL_GPL(vmxon_get);
+
+void vmxoff_put(void)
+{
+	WARN_ON_ONCE(cpu_vmxoff());
+	preempt_enable();
+}
+EXPORT_SYMBOL_GPL(vmxoff_put);
+
 int vmx_hardware_enable(void)
 {
 	int cpu = raw_smp_processor_id();

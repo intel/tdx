@@ -6,6 +6,7 @@
  */
 #include <linux/linkage.h>
 #include <asm/asm-offsets.h>
+#include <asm/export.h>
 #include <asm/frame.h>
 #include <asm/seam.h>
 
@@ -78,3 +79,4 @@ SYM_FUNC_START(__seamcall)
 	FRAME_END
 	ret
 SYM_FUNC_END(__seamcall)
+EXPORT_SYMBOL_GPL(__seamcall)

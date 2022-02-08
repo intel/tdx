@@ -139,12 +139,35 @@ static inline int tdh_sys_config(u64 *tdmr_pa_array, u64 tdmr_num,
 /* Non-architectural debug configuration SEAMCALLs. */
 #define SEAMCALL_TDDEBUGCONFIG		0xFE
 
+#define DEBUGCONFIG_SET_TARGET			0
+#define DEBUGCONFIG_TARGET_TRACE_BUFFER		0
+#define DEBUGCONFIG_TARGET_SERIAL_PORT		1
+#define DEBUGCONFIG_TARGET_EXTERNAL_BUFFER	2
+
+#define DEBUGCONFIG_DUMP_TRACE_BUFFER	1
+
+#define DEBUGCONFIG_SET_EMERGENCY_BUFFER	2
+
 #define DEBUGCONFIG_SET_TRACE_LEVEL	3
 #define DEBUGCONFIG_TRACE_ALL		0
 #define DEBUGCONFIG_TRACE_WARN		1
 #define DEBUGCONFIG_TRACE_ERROR		2
 #define DEBUGCONFIG_TRACE_CUSTOM	1000
 #define DEBUGCONFIG_TRACE_NONE		-1ULL
+
+static inline u64 tddebugconfig(u64 subleaf, u64 param1, u64 param2)
+{
+	struct seamcall_regs_in in;
+	int ret;
+
+	in.rcx = subleaf;
+	in.rdx = param1;
+	in.r8 = param2;
+	ret = tdx_seamcall(SEAMCALL_TDDEBUGCONFIG, &in, NULL, NULL);
+	WARN_ON_ONCE(ret);
+
+	return  ret;
+}
 
 static inline void tdx_trace_seamcalls(u64 level)
 {

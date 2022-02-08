@@ -103,3 +103,4 @@ bool seamrr_enabled(void)
 {
 	return (seamrr_mask & SEAMRR_ENABLED_BITS) == SEAMRR_ENABLED_BITS;
 }
+EXPORT_SYMBOL_GPL(seamrr_enabled);

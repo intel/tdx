@@ -4931,6 +4931,18 @@ static int hardware_enable_all(void)
 	return r;
 }
 
+int kvm_hardware_enable_all(void)
+{
+	return hardware_enable_all();
+}
+EXPORT_SYMBOL_GPL(kvm_hardware_enable_all);
+
+void kvm_hardware_disable_all(void)
+{
+	hardware_disable_all();
+}
+EXPORT_SYMBOL_GPL(kvm_hardware_disable_all);
+
 static int kvm_reboot(struct notifier_block *notifier, unsigned long val,
 		      void *v)
 {

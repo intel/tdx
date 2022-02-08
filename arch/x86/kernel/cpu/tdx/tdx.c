@@ -329,10 +329,8 @@ static int build_tdx_memory(void)
 
 static void build_tdx_memory_cleanup(void)
 {
-	if (tdx_tdmr_array) {
-		destroy_tdmrs(tdx_tdmr_array, tdx_tdmr_num);
+	if (tdx_tdmr_array)
 		kfree(tdx_tdmr_array);
-	}
 }
 
 /* Configure TDX module with TDMRs and global KeyID info */

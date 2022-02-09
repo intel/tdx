@@ -114,7 +114,13 @@ static int tdx_cmr_num;
 static struct tdsysinfo_struct tdx_sysinfo;
 
 /* TDX global KeyID to protect TDX metadata */
-static u32 tdx_global_keyid;
+static u32 __read_mostly tdx_global_keyid;
+
+u32 tdx_get_global_keyid(void)
+{
+	return tdx_global_keyid;
+}
+EXPORT_SYMBOL_GPL(tdx_get_global_keyid);
 
 static bool enable_tdx_host;
 
@@ -190,6 +196,31 @@ static void detect_seam(struct cpuinfo_x86 *c)
 	else
 		detect_seam_ap(c);
 }
+
+/* TDX KeyID pool */
+static DEFINE_IDA(tdx_keyid_pool);
+
+int tdx_keyid_alloc(void)
+{
+	if (WARN_ON_ONCE(!tdx_keyid_start || !tdx_keyid_num))
+		return -EINVAL;
+
+	/* The first keyID is reserved for the global key. */
+	return ida_alloc_range(&tdx_keyid_pool, tdx_keyid_start + 1,
+			       tdx_keyid_start + tdx_keyid_num - 1,
+			       GFP_KERNEL);
+}
+EXPORT_SYMBOL_GPL(tdx_keyid_alloc);
+
+void tdx_keyid_free(int keyid)
+{
+	/* keyid = 0 is reserved. */
+	if (!keyid || keyid <= 0)
+		return;
+
+	ida_free(&tdx_keyid_pool, keyid);
+}
+EXPORT_SYMBOL_GPL(tdx_keyid_free);
 
 static void detect_tdx_keyids_bsp(struct cpuinfo_x86 *c)
 {

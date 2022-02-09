@@ -149,6 +149,10 @@ int tdx_detect(void);
 int tdx_init(void);
 bool platform_has_tdx(void);
 const struct tdsysinfo_struct *tdx_get_sysinfo(void);
+u32 tdx_get_global_keyid(void);
+int tdx_keyid_alloc(void);
+void tdx_keyid_free(int keyid);
+
 u64 __seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
 	       struct tdx_module_output *out);
 #else
@@ -159,6 +163,9 @@ static inline int tdx_init(void) { return -ENODEV; }
 static inline bool platform_has_tdx(void) { return false; }
 struct tdsysinfo_struct;
 static inline const struct tdsysinfo_struct *tdx_get_sysinfo(void) { return NULL; }
+static inline u32 tdx_get_global_keyid(void) { return 0; };
+static inline int tdx_keyid_alloc(void) { return -EOPNOTSUPP; }
+static inline void tdx_keyid_free(int keyid) { }
 #endif /* CONFIG_INTEL_TDX_HOST */
 
 #endif /* !__ASSEMBLY__ */

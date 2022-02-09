@@ -88,6 +88,16 @@ int tdx_cpu_enable(void);
 int tdx_enable(void);
 void tdx_reset_memory(void);
 bool tdx_is_private_mem(unsigned long phys);
+
+/*
+ * Key id globally used by TDX module: TDX module maps TDR with this TDX global
+ * key id.  TDR includes key id assigned to the TD.  Then TDX module maps other
+ * TD-related pages with the assigned key id.  TDR requires this TDX global key
+ * id for cache flush unlike other TD-related pages.
+ */
+extern u32 tdx_global_keyid;
+int tdx_guest_keyid_alloc(void);
+void tdx_guest_keyid_free(int keyid);
 #else
 static inline u64 __seamcall(u64 fn, struct tdx_module_args *args) { return TDX_SEAMCALL_UD; }
 static inline u64 __seamcall_ret(u64 fn, struct tdx_module_args *args) { return TDX_SEAMCALL_UD; }
@@ -97,6 +107,8 @@ static inline int tdx_cpu_enable(void) { return -ENODEV; }
 static inline int tdx_enable(void)  { return -ENODEV; }
 static inline void tdx_reset_memory(void) { }
 static inline bool tdx_is_private_mem(unsigned long phys) { return false; }
+static inline int tdx_guest_keyid_alloc(void) { return -EOPNOTSUPP; }
+static inline void tdx_guest_keyid_free(int keyid) { }
 #endif	/* CONFIG_INTEL_TDX_HOST */
 
 #endif /* !__ASSEMBLY__ */

@@ -5,6 +5,7 @@
 
 #include "capabilities.h"
 #include "x86_ops.h"
+#include "tdx.h"
 
 #undef pr_fmt
 #define pr_fmt(fmt) "tdx: " fmt

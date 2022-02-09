@@ -55,11 +55,17 @@ void detect_tdx_keyids(struct cpuinfo_x86 *c);
 int detect_tdx(void);
 int init_tdx(void);
 const struct tdsysinfo_struct *tdx_get_sysinfo(void);
+u32 tdx_get_global_keyid(void);
+int tdx_keyid_alloc(void);
+void tdx_keyid_free(int keyid);
 #else
 static inline void detect_tdx_keyids(struct cpuinfo_x86 *c) { }
 static inline int detect_tdx(void) { return -ENODEV; }
 static inline int init_tdx(void) { return -ENODEV; }
 static inline const struct tdsysinfo_struct *tdx_get_sysinfo(void) { return NULL; };
+static inline u32 tdx_get_global_keyid(void) { return 0; };
+static inline int tdx_keyid_alloc(void) { return -EOPNOTSUPP; }
+static inline void tdx_keyid_free(int keyid) { }
 #endif /* CONFIG_INTEL_TDX_HOST */
 
 #endif /* _ASM_X86_TDX_HOST_H */

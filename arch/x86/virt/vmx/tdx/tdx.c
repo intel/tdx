@@ -51,6 +51,10 @@ static DEFINE_MUTEX(tdx_module_lock);
 /* All TDX-usable memory regions */
 static LIST_HEAD(tdx_memlist);
 
+/* TDX module global KeyID.  Used in TDH.SYS.CONFIG ABI. */
+u32 tdx_global_keyid __read_mostly;
+EXPORT_SYMBOL_GPL(tdx_global_keyid);
+
 /*
  * tdx_keyid_start and nr_tdx_keyids indicate that TDX is uninitialized.
  * This is used in TDX initialization error paths to take it from
@@ -131,6 +135,31 @@ static int tdx_memory_notifier(struct notifier_block *nb, unsigned long action,
 static struct notifier_block tdx_memory_nb = {
 	.notifier_call = tdx_memory_notifier,
 };
+
+/* TDX KeyID pool */
+static DEFINE_IDA(tdx_keyid_pool);
+
+int tdx_keyid_alloc(void)
+{
+	if (WARN_ON_ONCE(!tdx_keyid_start || !nr_tdx_keyids))
+		return -EINVAL;
+
+	/* The first keyID is reserved for the global key. */
+	return ida_alloc_range(&tdx_keyid_pool, tdx_keyid_start + 1,
+			       tdx_keyid_start + nr_tdx_keyids - 1,
+			       GFP_KERNEL);
+}
+EXPORT_SYMBOL_GPL(tdx_keyid_alloc);
+
+void tdx_keyid_free(int keyid)
+{
+	/* keyid = 0 is reserved. */
+	if (WARN_ON_ONCE(keyid <= 0))
+		return;
+
+	ida_free(&tdx_keyid_pool, keyid);
+}
+EXPORT_SYMBOL_GPL(tdx_keyid_free);
 
 static int __init tdx_init(void)
 {
@@ -1160,6 +1189,12 @@ static int init_tdx_module(void)
 	ret = config_global_keyid();
 	if (ret)
 		goto out_free_pamts;
+
+	/*
+	 * Reserve the first TDX KeyID as global KeyID to protect
+	 * TDX module metadata.
+	 */
+	tdx_global_keyid = tdx_keyid_start;
 
 	/* Initialize TDMRs to complete the TDX module initialization */
 	ret = init_tdmrs(&tdmr_list);

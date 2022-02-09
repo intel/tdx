@@ -11,6 +11,21 @@
 #undef pr_fmt
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+/* TDX KeyID pool */
+static DEFINE_IDA(tdx_guest_keyid_pool);
+
+static int __used tdx_guest_keyid_alloc(void)
+{
+	return ida_alloc_range(&tdx_guest_keyid_pool, tdx_guest_keyid_start,
+			       tdx_guest_keyid_start + tdx_nr_guest_keyids - 1,
+			       GFP_KERNEL);
+}
+
+static void __used tdx_guest_keyid_free(int keyid)
+{
+	ida_free(&tdx_guest_keyid_pool, keyid);
+}
+
 static int __init tdx_module_setup(void)
 {
 	int ret;

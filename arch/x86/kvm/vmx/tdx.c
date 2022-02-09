@@ -3,6 +3,7 @@
 
 #include "capabilities.h"
 #include "x86_ops.h"
+#include "tdx.h"
 
 #ifdef CONFIG_INTEL_TDX_HOST
 static bool __read_mostly enable_tdx = true;
@@ -65,4 +66,14 @@ void __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 
 	if (__tdx_hardware_setup(&vt_x86_ops))
 		disable_tdx();
+}
+
+void __init tdx_pre_kvm_init(unsigned int *vcpu_size,
+			unsigned int *vcpu_align, unsigned int *vm_size)
+{
+	*vcpu_size = sizeof(struct vcpu_tdx);
+	*vcpu_align = __alignof__(struct vcpu_tdx);
+
+	if (sizeof(struct kvm_tdx) > *vm_size)
+		*vm_size = sizeof(struct kvm_tdx);
 }

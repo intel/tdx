@@ -745,6 +745,12 @@ static inline int tdp_mmu_set_spte_atomic(struct kvm *kvm,
 	return 0;
 }
 
+static u64 shadow_init_spte(u64 old_spte)
+{
+	return shadow_init_value |
+		(is_private_prohibit_spte(old_spte) ? SPTE_PRIVATE_PROHIBIT : 0);
+}
+
 static inline int tdp_mmu_zap_spte_atomic(struct kvm *kvm,
 					  struct tdp_iter *iter)
 {
@@ -779,7 +785,7 @@ static inline int tdp_mmu_zap_spte_atomic(struct kvm *kvm,
 	 * shadow_init_value (which sets "suppress #VE" bit) so it
 	 * can be set when EPT table entries are zapped.
 	 */
-	kvm_tdp_mmu_write_spte(iter->sptep, shadow_init_value);
+	kvm_tdp_mmu_write_spte(iter->sptep, shadow_init_spte(iter->old_spte));
 
 	return 0;
 }
@@ -955,8 +961,8 @@ retry:
 			continue;
 
 		if (!shared)
-			tdp_mmu_set_spte(kvm, &iter, shadow_init_value);
-		else if (tdp_mmu_set_spte_atomic(kvm, &iter, shadow_init_value))
+			tdp_mmu_set_spte(kvm, &iter, shadow_init_spte(iter.old_spte));
+		else if (tdp_mmu_set_spte_atomic(kvm, &iter, shadow_init_spte(iter.old_spte)))
 			goto retry;
 	}
 }
@@ -1013,7 +1019,7 @@ bool kvm_tdp_mmu_zap_sp(struct kvm *kvm, struct kvm_mmu_page *sp)
 		return false;
 
 	__tdp_mmu_set_spte(kvm, kvm_mmu_page_as_id(sp), sp->ptep, old_spte,
-			   shadow_init_value, sp->gfn, sp->role.level + 1,
+			   shadow_init_spte(old_spte), sp->gfn, sp->role.level + 1,
 			   true, true);
 
 	return true;
@@ -1060,11 +1066,19 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 			continue;
 		}
 
+		/*
+		 * PG_PRIVATE_PROHIBIT is stored as 4K granularity.  The
+		 * information is lost if we delete upper level SPTE page.
+		 * TODO: support large page.
+		 */
+		if (kvm_mmu_supports_shared_bit(kvm) && iter.level > PG_LEVEL_4K)
+			continue;
+
 		if (!is_shadow_present_pte(iter.old_spte) ||
 		    !is_last_spte(iter.old_spte, iter.level))
 			continue;
 
-		tdp_mmu_set_spte(kvm, &iter, shadow_init_value);
+		tdp_mmu_set_spte(kvm, &iter, shadow_init_spte(iter.old_spte));
 		flush = true;
 	}
 
@@ -1188,11 +1202,14 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
 		new_spte = make_mmio_spte(vcpu,
 				tdp_iter_gfn_unalias(vcpu->kvm, iter),
 				pte_access);
-	else
+	else {
 		wrprot = make_spte(vcpu, sp, fault->slot, pte_access,
 				tdp_iter_gfn_unalias(vcpu->kvm, iter),
 				fault->pfn, iter->old_spte, fault->prefetch,
 				true, fault->map_writable, &new_spte);
+		if (is_private_prohibit_spte(iter->old_spte))
+			new_spte |= SPTE_PRIVATE_PROHIBIT;
+	}
 
 	if (new_spte == iter->old_spte)
 		ret = RET_PF_SPURIOUS;
@@ -1513,7 +1530,7 @@ static bool set_spte_gfn(struct kvm *kvm, struct tdp_iter *iter,
 	 * invariant that the PFN of a present * leaf SPTE can never change.
 	 * See __handle_changed_spte().
 	 */
-	tdp_mmu_set_spte(kvm, iter, shadow_init_value);
+	tdp_mmu_set_spte(kvm, iter, shadow_init_spte(iter->old_spte));
 
 	if (!pte_write(range->pte)) {
 		new_spte = kvm_mmu_changed_pte_notifier_make_spte(iter->old_spte,

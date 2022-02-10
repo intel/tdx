@@ -20,3 +20,4 @@ KVM
    review-checklist
 
    intel-tdx
+   tdx-legacy-mmu

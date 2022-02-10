@@ -408,6 +408,37 @@ Co-existing with unmapping guest private memory
 TODO.  This needs to be addressed.
 
 
+Optimizing TLB flush
+====================
+It's inefficient to issue TLB.MEM.TRACK for each EPT entry.  Similar to EPT TLB
+flush, multiple TLB.MEM.TRACK and sending IPI (TLB shootdown) can be combined
+into one TLB.MEM.TRACK and one IPI.  After the TLB shootdown, the PFNs are still
+needed to unlink the private pages from the secure EPT.  PFN needs to be stashed
+somewhere.  The choice is to keep the PFN in the EPT entry with the special
+flag.  SPTE_PRIVATE_ZAPPED with the present flag cleared.  And specially handle
+such EPT entry.  Later get PFN and unlink the private page from secure EPT,
+clear the EPT entry into normal zapped EPT entry.
+
+1. lock
+2. loop on EPT entries.
+   - set SEPT_PRIVATE_ZAPPED
+   - keep PFN
+   - clear other bits
+   - TLB.MEM.RANGE.BLOCK()
+3. TLB shootdown via a hook. kvm_flush_remote_tlbs_with_address()
+   - TLB.MEM.TRACK()
+   - send IPI to remote vcpus
+   - loop on EPT entries
+
+     - check if SPTE_PRIVATE_ZAPPED is set
+     - get PFN
+     - unlink private pages from secure EPT if necessary
+     - make the EPT entry into initial zapped value
+       (clear SPTE_PRIVATE_ZAPPED and PFN)
+
+5. unlock
+
+
 Restrictions or future work
 ===========================
 The following features aren't supported yet at the moment.

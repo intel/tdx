@@ -610,6 +610,12 @@ static inline bool tdp_mmu_set_spte_atomic(struct kvm *kvm,
 	return true;
 }
 
+static u64 shadow_init_spte(u64 old_spte)
+{
+	return shadow_init_value |
+		(is_private_prohibit_spte(old_spte) ? SPTE_PRIVATE_PROHIBIT : 0);
+}
+
 static inline bool tdp_mmu_zap_spte_atomic(struct kvm *kvm,
 					   struct tdp_iter *iter)
 {
@@ -641,7 +647,8 @@ static inline bool tdp_mmu_zap_spte_atomic(struct kvm *kvm,
 	 * shadow_init_value (which sets "suppress #VE" bit) so it
 	 * can be set when EPT table entries are zapped.
 	 */
-	WRITE_ONCE(*rcu_dereference(iter->sptep), shadow_init_value);
+	WRITE_ONCE(*rcu_dereference(iter->sptep),
+		shadow_init_spte(iter->old_spte));
 
 	return true;
 }
@@ -853,7 +860,8 @@ retry:
 
 		if (!shared) {
 			/* see comments in tdp_mmu_zap_spte_atomic() */
-			tdp_mmu_set_spte(kvm, &iter, shadow_init_value);
+			tdp_mmu_set_spte(kvm, &iter,
+					shadow_init_spte(iter.old_spte));
 			flush = true;
 		} else if (!tdp_mmu_zap_spte_atomic(kvm, &iter)) {
 			/*
@@ -1038,11 +1046,14 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
 		new_spte = make_mmio_spte(vcpu,
 				tdp_iter_gfn_unalias(vcpu->kvm, iter),
 				pte_access);
-	else
+	else {
 		wrprot = make_spte(vcpu, sp, fault->slot, pte_access,
 				tdp_iter_gfn_unalias(vcpu->kvm, iter),
 				fault->pfn, iter->old_spte, fault->prefetch,
 				true, fault->map_writable, &new_spte);
+		if (is_private_prohibit_spte(iter->old_spte))
+			new_spte |= SPTE_PRIVATE_PROHIBIT;
+	}
 
 	if (new_spte == iter->old_spte)
 		ret = RET_PF_SPURIOUS;
@@ -1335,7 +1346,7 @@ static bool set_spte_gfn(struct kvm *kvm, struct tdp_iter *iter,
 	 * invariant that the PFN of a present * leaf SPTE can never change.
 	 * See __handle_changed_spte().
 	 */
-	tdp_mmu_set_spte(kvm, iter, shadow_init_value);
+	tdp_mmu_set_spte(kvm, iter, shadow_init_spte(iter->old_spte));
 
 	if (!pte_write(range->pte)) {
 		new_spte = kvm_mmu_changed_pte_notifier_make_spte(iter->old_spte,

@@ -22,3 +22,4 @@ KVM
 
    intel-tdx
    tdx-tdp-mmu
+   tdx-legacy-mmu

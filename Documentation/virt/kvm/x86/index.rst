@@ -16,5 +16,6 @@ KVM for x86 systems
    msr
    nested-vmx
    running-nested-guests
+   tdx-legacy-mmu
    tdx-tdp-mmu
    timekeeping

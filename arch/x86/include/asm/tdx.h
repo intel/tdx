@@ -11,6 +11,8 @@
 
 #ifndef __ASSEMBLY__
 
+#include <asm/processor.h>
+
 /*
  * Used to gather the output registers values of the TDCALL and SEAMCALL
  * instructions when requesting services from the TDX module.
@@ -78,5 +80,12 @@ static inline long tdx_kvm_hypercall(unsigned int nr, unsigned long p1,
 	return -ENODEV;
 }
 #endif /* CONFIG_INTEL_TDX_GUEST && CONFIG_KVM_GUEST */
+
+#ifdef CONFIG_INTEL_TDX_HOST
+void tdx_detect_cpu(struct cpuinfo_x86 *c);
+#else
+static inline void tdx_detect_cpu(struct cpuinfo_x86 *c) { }
+#endif /* CONFIG_INTEL_TDX_HOST */
+
 #endif /* !__ASSEMBLY__ */
 #endif /* _ASM_X86_TDX_H */

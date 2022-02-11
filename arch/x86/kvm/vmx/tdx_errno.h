@@ -108,4 +108,10 @@
 #define TDG_VP_VMCALL_INVALID_OPERAND		0x8000000000000000ULL
 #define TDG_VP_VMCALL_TDREPORT_FAILED		0x8000000000000001ULL
 
+/*
+ * TDX module operand ID, appears in 31:0 part of error code as
+ * detail information
+ */
+#define TDX_OPERAND_ID_SEPT			0x92
+
 #endif /* __KVM_X86_TDX_ERRNO_H */

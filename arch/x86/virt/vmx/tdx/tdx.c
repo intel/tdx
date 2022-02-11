@@ -29,8 +29,27 @@
 #define SEAMRR_ENABLED_BITS	\
 	(SEAMRR_PHYS_MASK_ENABLED | SEAMRR_PHYS_MASK_LOCKED)
 
+/*
+ * Intel Trusted Domain CPU Architecture Extension spec:
+ *
+ * IA32_MKTME_KEYID_PARTIONING:
+ *
+ *   Bit [31:0]: number of MKTME KeyIDs.
+ *   Bit [63:32]: number of TDX private KeyIDs.
+ *
+ * TDX private KeyIDs start after the last MKTME KeyID.
+ */
+#define MSR_IA32_MKTME_KEYID_PARTITIONING	0x00000087
+
+#define TDX_KEYID_START(_keyid_part)	\
+		((u32)(((_keyid_part) & 0xffffffffull) + 1))
+#define TDX_KEYID_NUM(_keyid_part)	((u32)((_keyid_part) >> 32))
+
 /* BIOS must configure SEAMRR registers for all cores consistently */
 static u64 seamrr_base, seamrr_mask;
+
+static u32 tdx_keyid_start;
+static u32 tdx_keyid_num;
 
 static bool __seamrr_enabled(void)
 {
@@ -96,7 +115,60 @@ static void detect_seam(struct cpuinfo_x86 *c)
 		detect_seam_ap(c);
 }
 
+static void detect_tdx_keyids_bsp(struct cpuinfo_x86 *c)
+{
+	u64 keyid_part;
+
+	/* TDX is built on MKTME, which is based on TME */
+	if (!boot_cpu_has(X86_FEATURE_TME))
+		return;
+
+	if (rdmsrl_safe(MSR_IA32_MKTME_KEYID_PARTITIONING, &keyid_part))
+		return;
+
+	/* If MSR value is 0, TDX is not enabled by BIOS. */
+	if (!keyid_part)
+		return;
+
+	tdx_keyid_num = TDX_KEYID_NUM(keyid_part);
+	if (!tdx_keyid_num)
+		return;
+
+	tdx_keyid_start = TDX_KEYID_START(keyid_part);
+}
+
+static void detect_tdx_keyids_ap(struct cpuinfo_x86 *c)
+{
+	u64 keyid_part;
+
+	/*
+	 * Don't bother to detect this AP if TDX KeyIDs are
+	 * not detected or cleared after earlier detections.
+	 */
+	if (!tdx_keyid_num)
+		return;
+
+	rdmsrl(MSR_IA32_MKTME_KEYID_PARTITIONING, keyid_part);
+
+	if ((tdx_keyid_start == TDX_KEYID_START(keyid_part)) &&
+			(tdx_keyid_num == TDX_KEYID_NUM(keyid_part)))
+		return;
+
+	pr_err("Inconsistent TDX KeyID configuration among packages by BIOS\n");
+	tdx_keyid_start = 0;
+	tdx_keyid_num = 0;
+}
+
+static void detect_tdx_keyids(struct cpuinfo_x86 *c)
+{
+	if (c == &boot_cpu_data)
+		detect_tdx_keyids_bsp(c);
+	else
+		detect_tdx_keyids_ap(c);
+}
+
 void tdx_detect_cpu(struct cpuinfo_x86 *c)
 {
 	detect_seam(c);
+	detect_tdx_keyids(c);
 }

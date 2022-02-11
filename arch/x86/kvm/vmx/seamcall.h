@@ -47,7 +47,7 @@ union tdx_ex_ret {
 	} sept_walk;
 };
 
-static inline u64 seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10,
+static inline u64 __seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10,
 			union tdx_ex_ret *ex)
 {
 	register unsigned long r8_in asm("r8");
@@ -85,6 +85,18 @@ static inline u64 seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10,
 	ex->regs.r9 = r9_out;
 	ex->regs.r10 = r10_out;
 	ex->regs.r11 = r11_out;
+
+	return ret;
+}
+
+static inline u64 seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9, u64 r10,
+			union tdx_ex_ret *ex)
+{
+	u64 ret;
+
+	do {
+		ret = __seamcall(op, rcx, rdx, r8, r9, r10, ex);
+	} while (ret == (TDX_OPERAND_BUSY | TDX_OPERAND_ID_SEPT));
 
 	return ret;
 }

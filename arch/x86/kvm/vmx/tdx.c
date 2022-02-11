@@ -1881,6 +1881,10 @@ static int __tdx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t fastpath)
 {
 	union tdx_exit_reason exit_reason = to_tdx(vcpu)->exit_reason;
 
+	/* See the comment of tdh_sept_seamcall(). */
+	if (unlikely(exit_reason.full == (TDX_OPERAND_BUSY | TDX_OPERAND_ID_SEPT)))
+		return 1;
+
 	if (unlikely(exit_reason.non_recoverable || exit_reason.error)) {
 		if (exit_reason.basic == EXIT_REASON_TRIPLE_FAULT)
 			return tdx_handle_triple_fault(vcpu);

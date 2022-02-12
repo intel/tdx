@@ -136,6 +136,13 @@ void tdx_hardware_enable(void);
 void tdx_hardware_disable(void);
 
 int tdx_vm_init(struct kvm *kvm);
+
+int tdx_vcpu_create(struct kvm_vcpu *vcpu);
+void tdx_vcpu_free(struct kvm_vcpu *vcpu);
+void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event);
+fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu);
+void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu);
+void tdx_vcpu_put(struct kvm_vcpu *vcpu);
 #else
 static inline void tdx_pre_kvm_init(
 	unsigned int *vcpu_size, unsigned int *vcpu_align, unsigned int *vm_size) {}
@@ -146,6 +153,13 @@ static inline void tdx_hardware_enable(void) {}
 static inline void tdx_hardware_disable(void) {}
 
 static inline int tdx_vm_init(struct kvm *kvm) { return -EOPNOTSUPP; }
+
+static inline int tdx_vcpu_create(struct kvm_vcpu *vcpu) { return -EOPNOTSUPP; }
+static inline void tdx_vcpu_free(struct kvm_vcpu *vcpu) {}
+static inline void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event) {}
+static inline fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu) { return EXIT_FASTPATH_NONE; }
+static inline void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu) {}
+static inline void tdx_vcpu_put(struct kvm_vcpu *vcpu) {}
 #endif
 
 #endif /* __KVM_X86_VMX_X86_OPS_H */

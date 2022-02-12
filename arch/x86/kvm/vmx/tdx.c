@@ -103,6 +103,19 @@ struct tdx_capabilities tdx_caps;
 static u64 hkid_mask __ro_after_init;
 static u8 hkid_start_pos __ro_after_init;
 
+void tdx_hardware_enable(void)
+{
+}
+
+void tdx_hardware_disable(void)
+{
+}
+
+int tdx_vm_init(struct kvm *kvm)
+{
+	return -EOPNOTSUPP;
+}
+
 static int __tdx_module_setup(void)
 {
 	const struct tdsysinfo_struct *tdsysinfo;
@@ -205,6 +218,10 @@ void __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 
 	if (__tdx_hardware_setup(&vt_x86_ops))
 		enable_tdx = false;
+}
+
+void tdx_hardware_unsetup(void)
+{
 }
 
 void __init tdx_pre_kvm_init(unsigned int *vcpu_size,

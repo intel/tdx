@@ -12,6 +12,25 @@ static bool vt_is_vm_type_supported(unsigned long type)
 	return type == KVM_X86_DEFAULT_VM || tdx_is_vm_type_supported(type);
 }
 
+static int vt_hardware_enable(void)
+{
+	int ret;
+
+	ret = vmx_hardware_enable();
+	if (ret)
+		return ret;
+
+	tdx_hardware_enable();
+	return 0;
+}
+
+static void vt_hardware_disable(void)
+{
+	/* Note, TDX *and* VMX need to be disabled if TDX is enabled. */
+	tdx_hardware_disable();
+	vmx_hardware_disable();
+}
+
 static __init int vt_hardware_setup(void)
 {
 	int ret;
@@ -25,6 +44,12 @@ static __init int vt_hardware_setup(void)
 	return 0;
 }
 
+static void vt_hardware_unsetup(void)
+{
+	tdx_hardware_unsetup();
+	vmx_hardware_unsetup();
+}
+
 static int vt_vm_init(struct kvm *kvm)
 {
 	int ret;
@@ -33,7 +58,7 @@ static int vt_vm_init(struct kvm *kvm)
 		ret = tdx_module_setup();
 		if (ret)
 			return ret;
-		return -EOPNOTSUPP;	/* Not ready to create guest TD yet. */
+		return tdx_vm_init(kvm);
 	}
 
 	return vmx_vm_init(kvm);
@@ -42,10 +67,10 @@ static int vt_vm_init(struct kvm *kvm)
 struct kvm_x86_ops vt_x86_ops __initdata = {
 	.name = "kvm_intel",
 
-	.hardware_unsetup = vmx_hardware_unsetup,
+	.hardware_unsetup = vt_hardware_unsetup,
 
-	.hardware_enable = vmx_hardware_enable,
-	.hardware_disable = vmx_hardware_disable,
+	.hardware_enable = vt_hardware_enable,
+	.hardware_disable = vt_hardware_disable,
 	.cpu_has_accelerated_tpr = report_flexpriority,
 	.has_emulated_msr = vmx_has_emulated_msr,
 

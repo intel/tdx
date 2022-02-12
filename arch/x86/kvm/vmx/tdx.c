@@ -116,6 +116,32 @@ int tdx_vm_init(struct kvm *kvm)
 	return -EOPNOTSUPP;
 }
 
+int tdx_vcpu_create(struct kvm_vcpu *vcpu)
+{
+	return -EOPNOTSUPP;
+}
+
+void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
+{
+}
+
+void tdx_vcpu_put(struct kvm_vcpu *vcpu)
+{
+}
+
+void tdx_vcpu_free(struct kvm_vcpu *vcpu)
+{
+}
+
+void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
+{
+}
+
+fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
+{
+	return EXIT_FASTPATH_NONE;
+}
+
 static int __tdx_module_setup(void)
 {
 	const struct tdsysinfo_struct *tdsysinfo;

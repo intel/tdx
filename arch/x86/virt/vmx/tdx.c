@@ -15,7 +15,9 @@
 #include <asm/msr.h>
 #include <asm/cpufeature.h>
 #include <asm/cpufeatures.h>
+#include <asm/virtext.h>
 #include <asm/tdx.h>
+#include "tdx.h"
 
 /* Support Intel Secure Arbitration Mode Range Registers (SEAMRR) */
 #define MTRR_CAP_SEAMRR			BIT(15)
@@ -73,6 +75,8 @@ static enum tdx_module_status_t tdx_module_status;
 
 /* Prevent concurrent attempts on TDX detection and initialization */
 static DEFINE_MUTEX(tdx_module_lock);
+
+static struct p_seamldr_info p_seamldr_info;
 
 static bool __seamrr_enabled(void)
 {
@@ -229,6 +233,161 @@ static bool tdx_keyid_sufficient(void)
 	return tdx_keyid_num >= 2;
 }
 
+/*
+ * All error codes of both P-SEAMLDR and TDX module SEAMCALLs
+ * have bit 63 set if SEAMCALL fails.
+ */
+#define SEAMCALL_LEAF_ERROR(_ret)	((_ret) & BIT_ULL(63))
+
+/**
+ * seamcall - make SEAMCALL to P-SEAMLDR or TDX module with additional
+ *	      check on SEAMRR and CR4.VMXE
+ *
+ * @fn:			SEAMCALL leaf number.
+ * @rcx:		Input operand RCX.
+ * @rdx:		Input operand RDX.
+ * @r8:			Input operand R8.
+ * @r9:			Input operand R9.
+ * @seamcall_ret:	SEAMCALL completion status (can be NULL).
+ * @out:		Additional output operands (can be NULL).
+ *
+ * Wrapper of __seamcall() to make SEAMCALL to TDX module or P-SEAMLDR
+ * with additional defensive check on SEAMRR and CR4.VMXE.  Caller to
+ * make sure SEAMRR is enabled and CPU is already in VMX operation before
+ * calling this function.
+ *
+ * Unlike __seamcall(), it returns kernel error code instead of SEAMCALL
+ * completion status, which is returned via @seamcall_ret if desired.
+ *
+ * Return:
+ *
+ * * -ENODEV:	SEAMCALL failed with VMfailInvalid, or SEAMRR is not enabled.
+ * * -EPERM:	CR4.VMXE is not enabled
+ * * -EFAULT:	SEAMCALL failed
+ * * -0:	SEAMCALL succeeded
+ */
+static int seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
+		    u64 *seamcall_ret, struct tdx_module_output *out)
+{
+	u64 ret;
+
+	if (WARN_ON_ONCE(!seamrr_enabled()))
+		return -ENODEV;
+
+	/*
+	 * SEAMCALL instruction requires CPU being already in VMX
+	 * operation (VMXON has been done), otherwise it causes #UD.
+	 * Sanity check whether CR4.VMXE has been enabled.
+	 *
+	 * Note VMX being enabled in CR4 doesn't mean CPU is already
+	 * in VMX operation, but unfortunately there's no way to do
+	 * such check.  However in practice enabling CR4.VMXE and
+	 * doing VMXON are done together (for now) so in practice it
+	 * checks whether VMXON has been done.
+	 *
+	 * Preemption is disabled during the CR4.VMXE check and the
+	 * actual SEAMCALL so VMX doesn't get disabled by other threads
+	 * due to scheduling.
+	 */
+	preempt_disable();
+	if (WARN_ON_ONCE(!cpu_vmx_enabled())) {
+		preempt_enable_no_resched();
+		return -EPERM;
+	}
+
+	ret = __seamcall(fn, rcx, rdx, r8, r9, out);
+
+	preempt_enable_no_resched();
+
+	/*
+	 * Convert SEAMCALL error code to kernel error code:
+	 *  - -ENODEV:	VMfailInvalid
+	 *  - -EFAULT:	SEAMCALL failed
+	 *  - 0:	SEAMCALL was successful
+	 */
+	if (ret == TDX_SEAMCALL_VMFAILINVALID)
+		return -ENODEV;
+
+	/* Save the completion status if caller wants to use it */
+	if (seamcall_ret)
+		*seamcall_ret = ret;
+
+	/*
+	 * TDX module SEAMCALLs may also return non-zero completion
+	 * status codes but w/o bit 63 set.  Those codes are treated
+	 * as additional information/warning while the SEAMCALL is
+	 * treated as completed successfully.  Return 0 in this case.
+	 * Caller can use @seamcall_ret to get the additional code
+	 * when it is desired.
+	 */
+	if (SEAMCALL_LEAF_ERROR(ret)) {
+		pr_err("SEAMCALL leaf %llu failed: 0x%llx\n", fn, ret);
+		return -EFAULT;
+	}
+
+	return 0;
+}
+
+static inline bool p_seamldr_ready(void)
+{
+	return !!p_seamldr_info.p_seamldr_ready;
+}
+
+static inline bool tdx_module_ready(void)
+{
+	/*
+	 * SEAMLDR_INFO.SEAM_READY indicates whether TDX module
+	 * is (loaded and) ready for SEAMCALL.
+	 */
+	return p_seamldr_ready() && !!p_seamldr_info.seam_ready;
+}
+
+/*
+ * Detect whether P-SEAMLDR has been loaded by calling SEAMLDR.INFO
+ * SEAMCALL to P-SEAMLDR information, which also contains whether
+ * the TDX module has been loaded and ready for SEAMCALL.  Caller to
+ * make sure only calling this function when CPU is already in VMX
+ * operation.
+ */
+static int detect_p_seamldr(void)
+{
+	int ret;
+
+	/*
+	 * SEAMCALL fails with VMfailInvalid when SEAM software is not
+	 * loaded, in which case seamcall() returns -ENODEV.  Use this
+	 * to detect P-SEAMLDR.
+	 *
+	 * Note P-SEAMLDR SEAMCALL also fails with VMfailInvalid when
+	 * P-SEAMLDR is already busy with another SEAMCALL.  But this
+	 * won't happen here as this function is only called once.
+	 */
+	ret = seamcall(P_SEAMCALL_SEAMLDR_INFO, __pa(&p_seamldr_info),
+			0, 0, 0, NULL, NULL);
+	if (ret) {
+		if (ret == -ENODEV)
+			pr_info("P-SEAMLDR is not loaded.\n");
+		else
+			pr_info("Failed to detect P-SEAMLDR.\n");
+
+		return ret;
+	}
+
+	/*
+	 * If SEAMLDR.INFO was successful, it must be ready for SEAMCALL.
+	 * Otherwise it's either kernel or firmware bug.
+	 */
+	if (WARN_ON_ONCE(!p_seamldr_ready()))
+		return -ENODEV;
+
+	pr_info("P-SEAMLDR: version 0x%x, vendor_id: 0x%x, build_date: %u, build_num %u, major %u, minor %u\n",
+		p_seamldr_info.version, p_seamldr_info.vendor_id,
+		p_seamldr_info.build_date, p_seamldr_info.build_num,
+		p_seamldr_info.major, p_seamldr_info.minor);
+
+	return 0;
+}
+
 static int __tdx_detect(void)
 {
 	/*
@@ -247,7 +406,22 @@ static int __tdx_detect(void)
 		goto no_tdx_module;
 	}
 
-	/* Return -ENODEV until TDX module is detected */
+	/*
+	 * For simplicity any error during detect_p_seamldr() marks
+	 * TDX module as not loaded.
+	 */
+	if (detect_p_seamldr())
+		goto no_tdx_module;
+
+	if (!tdx_module_ready()) {
+		pr_info("TDX module is not loaded.\n");
+		goto no_tdx_module;
+	}
+
+	pr_info("TDX module detected.\n");
+	tdx_module_status = TDX_MODULE_LOADED;
+	return 0;
+
 no_tdx_module:
 	tdx_module_status = TDX_MODULE_NONE;
 	return -ENODEV;
@@ -308,8 +482,8 @@ static int __tdx_init(void)
  * tdx_detect - Detect whether the TDX module has been loaded
  *
  * Detect whether the TDX module has been loaded and ready for
- * initialization.  Only call this function when CPU is already
- * in VMX operation.
+ * initialization.  Only call this function when all cpus are
+ * already in VMX operation.
  *
  * This function can be called in parallel by multiple callers.
  *

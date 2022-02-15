@@ -11,6 +11,8 @@
 #include <linux/cpumask.h>
 #include <linux/mutex.h>
 #include <linux/cpu.h>
+#include <linux/smp.h>
+#include <linux/atomic.h>
 #include <asm/msr-index.h>
 #include <asm/msr.h>
 #include <asm/cpufeature.h>
@@ -328,6 +330,39 @@ static int seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
 	return 0;
 }
 
+/* Data structure to make SEAMCALL on multiple CPUs concurrently */
+struct seamcall_ctx {
+	u64 fn;
+	u64 rcx;
+	u64 rdx;
+	u64 r8;
+	u64 r9;
+	atomic_t err;
+	u64 seamcall_ret;
+	struct tdx_module_output out;
+};
+
+static void seamcall_smp_call_function(void *data)
+{
+	struct seamcall_ctx *sc = data;
+	int ret;
+
+	ret = seamcall(sc->fn, sc->rcx, sc->rdx, sc->r8, sc->r9,
+			&sc->seamcall_ret, &sc->out);
+	if (ret)
+		atomic_set(&sc->err, ret);
+}
+
+/*
+ * Call the SEAMCALAL on all online cpus concurrently.
+ * Return error if SEAMCALL fails on any cpu.
+ */
+static int seamcall_on_each_cpu(struct seamcall_ctx *sc)
+{
+	on_each_cpu(seamcall_smp_call_function, sc, true);
+	return atomic_read(&sc->err);
+}
+
 static inline bool p_seamldr_ready(void)
 {
 	return !!p_seamldr_info.p_seamldr_ready;
@@ -438,7 +473,10 @@ static int init_tdx_module(void)
 
 static void shutdown_tdx_module(void)
 {
-	/* TODO: Shut down the TDX module */
+	struct seamcall_ctx sc = { .fn = TDH_SYS_LP_SHUTDOWN };
+
+	seamcall_on_each_cpu(&sc);
+
 	tdx_module_status = TDX_MODULE_SHUTDOWN;
 }
 

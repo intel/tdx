@@ -463,11 +463,20 @@ no_tdx_module:
 
 static int init_tdx_module(void)
 {
+	int ret;
+
+	/* TDX module global initialization */
+	ret = seamcall(TDH_SYS_INIT, 0, 0, 0, 0, NULL, NULL);
+	if (ret)
+		goto out;
+
 	/*
 	 * Return -EFAULT until all steps of TDX module
 	 * initialization are done.
 	 */
-	return -EFAULT;
+	ret = -EFAULT;
+out:
+	return ret;
 }
 
 static void shutdown_tdx_module(void)

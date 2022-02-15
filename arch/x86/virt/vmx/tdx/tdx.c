@@ -195,6 +195,15 @@ static int tdx_module_init_global(void)
 	return ret ? -EFAULT : 0;
 }
 
+static int tdx_module_init_cpus(void)
+{
+	struct seamcall_ctx sc = { .fn = TDH_SYS_LP_INIT };
+
+	seamcall_on_each_cpu(&sc);
+
+	return atomic_read(&sc.err);
+}
+
 /*
  * Detect and initialize the TDX module.
  *
@@ -218,6 +227,12 @@ static int init_tdx_module(void)
 	ret = tdx_module_init_global();
 	if (ret)
 		goto out;
+
+	/* Logical-cpu scope initialization */
+	ret = tdx_module_init_cpus();
+	if (ret)
+		goto out;
+
 
 	/*
 	 * Return -EINVAL until all steps of TDX module initialization

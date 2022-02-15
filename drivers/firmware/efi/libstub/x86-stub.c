@@ -16,6 +16,8 @@
 #include <asm/setup.h>
 #include <asm/desc.h>
 #include <asm/boot.h>
+#include <asm/processor.h>
+#include <asm/tdx.h>
 #include <asm/unaccepted_memory.h>
 
 #include "efistub.h"
@@ -26,6 +28,25 @@
 const efi_system_table_t *efi_system_table;
 extern u32 image_offset;
 static efi_loaded_image_t *image = NULL;
+
+#ifdef CONFIG_INTEL_TDX_GUEST
+static bool intel_tdx_guest;
+
+static void detect_intel_tdx(void)
+{
+	u32 eax, sig[3];
+
+	cpuid_count(TDX_CPUID_LEAF_ID, 0, &eax, &sig[0], &sig[2], &sig[1]);
+
+	if (memcmp(TDX_IDENT, sig, 12))
+		return;
+
+	intel_tdx_guest = true;
+}
+#else
+#define intel_tdx_guest false
+static void detect_intel_tdx(void) {}
+#endif
 
 static efi_status_t
 preserve_pci_rom_image(efi_pci_io_protocol_t *pci, struct pci_setup_rom **__rom)
@@ -316,6 +337,9 @@ static void setup_graphics(struct boot_params *boot_params)
 	unsigned long size;
 	void **gop_handle = NULL;
 	void **uga_handle = NULL;
+
+	if (intel_tdx_guest)
+		return;
 
 	si = &boot_params->screen_info;
 	memset(si, 0, sizeof(*si));
@@ -793,6 +817,8 @@ unsigned long efi_main(efi_handle_t handle,
 		 */
 		image_offset = 0;
 	}
+
+	detect_intel_tdx();
 
 #ifdef CONFIG_CMDLINE_BOOL
 	status = efi_parse_options(CONFIG_CMDLINE);

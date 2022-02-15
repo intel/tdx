@@ -342,6 +342,15 @@ static void seamcall_on_each_cpu(struct seamcall_ctx *sc)
 	on_each_cpu(seamcall_smp_call_function, sc, true);
 }
 
+static int tdx_module_init_cpus(void)
+{
+	struct seamcall_ctx sc = { .fn = TDH_SYS_LP_INIT };
+
+	seamcall_on_each_cpu(&sc);
+
+	return atomic_read(&sc.err);
+}
+
 /*
  * Detect and initialize the TDX module.
  *
@@ -360,6 +369,12 @@ static int init_tdx_module(void)
 	ret = seamcall(TDH_SYS_INIT, 0, 0, 0, 0, NULL, NULL);
 	if (ret)
 		goto out;
+
+	/* Logical-cpu scope initialization */
+	ret = tdx_module_init_cpus();
+	if (ret)
+		goto out;
+
 
 	/*
 	 * Return -EINVAL until all steps of TDX module initialization

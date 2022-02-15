@@ -915,7 +915,8 @@ asmlinkage unsigned long efi_main(efi_handle_t handle,
 	/* Ask the firmware to clear memory on unclean shutdown */
 	efi_enable_reset_attack_mitigation();
 
-	efi_random_get_seed();
+	if (!intel_tdx_guest)
+		efi_random_get_seed();
 
 	efi_retrieve_tpm2_eventlog();
 

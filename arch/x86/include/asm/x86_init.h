@@ -251,6 +251,12 @@ struct x86_hyper_runtime {
 	bool (*sev_es_hcall_finish)(struct ghcb *ghcb, struct pt_regs *regs);
 };
 
+struct x86_cc_runtime {
+	int (*enc_status_changed)(unsigned long vaddr, int numpages, bool enc);
+	bool (*enc_tlb_flush_required)(bool enc);
+	bool (*enc_cache_flush_required)(void);
+};
+
 /**
  * struct x86_platform_ops - platform specific runtime functions
  * @calibrate_cpu:		calibrate CPU
@@ -287,6 +293,7 @@ struct x86_platform_ops {
 	struct x86_legacy_features legacy;
 	void (*set_legacy_features)(void);
 	struct x86_hyper_runtime hyper;
+	const struct x86_cc_runtime *cc;
 };
 
 struct x86_apic_ops {

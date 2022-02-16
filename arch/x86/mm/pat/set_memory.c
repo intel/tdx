@@ -2007,10 +2007,9 @@ static int __set_memory_enc_pgtable(unsigned long addr, int numpages, bool enc)
 	kmap_flush_unused();
 	vm_unmap_aliases();
 
-	/*
-	 * Before changing the encryption attribute, we need to flush caches.
-	 */
-	cpa_flush(&cpa, !this_cpu_has(X86_FEATURE_SME_COHERENT));
+	/* Flush caches as needed before changing the encryption attribute. */
+	if (x86_platform.cc->enc_tlb_flush_required(enc))
+		cpa_flush(&cpa, x86_platform.cc->enc_cache_flush_required());
 
 	ret = __change_page_attr_set_clr(&cpa, 1);
 
@@ -2027,7 +2026,8 @@ static int __set_memory_enc_pgtable(unsigned long addr, int numpages, bool enc)
 	 * Notify hypervisor that a given memory range is mapped encrypted
 	 * or decrypted.
 	 */
-	notify_range_enc_status_changed(addr, numpages, enc);
+	if (!ret)
+		ret = x86_platform.cc->enc_status_changed(addr, numpages, enc);
 
 	return ret;
 }

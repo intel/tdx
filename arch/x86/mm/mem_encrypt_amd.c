@@ -177,25 +177,6 @@ void __init sme_map_bootdata(char *real_mode_data)
 	__sme_early_map_unmap_mem(__va(cmdline_paddr), COMMAND_LINE_SIZE, true);
 }
 
-void __init sme_early_init(void)
-{
-	unsigned int i;
-
-	if (!sme_me_mask)
-		return;
-
-	early_pmd_flags = __sme_set(early_pmd_flags);
-
-	__supported_pte_mask = __sme_set(__supported_pte_mask);
-
-	/* Update the protection map with memory encryption mask */
-	for (i = 0; i < ARRAY_SIZE(protection_map); i++)
-		protection_map[i] = pgprot_encrypted(protection_map[i]);
-
-	if (cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT))
-		swiotlb_force = SWIOTLB_FORCE;
-}
-
 void __init sev_setup_arch(void)
 {
 	phys_addr_t total_mem = memblock_phys_mem_size();
@@ -256,7 +237,7 @@ static unsigned long pg_level_to_pfn(int level, pte_t *kpte, pgprot_t *ret_prot)
 	return pfn;
 }
 
-void notify_range_enc_status_changed(unsigned long vaddr, int npages, bool enc)
+static int amd_enc_status_changed(unsigned long vaddr, int npages, bool enc)
 {
 #ifdef CONFIG_PARAVIRT
 	unsigned long sz = npages << PAGE_SHIFT;
@@ -270,7 +251,7 @@ void notify_range_enc_status_changed(unsigned long vaddr, int npages, bool enc)
 		kpte = lookup_address(vaddr, &level);
 		if (!kpte || pte_none(*kpte)) {
 			WARN_ONCE(1, "kpte lookup for vaddr\n");
-			return;
+			return 0;
 		}
 
 		pfn = pg_level_to_pfn(level, kpte, NULL);
@@ -285,6 +266,44 @@ void notify_range_enc_status_changed(unsigned long vaddr, int npages, bool enc)
 		vaddr = (vaddr & pmask) + psize;
 	}
 #endif
+	return 0;
+}
+
+static bool amd_enc_tlb_flush_required(bool enc)
+{
+	return true;
+}
+
+static bool amd_enc_cache_flush_required(void)
+{
+	return this_cpu_has(X86_FEATURE_SME_COHERENT);
+}
+
+static const struct x86_cc_runtime amd_cc_runtime = {
+	.enc_status_changed = amd_enc_status_changed,
+	.enc_tlb_flush_required = amd_enc_tlb_flush_required,
+	.enc_cache_flush_required = amd_enc_cache_flush_required,
+};
+
+void __init sme_early_init(void)
+{
+	unsigned int i;
+
+	if (!sme_me_mask)
+		return;
+
+	early_pmd_flags = __sme_set(early_pmd_flags);
+
+	__supported_pte_mask = __sme_set(__supported_pte_mask);
+
+	/* Update the protection map with memory encryption mask */
+	for (i = 0; i < ARRAY_SIZE(protection_map); i++)
+		protection_map[i] = pgprot_encrypted(protection_map[i]);
+
+	if (cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT))
+		swiotlb_force = SWIOTLB_FORCE;
+
+	x86_platform.cc = &amd_cc_runtime;
 }
 
 static void __init __set_clr_pte_enc(pte_t *kpte, int level, bool enc)
@@ -392,7 +411,7 @@ static int __init early_set_memory_enc_dec(unsigned long vaddr,
 
 	ret = 0;
 
-	notify_range_enc_status_changed(start, PAGE_ALIGN(size) >> PAGE_SHIFT, enc);
+	x86_platform.cc->enc_status_changed(start, PAGE_ALIGN(size) >> PAGE_SHIFT, enc);
 out:
 	__flush_tlb_all();
 	return ret;
@@ -410,7 +429,7 @@ int __init early_set_memory_encrypted(unsigned long vaddr, unsigned long size)
 
 void __init early_set_mem_enc_dec_hypercall(unsigned long vaddr, int npages, bool enc)
 {
-	notify_range_enc_status_changed(vaddr, npages, enc);
+	x86_platform.cc->enc_status_changed(vaddr, npages, enc);
 }
 
 void __init mem_encrypt_free_decrypted_mem(void)

@@ -13,6 +13,7 @@
 #include <linux/cpu.h>
 #include <linux/smp.h>
 #include <linux/atomic.h>
+#include <linux/slab.h>
 #include <asm/msr-index.h>
 #include <asm/msr.h>
 #include <asm/cpufeature.h>
@@ -591,8 +592,29 @@ static int tdx_get_sysinfo(void)
 	return sanitize_cmrs(tdx_cmr_array, cmr_num);
 }
 
+static void free_tdmrs(struct tdmr_info **tdmr_array, int tdmr_num)
+{
+	int i;
+
+	for (i = 0; i < tdmr_num; i++) {
+		struct tdmr_info *tdmr = tdmr_array[i];
+
+		/* kfree() works with NULL */
+		kfree(tdmr);
+		tdmr_array[i] = NULL;
+	}
+}
+
+static int construct_tdmrs(struct tdmr_info **tdmr_array, int *tdmr_num)
+{
+	/* Return -EFAULT until constructing TDMRs is done */
+	return -EFAULT;
+}
+
 static int init_tdx_module(void)
 {
+	struct tdmr_info **tdmr_array;
+	int tdmr_num;
 	int ret;
 
 	/* TDX module global initialization */
@@ -611,10 +633,35 @@ static int init_tdx_module(void)
 		goto out;
 
 	/*
+	 * Prepare enough space to hold pointers of TDMRs (TDMR_INFO).
+	 * TDX requires TDMR_INFO being 512 aligned.  Each TDMR is
+	 * allocated individually within construct_tdmrs() to meet
+	 * this requirement.
+	 */
+	tdmr_array = kcalloc(tdx_sysinfo.max_tdmrs, sizeof(struct tdmr_info *),
+			GFP_KERNEL);
+	if (!tdmr_array) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	/* Construct TDMRs to build TDX memory */
+	ret = construct_tdmrs(tdmr_array, &tdmr_num);
+	if (ret)
+		goto out_free_tdmrs;
+
+	/*
 	 * Return -EFAULT until all steps of TDX module
 	 * initialization are done.
 	 */
 	ret = -EFAULT;
+out_free_tdmrs:
+	/*
+	 * TDMRs are only used during initializing TDX module.  Always
+	 * free them no matter the initialization was successful or not.
+	 */
+	free_tdmrs(tdmr_array, tdmr_num);
+	kfree(tdmr_array);
 out:
 	return ret;
 }

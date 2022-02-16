@@ -80,6 +80,11 @@ static DEFINE_MUTEX(tdx_module_lock);
 
 static struct p_seamldr_info p_seamldr_info;
 
+/* Base address of CMR array needs to be 512 bytes aligned. */
+static struct cmr_info tdx_cmr_array[MAX_CMRS] __aligned(CMR_INFO_ARRAY_ALIGNMENT);
+static int tdx_cmr_num;
+static struct tdsysinfo_struct tdx_sysinfo;
+
 static bool __seamrr_enabled(void)
 {
 	return (seamrr_mask & SEAMRR_ENABLED_BITS) == SEAMRR_ENABLED_BITS;
@@ -469,6 +474,123 @@ static int tdx_module_init_cpus(void)
 	return seamcall_on_each_cpu(&sc);
 }
 
+static inline bool cmr_valid(struct cmr_info *cmr)
+{
+	return !!cmr->size;
+}
+
+static void print_cmrs(struct cmr_info *cmr_array, int cmr_num,
+		       const char *name)
+{
+	int i;
+
+	for (i = 0; i < cmr_num; i++) {
+		struct cmr_info *cmr = &cmr_array[i];
+
+		pr_info("%s : [0x%llx, 0x%llx)\n", name,
+				cmr->base, cmr->base + cmr->size);
+	}
+}
+
+static int sanitize_cmrs(struct cmr_info *cmr_array, int cmr_num)
+{
+	int i, j;
+
+	/*
+	 * Intel TDX module spec, 20.7.3 CMR_INFO:
+	 *
+	 *   TDH.SYS.INFO leaf function returns a MAX_CMRS (32) entry
+	 *   array of CMR_INFO entries. The CMRs are sorted from the
+	 *   lowest base address to the highest base address, and they
+	 *   are non-overlapping.
+	 *
+	 * This implies that BIOS may generate invalid empty entries
+	 * if total CMRs are less than 32.  Skip them manually.
+	 */
+	for (i = 0; i < cmr_num; i++) {
+		struct cmr_info *cmr = &cmr_array[i];
+		struct cmr_info *prev_cmr = NULL;
+
+		/* Skip further invalid CMRs */
+		if (!cmr_valid(cmr))
+			break;
+
+		if (i > 0)
+			prev_cmr = &cmr_array[i - 1];
+
+		/*
+		 * It is a TDX firmware bug if CMRs are not
+		 * in address ascending order.
+		 */
+		if (prev_cmr && ((prev_cmr->base + prev_cmr->size) >
+					cmr->base)) {
+			pr_err("Firmware bug: CMRs not in address ascending order.\n");
+			return -EFAULT;
+		}
+	}
+
+	/*
+	 * Also a sane BIOS should never generate invalid CMR(s) between
+	 * two valid CMRs.  Sanity check this and simply return error in
+	 * this case.
+	 */
+	for (j = i; j < cmr_num; j++)
+		if (cmr_valid(&cmr_array[j])) {
+			pr_err("Firmware bug: invalid CMR(s) among valid CMRs.\n");
+			return -EFAULT;
+		}
+
+	/*
+	 * Trim all tail invalid empty CMRs.  BIOS should generate at
+	 * least one valid CMR, otherwise it's a TDX firmware bug.
+	 */
+	tdx_cmr_num = i;
+	if (!tdx_cmr_num) {
+		pr_err("Firmware bug: No valid CMR.\n");
+		return -EFAULT;
+	}
+
+	/* Print kernel sanitized CMRs */
+	print_cmrs(tdx_cmr_array, tdx_cmr_num, "Kernel-sanitized-CMR");
+
+	return 0;
+}
+
+static int tdx_get_sysinfo(void)
+{
+	struct tdx_module_output out;
+	u64 tdsysinfo_sz, cmr_num;
+	int ret;
+
+	BUILD_BUG_ON(sizeof(struct tdsysinfo_struct) != TDSYSINFO_STRUCT_SIZE);
+
+	ret = seamcall(TDH_SYS_INFO, __pa(&tdx_sysinfo), TDSYSINFO_STRUCT_SIZE,
+			__pa(tdx_cmr_array), MAX_CMRS, NULL, &out);
+	if (ret)
+		return ret;
+
+	/*
+	 * If TDH.SYS.CONFIG succeeds, RDX contains the actual bytes
+	 * written to @tdx_sysinfo and R9 contains the actual entries
+	 * written to @tdx_cmr_array.  Sanity check them.
+	 */
+	tdsysinfo_sz = out.rdx;
+	cmr_num = out.r9;
+	if (WARN_ON_ONCE((tdsysinfo_sz > sizeof(tdx_sysinfo)) || !tdsysinfo_sz ||
+				(cmr_num > MAX_CMRS) || !cmr_num))
+		return -EFAULT;
+
+	pr_info("TDX module: vendor_id 0x%x, major_version %u, minor_version %u, build_date %u, build_num %u",
+		tdx_sysinfo.vendor_id, tdx_sysinfo.major_version,
+		tdx_sysinfo.minor_version, tdx_sysinfo.build_date,
+		tdx_sysinfo.build_num);
+
+	/* Print BIOS provided CMRs */
+	print_cmrs(tdx_cmr_array, cmr_num, "BIOS-CMR");
+
+	return sanitize_cmrs(tdx_cmr_array, cmr_num);
+}
+
 static int init_tdx_module(void)
 {
 	int ret;
@@ -480,6 +602,11 @@ static int init_tdx_module(void)
 
 	/* Logical-cpu scope initialization */
 	ret = tdx_module_init_cpus();
+	if (ret)
+		goto out;
+
+	/* Get TDX module information and CMRs */
+	ret = tdx_get_sysinfo();
 	if (ret)
 		goto out;
 

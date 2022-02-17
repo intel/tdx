@@ -23,6 +23,7 @@
 #include <asm/virtext.h>
 #include <asm/e820/api.h>
 #include <asm/pgtable.h>
+#include <asm/smp.h>
 #include <asm/tdx.h>
 #include "tdx.h"
 
@@ -396,6 +397,47 @@ static int seamcall_on_each_cpu(struct seamcall_ctx *sc)
 {
 	on_each_cpu(seamcall_smp_call_function, sc, true);
 	return atomic_read(&sc->err);
+}
+
+/*
+ * Call the SEAMCALL on one (any) cpu for each physical package in
+ * serialized way.  Note for serialized calls 'seamcall_ctx::err'
+ * doesn't have to be atomic, but for simplicity just reuse it
+ * instead of adding a new one.
+ *
+ * Return -ENXIO if IPI SEAMCALL wasn't run on any cpu, or -EFAULT
+ * when SEAMCALL fails, or -EPERM when the cpu where SEAMCALL runs
+ * on is not in VMX operation.  In case of -EFAULT, the error code
+ * of SEAMCALL is in 'struct seamcall_ctx::seamcall_ret'.
+ */
+static int seamcall_on_each_package_serialized(struct seamcall_ctx *sc)
+{
+	cpumask_var_t packages;
+	int cpu, ret;
+
+	if (!zalloc_cpumask_var(&packages, GFP_KERNEL))
+		return -ENOMEM;
+
+	for_each_online_cpu(cpu) {
+		if (cpumask_test_and_set_cpu(topology_physical_package_id(cpu),
+					packages))
+			continue;
+
+		ret = smp_call_function_single(cpu, seamcall_smp_call_function,
+				sc, true);
+		if (ret)
+			return ret;
+
+		/*
+		 * Doesn't have to use atomic_read(), but it doesn't
+		 * hurt either.
+		 */
+		ret = atomic_read(&sc->err);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
 }
 
 static inline bool p_seamldr_ready(void)
@@ -1316,6 +1358,18 @@ static int config_tdx_module(struct tdmr_info **tdmr_array, int tdmr_num,
 	return ret;
 }
 
+static int config_global_keyid(u64 global_keyid)
+{
+	struct seamcall_ctx sc = { .fn = TDH_SYS_KEY_CONFIG };
+
+	/*
+	 * TDH.SYS.KEY.CONFIG may fail with entropy error (which is
+	 * a recoverable error).  Assume this is exceedingly rare and
+	 * just return error if encountered instead of retrying.
+	 */
+	return seamcall_on_each_package_serialized(&sc);
+}
+
 static int init_tdx_module(void)
 {
 	struct tdmr_info **tdmr_array;
@@ -1367,6 +1421,37 @@ static int init_tdx_module(void)
 		goto out_free_pamts;
 
 	/*
+	 * The same physical address associated with different KeyIDs
+	 * has separate cachelines.  Before using the new KeyID to access
+	 * some memory, the cachelines associated with the old KeyID must
+	 * be flushed, otherwise they may later silently corrupt the data
+	 * written with the new KeyID.  After cachelines associated with
+	 * the old KeyID are flushed, CPU speculative fetch using the old
+	 * KeyID is OK since the prefetched cachelines won't be consumed
+	 * by CPU core.
+	 *
+	 * TDX module initializes PAMTs using the global KeyID to crypto
+	 * protect them from malicious host.  Before that, the PAMTs are
+	 * used by kernel (with KeyID 0) and the cachelines associated
+	 * with the PAMTs must be flushed.  Given PAMTs are potentially
+	 * large (~1/256th of system RAM), just use WBINVD on all cpus to
+	 * flush the cache.
+	 *
+	 * In practice, the current generation of TDX doesn't use the
+	 * global KeyID in TDH.SYS.KEY.CONFIG.  Therefore in practice,
+	 * the cachelines can be flushed after configuring the global
+	 * KeyID on all pkgs is done.  But the future generation of TDX
+	 * may change this, so just follow the suggestion of TDX spec to
+	 * flush cache before TDH.SYS.KEY.CONFIG.
+	 */
+	wbinvd_on_all_cpus();
+
+	/* Config the key of global KeyID on all packages */
+	ret = config_global_keyid(tdx_global_keyid);
+	if (ret)
+		goto out_free_pamts;
+
+	/*
 	 * Return -EFAULT until all steps of TDX module
 	 * initialization are done.
 	 */
@@ -1376,8 +1461,15 @@ out_free_pamts:
 	 * Free PAMTs allocated in construct_tdmrs() when TDX module
 	 * initialization fails.
 	 */
-	if (ret)
+	if (ret) {
+		/*
+		 * Part of PAMTs may already have been initialized by
+		 * TDX module.  Flush cache before returning them back
+		 * to kernel.
+		 */
+		wbinvd_on_all_cpus();
 		tdmrs_free_pamt_all(tdmr_array, tdmr_num);
+	}
 out_free_tdmrs:
 	/*
 	 * TDMRs are only used during initializing TDX module.  Always

@@ -1031,6 +1031,61 @@ static int config_tdx_module(struct tdmr_info_list *tdmr_list, u64 global_keyid)
 	return ret;
 }
 
+static int smp_func_config_global_keyid(void *data)
+{
+	cpumask_var_t packages = data;
+	int pkg, ret;
+
+	pkg = topology_physical_package_id(smp_processor_id());
+
+	/*
+	 * TDH.SYS.KEY.CONFIG may fail with entropy error (which is a
+	 * recoverable error).  Assume this is exceedingly rare and
+	 * just return error if encountered instead of retrying.
+	 *
+	 * All '0's are just unused parameters.
+	 */
+	ret = seamcall(TDH_SYS_KEY_CONFIG, 0, 0, 0, 0, NULL, NULL);
+	if (!ret)
+		cpumask_set_cpu(pkg, packages);
+
+	return ret;
+}
+
+static bool skip_func_config_global_keyid(int cpu, void *data)
+{
+	cpumask_var_t packages = data;
+
+	return cpumask_test_cpu(topology_physical_package_id(cpu),
+			packages);
+}
+
+/*
+ * Attempt to configure the global KeyID on all physical packages.
+ *
+ * This requires running code on at least one CPU in each package.  If a
+ * package has no online CPUs, that code will not run and TDX module
+ * initialization (TDMR initialization) will fail.
+ *
+ * This code takes no affirmative steps to online CPUs.  Callers (aka.
+ * KVM) can ensure success by ensuring sufficient CPUs are online for
+ * this to succeed.
+ */
+static int config_global_keyid(void)
+{
+	cpumask_var_t packages;
+	int ret;
+
+	if (!zalloc_cpumask_var(&packages, GFP_KERNEL))
+		return -ENOMEM;
+
+	ret = tdx_on_each_cpu_cond(smp_func_config_global_keyid, packages,
+			skip_func_config_global_keyid, packages);
+
+	free_cpumask_var(packages);
+	return ret;
+}
+
 static int init_tdx_module(void)
 {
 	static DECLARE_PADDED_STRUCT(tdsysinfo_struct, tdsysinfo,
@@ -1101,9 +1156,23 @@ static int init_tdx_module(void)
 		goto out_free_pamts;
 
 	/*
+	 * Hardware doesn't guarantee cache coherency across different
+	 * KeyIDs.  The kernel needs to flush PAMT's dirty cachelines
+	 * (associated with KeyID 0) before the TDX module can use the
+	 * global KeyID to access the PAMT.  Given PAMTs are potentially
+	 * large (~1/256th of system RAM), just use WBINVD on all cpus
+	 * to flush the cache.
+	 */
+	wbinvd_on_all_cpus();
+
+	/* Config the key of global KeyID on all packages */
+	ret = config_global_keyid();
+	if (ret)
+		goto out_free_pamts;
+
+	/*
 	 * TODO:
 	 *
-	 *  - Configure the global KeyID on all packages.
 	 *  - Initialize all TDMRs.
 	 *
 	 *  Return error before all steps are done.
@@ -1111,8 +1180,18 @@ static int init_tdx_module(void)
 
 	ret = -EINVAL;
 out_free_pamts:
-	if (ret)
+	if (ret) {
+		/*
+		 * Part of PAMT may already have been initialized by the
+		 * TDX module.  Flush cache before returning PAMT back
+		 * to the kernel.
+		 *
+		 * No need to worry about integrity checks here.  KeyID
+		 * 0 has integrity checking disabled.
+		 */
+		wbinvd_on_all_cpus();
 		tdmrs_free_pamt_all(&tdx_tdmr_list);
+	}
 	else
 		pr_info("%lu KBs allocated for PAMT.\n",
 				tdmrs_count_pamt_pages(&tdx_tdmr_list) * 4);
@@ -1166,11 +1245,7 @@ static int __tdx_enable(void)
  */
 static void disable_tdx_module(void)
 {
-	/*
-	 * TODO: module clean up in reverse to steps in
-	 * init_tdx_module().  Remove this comment after
-	 * all steps are done.
-	 */
+	wbinvd_on_all_cpus();
 	tdmrs_free_pamt_all(&tdx_tdmr_list);
 	free_tdmr_list(&tdx_tdmr_list);
 	free_tdx_memlist(&tdx_memlist);
@@ -1227,6 +1302,9 @@ static int __tdx_enable_online_cpus(void)
  *
  * This function internally calls cpus_read_lock()/unlock() to prevent
  * any cpu from going online and offline.
+ *
+ * This function requires there's at least one online cpu for each CPU
+ * package to succeed.
  *
  * This function assumes all online cpus are already in VMX operation.
  *

@@ -916,6 +916,36 @@ err:
 	return ret;
 }
 
+static int config_tdx_module(struct tdmr_info_list *tdmr_list, u64 global_keyid)
+{
+	u64 *tdmr_pa_array, *p;
+	size_t array_sz;
+	int i, ret;
+
+	/*
+	 * TDMRs are passed to the TDX module via an array of physical
+	 * addresses of each TDMR.  The array itself has alignment
+	 * requirement.
+	 */
+	array_sz = tdmr_list->nr_tdmrs * sizeof(u64) +
+		TDMR_INFO_PA_ARRAY_ALIGNMENT - 1;
+	p = kzalloc(array_sz, GFP_KERNEL);
+	if (!p)
+		return -ENOMEM;
+
+	tdmr_pa_array = PTR_ALIGN(p, TDMR_INFO_PA_ARRAY_ALIGNMENT);
+	for (i = 0; i < tdmr_list->nr_tdmrs; i++)
+		tdmr_pa_array[i] = __pa(tdmr_entry(tdmr_list, i));
+
+	ret = seamcall(TDH_SYS_CONFIG, __pa(tdmr_pa_array), tdmr_list->nr_tdmrs,
+				global_keyid, 0, NULL, NULL);
+
+	/* Free the array as it is not required anymore. */
+	kfree(p);
+
+	return ret;
+}
+
 static int init_tdx_module(void)
 {
 	/*
@@ -961,16 +991,23 @@ static int init_tdx_module(void)
 		goto out_free_tdmrs;
 
 	/*
+	 * Use the first private KeyID as the global KeyID, and pass
+	 * it along with the TDMRs to the TDX module.
+	 */
+	ret = config_tdx_module(&tdmr_list, tdx_keyid_start);
+	if (ret)
+		goto out_free_pamts;
+
+	/*
 	 * TODO:
 	 *
-	 *  - Pick up one TDX private KeyID as the global KeyID.
-	 *  - Configure the TDMRs and the global KeyID to the TDX module.
 	 *  - Configure the global KeyID on all packages.
 	 *  - Initialize all TDMRs.
 	 *
 	 *  Return error before all steps are done.
 	 */
 	ret = -EINVAL;
+out_free_pamts:
 	if (ret)
 		tdmrs_free_pamt_all(&tdmr_list);
 	else

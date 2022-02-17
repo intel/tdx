@@ -20,6 +20,7 @@
  * TDX module SEAMCALL leaf functions
  */
 #define TDH_SYS_INFO		32
+#define TDH_SYS_CONFIG		45
 
 struct cmr_info {
 	u64	base;
@@ -96,6 +97,7 @@ struct tdmr_reserved_area {
 } __packed;
 
 #define TDMR_INFO_ALIGNMENT	512
+#define TDMR_INFO_PA_ARRAY_ALIGNMENT	512
 
 struct tdmr_info {
 	u64 base;

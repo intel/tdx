@@ -54,6 +54,18 @@
 		((u32)(((_keyid_part) & 0xffffffffull) + 1))
 #define TDX_KEYID_NUM(_keyid_part)	((u32)((_keyid_part) >> 32))
 
+/* TDMR must be 1gb aligned */
+#define TDMR_ALIGNMENT		BIT_ULL(30)
+#define TDMR_PFN_ALIGNMENT	(TDMR_ALIGNMENT >> PAGE_SHIFT)
+
+/* Align up and down the address to TDMR boundary */
+#define TDMR_ALIGN_DOWN(_addr)	ALIGN_DOWN((_addr), TDMR_ALIGNMENT)
+#define TDMR_ALIGN_UP(_addr)	ALIGN((_addr), TDMR_ALIGNMENT)
+
+/* TDMR's start and end address */
+#define TDMR_START(_tdmr)	((_tdmr)->base)
+#define TDMR_END(_tdmr)		((_tdmr)->base + (_tdmr)->size)
+
 /*
  * TDX module status during initialization
  */
@@ -813,6 +825,44 @@ static int e820_check_against_cmrs(void)
 	return 0;
 }
 
+/* The starting offset of reserved areas within TDMR_INFO */
+#define TDMR_RSVD_START		64
+
+static struct tdmr_info *__alloc_tdmr(void)
+{
+	int tdmr_sz;
+
+	/*
+	 * TDMR_INFO's actual size depends on maximum number of reserved
+	 * areas that one TDMR supports.
+	 */
+	tdmr_sz = TDMR_RSVD_START + tdx_sysinfo.max_reserved_per_tdmr *
+		sizeof(struct tdmr_reserved_area);
+
+	/*
+	 * TDX requires TDMR_INFO to be 512 aligned.  Always align up
+	 * TDMR_INFO size to 512 so the memory allocated via kzalloc()
+	 * can meet the alignment requirement.
+	 */
+	tdmr_sz = ALIGN(tdmr_sz, TDMR_INFO_ALIGNMENT);
+
+	return kzalloc(tdmr_sz, GFP_KERNEL);
+}
+
+/* Create a new TDMR at given index in the TDMR array */
+static struct tdmr_info *alloc_tdmr(struct tdmr_info **tdmr_array, int idx)
+{
+	struct tdmr_info *tdmr;
+
+	if (WARN_ON_ONCE(tdmr_array[idx]))
+		return NULL;
+
+	tdmr = __alloc_tdmr();
+	tdmr_array[idx] = tdmr;
+
+	return tdmr;
+}
+
 static void free_tdmrs(struct tdmr_info **tdmr_array, int tdmr_num)
 {
 	int i;
@@ -826,6 +876,89 @@ static void free_tdmrs(struct tdmr_info **tdmr_array, int tdmr_num)
 	}
 }
 
+/*
+ * Create TDMRs to cover all RAM entries in e820_table.  The created
+ * TDMRs are saved to @tdmr_array and @tdmr_num is set to the actual
+ * number of TDMRs.  All entries in @tdmr_array must be initially NULL.
+ */
+static int create_tdmrs(struct tdmr_info **tdmr_array, int *tdmr_num)
+{
+	struct tdmr_info *tdmr;
+	u64 start, end;
+	int i, tdmr_idx;
+	int ret = 0;
+
+	tdmr_idx = 0;
+	tdmr = alloc_tdmr(tdmr_array, 0);
+	if (!tdmr)
+		return -ENOMEM;
+	/*
+	 * Loop over all RAM entries in e820 and create TDMRs to cover
+	 * them.  To keep it simple, always try to use one TDMR to cover
+	 * one RAM entry.
+	 */
+	e820_for_each_mem(i, start, end) {
+		start = TDMR_ALIGN_DOWN(start);
+		end = TDMR_ALIGN_UP(end);
+
+		/*
+		 * If the current TDMR's size hasn't been initialized, it
+		 * is a new allocated TDMR to cover the new RAM entry.
+		 * Otherwise the current TDMR already covers the previous
+		 * RAM entry.  In the latter case, check whether the
+		 * current RAM entry has been fully or partially covered
+		 * by the current TDMR, since TDMR is 1G aligned.
+		 */
+		if (tdmr->size) {
+			/*
+			 * Loop to next RAM entry if the current entry
+			 * is already fully covered by the current TDMR.
+			 */
+			if (end <= TDMR_END(tdmr))
+				continue;
+
+			/*
+			 * If part of current RAM entry has already been
+			 * covered by current TDMR, skip the already
+			 * covered part.
+			 */
+			if (start < TDMR_END(tdmr))
+				start = TDMR_END(tdmr);
+
+			/*
+			 * Create a new TDMR to cover the current RAM
+			 * entry, or the remaining part of it.
+			 */
+			tdmr_idx++;
+			if (tdmr_idx >= tdx_sysinfo.max_tdmrs) {
+				ret = -E2BIG;
+				goto err;
+			}
+			tdmr = alloc_tdmr(tdmr_array, tdmr_idx);
+			if (!tdmr) {
+				ret = -ENOMEM;
+				goto err;
+			}
+		}
+
+		tdmr->base = start;
+		tdmr->size = end - start;
+	}
+
+	/* @tdmr_idx is always the index of last valid TDMR. */
+	*tdmr_num = tdmr_idx + 1;
+
+	return 0;
+err:
+	/*
+	 * Clean up already allocated TDMRs in case of error.  @tdmr_idx
+	 * indicates the last TDMR that wasn't created successfully,
+	 * therefore only needs to free @tdmr_idx TDMRs.
+	 */
+	free_tdmrs(tdmr_array, tdmr_idx);
+	return ret;
+}
+
 static int construct_tdmrs(struct tdmr_info **tdmr_array, int *tdmr_num)
 {
 	int ret;
@@ -834,8 +967,13 @@ static int construct_tdmrs(struct tdmr_info **tdmr_array, int *tdmr_num)
 	if (ret)
 		goto err;
 
+	ret = create_tdmrs(tdmr_array, tdmr_num);
+	if (ret)
+		goto err;
+
 	/* Return -EFAULT until constructing TDMRs is done */
 	ret = -EFAULT;
+	free_tdmrs(tdmr_array, *tdmr_num);
 err:
 	return ret;
 }

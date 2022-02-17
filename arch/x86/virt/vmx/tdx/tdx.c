@@ -112,6 +112,9 @@ static struct cmr_info tdx_cmr_array[MAX_CMRS] __aligned(CMR_INFO_ARRAY_ALIGNMEN
 static int tdx_cmr_num;
 static struct tdsysinfo_struct tdx_sysinfo;
 
+/* TDX global KeyID to protect TDX metadata */
+static u32 tdx_global_keyid;
+
 static bool __seamrr_enabled(void)
 {
 	return (seamrr_mask & SEAMRR_ENABLED_BITS) == SEAMRR_ENABLED_BITS;
@@ -1319,6 +1322,12 @@ static int init_tdx_module(void)
 	ret = construct_tdmrs(tdmr_array, &tdmr_num);
 	if (ret)
 		goto out_free_tdmrs;
+
+	/*
+	 * Reserve the first TDX KeyID as global KeyID to protect
+	 * TDX module metadata.
+	 */
+	tdx_global_keyid = tdx_keyid_start;
 
 	/*
 	 * Return -EFAULT until all steps of TDX module

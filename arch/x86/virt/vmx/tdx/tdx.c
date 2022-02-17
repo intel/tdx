@@ -18,6 +18,7 @@
 #include <linux/sizes.h>
 #include <linux/memblock.h>
 #include <linux/gfp.h>
+#include <linux/slab.h>
 #include <linux/align.h>
 #include <linux/sort.h>
 #include <asm/cpufeatures.h>
@@ -932,6 +933,37 @@ err:
 	return ret;
 }
 
+static int config_tdx_module(struct tdmr_info *tdmr_array, int tdmr_num,
+			     u64 global_keyid)
+{
+	u64 *tdmr_pa_array;
+	int i, array_sz;
+	u64 ret;
+
+	/*
+	 * TDMR_INFO entries are configured to the TDX module via an
+	 * array of the physical address of each TDMR_INFO.  TDX module
+	 * requires the array itself to be 512-byte aligned.  Round up
+	 * the array size to 512-byte aligned so the buffer allocated
+	 * by kzalloc() will meet the alignment requirement.
+	 */
+	array_sz = ALIGN(tdmr_num * sizeof(u64), TDMR_INFO_PA_ARRAY_ALIGNMENT);
+	tdmr_pa_array = kzalloc(array_sz, GFP_KERNEL);
+	if (!tdmr_pa_array)
+		return -ENOMEM;
+
+	for (i = 0; i < tdmr_num; i++)
+		tdmr_pa_array[i] = __pa(tdmr_array_entry(tdmr_array, i));
+
+	ret = seamcall(TDH_SYS_CONFIG, __pa(tdmr_pa_array), tdmr_num,
+				global_keyid, 0, NULL);
+
+	/* Free the array as it is not required any more. */
+	kfree(tdmr_pa_array);
+
+	return ret ? -EFAULT : 0;
+}
+
 /*
  * Detect and initialize the TDX module.
  *
@@ -999,11 +1031,17 @@ static int init_tdx_module(void)
 	 */
 	tdx_global_keyid = tdx_keyid_start;
 
+	/* Pass the TDMRs and the global KeyID to the TDX module */
+	ret = config_tdx_module(tdmr_array, tdmr_num, tdx_global_keyid);
+	if (ret)
+		goto out_free_pamts;
+
 	/*
 	 * Return -EINVAL until all steps of TDX module initialization
 	 * process are done.
 	 */
 	ret = -EINVAL;
+out_free_pamts:
 	if (ret)
 		tdmrs_free_pamt_all(tdmr_array, tdmr_num);
 	else

@@ -62,6 +62,9 @@ static int tdx_cmr_num;
 /* All TDX-usable memory regions */
 static LIST_HEAD(tdx_memlist);
 
+/* TDX module global KeyID.  Used in TDH.SYS.CONFIG ABI. */
+static u32 tdx_global_keyid;
+
 /*
  * Detect TDX private KeyIDs to see whether TDX has been enabled by the
  * BIOS.  Both initializing the TDX module and running TDX guest require
@@ -1052,6 +1055,12 @@ static int init_tdx_module(void)
 	ret = construct_tdmrs(tdmr_array, &tdmr_num);
 	if (ret)
 		goto out_free_tdmrs;
+
+	/*
+	 * Reserve the first TDX KeyID as global KeyID to protect
+	 * TDX module metadata.
+	 */
+	tdx_global_keyid = tdx_keyid_start;
 
 	/*
 	 * Return -EINVAL until all steps of TDX module initialization

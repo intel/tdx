@@ -55,6 +55,9 @@ static struct tdsysinfo_struct tdx_sysinfo;
 static struct cmr_info tdx_cmr_array[MAX_CMRS] __aligned(CMR_INFO_ARRAY_ALIGNMENT);
 static int tdx_cmr_num;
 
+/* TDX module global KeyID.  Used in TDH.SYS.CONFIG ABI. */
+static u32 tdx_global_keyid;
+
 /* Detect whether CPU supports SEAM */
 static int detect_seam(void)
 {
@@ -989,6 +992,12 @@ static int init_tdx_module(void)
 	ret = construct_tdmrs_memeblock(tdmr_array, &tdmr_num);
 	if (ret)
 		goto out_free_tdmrs;
+
+	/*
+	 * Reserve the first TDX KeyID as global KeyID to protect
+	 * TDX module metadata.
+	 */
+	tdx_global_keyid = tdx_keyid_start;
 
 	/*
 	 * Return -EINVAL until all steps of TDX module initialization

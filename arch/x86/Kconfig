@@ -1961,6 +1961,8 @@ config INTEL_TDX_HOST
 	default n
 	depends on CPU_SUP_INTEL
 	depends on X86_64
+	depends on CONTIG_ALLOC
+	select NUMA_KEEP_MEMINFO if NUMA
 	help
 	  Intel Trust Domain Extensions (TDX) protects guest VMs from malicious
 	  host and certain physical attacks.  This option enables necessary TDX

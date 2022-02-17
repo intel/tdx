@@ -1284,6 +1284,42 @@ err:
 	return ret;
 }
 
+static int config_tdx_module(struct tdmr_info **tdmr_array, int tdmr_num,
+			     u64 global_keyid)
+{
+	u64 *tdmr_pa_array;
+	int i, array_sz;
+	int ret;
+
+	/*
+	 * TDMR_INFO entries are configured to the TDX module via an
+	 * array of the physical address of each TDMR_INFO.  TDX requires
+	 * the array itself must be 512 aligned.  Round up the array size
+	 * to 512 aligned so the buffer allocated by kzalloc() meets the
+	 * alignment requirement.
+	 */
+	array_sz = ALIGN(tdmr_num * sizeof(u64), TDMR_INFO_PA_ARRAY_ALIGNMENT);
+	tdmr_pa_array = kzalloc(array_sz, GFP_KERNEL);
+	if (!tdmr_pa_array)
+		return -ENOMEM;
+
+	for (i = 0; i < tdmr_num; i++)
+		tdmr_pa_array[i] = __pa(tdmr_array[i]);
+
+	/*
+	 * TDH.SYS.CONFIG fails when TDH.SYS.LP.INIT is not done on all
+	 * BIOS-enabled cpus.  tdx_init() only disables CPU hotplug but
+	 * doesn't do early check whether all BIOS-enabled cpus are
+	 * online, so TDH.SYS.CONFIG can fail here.
+	 */
+	ret = seamcall(TDH_SYS_CONFIG, __pa(tdmr_pa_array), tdmr_num,
+				global_keyid, 0, NULL, NULL);
+	/* Free the array as it is not required any more. */
+	kfree(tdmr_pa_array);
+
+	return ret;
+}
+
 static int init_tdx_module(void)
 {
 	struct tdmr_info **tdmr_array;
@@ -1329,11 +1365,17 @@ static int init_tdx_module(void)
 	 */
 	tdx_global_keyid = tdx_keyid_start;
 
+	/* Config the TDX module with TDMRs and global KeyID */
+	ret = config_tdx_module(tdmr_array, tdmr_num, tdx_global_keyid);
+	if (ret)
+		goto out_free_pamts;
+
 	/*
 	 * Return -EFAULT until all steps of TDX module
 	 * initialization are done.
 	 */
 	ret = -EFAULT;
+out_free_pamts:
 	/*
 	 * Free PAMTs allocated in construct_tdmrs() when TDX module
 	 * initialization fails.

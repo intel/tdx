@@ -21,6 +21,7 @@
  */
 #define TDH_SYS_KEY_CONFIG	31
 #define TDH_SYS_INFO		32
+#define TDH_SYS_TDMR_INIT	36
 #define TDH_SYS_CONFIG		45
 
 struct cmr_info {

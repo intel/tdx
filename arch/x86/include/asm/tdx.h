@@ -85,10 +85,12 @@ static inline long tdx_kvm_hypercall(unsigned int nr, unsigned long p1,
 void tdx_detect_cpu(struct cpuinfo_x86 *c);
 int tdx_detect(void);
 int tdx_init(void);
+bool platform_has_tdx(void);
 #else
 static inline void tdx_detect_cpu(struct cpuinfo_x86 *c) { }
 static inline int tdx_detect(void) { return -ENODEV; }
 static inline int tdx_init(void) { return -ENODEV; }
+static inline bool platform_has_tdx(void) { return false; }
 #endif /* CONFIG_INTEL_TDX_HOST */
 
 #endif /* !__ASSEMBLY__ */

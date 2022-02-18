@@ -5707,6 +5707,12 @@
 
 	tdfx=		[HW,DRM]
 
+	tdx_host=	[X86-64, TDX]
+			Format: {on|off}
+			on: Enable TDX host kernel support
+			off: Disable TDX host kernel support
+			Default is off.
+
 	test_suspend=	[SUSPEND][,N]
 			Specify "mem" (for Suspend-to-RAM) or "standby" (for
 			standby suspend) or "freeze" (for suspend type freeze)

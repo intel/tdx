@@ -116,6 +116,16 @@ static struct tdsysinfo_struct tdx_sysinfo;
 /* TDX global KeyID to protect TDX metadata */
 static u32 tdx_global_keyid;
 
+static bool enable_tdx_host;
+
+static int __init tdx_host_setup(char *s)
+{
+	if (!strcmp(s, "on"))
+		enable_tdx_host = true;
+	return 1;
+}
+__setup("tdx_host=", tdx_host_setup);
+
 static bool __seamrr_enabled(void)
 {
 	return (seamrr_mask & SEAMRR_ENABLED_BITS) == SEAMRR_ENABLED_BITS;
@@ -500,6 +510,10 @@ static int detect_p_seamldr(void)
 
 static int __tdx_detect(void)
 {
+	/* Disabled by kernel command line */
+	if (!enable_tdx_host)
+		goto no_tdx_module;
+
 	/* The TDX module is not loaded if SEAMRR is disabled */
 	if (!seamrr_enabled()) {
 		pr_info("SEAMRR not enabled.\n");

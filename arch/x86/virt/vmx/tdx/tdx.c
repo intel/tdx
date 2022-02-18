@@ -1687,3 +1687,17 @@ int tdx_init(void)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(tdx_init);
+
+/**
+ * platform_has_tdx - Whether platform supports TDX
+ *
+ * Check whether platform supports TDX (i.e. TDX is enabled in BIOS),
+ * regardless whether TDX is truly enabled by kernel.
+ *
+ * Return true if SEAMRR is enabled, and there are sufficient TDX private
+ * KeyIDs to run TD guests.
+ */
+bool platform_has_tdx(void)
+{
+	return seamrr_enabled() && tdx_keyid_sufficient();
+}

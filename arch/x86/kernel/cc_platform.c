@@ -90,6 +90,8 @@ u64 cc_get_mask(bool enc)
 	switch (cc_vendor) {
 	case CC_VENDOR_AMD:
 		return enc ? cc_mask : 0;
+	case CC_VENDOR_INTEL:
+		return enc ? 0 : cc_mask;
 	default:
 		return 0;
 	}
@@ -100,6 +102,8 @@ u64 cc_mkenc(u64 val)
 	switch (cc_vendor) {
 	case CC_VENDOR_AMD:
 		return val | cc_mask;
+	case CC_VENDOR_INTEL:
+		return val & ~cc_mask;
 	default:
 		return val;
 	}
@@ -110,6 +114,8 @@ u64 cc_mkdec(u64 val)
 	switch (cc_vendor) {
 	case CC_VENDOR_AMD:
 		return val & ~cc_mask;
+	case CC_VENDOR_INTEL:
+		return val | cc_mask;
 	default:
 		return val;
 	}

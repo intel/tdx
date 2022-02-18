@@ -766,8 +766,32 @@ void stop_this_cpu(void *dummy)
 	 * without the encryption bit, they don't race each other when flushed
 	 * and potentially end up with the wrong entry being committed to
 	 * memory.
+	 *
+	 * In case of kexec, similar to SME, if TDX is ever enabled, the
+	 * cachelines of TDX private memory (including PAMTs) used by TDX
+	 * module need to be flushed before transiting to the new kernel,
+	 * otherwise they may silently corrupt the new kernel.
+	 *
+	 * Note TDX is enabled on demand at runtime, and enabling TDX has a
+	 * state machine protected with a mutex to prevent concurrent calls
+	 * from multiple callers.  Holding the mutex is required to get the
+	 * TDX enabling status, but this function runs in interrupt context.
+	 * So to make it simple, always flush cache when platform supports
+	 * TDX (detected at boot time), regardless whether TDX is truly
+	 * enabled by kernel.
+	 *
+	 * TDX module can only be initialized once during its lifetime. So
+	 * if TDX is enabled in old kernel, the new kernel won't be able to
+	 * use TDX again, because when new kernel go through the TDX module
+	 * initialization process, it will fail immediately at the first
+	 * SEAMCALL.  Ideally, it's better to shut down TDX module, but this
+	 * requires SEAMCALL, which requires CPU already being in VMX
+	 * operation.  It's not trival to do VMXON here so to keep it simple
+	 * just leave the module open.  And leaving TDX module open is OK.
+	 * The new kernel cannot use TDX anyway.  The TDX module won't run
+	 * at all in the new kernel.
 	 */
-	if (boot_cpu_has(X86_FEATURE_SME))
+	if (boot_cpu_has(X86_FEATURE_SME) || platform_has_tdx())
 		native_wbinvd();
 	for (;;) {
 		/*

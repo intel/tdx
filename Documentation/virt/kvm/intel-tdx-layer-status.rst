@@ -17,10 +17,11 @@ Patch Layer status
   Patch layer                          Status
 
 * TDX, VMX coexistence:                 Applied
-* TDX architectural definitions:        Applying
-* TD VM creation/destruction:           Not yet
-* TD vcpu creation/destruction:         Not yet
-* TDX EPT violation:                    Not yet
+* TDX architectural definitions:        Applied
+* TD VM creation/destruction:           Applied
+* TD vcpu creation/destruction:         Applied
+* TDX EPT violation:                    Applying
 * TD finalization:                      Not yet
 * TD vcpu enter/exit:                   Not yet
 * TD vcpu interrupts/exit/hypercall:    Not yet
+

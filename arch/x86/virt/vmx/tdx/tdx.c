@@ -279,7 +279,7 @@ static void print_cmrs(struct cmr_info *cmr_array, int nr_cmrs)
  * kernel stack.  @sysinfo must have been padded to have enough room
  * to save the TDSYSINFO_STRUCT.
  */
-static int tdx_get_sysinfo(struct tdsysinfo_struct *sysinfo,
+static int __tdx_get_sysinfo(struct tdsysinfo_struct *sysinfo,
 			   struct cmr_info *cmr_array)
 {
 	struct tdx_module_output out;
@@ -307,6 +307,21 @@ static int tdx_get_sysinfo(struct tdsysinfo_struct *sysinfo,
 
 	return 0;
 }
+
+static DECLARE_PADDED_STRUCT(tdsysinfo_struct, tdsysinfo,
+			     TDSYSINFO_STRUCT_SIZE, TDSYSINFO_STRUCT_ALIGNMENT);
+
+const struct tdsysinfo_struct *tdx_get_sysinfo(void)
+{
+	const struct tdsysinfo_struct *r = NULL;
+
+	mutex_lock(&tdx_module_lock);
+	if (tdx_module_status == TDX_MODULE_INITIALIZED)
+		r = &PADDED_STRUCT(tdsysinfo);
+	mutex_unlock(&tdx_module_lock);
+	return r;
+}
+EXPORT_SYMBOL_GPL(tdx_get_sysinfo);
 
 /*
  * Add a memory region as a TDX memory block.  The caller must make sure
@@ -1118,8 +1133,6 @@ static int init_tdx_module(void)
 	 * They are 1024 bytes and 512 bytes respectively but it's fine to
 	 * keep them in the stack as this function is only called once.
 	 */
-	DECLARE_PADDED_STRUCT(tdsysinfo_struct, tdsysinfo,
-			TDSYSINFO_STRUCT_SIZE, TDSYSINFO_STRUCT_ALIGNMENT);
 	struct cmr_info cmr_array[MAX_CMRS] __aligned(CMR_INFO_ARRAY_ALIGNMENT);
 	struct tdsysinfo_struct *sysinfo = &PADDED_STRUCT(tdsysinfo);
 	struct tdmr_info_list tdmr_list;
@@ -1134,7 +1147,7 @@ static int init_tdx_module(void)
 	if (ret)
 		goto out;
 
-	ret = tdx_get_sysinfo(sysinfo, cmr_array);
+	ret = __tdx_get_sysinfo(sysinfo, cmr_array);
 	if (ret)
 		goto out;
 

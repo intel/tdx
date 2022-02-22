@@ -1715,3 +1715,4 @@ bool platform_has_tdx(void)
 {
 	return seamrr_enabled() && tdx_keyid_sufficient();
 }
+EXPORT_SYMBOL_GPL(platform_has_tdx);

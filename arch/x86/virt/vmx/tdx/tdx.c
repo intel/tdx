@@ -1283,6 +1283,7 @@ bool platform_tdx_enabled(void)
 {
 	return tdx_keyid_num >= 2;
 }
+EXPORT_SYMBOL_GPL(platform_tdx_enabled);
 
 /**
  * tdx_init - Initialize the TDX module

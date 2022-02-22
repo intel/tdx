@@ -354,9 +354,9 @@ static int check_cmrs(struct cmr_info *cmr_array, int *actual_cmr_num)
 	return 0;
 }
 
-static int tdx_get_sysinfo(struct tdsysinfo_struct *tdsysinfo,
-			   struct cmr_info *cmr_array,
-			   int *actual_cmr_num)
+static int __tdx_get_sysinfo(struct tdsysinfo_struct *tdsysinfo,
+			     struct cmr_info *cmr_array,
+			     int *actual_cmr_num)
 {
 	struct tdx_module_output out;
 	u64 ret;
@@ -382,6 +382,18 @@ static int tdx_get_sysinfo(struct tdsysinfo_struct *tdsysinfo,
 	 */
 	return check_cmrs(cmr_array, actual_cmr_num);
 }
+
+const struct tdsysinfo_struct *tdx_get_sysinfo(void)
+{
+	const struct tdsysinfo_struct *r = NULL;
+
+	mutex_lock(&tdx_module_lock);
+	if (tdx_module_status == TDX_MODULE_INITIALIZED)
+		r = &tdx_sysinfo;
+	mutex_unlock(&tdx_module_lock);
+	return r;
+}
+EXPORT_SYMBOL_GPL(tdx_get_sysinfo);
 
 /*
  * Skip the memory region below 1MB.  Return true if the entire
@@ -1106,7 +1118,7 @@ static int init_tdx_module(void)
 	if (ret)
 		goto out;
 
-	ret = tdx_get_sysinfo(&tdx_sysinfo, tdx_cmr_array, &tdx_cmr_num);
+	ret = __tdx_get_sysinfo(&tdx_sysinfo, tdx_cmr_array, &tdx_cmr_num);
 	if (ret)
 		goto out;
 

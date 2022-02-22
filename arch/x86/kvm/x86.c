@@ -11984,6 +11984,14 @@ int kvm_arch_hardware_setup(void *opaque)
 	return 0;
 }
 
+int kvm_arch_post_hardware_enable_setup(void *opaque)
+{
+	struct kvm_x86_init_ops *ops = opaque;
+	if (ops->post_hardware_enable_setup)
+		return ops->post_hardware_enable_setup();
+	return 0;
+}
+
 void kvm_arch_hardware_unsetup(void)
 {
 	kvm_unregister_perf_callbacks();

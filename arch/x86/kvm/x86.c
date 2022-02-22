@@ -9435,6 +9435,16 @@ static int __kvm_x86_vendor_init(struct kvm_x86_init_ops *ops)
 
 	kvm_init_pmu_capability(ops->pmu_ops);
 
+	/*
+	 * TDX requires those methods to enable VMXON by
+	 * kvm_hardware_enable/disable_all_nolock()
+	 */
+	static_call_update(kvm_x86_check_processor_compatibility,
+			   ops->runtime_ops->check_processor_compatibility);
+	static_call_update(kvm_x86_hardware_enable,
+			   ops->runtime_ops->hardware_enable);
+	static_call_update(kvm_x86_hardware_disable,
+			   ops->runtime_ops->hardware_disable);
 	r = ops->hardware_setup();
 	if (r != 0)
 		goto out_mmu_exit;

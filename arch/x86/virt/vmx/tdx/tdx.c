@@ -529,7 +529,7 @@ static int check_cmrs(struct cmr_info *cmr_array, int *actual_cmr_num)
 	return 0;
 }
 
-static int tdx_get_sysinfo(void)
+static int __tdx_get_sysinfo(void)
 {
 	struct tdx_module_output out;
 	int ret;
@@ -555,6 +555,18 @@ static int tdx_get_sysinfo(void)
 	 */
 	return check_cmrs(tdx_cmr_array, &tdx_cmr_num);
 }
+
+const struct tdsysinfo_struct *tdx_get_sysinfo(void)
+{
+	const struct tdsysinfo_struct *r = NULL;
+
+	mutex_lock(&tdx_module_lock);
+	if (tdx_module_status == TDX_MODULE_INITIALIZED)
+		r = &tdx_sysinfo;
+	mutex_unlock(&tdx_module_lock);
+	return r;
+}
+EXPORT_SYMBOL_GPL(tdx_get_sysinfo);
 
 /* Check whether the first range is the subrange of the second */
 static bool is_subrange(u64 r1_start, u64 r1_end, u64 r2_start, u64 r2_end)
@@ -1264,7 +1276,7 @@ static int init_tdx_module(void)
 	if (ret)
 		goto out;
 
-	ret = tdx_get_sysinfo();
+	ret = __tdx_get_sysinfo();
 	if (ret)
 		goto out;
 

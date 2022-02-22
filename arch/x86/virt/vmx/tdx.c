@@ -642,7 +642,7 @@ static int sanitize_cmrs(struct cmr_info *cmr_array, int cmr_num)
 	return 0;
 }
 
-static int tdx_get_sysinfo(void)
+static int __tdx_get_sysinfo(void)
 {
 	struct tdx_module_output out;
 	u64 tdsysinfo_sz, cmr_num;
@@ -676,6 +676,18 @@ static int tdx_get_sysinfo(void)
 
 	return sanitize_cmrs(tdx_cmr_array, cmr_num);
 }
+
+const struct tdsysinfo_struct *tdx_get_sysinfo(void)
+{
+       const struct tdsysinfo_struct *r = NULL;
+
+       mutex_lock(&tdx_module_lock);
+       if (tdx_module_status == TDX_MODULE_INITIALIZED)
+	       r = &tdx_sysinfo;
+       mutex_unlock(&tdx_module_lock);
+       return r;
+}
+EXPORT_SYMBOL_GPL(tdx_get_sysinfo);
 
 /* Check whether one e820 entry is RAM and could be used as TDX memory */
 static bool e820_entry_is_ram(struct e820_entry *entry)
@@ -1461,7 +1473,7 @@ static int init_tdx_module(void)
 		goto out;
 
 	/* Get TDX module information and CMRs */
-	ret = tdx_get_sysinfo();
+	ret = __tdx_get_sysinfo();
 	if (ret)
 		goto out;
 

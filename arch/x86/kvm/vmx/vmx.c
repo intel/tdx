@@ -2464,6 +2464,35 @@ int vmx_hardware_enable(void)
 	return 0;
 }
 
+static void __init vmxon(void *arg)
+{
+	int cpu = raw_smp_processor_id();
+	u64 phys_addr = __pa(per_cpu(vmxarea, cpu));
+	atomic_t *failed = arg;
+	int r;
+
+	if (cr4_read_shadow() & X86_CR4_VMXE) {
+		r = -EBUSY;
+		goto out;
+	}
+
+	r = kvm_cpu_vmxon(phys_addr);
+out:
+	if (r)
+		atomic_inc(failed);
+}
+
+int __init vmxon_all(void)
+{
+	atomic_t failed = ATOMIC_INIT(0);
+
+	on_each_cpu(vmxon, &failed, 1);
+
+	if (atomic_read(&failed))
+		return -EBUSY;
+	return 0;
+}
+
 static void vmclear_local_loaded_vmcss(void)
 {
 	int cpu = raw_smp_processor_id();
@@ -2482,6 +2511,16 @@ void vmx_hardware_disable(void)
 		kvm_spurious_fault();
 
 	intel_pt_handle_vmx(0);
+}
+
+static void __init vmxoff(void *junk)
+{
+	cpu_vmxoff();
+}
+
+void __init vmxoff_all(void)
+{
+	on_each_cpu(vmxoff, NULL, 1);
 }
 
 /*

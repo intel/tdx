@@ -265,6 +265,20 @@ static int get_tdx_sysinfo(struct tdsysinfo_struct *tdsysinfo,
 	return 0;
 }
 
+static struct tdsysinfo_struct *tdsysinfo;
+
+const struct tdsysinfo_struct *tdx_get_sysinfo(void)
+{
+	const struct tdsysinfo_struct *r = NULL;
+
+	mutex_lock(&tdx_module_lock);
+	if (tdx_module_status == TDX_MODULE_INITIALIZED)
+		r = tdsysinfo;
+	mutex_unlock(&tdx_module_lock);
+	return r;
+}
+EXPORT_SYMBOL_GPL(tdx_get_sysinfo);
+
 /*
  * Add a memory region as a TDX memory block.  The caller must make sure
  * all memory regions are added in address ascending order and don't
@@ -1090,7 +1104,6 @@ static int init_tdmrs(struct tdmr_info_list *tdmr_list)
 
 static int init_tdx_module(void)
 {
-	struct tdsysinfo_struct *tdsysinfo;
 	struct cmr_info *cmr_array;
 	int tdsysinfo_size;
 	int cmr_array_size;
@@ -1181,7 +1194,10 @@ out:
 	 * For now both @sysinfo and @cmr_array are only used during
 	 * module initialization, so always free them.
 	 */
-	kfree(tdsysinfo);
+	if (ret) {
+		kfree(tdsysinfo);
+		tdsysinfo = NULL;
+	}
 	kfree(cmr_array);
 	return ret;
 

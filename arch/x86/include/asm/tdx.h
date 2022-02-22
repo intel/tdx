@@ -111,6 +111,19 @@ static inline u64 sc_retry(sc_func_t func, u64 fn,
 #define seamcall_ret(_fn, _args)	sc_retry(__seamcall_ret, (_fn), (_args))
 #define seamcall_saved_ret(_fn, _args)	sc_retry(__seamcall_saved_ret, (_fn), (_args))
 
+struct tdx_cpuid_config {
+	__struct_group(tdx_cpuid_config_leaf, leaf_sub_leaf, __packed,
+		u32 leaf;
+		u32 sub_leaf;
+	);
+	__struct_group(tdx_cpuid_config_value, value, __packed,
+		u32 eax;
+		u32 ebx;
+		u32 ecx;
+		u32 edx;
+	);
+} __packed;
+
 bool platform_tdx_enabled(void);
 int tdx_cpu_enable(void);
 int tdx_enable(void);

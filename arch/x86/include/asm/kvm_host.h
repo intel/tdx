@@ -1657,6 +1657,7 @@ struct kvm_x86_init_ops {
 	int (*cpu_has_kvm_support)(void);
 	int (*disabled_by_bios)(void);
 	int (*hardware_setup)(void);
+	int (*post_hardware_enable_setup)(void);
 	unsigned int (*handle_intel_pt_intr)(void);
 
 	struct kvm_x86_ops *runtime_ops;

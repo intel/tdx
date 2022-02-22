@@ -230,7 +230,7 @@ static void print_cmrs(struct cmr_info *cmr_array, int nr_cmrs)
 	}
 }
 
-static int tdx_get_sysinfo(struct tdsysinfo_struct *sysinfo,
+static int __tdx_get_sysinfo(struct tdsysinfo_struct *sysinfo,
 			   struct cmr_info *cmr_array)
 {
 	struct tdx_module_output out;
@@ -254,6 +254,20 @@ static int tdx_get_sysinfo(struct tdsysinfo_struct *sysinfo,
 
 	return 0;
 }
+
+static struct tdsysinfo_struct *sysinfo;
+
+const struct tdsysinfo_struct *tdx_get_sysinfo(void)
+{
+	const struct tdsysinfo_struct *r = NULL;
+
+	mutex_lock(&tdx_module_lock);
+	if (tdx_module_status == TDX_MODULE_INITIALIZED)
+		r = sysinfo;
+	mutex_unlock(&tdx_module_lock);
+	return r;
+}
+EXPORT_SYMBOL_GPL(tdx_get_sysinfo);
 
 /*
  * Add a memory region as a TDX memory block.  The caller must make sure
@@ -1083,7 +1097,6 @@ static int init_tdmrs(struct tdmr_info_list *tdmr_list)
 
 static int init_tdx_module(void)
 {
-	struct tdsysinfo_struct *sysinfo;
 	struct cmr_info *cmr_array;
 	int ret;
 
@@ -1103,7 +1116,7 @@ static int init_tdx_module(void)
 	BUILD_BUG_ON(PAGE_SIZE / 2 < TDSYSINFO_STRUCT_SIZE);
 	BUILD_BUG_ON(PAGE_SIZE / 2 < sizeof(struct cmr_info) * MAX_CMRS);
 
-	ret = tdx_get_sysinfo(sysinfo, cmr_array);
+	ret = __tdx_get_sysinfo(sysinfo, cmr_array);
 	if (ret)
 		goto out;
 
@@ -1177,11 +1190,6 @@ static int init_tdx_module(void)
 	 * Lock out memory hotplug code while building it.
 	 */
 	put_online_mems();
-	/*
-	 * For now both @sysinfo and @cmr_array are only used during
-	 * module initialization, so always free them.
-	 */
-	free_page((unsigned long)sysinfo);
 
 	return 0;
 out_reset_pamts:
@@ -1219,6 +1227,7 @@ out_put_tdxmem:
 	put_online_mems();
 out:
 	free_page((unsigned long)sysinfo);
+	sysinfo = NULL;
 	return ret;
 }
 

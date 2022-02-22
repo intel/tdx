@@ -9491,10 +9491,20 @@ static int __kvm_x86_vendor_init(struct kvm_x86_init_ops *ops)
 
 	kvm_init_pmu_capability(ops->pmu_ops);
 
+	/*
+	 * Because TDX hardware_setup uses x86_ops, update ops before calling
+	 * ops->hardware_setup().
+	 */
+	kvm_ops_update(ops);
 	r = ops->hardware_setup();
-	if (r != 0)
+	if (r != 0) {
+		kvm_x86_ops.hardware_enable = NULL;
 		goto out_mmu_exit;
-
+	}
+	/*
+	 * Because ops->hardware_setup() may modify ops, re-update ops with
+	 * the final value.
+	 */
 	kvm_ops_update(ops);
 
 	for_each_online_cpu(cpu) {

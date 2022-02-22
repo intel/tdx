@@ -26,15 +26,106 @@ static void __used tdx_guest_keyid_free(int keyid)
 	ida_free(&tdx_guest_keyid_pool, keyid);
 }
 
+struct tdx_info {
+	u64 features0;
+	u64 attributes_fixed0;
+	u64 attributes_fixed1;
+	u64 xfam_fixed0;
+	u64 xfam_fixed1;
+
+	u16 num_cpuid_config;
+	/* This must the last member. */
+	DECLARE_FLEX_ARRAY(struct kvm_tdx_cpuid_config, cpuid_configs);
+};
+
+/* Info about the TDX module. */
+static struct tdx_info *tdx_info;
+
 static int __init tdx_module_setup(void)
 {
+	struct st {
+		u16 num_cpuid_config;
+		/* More member will come. */
+	} st;
 	int ret;
+	u32 i;
+
+#define TDX_INFO_MAP(_field_id, _member)		\
+	TD_SYSINFO_MAP(_field_id, struct st, _member)
+
+	struct tdx_metadata_field_mapping st_fields[] = {
+		TDX_INFO_MAP(NUM_CPUID_CONFIG, num_cpuid_config),
+	};
+#undef TDX_INFO_MAP
+
+#define TDX_INFO_MAP(_field_id, _member)			\
+	TD_SYSINFO_MAP(_field_id, struct tdx_info, _member)
+
+	struct tdx_metadata_field_mapping fields[] = {
+		TDX_INFO_MAP(FEATURES0, features0),
+		TDX_INFO_MAP(ATTRS_FIXED0, attributes_fixed0),
+		TDX_INFO_MAP(ATTRS_FIXED1, attributes_fixed1),
+		TDX_INFO_MAP(XFAM_FIXED0, xfam_fixed0),
+		TDX_INFO_MAP(XFAM_FIXED1, xfam_fixed1),
+	};
+#undef TDX_INFO_MAP
 
 	ret = tdx_enable();
 	if (ret)
 		return ret;
 
+	ret = tdx_sys_metadata_read(st_fields, ARRAY_SIZE(st_fields), &st);
+	if (ret)
+		return ret;
+
+	tdx_info = kzalloc(sizeof(*tdx_info) +
+			   sizeof(*tdx_info->cpuid_configs) * st.num_cpuid_config,
+			   GFP_KERNEL);
+	if (!tdx_info)
+		return -ENOMEM;
+	tdx_info->num_cpuid_config = st.num_cpuid_config;
+
+	ret = tdx_sys_metadata_read(fields, ARRAY_SIZE(fields), tdx_info);
+	if (ret)
+		goto error_out;
+
+	for (i = 0; i < st.num_cpuid_config; i++) {
+		struct kvm_tdx_cpuid_config *c = &tdx_info->cpuid_configs[i];
+		struct cpuid_st {
+			u64 leaf;
+			u64 eax_ebx;
+			u64 ecx_edx;
+		} cpuid_st;
+
+#define TDX_INFO_MAP(_field_id, _member)			\
+	TD_SYSINFO_MAP(_field_id, struct cpuid_st, _member)
+
+		struct tdx_metadata_field_mapping cpuid_fields[] = {
+			TDX_INFO_MAP(CPUID_CONFIG_LEAVES + i, leaf),
+			TDX_INFO_MAP(CPUID_CONFIG_VALUES + i * 2, eax_ebx),
+			TDX_INFO_MAP(CPUID_CONFIG_VALUES + i * 2 + 1, ecx_edx),
+		};
+#undef TDX_INFO_MAP
+
+		ret = tdx_sys_metadata_read(cpuid_fields, ARRAY_SIZE(cpuid_fields),
+					    &cpuid_st);
+		if (ret)
+			goto error_out;
+
+		c->leaf = (u32)cpuid_st.leaf;
+		c->sub_leaf = cpuid_st.leaf >> 32;
+		c->eax = (u32)cpuid_st.eax_ebx;
+		c->ebx = cpuid_st.eax_ebx >> 32;
+		c->ecx = (u32)cpuid_st.ecx_edx;
+		c->edx = cpuid_st.ecx_edx >> 32;
+	}
+
 	return 0;
+
+error_out:
+	/* kfree() accepts NULL. */
+	kfree(tdx_info);
+	return ret;
 }
 
 struct tdx_enabled {
@@ -95,4 +186,9 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 
 out:
 	return r;
+}
+
+void tdx_hardware_unsetup(void)
+{
+	kfree(tdx_info);
 }

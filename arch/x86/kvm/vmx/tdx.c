@@ -67,7 +67,7 @@ static size_t tdx_md_element_size(u64 fid)
 	}
 }
 
-int tdx_md_read(struct tdx_md_map *maps, int nr_maps)
+static int tdx_md_read(struct tdx_md_map *maps, int nr_maps)
 {
 	struct tdx_md_map *m;
 	int ret, i;
@@ -85,9 +85,39 @@ int tdx_md_read(struct tdx_md_map *maps, int nr_maps)
 	return 0;
 }
 
+struct tdx_info {
+	u64 attributes_fixed0;
+	u64 attributes_fixed1;
+	u64 xfam_fixed0;
+	u64 xfam_fixed1;
+
+	u16 num_cpuid_config;
+	/* This must the last member. */
+	DECLARE_FLEX_ARRAY(struct kvm_tdx_cpuid_config, cpuid_configs);
+};
+
+/* Info about the TDX module. */
+static struct tdx_info *tdx_info;
+
 static int __init tdx_module_setup(void)
 {
+	u16 num_cpuid_config;
 	int ret;
+	u32 i;
+
+	struct tdx_md_map mds[] = {
+		TDX_MD_MAP(NUM_CPUID_CONFIG, &num_cpuid_config),
+	};
+
+#define TDX_INFO_MAP(_field_id, _member)			\
+	TD_SYSINFO_MAP(_field_id, struct tdx_info, _member)
+
+	struct tdx_metadata_field_mapping tdx_info_md[] = {
+		TDX_INFO_MAP(ATTRS_FIXED0, attributes_fixed0),
+		TDX_INFO_MAP(ATTRS_FIXED1, attributes_fixed1),
+		TDX_INFO_MAP(XFAM_FIXED0, xfam_fixed0),
+		TDX_INFO_MAP(XFAM_FIXED1, xfam_fixed1),
+	};
 
 	ret = tdx_enable();
 	if (ret) {
@@ -95,7 +125,49 @@ static int __init tdx_module_setup(void)
 		return ret;
 	}
 
+	ret = tdx_md_read(mds, ARRAY_SIZE(mds));
+	if (ret)
+		return ret;
+
+	tdx_info = kzalloc(sizeof(*tdx_info) +
+			   sizeof(*tdx_info->cpuid_configs) * num_cpuid_config,
+			   GFP_KERNEL);
+	if (!tdx_info)
+		return -ENOMEM;
+	tdx_info->num_cpuid_config = num_cpuid_config;
+
+	ret = tdx_sys_metadata_read(tdx_info_md, ARRAY_SIZE(tdx_info_md), tdx_info);
+	if (ret)
+		return ret;
+
+	for (i = 0; i < num_cpuid_config; i++) {
+		struct kvm_tdx_cpuid_config *c = &tdx_info->cpuid_configs[i];
+		u64 leaf, eax_ebx, ecx_edx;
+		struct tdx_md_map cpuids[] = {
+			TDX_MD_MAP(CPUID_CONFIG_LEAVES + i, &leaf),
+			TDX_MD_MAP(CPUID_CONFIG_VALUES + i * 2, &eax_ebx),
+			TDX_MD_MAP(CPUID_CONFIG_VALUES + i * 2 + 1, &ecx_edx),
+		};
+
+		ret = tdx_md_read(cpuids, ARRAY_SIZE(cpuids));
+		if (ret)
+			goto error_sys_rd;
+
+		c->leaf = (u32)leaf;
+		c->sub_leaf = leaf >> 32;
+		c->eax = (u32)eax_ebx;
+		c->ebx = eax_ebx >> 32;
+		c->ecx = (u32)ecx_edx;
+		c->edx = ecx_edx >> 32;
+	}
+
 	return 0;
+
+error_sys_rd:
+	ret = -EIO;
+	/* kfree() accepts NULL. */
+	kfree(tdx_info);
+	return ret;
 }
 
 bool tdx_is_vm_type_supported(unsigned long type)
@@ -162,4 +234,9 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 
 out:
 	return r;
+}
+
+void tdx_hardware_unsetup(void)
+{
+	kfree(tdx_info);
 }

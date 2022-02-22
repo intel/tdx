@@ -8144,6 +8144,45 @@ static unsigned int vmx_handle_intel_pt_intr(void)
 	return 1;
 }
 
+static __init void vmxon(void *arg)
+{
+	int cpu = raw_smp_processor_id();
+	u64 phys_addr = __pa(per_cpu(vmxarea, cpu));
+	atomic_t *failed = arg;
+	int r;
+
+	if (cr4_read_shadow() & X86_CR4_VMXE) {
+		r = -EBUSY;
+		goto out;
+	}
+
+	r = kvm_cpu_vmxon(phys_addr);
+out:
+	if (r)
+		atomic_inc(failed);
+}
+
+__init int vmxon_all(void)
+{
+	atomic_t failed = ATOMIC_INIT(0);
+
+	on_each_cpu(vmxon, &failed, 1);
+
+	if (atomic_read(&failed))
+		return -EBUSY;
+	return 0;
+}
+
+static __init void vmxoff(void *junk)
+{
+	cpu_vmxoff();
+}
+
+__init void vmxoff_all(void)
+{
+	on_each_cpu(vmxoff, NULL, 1);
+}
+
 static __init void vmx_setup_user_return_msrs(void)
 {
 

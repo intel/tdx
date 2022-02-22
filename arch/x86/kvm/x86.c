@@ -11975,11 +11975,26 @@ static void hardware_enable(void *arg)
 		atomic_inc(failed);
 }
 
+static int kvm_hardware_enable_all(void)
+{
+	atomic_t failed = ATOMIC_INIT(0);
+
+	on_each_cpu(hardware_enable, &failed, 1);
+	if (atomic_read(&failed))
+		return -EBUSY;
+	return 0;
+}
+
 static void hardware_disable(void *junk)
 {
 	WARN_ON_ONCE(preemptible());
 	static_call(kvm_x86_hardware_disable)();
 	drop_user_return_notifiers();
+}
+
+static void kvm_hardware_disable_all(void)
+{
+	on_each_cpu(hardware_disable, NULL, 1);
 }
 
 /*
@@ -11988,23 +12003,18 @@ static void hardware_disable(void *junk)
  */
 int kvm_arch_add_vm(struct kvm *kvm, int usage_count)
 {
-	atomic_t failed = ATOMIC_INIT(0);
-	int r = 0;
+	int r;
 
 	if (usage_count != 1)
 		return kvm_mmu_post_init_vm(kvm);
 
-	on_each_cpu(hardware_enable, &failed, 1);
-
-	if (atomic_read(&failed)) {
-		r = -EBUSY;
-		goto err;
-	}
+	r = kvm_hardware_enable_all();
+	if (r)
+		return r;
 
 	r = kvm_mmu_post_init_vm(kvm);
-err:
 	if (r)
-		on_each_cpu(hardware_disable, NULL, 1);
+		kvm_hardware_disable_all();
 	return r;
 }
 
@@ -12013,7 +12023,7 @@ int kvm_arch_del_vm(int usage_count)
 	if (usage_count)
 		return 0;
 
-	on_each_cpu(hardware_disable, NULL, 1);
+	kvm_hardware_disable_all();
 	return 0;
 }
 

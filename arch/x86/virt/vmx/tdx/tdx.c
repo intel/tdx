@@ -387,7 +387,7 @@ err:
 	return -EINVAL;
 }
 
-static int tdx_get_sysinfo(void)
+static int __tdx_get_sysinfo(void)
 {
 	struct tdx_module_output out;
 	int ret;
@@ -413,6 +413,18 @@ static int tdx_get_sysinfo(void)
 	 */
 	return trim_empty_cmrs(tdx_cmr_array, &tdx_cmr_num);
 }
+
+const struct tdsysinfo_struct *tdx_get_sysinfo(void)
+{
+	const struct tdsysinfo_struct *r = NULL;
+
+	mutex_lock(&tdx_module_lock);
+	if (tdx_module_status == TDX_MODULE_INITIALIZED)
+		r = &tdx_sysinfo;
+	mutex_unlock(&tdx_module_lock);
+	return r;
+}
+EXPORT_SYMBOL_GPL(tdx_get_sysinfo);
 
 /* Check whether the given pfn range is covered by any CMR or not. */
 static bool pfn_range_covered_by_cmr(unsigned long start_pfn,
@@ -1178,7 +1190,7 @@ static int init_tdx_module(void)
 	if (ret)
 		goto out;
 
-	ret = tdx_get_sysinfo();
+	ret = __tdx_get_sysinfo();
 	if (ret)
 		goto out;
 

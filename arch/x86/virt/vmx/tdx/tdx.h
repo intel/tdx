@@ -145,7 +145,4 @@ struct tdmr_info_list {
 	int max_tdmrs;	/* How many 'tdmr_info's are allocated */
 };
 
-struct tdx_module_output;
-u64 __seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
-	       struct tdx_module_output *out);
 #endif

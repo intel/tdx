@@ -13,7 +13,7 @@
 #define tdcall		.byte 0x66,0x0f,0x01,0xcc
 #define seamcall	.byte 0x66,0x0f,0x01,0xcf
 
-.macro TDX_MODULE_CALL host:req
+.macro TDX_MODULE_CALL host:req error_check=1
 	/*
 	 * R12 will be used as temporary storage for struct tdx_module_output
 	 * pointer. Since R12-R15 registers are not used by TDCALL/SEAMCALL
@@ -51,9 +51,11 @@
 	 *
 	 * Set %rax to TDX_SEAMCALL_VMFAILINVALID for VMfailInvalid.
 	 * This value will never be used as actual SEAMCALL error code.
-	 */
+	*/
+	.if \error_check
 	jnc .Lno_vmfailinvalid
 	mov $TDX_SEAMCALL_VMFAILINVALID, %rax
+	.endif
 .Lno_vmfailinvalid:
 	.else
 	tdcall
@@ -66,8 +68,10 @@
 	pop %r12
 
 	/* Check for success: 0 - Successful, otherwise failed */
+	.if \error_check
 	test %rax, %rax
 	jnz .Lno_output_struct
+	.endif
 
 	/*
 	 * Since this function can be initiated without an output pointer,

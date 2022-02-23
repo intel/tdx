@@ -50,3 +50,4 @@ SYM_FUNC_START(__seamcall)
 	FRAME_END
 	ret
 SYM_FUNC_END(__seamcall)
+EXPORT_SYMBOL_GPL(__seamcall)

@@ -564,6 +564,7 @@ u8 tdx_get_mt_mask(struct kvm_vcpu *vcpu, gfn_t gfn, bool is_mmio)
 
 int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 {
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 
 	/*
@@ -600,6 +601,9 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	 *	!(to_kvm_tdx(vcpu->kvm)->attributes & TDX_TD_ATTRIBUTE_DEBUG);
 	 */
 	vcpu->arch.guest_state_protected = true;
+
+	if ((kvm_tdx->xfam & XFEATURE_MASK_XTILE) == XFEATURE_MASK_XTILE)
+		vcpu->arch.xfd_no_write_intercept = true;
 
 	tdx->pi_desc.nv = POSTED_INTR_VECTOR;
 	tdx->pi_desc.sn = 1;
@@ -2425,16 +2429,6 @@ static int setup_tdparams_xfam(struct kvm_cpuid2 *cpuid, struct td_params *td_pa
 		 */
 #define MSG_LBR	"TD doesn't support LBR yet. KVM needs to save/restore IA32_LBR_DEPTH properly.\n"
 		pr_warn(MSG_LBR);
-		return -EOPNOTSUPP;
-	}
-
-	if (td_params->xfam & XFEATURE_MASK_XTILE) {
-		/*
-		 * TODO: once KVM supports AMX(save/restore AMX related
-		 * registers around TDENTER), remove this guard.
-		 */
-#define MSG_AMX	"TD doesn't support AMX yet. KVM needs to save/restore IA32_XFD, IA32_XFD_ERR properly.\n"
-		pr_warn(MSG_AMX);
 		return -EOPNOTSUPP;
 	}
 

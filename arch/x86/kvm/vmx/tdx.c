@@ -580,6 +580,7 @@ free_hkid:
 int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
 	int ret, i;
 
 	/* TDX only supports x2APIC, which requires an in-kernel local APIC. */
@@ -624,6 +625,9 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	 *	!(to_kvm_tdx(vcpu->kvm)->attributes & TDX_TD_ATTRIBUTE_DEBUG);
 	 */
 	vcpu->arch.guest_state_protected = true;
+
+	if ((kvm_tdx->xfam & XFEATURE_MASK_XTILE) == XFEATURE_MASK_XTILE)
+		vcpu->arch.xfd_no_write_intercept = true;
 
 	tdx->pi_desc.nv = POSTED_INTR_VECTOR;
 	tdx->pi_desc.sn = 1;
@@ -2468,16 +2472,6 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 		 */
 		pr_warn("TD doesn't support LBR yet. KVM needs to save/restore "
 			"IA32_LBR_DEPTH properly.\n");
-		return -EOPNOTSUPP;
-	}
-
-	if (td_params->xfam & XFEATURE_MASK_XTILE) {
-		/*
-		 * TODO: once KVM supports AMX(save/restore AMX related
-		 * registers around TDENTER), remove this guard.
-		 */
-		pr_warn("TD doesn't support AMX yet. KVM needs to save/restore "
-			"IA32_XFD, IA32_XFD_ERR properly.\n");
 		return -EOPNOTSUPP;
 	}
 

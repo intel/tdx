@@ -545,6 +545,7 @@ free_hkid:
 int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
 	int ret, i;
 
 	ret = tdx_alloc_td_page(&tdx->tdvpr);
@@ -574,6 +575,9 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	vcpu->arch.l1_tsc_offset = vcpu->arch.tsc_offset;
 	vcpu->arch.guest_state_protected =
 		!(to_kvm_tdx(vcpu->kvm)->attributes & TDX_TD_ATTRIBUTE_DEBUG);
+
+	if ((kvm_tdx->xfam & XFEATURE_MASK_XTILE) == XFEATURE_MASK_XTILE)
+		vcpu->arch.xfd_no_write_intercept = true;
 
 	tdx->pi_desc.nv = POSTED_INTR_VECTOR;
 	tdx->pi_desc.sn = 1;
@@ -2237,12 +2241,6 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 	if (td_params->xfam & XFEATURE_MASK_LBR) {
 		pr_warn("TD doesn't support LBR. KVM needs to save/restore "
 			"IA32_LBR_DEPTH properly.\n");
-		return -EOPNOTSUPP;
-	}
-
-	if (td_params->xfam & XFEATURE_MASK_XTILE) {
-		pr_warn("TD doesn't support AMX. KVM needs to save/restore "
-			"IA32_XFD, IA32_XFD_ERR properly.\n");
 		return -EOPNOTSUPP;
 	}
 

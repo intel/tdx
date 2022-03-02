@@ -766,6 +766,7 @@ config SCHED_OMIT_FRAME_POINTER
 
 menuconfig HYPERVISOR_GUEST
 	bool "Linux guest support"
+	select ARCH_HAS_CC_PLATFORM
 	help
 	  Say Y here to enable options for running Linux under various hyper-
 	  visors. This option enables basic hypervisor detection and platform

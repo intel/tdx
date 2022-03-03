@@ -6108,7 +6108,7 @@ static bool kvm_has_zapped_obsolete_pages(struct kvm *kvm)
 
 static void kvm_mmu_zap_memslot(struct kvm *kvm, struct kvm_memory_slot *slot)
 {
-	bool flush;
+	bool flush = false;
 
 	write_lock(&kvm->mmu_lock);
 
@@ -6117,16 +6117,34 @@ static void kvm_mmu_zap_memslot(struct kvm *kvm, struct kvm_memory_slot *slot)
 	 * case scenario we'll have unused shadow pages lying around until they
 	 * are recycled due to age or when the VM is destroyed.
 	 */
-	flush = slot_handle_level(kvm, slot, kvm_zap_rmapp, PG_LEVEL_4K,
-				  KVM_MAX_HUGEPAGE_LEVEL, true);
-	if (kvm_gfn_stolen_mask(kvm)) {
-		/* TLB flushing is necessary before drop the private pages */
-		if (flush)
-			kvm_flush_remote_tlbs(kvm);
-		flush = slot_handle_level(kvm, slot,
-					kvm_drop_private_zapped_rmapp,
-					PG_LEVEL_4K,
-					KVM_MAX_HUGEPAGE_LEVEL, false);
+	if (is_tdp_mmu_enabled(kvm)) {
+		struct kvm_gfn_range range = {
+		      .slot = slot,
+		      .start = slot->base_gfn,
+		      .end = slot->base_gfn + slot->npages,
+		      .may_block = false,
+		};
+
+		/*
+		 * For now, page migration isn't supported.  Not unmap private
+		 * gpa to keep private pages.
+		 */
+		flush = kvm_tdp_mmu_unmap_gfn_range(kvm, &range, flush);
+	} else {
+		flush = slot_handle_level(kvm, slot, kvm_zap_rmapp, PG_LEVEL_4K,
+					KVM_MAX_HUGEPAGE_LEVEL, true);
+		if (kvm_gfn_stolen_mask(kvm)) {
+			/*
+			 * TLB flushing is necessary before drop the private
+			 * pages
+			 */
+			if (flush)
+				kvm_flush_remote_tlbs(kvm);
+			flush = slot_handle_level(kvm, slot,
+						kvm_drop_private_zapped_rmapp,
+						PG_LEVEL_4K,
+						KVM_MAX_HUGEPAGE_LEVEL, false);
+		}
 	}
 	if (flush)
 		kvm_flush_remote_tlbs(kvm);

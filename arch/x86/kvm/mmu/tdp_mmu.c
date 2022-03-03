@@ -1084,13 +1084,25 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
 			 * by MapGPA hypercall.
 			 */
 			if (fault->slot &&
-				is_private_prohibit_spte(iter->old_spte))
+				is_private_prohibit_spte(iter->old_spte)) {
+				pr_err_ratelimited(
+					"%s:%d:%s retry inter->gfn 0x%llx private %d spte 0x%llx sptep 0x%p\n",
+					__FILE__, __LINE__, __func__, iter->gfn,
+					is_private_sp(sp), iter->old_spte,
+					iter->sptep);
 				return RET_PF_RETRY;
+			}
 		} else {
 			/* This GPA is not allowed to map as shared. */
 			if (fault->slot &&
-				!is_private_prohibit_spte(iter->old_spte))
+				!is_private_prohibit_spte(iter->old_spte)) {
+				pr_err_ratelimited(
+					"%s:%d:%s retry inter->gfn 0x%llx private %d spte 0x%llx sptep 0x%p\n",
+					__FILE__, __LINE__, __func__, iter->gfn,
+					is_private_sp(sp), iter->old_spte,
+					iter->sptep);
 				return RET_PF_RETRY;
+			}
 			/* TDX shared GPAs are no executable, enforce this. */
 			pte_access &= ~ACC_EXEC_MASK;
 		}

@@ -22,4 +22,3 @@ KVM
 
    intel-tdx
    tdx-tdp-mmu
-   intel-tdx-layer-status.rst

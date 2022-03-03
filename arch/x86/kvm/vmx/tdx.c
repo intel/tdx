@@ -1586,6 +1586,14 @@ static int tdx_sept_link_private_sp(struct kvm *kvm, gfn_t gfn,
 	return 0;
 }
 
+static void tdx_merge_private_tlb_flush_range(struct kvm_tdx *kvm_tdx,
+					      gfn_t start, gfn_t end)
+{
+	kvm_tdx->has_private_zapped = true;
+	kvm_tdx->low_gfn = min(kvm_tdx->low_gfn, start);
+	kvm_tdx->high_gfn = max(kvm_tdx->high_gfn, end);
+}
+
 static void tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn,
 				      enum pg_level level)
 {
@@ -1600,6 +1608,9 @@ static void tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn,
 	spin_unlock(&kvm_tdx->seamcall_lock);
 	if (KVM_BUG_ON(err, kvm))
 		pr_tdx_error(TDH_MEM_RANGE_BLOCK, err, &out);
+
+	/* make sure flush_tlb_range call tdx_track() */
+	tdx_merge_private_tlb_flush_range(kvm_tdx, gfn, gfn + 1);
 }
 
 static void tdx_sept_unzap_private_spte(struct kvm *kvm, gfn_t gfn,
@@ -1776,12 +1787,7 @@ static void tdx_handle_changed_private_spte(
 
 		if (is_private_zapped) {
 			lockdep_assert_held_write(&kvm->mmu_lock);
-
-			kvm_tdx->has_private_zapped = true;
-			if (gfn < kvm_tdx->low_gfn)
-				kvm_tdx->low_gfn = gfn;
-			if (kvm_tdx->high_gfn < gfn + 1)
-				kvm_tdx->high_gfn = gfn + 1;
+			tdx_merge_private_tlb_flush_range(kvm_tdx, gfn, gfn + 1);
 		} else {
 			lockdep_assert_held_read(&kvm->mmu_lock);
 

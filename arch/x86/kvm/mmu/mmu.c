@@ -6108,20 +6108,31 @@ static bool kvm_has_zapped_obsolete_pages(struct kvm *kvm)
 
 static void kvm_mmu_zap_memslot(struct kvm *kvm, struct kvm_memory_slot *slot)
 {
+	bool flush;
+
+	write_lock(&kvm->mmu_lock);
+
 	/*
 	 * Zapping non-leaf SPTEs, a.k.a. not-last SPTEs, isn't required, worst
 	 * case scenario we'll have unused shadow pages lying around until they
 	 * are recycled due to age or when the VM is destroyed.
 	 */
-	write_lock(&kvm->mmu_lock);
-	slot_handle_level(kvm, slot, kvm_zap_rmapp, PG_LEVEL_4K,
-			  KVM_MAX_HUGEPAGE_LEVEL, true);
+	flush = slot_handle_level(kvm, slot, kvm_zap_rmapp, PG_LEVEL_4K,
+				  KVM_MAX_HUGEPAGE_LEVEL, true);
 	if (kvm_gfn_stolen_mask(kvm)) {
-		kvm_flush_remote_tlbs(kvm);
-		slot_handle_level(kvm, slot, kvm_drop_private_zapped_rmapp,
-				  PG_LEVEL_4K, KVM_MAX_HUGEPAGE_LEVEL, false);
+		/* TLB flushing is necessary before drop the private pages */
+		if (flush)
+			kvm_flush_remote_tlbs(kvm);
+		flush = slot_handle_level(kvm, slot,
+					kvm_drop_private_zapped_rmapp,
+					PG_LEVEL_4K,
+					KVM_MAX_HUGEPAGE_LEVEL, false);
 	}
+
 	write_unlock(&kvm->mmu_lock);
+
+	if (flush)
+		kvm_flush_remote_tlbs(kvm);
 }
 
 static void kvm_mmu_invalidate_zap_pages_in_memslot(struct kvm *kvm,

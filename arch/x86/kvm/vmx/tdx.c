@@ -969,6 +969,16 @@ static int tdx_handle_exception(struct kvm_vcpu *vcpu)
 	if (is_nmi(intr_info) || is_machine_check(intr_info))
 		return 1;
 
+	if (to_kvm_tdx(vcpu->kvm)->attributes & TDX_TD_ATTRIBUTE_DEBUG) {
+		vcpu->run->exit_reason = KVM_EXIT_DEBUG;
+		vcpu->mmio_needed = 0;
+		vcpu->run->debug.arch.dr6 = 0;
+		vcpu->run->debug.arch.dr7 = 0;
+		vcpu->run->debug.arch.pc = kvm_get_linear_rip(vcpu);
+		vcpu->run->debug.arch.exception = intr_info & 0xff;
+		return 0;
+	}
+
 	kvm_pr_unimpl("unexpected exception 0x%x(exit_reason 0x%llx qual 0x%lx)\n",
 		intr_info,
 		to_tdx(vcpu)->exit_reason.full, tdexit_exit_qual(vcpu));

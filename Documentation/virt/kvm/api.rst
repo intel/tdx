@@ -7597,3 +7597,17 @@ The argument to KVM_ENABLE_CAP is also a bitmask, and must be a subset
 of the result of KVM_CHECK_EXTENSION.  KVM will forward to userspace
 the hypercalls whose corresponding bit is in the argument, and return
 ENOSYS for the others.
+
+8.35 KVM_CAP_VM_TYPES
+---------------------
+:Capability: KVM_CAP_EXIT_HYPERCALL
+:Architectures: x86
+:Type: system
+
+This capability will return supported VM types in bitmap.
+#define KVM_X86_DEFAULT_VM      0
+#define KVM_X86_TDX_VM          1
+If only default VM type is supported, 1 = (1ULL << KVM_X86_DEFAULT_VM) is
+returned.
+If TDX VM type is supported,
+3 = (1ULL << KVM_X86_DEFAULT_VM) | (1ULL << KVM_X86_TDX_VM) is returned.

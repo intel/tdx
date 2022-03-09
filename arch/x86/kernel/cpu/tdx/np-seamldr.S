@@ -56,6 +56,8 @@
  *   rflags,
  * Restore segment registers. don't save them because they have known values.
  *   DS, ES, CS, SS
+ * Note that the CR4.CET depends on CR0.WP, so we need restore CR0 then CR4,
+ * otherwise #GP when we restore CR4.CET if CR0.WP = 0
  */
 	.text
 	__INIT
@@ -90,10 +92,14 @@ SYM_FUNC_START(np_seamldr_launch)
 	pushq	%r11
 	andq	$~X86_CR3_PCID_MASK, %r11
 
-	/* EnterACCS and the NP-SEAMLDR modify CR0 and CR4. */
-	movq	%cr0, %rax
-	pushq	%rax
+	/*
+	 * EnterACCS and the NP-SEAMLDR modify CR0 and CR4.
+	 * NP-SEAMLDR clears CR0.WP=0. CR4.CEP=1 requires CR0.WP=1. (or GP)
+	 * CR0 needs to be restored before CR4.
+	 */
 	movq	%cr4, %rax
+	pushq	%rax
+	movq	%cr0, %rax
 	pushq	%rax
 
 	/* Enable CR4.SMXE for GETSEC. */
@@ -195,10 +201,10 @@ SYM_INNER_LABEL(np_seamldr_nmi_fixup_end, SYM_L_GLOBAL)
 
 	/* Restore CPU status, in reverse order of saving. */
 	popq	%rax
+	movq	%rax, %cr0
+	popq	%rax
 	/* This changes CR4.PCIDE from 0 to 1, CR3.PCID must be 0.  Or #GP. */
 	movq	%rax, %cr4
-	popq	%rax
-	movq	%rax, %cr0
 	popq	%rax
 	movq	%rax, %cr3	/* Restore CR3.PCID */
 

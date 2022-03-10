@@ -917,14 +917,17 @@ static void notify_fallocate(struct inode *inode, pgoff_t start, pgoff_t end)
 static void notify_invalidate_page(struct inode *inode, struct folio *folio,
 				   pgoff_t start, pgoff_t end)
 {
-#ifdef CONFIG_MEMFILE_NOTIFIER
 	struct shmem_inode_info *info = SHMEM_I(inode);
 
+#ifdef CONFIG_MEMFILE_NOTIFIER
 	start = max(start, folio->index);
 	end = min(end, folio->index + folio_nr_pages(folio));
 
 	memfile_notifier_invalidate(&info->memfile_notifiers, start, end);
 #endif
+
+	if (info->xflags & SHM_F_INACCESSIBLE)
+		atomic64_sub(end - start, &current->mm->pinned_vm);
 }
 
 /*
@@ -2681,6 +2684,20 @@ static loff_t shmem_file_llseek(struct file *file, loff_t offset, int whence)
 	return offset;
 }
 
+static bool memlock_limited(unsigned long npages)
+{
+	unsigned long lock_limit;
+	unsigned long pinned;
+
+	lock_limit = rlimit(RLIMIT_MEMLOCK) >> PAGE_SHIFT;
+	pinned = atomic64_add_return(npages, &current->mm->pinned_vm);
+	if (pinned > lock_limit && !capable(CAP_IPC_LOCK)) {
+		atomic64_sub(npages, &current->mm->pinned_vm);
+		return true;
+	}
+	return false;
+}
+
 static long shmem_fallocate(struct file *file, int mode, loff_t offset,
 							 loff_t len)
 {
@@ -2751,6 +2768,12 @@ static long shmem_fallocate(struct file *file, int mode, loff_t offset,
 	/* Try to avoid a swapstorm if len is impossible to satisfy */
 	if (sbinfo->max_blocks && end - start > sbinfo->max_blocks) {
 		error = -ENOSPC;
+		goto out;
+	}
+
+	if ((info->xflags & SHM_F_INACCESSIBLE) &&
+			memlock_limited(end - start)) {
+		error = -ENOMEM;
 		goto out;
 	}
 

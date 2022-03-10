@@ -1092,6 +1092,13 @@ static int shmem_setattr(struct user_namespace *mnt_userns,
 		    (newsize > oldsize && (info->seals & F_SEAL_GROW)))
 			return -EPERM;
 
+		if (info->xflags & SHM_F_INACCESSIBLE) {
+			if(oldsize)
+				return -EPERM;
+			if (!PAGE_ALIGNED(newsize))
+				return -EINVAL;
+		}
+
 		if (newsize != oldsize) {
 			error = shmem_reacct_size(SHMEM_I(inode)->flags,
 					oldsize, newsize);
@@ -1339,6 +1346,8 @@ static int shmem_writepage(struct page *page, struct writeback_control *wbc)
 	if (info->flags & VM_LOCKED)
 		goto redirty;
 	if (!total_swap_pages)
+		goto redirty;
+	if (info->xflags & SHM_F_INACCESSIBLE)
 		goto redirty;
 
 	/*
@@ -2234,6 +2243,9 @@ static int shmem_mmap(struct file *file, struct vm_area_struct *vma)
 	if (ret)
 		return ret;
 
+	if (info->xflags & SHM_F_INACCESSIBLE)
+		return -EPERM;
+
 	/* arm64 - allow memory tagging on RAM-based files */
 	vma->vm_flags |= VM_MTE_ALLOWED;
 
@@ -2442,6 +2454,8 @@ shmem_write_begin(struct file *file, struct address_space *mapping,
 		if ((info->seals & F_SEAL_GROW) && pos + len > inode->i_size)
 			return -EPERM;
 	}
+	if (unlikely(info->xflags & SHM_F_INACCESSIBLE))
+		return -EPERM;
 
 	ret = shmem_getpage(inode, index, pagep, SGP_WRITE);
 
@@ -2518,6 +2532,21 @@ static ssize_t shmem_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 		end_index = i_size >> PAGE_SHIFT;
 		if (index > end_index)
 			break;
+
+		/*
+		 * inode_lock protects setting up seals as well as write to
+		 * i_size. Setting SHM_F_INACCESSIBLE only allowed with
+		 * i_size == 0.
+		 *
+		 * Check SHM_F_INACCESSIBLE after i_size. It effectively
+		 * serialize read vs. setting SHM_F_INACCESSIBLE without
+		 * taking inode_lock in read path.
+		 */
+		if (SHMEM_I(inode)->xflags & SHM_F_INACCESSIBLE) {
+			error = -EPERM;
+			break;
+		}
+
 		if (index == end_index) {
 			nr = i_size & ~PAGE_MASK;
 			if (nr <= offset)
@@ -2646,6 +2675,12 @@ static long shmem_fallocate(struct file *file, int mode, loff_t offset,
 		/* protected by i_rwsem */
 		if (info->seals & (F_SEAL_WRITE | F_SEAL_FUTURE_WRITE)) {
 			error = -EPERM;
+			goto out;
+		}
+
+		if ((info->xflags & SHM_F_INACCESSIBLE) &&
+		    (!PAGE_ALIGNED(offset) || !PAGE_ALIGNED(len))) {
+			error = -EINVAL;
 			goto out;
 		}
 
@@ -4084,6 +4119,28 @@ static struct file *__shmem_file_setup(struct vfsmount *mnt, const char *name, l
 struct file *shmem_kernel_file_setup(const char *name, loff_t size, unsigned long flags)
 {
 	return __shmem_file_setup(shm_mnt, name, size, flags, S_PRIVATE);
+}
+
+/**
+ * shmem_file_setup_xflags - get an unlinked file living in tmpfs with
+ *      additional xflags.
+ * @name: name for dentry (to be seen in /proc/<pid>/maps
+ * @size: size to be set for the file
+ * @flags: VM_NORESERVE suppresses pre-accounting of the entire object size
+ * @xflags: SHM_F_INACCESSIBLE prevents ordinary MMU access to the file content
+ */
+
+struct file *shmem_file_setup_xflags(const char *name, loff_t size,
+				     unsigned long flags, unsigned int xflags)
+{
+	struct shmem_inode_info *info;
+	struct file *res = __shmem_file_setup(shm_mnt, name, size, flags, 0);
+
+	if(!IS_ERR(res)) {
+		info = SHMEM_I(file_inode(res));
+		info->xflags = xflags & SHM_F_INACCESSIBLE;
+	}
+	return res;
 }
 
 /**

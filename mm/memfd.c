@@ -261,16 +261,20 @@ long memfd_fcntl(struct file *file, unsigned int cmd, unsigned long arg)
 #define MFD_NAME_PREFIX_LEN (sizeof(MFD_NAME_PREFIX) - 1)
 #define MFD_NAME_MAX_LEN (NAME_MAX - MFD_NAME_PREFIX_LEN)
 
-#define MFD_ALL_FLAGS (MFD_CLOEXEC | MFD_ALLOW_SEALING | MFD_HUGETLB)
+#define MFD_ALL_FLAGS (MFD_CLOEXEC | MFD_ALLOW_SEALING | MFD_HUGETLB | \
+		       MFD_INACCESSIBLE)
 
 SYSCALL_DEFINE2(memfd_create,
 		const char __user *, uname,
 		unsigned int, flags)
 {
+	struct address_space *mapping;
 	unsigned int *file_seals;
+	unsigned int xflags;
 	struct file *file;
 	int fd, error;
 	char *name;
+	gfp_t gfp;
 	long len;
 
 	if (!(flags & MFD_HUGETLB)) {
@@ -282,6 +286,10 @@ SYSCALL_DEFINE2(memfd_create,
 				(MFD_HUGE_MASK << MFD_HUGE_SHIFT)))
 			return -EINVAL;
 	}
+
+	/* Disallow sealing when MFD_INACCESSIBLE is set. */
+	if (flags & MFD_INACCESSIBLE && flags & MFD_ALLOW_SEALING)
+		return -EINVAL;
 
 	/* length includes terminating zero */
 	len = strnlen_user(uname, MFD_NAME_MAX_LEN + 1);
@@ -317,8 +325,11 @@ SYSCALL_DEFINE2(memfd_create,
 					HUGETLB_ANONHUGE_INODE,
 					(flags >> MFD_HUGE_SHIFT) &
 					MFD_HUGE_MASK);
-	} else
-		file = shmem_file_setup(name, 0, VM_NORESERVE);
+	} else {
+		xflags = flags & MFD_INACCESSIBLE ? SHM_F_INACCESSIBLE : 0;
+		file = shmem_file_setup_xflags(name, 0, VM_NORESERVE, xflags);
+	}
+
 	if (IS_ERR(file)) {
 		error = PTR_ERR(file);
 		goto err_fd;
@@ -329,6 +340,15 @@ SYSCALL_DEFINE2(memfd_create,
 	if (flags & MFD_ALLOW_SEALING) {
 		file_seals = memfd_file_seals_ptr(file);
 		*file_seals &= ~F_SEAL_SEAL;
+	} else if (flags & MFD_INACCESSIBLE) {
+		mapping = file_inode(file)->i_mapping;
+		gfp = mapping_gfp_mask(mapping);
+		gfp &= ~__GFP_MOVABLE;
+		mapping_set_gfp_mask(mapping, gfp);
+		mapping_set_unevictable(mapping);
+
+		file_seals = memfd_file_seals_ptr(file);
+		*file_seals = F_SEAL_SEAL;
 	}
 
 	fd_install(fd, file);

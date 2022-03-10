@@ -845,8 +845,43 @@ static int kvm_init_mmu_notifier(struct kvm *kvm)
 #endif /* CONFIG_MMU_NOTIFIER && KVM_ARCH_WANT_MMU_NOTIFIER */
 
 #ifdef CONFIG_MEMFILE_NOTIFIER
+static void kvm_memfile_notifier_handler(struct memfile_notifier *notifier,
+					 pgoff_t start, pgoff_t end)
+{
+	int idx;
+	struct kvm_memory_slot *slot = container_of(notifier,
+						    struct kvm_memory_slot,
+						    notifier);
+	struct kvm_gfn_range gfn_range = {
+		.slot		= slot,
+		.start		= start - (slot->private_offset >> PAGE_SHIFT),
+		.end		= end - (slot->private_offset >> PAGE_SHIFT),
+		.may_block 	= true,
+	};
+	struct kvm *kvm = slot->kvm;
+
+	gfn_range.start = max(gfn_range.start, slot->base_gfn);
+	gfn_range.end = min(gfn_range.end, slot->base_gfn + slot->npages);
+
+	if (gfn_range.start >= gfn_range.end)
+		return;
+
+	idx = srcu_read_lock(&kvm->srcu);
+	KVM_MMU_LOCK(kvm);
+	kvm_unmap_gfn_range(kvm, &gfn_range);
+	kvm_flush_remote_tlbs(kvm);
+	KVM_MMU_UNLOCK(kvm);
+	srcu_read_unlock(&kvm->srcu, idx);
+}
+
+static struct memfile_notifier_ops kvm_memfile_notifier_ops = {
+	.invalidate = kvm_memfile_notifier_handler,
+	.fallocate = kvm_memfile_notifier_handler,
+};
+
 static inline int kvm_memfile_register(struct kvm_memory_slot *slot)
 {
+	slot->notifier.ops = &kvm_memfile_notifier_ops;
 	return memfile_register_notifier(file_inode(slot->private_file),
 					 &slot->notifier,
 					 &slot->pfn_ops);
@@ -1988,6 +2023,7 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	new->private_file = file;
 	new->private_offset = mem->flags & KVM_MEM_PRIVATE ?
 			      region_ext->private_offset : 0;
+	new->kvm = kvm;
 
 	r = kvm_set_memslot(kvm, old, new, change);
 	if (!r)

@@ -573,7 +573,14 @@ struct kvm_memory_slot {
 	u32 flags;
 	short id;
 	u16 as_id;
+	struct file *private_file;
+	loff_t private_offset;
 };
+
+static inline bool kvm_slot_is_private(const struct kvm_memory_slot *slot)
+{
+	return slot && (slot->flags & KVM_MEM_PRIVATE);
+}
 
 static inline bool kvm_slot_dirty_track_enabled(const struct kvm_memory_slot *slot)
 {

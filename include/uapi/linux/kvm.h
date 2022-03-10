@@ -334,6 +334,8 @@ struct kvm_tdx_exit {
 #define KVM_EXIT_RISCV_SBI        35
 /* WORKAROUND to avoid conflict with upstream. */
 #define KVM_EXIT_TDX              50
+/* WORKAROUND to avoid conflict with upstream. TODO: make this value contiguous. */
+#define KVM_EXIT_MEMORY_ERROR     100
 
 /* For KVM_EXIT_INTERNAL_ERROR */
 /* Emulate instruction failed. */
@@ -553,6 +555,14 @@ struct kvm_run {
 		} riscv_sbi;
 		/* KVM_EXIT_TDX_VMCALL */
 		struct kvm_tdx_exit tdx;
+		/* KVM_EXIT_MEMORY_ERROR */
+		struct {
+#define KVM_MEMORY_EXIT_FLAG_PRIVATE	(1 << 0)
+			__u32 flags;
+			__u32 padding;
+			__u64 gpa;
+			__u64 size;
+		} memory;
 		/* Fix the size of the union. */
 		char padding[256];
 	};

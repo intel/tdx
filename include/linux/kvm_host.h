@@ -44,6 +44,7 @@
 
 #include <asm/kvm_host.h>
 #include <linux/kvm_dirty_ring.h>
+#include <linux/memfile_notifier.h>
 
 #ifndef KVM_MAX_VCPU_IDS
 #define KVM_MAX_VCPU_IDS KVM_MAX_VCPUS
@@ -575,6 +576,7 @@ struct kvm_memory_slot {
 	u16 as_id;
 	struct file *private_file;
 	loff_t private_offset;
+	struct memfile_pfn_ops *pfn_ops;
 };
 
 static inline bool kvm_slot_is_private(const struct kvm_memory_slot *slot)
@@ -926,6 +928,7 @@ static inline void kvm_irqfd_exit(void)
 {
 }
 #endif
+
 int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
 		  struct module *module);
 void kvm_exit(void);
@@ -2240,5 +2243,35 @@ static inline void kvm_handle_signal_exit(struct kvm_vcpu *vcpu)
 
 /* Max number of entries allowed for each kvm dirty ring */
 #define  KVM_DIRTY_RING_MAX_ENTRIES  65536
+
+#ifdef CONFIG_MEMFILE_NOTIFIER
+static inline long kvm_memfile_get_pfn(struct kvm_memory_slot *slot, gfn_t gfn,
+				       int *order)
+{
+	pgoff_t index = gfn - slot->base_gfn +
+			(slot->private_offset >> PAGE_SHIFT);
+
+	return slot->pfn_ops->get_lock_pfn(file_inode(slot->private_file),
+					   index, order);
+}
+
+static inline void kvm_memfile_put_pfn(struct kvm_memory_slot *slot,
+				       kvm_pfn_t pfn)
+{
+	slot->pfn_ops->put_unlock_pfn(pfn);
+}
+
+#else
+static inline long kvm_memfile_get_pfn(struct kvm_memory_slot *slot, gfn_t gfn,
+				       int *order)
+{
+	return -1;
+}
+
+static inline void kvm_memfile_put_pfn(struct kvm_memory_slot *slot,
+				       kvm_pfn_t pfn)
+{
+}
+#endif /* CONFIG_MEMFILE_NOTIFIER */
 
 #endif

@@ -905,6 +905,28 @@ static struct folio *shmem_get_partial_folio(struct inode *inode, pgoff_t index)
 	return page ? page_folio(page) : NULL;
 }
 
+static void notify_fallocate(struct inode *inode, pgoff_t start, pgoff_t end)
+{
+#ifdef CONFIG_MEMFILE_NOTIFIER
+	struct shmem_inode_info *info = SHMEM_I(inode);
+
+	memfile_notifier_fallocate(&info->memfile_notifiers, start, end);
+#endif
+}
+
+static void notify_invalidate_page(struct inode *inode, struct folio *folio,
+				   pgoff_t start, pgoff_t end)
+{
+#ifdef CONFIG_MEMFILE_NOTIFIER
+	struct shmem_inode_info *info = SHMEM_I(inode);
+
+	start = max(start, folio->index);
+	end = min(end, folio->index + folio_nr_pages(folio));
+
+	memfile_notifier_invalidate(&info->memfile_notifiers, start, end);
+#endif
+}
+
 /*
  * Remove range of pages and swap entries from page cache, and free them.
  * If !unfalloc, truncate or punch hole; if unfalloc, undo failed fallocate.
@@ -947,6 +969,8 @@ static void shmem_undo_range(struct inode *inode, loff_t lstart, loff_t lend,
 				continue;
 			}
 			index += folio_nr_pages(folio) - 1;
+
+			notify_invalidate_page(inode, folio, start, end);
 
 			if (!unfalloc || !folio_test_uptodate(folio))
 				truncate_inode_folio(mapping, folio);
@@ -1021,6 +1045,9 @@ static void shmem_undo_range(struct inode *inode, loff_t lstart, loff_t lend,
 					index--;
 					break;
 				}
+
+				notify_invalidate_page(inode, folio, start, end);
+
 				VM_BUG_ON_FOLIO(folio_test_writeback(folio),
 						folio);
 				truncate_inode_folio(mapping, folio);
@@ -2286,6 +2313,9 @@ static struct inode *shmem_get_inode(struct super_block *sb, const struct inode 
 		info->i_crtime = inode->i_mtime;
 		INIT_LIST_HEAD(&info->shrinklist);
 		INIT_LIST_HEAD(&info->swaplist);
+#ifdef CONFIG_MEMFILE_NOTIFIER
+		memfile_notifier_list_init(&info->memfile_notifiers);
+#endif
 		simple_xattrs_init(&info->xattrs);
 		cache_no_acl(inode);
 		mapping_set_large_folios(inode->i_mapping);
@@ -2803,6 +2833,7 @@ static long shmem_fallocate(struct file *file, int mode, loff_t offset,
 	if (!(mode & FALLOC_FL_KEEP_SIZE) && offset + len > inode->i_size)
 		i_size_write(inode, offset + len);
 	inode->i_ctime = current_time(inode);
+	notify_fallocate(inode, start, end);
 undone:
 	spin_lock(&inode->i_lock);
 	inode->i_private = NULL;
@@ -3914,6 +3945,47 @@ static struct file_system_type shmem_fs_type = {
 	.fs_flags	= FS_USERNS_MOUNT,
 };
 
+#ifdef CONFIG_MEMFILE_NOTIFIER
+static long shmem_get_lock_pfn(struct inode *inode, pgoff_t offset, int *order)
+{
+	struct page *page;
+	int ret;
+
+	ret = shmem_getpage(inode, offset, &page, SGP_NOALLOC);
+	if (ret)
+		return ret;
+
+	*order = thp_order(compound_head(page));
+
+	return page_to_pfn(page);
+}
+
+static void shmem_put_unlock_pfn(unsigned long pfn)
+{
+	struct page *page = pfn_to_page(pfn);
+
+	VM_BUG_ON_PAGE(!PageLocked(page), page);
+
+	set_page_dirty(page);
+	unlock_page(page);
+	put_page(page);
+}
+
+static struct memfile_notifier_list* shmem_get_notifier_list(struct inode *inode)
+{
+	if (!shmem_mapping(inode->i_mapping))
+		return NULL;
+
+	return  &SHMEM_I(inode)->memfile_notifiers;
+}
+
+static struct memfile_backing_store shmem_backing_store = {
+	.pfn_ops.get_lock_pfn = shmem_get_lock_pfn,
+	.pfn_ops.put_unlock_pfn = shmem_put_unlock_pfn,
+	.get_notifier_list = shmem_get_notifier_list,
+};
+#endif /* CONFIG_MEMFILE_NOTIFIER */
+
 int __init shmem_init(void)
 {
 	int error;
@@ -3938,6 +4010,10 @@ int __init shmem_init(void)
 		SHMEM_SB(shm_mnt->mnt_sb)->huge = shmem_huge;
 	else
 		shmem_huge = SHMEM_HUGE_NEVER; /* just in case it was patched */
+#endif
+
+#ifdef CONFIG_MEMFILE_NOTIFIER
+	memfile_register_backing_store(&shmem_backing_store);
 #endif
 	return 0;
 

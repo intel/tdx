@@ -844,6 +844,37 @@ static int kvm_init_mmu_notifier(struct kvm *kvm)
 
 #endif /* CONFIG_MMU_NOTIFIER && KVM_ARCH_WANT_MMU_NOTIFIER */
 
+#ifdef CONFIG_MEMFILE_NOTIFIER
+static inline int kvm_memfile_register(struct kvm_memory_slot *slot)
+{
+	return memfile_register_notifier(file_inode(slot->private_file),
+					 &slot->notifier,
+					 &slot->pfn_ops);
+}
+
+static inline void kvm_memfile_unregister(struct kvm_memory_slot *slot)
+{
+	if (slot->private_file) {
+		memfile_unregister_notifier(file_inode(slot->private_file),
+					    &slot->notifier);
+		fput(slot->private_file);
+		slot->private_file = NULL;
+	}
+}
+
+#else /* !CONFIG_MEMFILE_NOTIFIER */
+
+static inline int kvm_memfile_register(struct kvm_memory_slot *slot)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline void kvm_memfile_unregister(struct kvm_memory_slot *slot)
+{
+}
+
+#endif /* CONFIG_MEMFILE_NOTIFIER */
+
 #ifdef CONFIG_HAVE_KVM_PM_NOTIFIER
 static int kvm_pm_notifier_call(struct notifier_block *bl,
 				unsigned long state,
@@ -888,6 +919,9 @@ static void kvm_destroy_dirty_bitmap(struct kvm_memory_slot *memslot)
 /* This does not remove the slot from struct kvm_memslots data structures */
 static void kvm_free_memslot(struct kvm *kvm, struct kvm_memory_slot *slot)
 {
+	if (slot->flags & KVM_MEM_PRIVATE)
+		kvm_memfile_unregister(slot);
+
 	kvm_destroy_dirty_bitmap(slot);
 
 	kvm_arch_free_memslot(kvm, slot);
@@ -1763,6 +1797,12 @@ static int kvm_set_memslot(struct kvm *kvm,
 		kvm_invalidate_memslot(kvm, old, invalid_slot);
 	}
 
+	if (new->flags & KVM_MEM_PRIVATE && change == KVM_MR_CREATE) {
+		r = kvm_memfile_register(new);
+		if (r)
+			return r;
+	}
+
 	r = kvm_prepare_memory_region(kvm, old, new, change);
 	if (r) {
 		/*
@@ -1777,6 +1817,10 @@ static int kvm_set_memslot(struct kvm *kvm,
 		} else {
 			mutex_unlock(&kvm->slots_arch_lock);
 		}
+
+		if (new->flags & KVM_MEM_PRIVATE && change == KVM_MR_CREATE)
+			kvm_memfile_unregister(new);
+
 		return r;
 	}
 
@@ -1842,6 +1886,7 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	enum kvm_mr_change change;
 	unsigned long npages;
 	gfn_t base_gfn;
+	struct file *file = NULL;
 	int as_id, id;
 	int r;
 
@@ -1915,14 +1960,24 @@ int __kvm_set_memory_region(struct kvm *kvm,
 			return 0;
 	}
 
+	if (mem->flags & KVM_MEM_PRIVATE) {
+		file = fdget(region_ext->private_fd).file;
+		if (!file)
+			return -EINVAL;
+	}
+
 	if ((change == KVM_MR_CREATE || change == KVM_MR_MOVE) &&
-	    kvm_check_memslot_overlap(slots, id, base_gfn, base_gfn + npages))
-		return -EEXIST;
+	    kvm_check_memslot_overlap(slots, id, base_gfn, base_gfn + npages)) {
+		r = -EEXIST;
+		goto out;
+	}
 
 	/* Allocate a slot that will persist in the memslot. */
 	new = kzalloc(sizeof(*new), GFP_KERNEL_ACCOUNT);
-	if (!new)
-		return -ENOMEM;
+	if (!new) {
+		r = -ENOMEM;
+		goto out;
+	}
 
 	new->as_id = as_id;
 	new->id = id;
@@ -1930,10 +1985,18 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	new->npages = npages;
 	new->flags = mem->flags;
 	new->userspace_addr = mem->userspace_addr;
+	new->private_file = file;
+	new->private_offset = mem->flags & KVM_MEM_PRIVATE ?
+			      region_ext->private_offset : 0;
 
 	r = kvm_set_memslot(kvm, old, new, change);
-	if (r)
-		kfree(new);
+	if (!r)
+		return r;
+
+	kfree(new);
+out:
+	if (file)
+		fput(file);
 	return r;
 }
 EXPORT_SYMBOL_GPL(__kvm_set_memory_region);

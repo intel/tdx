@@ -577,6 +577,7 @@ struct kvm_memory_slot {
 	struct file *private_file;
 	loff_t private_offset;
 	struct memfile_pfn_ops *pfn_ops;
+	struct memfile_notifier notifier;
 };
 
 static inline bool kvm_slot_is_private(const struct kvm_memory_slot *slot)

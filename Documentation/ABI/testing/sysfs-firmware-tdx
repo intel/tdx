@@ -18,6 +18,56 @@ Description:
                 =============== ================================================
 Users:          libvirt
 
+What:           /sys/firmware/tdx/p_seamldr/
+Date:           March 2022
+KernelVersion:  5.17
+Contact:        Isaku Yamahata <isaku.yamahata@intel.com>, kvm@vger.kernel.org
+Description:
+                The P-SEAMLDR is the TDX module loader. The P-SEAMLDR comes
+                with its attributes, vendor_id, build_date, build_num, minor
+                version, major version to identify itself.
+
+                Provides the information about the P-SEAMLDR loaded on the
+                platform.  This directory exists if the P-SEAMLDR is
+                successfully loaded.  It contains the following read-only files.
+                The information corresponds to the data structure, SEAMLDR_INFO.
+                The admins or VMM management software like libvirt can refer to
+                that information, determine if P-SEAMLDR is supported, and
+                identify the loaded P-SEAMLDR.
+
+                =============== ================================================
+                version         structure version of SEAMLDR_INFO as an
+                                hexadecimal number with the "0x" prefix
+                                "0x0".
+                attributes      32bit flags as a hexadecimal number with the
+                                "0x" prefix.
+                                Bit 31 - Production-worthy (0) or
+                                         debug (1).
+                                Bits 30:0 - Reserved 0.
+                vendor_id       Vendor ID as a hexadecimal number with the "0x"
+                                prefix.
+                                "0x0806" (Intel P-SEAMLDR module).
+                build_date      Build date in yyyy.mm.dd BCD format.
+                build_num       Build number as a hexadecimal number with the
+                                "0x" prefix.
+                minor           Minor version number as a hexadecimal number
+                                with the "0x" prefix.
+                major           Major version number as a hexadecimal number
+                                with the "0x" prefix.
+                seaminfo        The SEAM information of the TDX module currently
+                                loaded as binary file.
+                seam_ready      A boolean flag that indicates that a TDX module
+                                is ready for SEAMCALL as a hexadecimal number
+                                with the "0x" prefix.
+                seam_ready      A boolean flag that indicates that a debuggable
+                                TDX module can be loaded as a hexadecimal number
+                                with the "0x" prefix.
+                p_seamldr_ready A boolean flag that indicates that the P-SEAMLDR
+                                module is ready for SEAMCALLs as a hexadecimal
+                                number with the "0x" prefix.
+                =============== ================================================
+Users:          libvirt
+
 What:           /sys/firmware/tdx/tdx_module/
 Date:           March 2022
 KernelVersion:  5.17

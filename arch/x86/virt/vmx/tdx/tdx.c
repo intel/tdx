@@ -53,6 +53,13 @@ static DEFINE_MUTEX(tdx_module_lock);
 
 /* Below two are used in TDH.SYS.INFO SEAMCALL ABI */
 static struct tdsysinfo_struct tdx_sysinfo;
+
+#ifdef CONFIG_SYSFS
+static int tdx_module_sysfs_init(void);
+#else
+static inline int tdx_module_sysfs_init(void) { return 0; }
+#endif
+
 static struct cmr_info tdx_cmr_array[MAX_CMRS] __aligned(CMR_INFO_ARRAY_ALIGNMENT);
 static int tdx_cmr_num;
 
@@ -469,6 +476,7 @@ static int __tdx_get_sysinfo(struct tdsysinfo_struct *tdsysinfo,
 		tdsysinfo->vendor_id, tdsysinfo->major_version,
 		tdsysinfo->minor_version, tdsysinfo->build_date,
 		tdsysinfo->build_num);
+	tdx_module_sysfs_init();
 
 	/*
 	 * check_cmrs() updates the actual number of CMRs by dropping all
@@ -1523,4 +1531,49 @@ static int __init tdx_sysfs_init(void)
 	return ret;
 }
 device_initcall(tdx_sysfs_init);
+
+#define TDX_MODULE_ATTR_SHOW(_name, fmt)				\
+static ssize_t tdx_module_ ## _name ## _show(				\
+	struct kobject *kobj, struct kobj_attribute *attr, char *buf)	\
+{									\
+	return sprintf(buf, fmt, tdx_sysinfo._name);			\
+}									\
+static struct kobj_attribute tdx_module_##_name = {			\
+	.attr = { .name = __stringify(_name), .mode = 0444 },		\
+	.show = tdx_module_ ## _name ## _show,				\
+}
+
+TDX_MODULE_ATTR_SHOW(attributes, "0x%08x");
+TDX_MODULE_ATTR_SHOW(vendor_id, "0x%08x");
+TDX_MODULE_ATTR_SHOW(build_date, "%d");
+TDX_MODULE_ATTR_SHOW(build_num, "0x%08x");
+TDX_MODULE_ATTR_SHOW(minor_version, "0x%08x");
+TDX_MODULE_ATTR_SHOW(major_version, "0x%08x");
+
+static struct attribute *tdx_module_attrs[] = {
+	&tdx_module_attributes.attr,
+	&tdx_module_vendor_id.attr,
+	&tdx_module_build_date.attr,
+	&tdx_module_build_num.attr,
+	&tdx_module_minor_version.attr,
+	&tdx_module_major_version.attr,
+	NULL,
+};
+
+static const struct attribute_group tdx_module_attr_group = {
+	.attrs = tdx_module_attrs,
+};
+
+static int tdx_module_sysfs_init(void)
+{
+	int ret = 0;
+
+	if (!tdx_module_kobj)
+		return -EINVAL;
+
+	ret = sysfs_create_group(tdx_module_kobj, &tdx_module_attr_group);
+	if (ret)
+		pr_err("Sysfs exporting tdx module attributes failed %d\n", ret);
+	return ret;
+}
 #endif

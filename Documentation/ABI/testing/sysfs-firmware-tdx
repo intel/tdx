@@ -1,0 +1,48 @@
+What:           /sys/firmware/tdx/
+Date:           March 2022
+KernelVersion:  5.17
+Contact:        Isaku Yamahata <isaku.yamahata@intel.com>, kvm@vger.kernel.org
+Description:
+                Intel's Trust Domain Extensions (TDX) protect guest VMs from
+                malicious hosts and some physical attacks.  This directory
+                represents the entry point directory for the TDX.
+
+                the TDX requires the TDX firmware to load into an isolated
+                memory region.  It requires a two-step loading process.  It uses
+                the first phase firmware loader (a.k.a NP-SEAMLDR) that loads
+                the next loader and the second phase firmware loader(a.k.a
+                P-SEAMLDR) that loads the TDX firmware(a.k.a the "TDX module").
+                =============== ================================================
+                keyid_num       the number of SEAM keyid as an hexadecimal
+                                number with the "0x" prefix.
+                =============== ================================================
+Users:          libvirt
+
+What:           /sys/firmware/tdx/tdx_module/
+Date:           March 2022
+KernelVersion:  5.17
+Contact:        Isaku Yamahata <isaku.yamahata@intel.com>, kvm@vger.kernel.org
+Description:
+                The TDX requires a firmware as known as the TDX module.  It comes
+                with its attributes, vendor_id, build_data, build_num,
+                minor_version, major_version, etc.
+
+                Provides the information about the TDX module loaded on the
+                platform.  It contains the following read-only files.  The
+                information corresponds to the data structure, TDSYSINFO_STRUCT.
+                The admins or VMM management software like libvirt can refer to
+                that information, determine if TDX is supported, and identify
+                the loaded the TDX module.
+
+                ================== ============================================
+                status             string of the TDX module status.
+                                   "unknown"
+                                   "none": the TDX module is not loaded
+                                   "loaded": The TDX module is loaded, but not
+                                             initialized
+                                   "initialized": the TDX module is fully
+                                                  initialized
+                                   "shutdown": the TDX module is shutdown due to
+                                               error during initialization.
+                ================== ============================================
+Users:          libvirt

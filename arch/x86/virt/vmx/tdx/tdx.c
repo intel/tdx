@@ -1806,6 +1806,38 @@ static const struct attribute_group tdx_metadata_attr_group = {
 	.bin_attrs = tdx_metadata_attrs,
 };
 
+#define TDX_MODULE_ATTR_SHOW(_name, fmt)				\
+static ssize_t tdx_module_ ## _name ## _show(				\
+	struct kobject *kobj, struct kobj_attribute *attr, char *buf)	\
+{									\
+	return sprintf(buf, fmt, sysinfo->_name);			\
+}									\
+static struct kobj_attribute tdx_module_##_name = {			\
+	.attr = { .name = __stringify(_name), .mode = 0444 },		\
+	.show = tdx_module_ ## _name ## _show,				\
+}
+
+TDX_MODULE_ATTR_SHOW(attributes, "0x%08x");
+TDX_MODULE_ATTR_SHOW(vendor_id, "0x%08x");
+TDX_MODULE_ATTR_SHOW(build_date, "%d");
+TDX_MODULE_ATTR_SHOW(build_num, "0x%08x");
+TDX_MODULE_ATTR_SHOW(minor_version, "0x%08x");
+TDX_MODULE_ATTR_SHOW(major_version, "0x%08x");
+
+static struct attribute *tdx_module_attrs[] = {
+	&tdx_module_attributes.attr,
+	&tdx_module_vendor_id.attr,
+	&tdx_module_build_date.attr,
+	&tdx_module_build_num.attr,
+	&tdx_module_minor_version.attr,
+	&tdx_module_major_version.attr,
+	NULL,
+};
+
+static const struct attribute_group tdx_module_attr_group = {
+	.attrs = tdx_module_attrs,
+};
+
 static int tdx_sysfs_init(void)
 {
 	int ret;
@@ -1841,6 +1873,12 @@ static int tdx_sysfs_init(void)
 	if (!tdx_metadata_kobj) {
 		pr_err("Sysfs exporting tdx global metadata failed %d\n", ret);
 		return -EINVAL;
+	}
+
+	ret = sysfs_create_group(tdx_module_kobj, &tdx_module_attr_group);
+	if (ret) {
+		pr_err("Sysfs exporting tdx module attributes failed %d\n", ret);
+		return ret;
 	}
 
 	tdx_metadata_cpuid_leaves.size = sysinfo->num_cpuid_config *

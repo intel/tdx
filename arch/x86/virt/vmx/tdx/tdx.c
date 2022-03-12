@@ -1387,3 +1387,70 @@ int tdx_enable(void)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(tdx_enable);
+
+#ifdef CONFIG_SYSFS
+
+static struct kobject *tdx_kobj;
+static struct kobject *tdx_module_kobj;
+
+static ssize_t tdx_nr_keyids_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "0x%08x", nr_tdx_keyids);
+}
+
+static struct kobj_attribute tdx_nr_keyids_attr = {
+	.attr = { .name = "nr_keyids", .mode = 0444 },
+	.show = tdx_nr_keyids_show,
+};
+
+static ssize_t tdx_module_status_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+	static const char * const names[] = {
+		[TDX_MODULE_UNKNOWN] = "unknown",
+		[TDX_MODULE_INITIALIZED] = "initialized",
+		[TDX_MODULE_ERROR] = "error",
+	};
+	const char *status = "unknown";
+
+	mutex_lock(&tdx_module_lock);
+	if (tdx_module_status < ARRAY_SIZE(names))
+		status = names[tdx_module_status];
+	mutex_unlock(&tdx_module_lock);
+
+	return sprintf(buf, "%s", status);
+}
+
+static struct kobj_attribute tdx_module_status_attr = {
+	.attr = { .name = "status", .mode = 0444 },
+	.show = tdx_module_status_show,
+};
+
+static int __init tdx_sysfs_init(void)
+{
+	int ret;
+
+	tdx_kobj = kobject_create_and_add("tdx", firmware_kobj);
+	if (!tdx_kobj) {
+		pr_err("kobject_create_and_add tdx failed\n");
+		return -EINVAL;
+	}
+
+	ret = sysfs_create_file(tdx_kobj, &tdx_nr_keyids_attr.attr);
+	if (ret) {
+		pr_err("Sysfs exporting seam nr_keyids failed %d\n", ret);
+		return ret;
+	}
+
+	tdx_module_kobj = kobject_create_and_add("tdx_module", tdx_kobj);
+	if (!tdx_module_kobj) {
+		pr_err("kobject_create_and_add tdx_module failed\n");
+		return -EINVAL;
+	}
+	ret = sysfs_create_file(tdx_module_kobj, &tdx_module_status_attr.attr);
+	if (ret)
+		pr_err("Sysfs exporting tdx module status failed %d\n", ret);
+
+	return ret;
+}
+device_initcall(tdx_sysfs_init);
+#endif

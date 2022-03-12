@@ -211,6 +211,7 @@ static void detect_seam_bsp(struct cpuinfo_x86 *c)
 
 	seamrr_base = base;
 	seamrr_mask = mask;
+	set_cpu_cap(c, X86_FEATURE_SEAM);
 }
 
 static void detect_seam_ap(struct cpuinfo_x86 *c)
@@ -227,8 +228,10 @@ static void detect_seam_ap(struct cpuinfo_x86 *c)
 	rdmsrl(MSR_IA32_SEAMRR_PHYS_BASE, base);
 	rdmsrl(MSR_IA32_SEAMRR_PHYS_MASK, mask);
 
-	if (base == seamrr_base && mask == seamrr_mask)
+	if (base == seamrr_base && mask == seamrr_mask) {
+		set_cpu_cap(c, X86_FEATURE_SEAM);
 		return;
+	}
 
 	pr_err("Inconsistent SEAMRR configuration by BIOS\n");
 	/* Mark SEAMRR as disabled. */

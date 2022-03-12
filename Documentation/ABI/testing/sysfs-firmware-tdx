@@ -94,5 +94,27 @@ Description:
                                                   initialized
                                    "shutdown": the TDX module is shutdown due to
                                                error during initialization.
+                attributes         32bit flags of the TDX module attributes as
+                                   a hexadecimal number with the "0x" prefix.
+                                   Bits 31 - a production module(0) or
+                                             a debug module(1).
+                                   Bits 30:0 Reserved - set to 0.
+                vendor_id          vendor ID as a hexadecimal number with the
+                                   "0x" prefix.
+                build_date         build date in yyyymmdd BCD format.
+                build_num          build number as a hexadecimal number with
+                                   the "0x" prefix.
+                minor_version      minor version as a hexadecimal number with
+                                   the "0x" prefix.
+                major_version      major versionas a hexadecimal number with
+                                   the "0x" prefix.
+                attributes_fixed0  fixed-0 value for TD's attributes as a
+                                   hexadecimal number with the "0x" prefix.
+                attributes_fixed1  fixed-1 value for TD's attributes as a
+                                   hexadecimal number with the "0x" prefix.
+                xfam_fixed0        fixed-0 value for TD xfam value as a
+                                   hexadecimal number with the "0x" prefix.
+                xfam_fixed1        fixed-1 value for TD xfam value as a
+                                   hexadecimal number with the "0x" prefix.
                 ================== ============================================
 Users:          libvirt

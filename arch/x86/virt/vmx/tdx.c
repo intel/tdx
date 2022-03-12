@@ -110,8 +110,10 @@ static struct p_seamldr_info p_seamldr_info;
 
 #ifdef CONFIG_SYSFS
 static int p_seamldr_sysfs_init(void);
+static int tdx_module_sysfs_init(void);
 #else
 static inline int p_seamldr_sysfs_init(void) { return 0; }
+static inline int tdx_module_sysfs_init(void) { return 0; }
 #endif
 
 /* Base address of CMR array needs to be 512 bytes aligned. */
@@ -756,6 +758,7 @@ static int __tdx_get_sysinfo(void)
 		tdx_sysinfo.vendor_id, tdx_sysinfo.major_version,
 		tdx_sysinfo.minor_version, tdx_sysinfo.build_date,
 		tdx_sysinfo.build_num);
+	tdx_module_sysfs_init();
 
 	/* Print BIOS provided CMRs */
 	print_cmrs(tdx_cmr_array, cmr_num, "BIOS-CMR");
@@ -1961,6 +1964,51 @@ static int p_seamldr_sysfs_init(void)
 	}
 
 out:
+	return ret;
+}
+
+#define TDX_MODULE_ATTR_SHOW(_name, fmt)				\
+static ssize_t tdx_module_ ## _name ## _show(				\
+	struct kobject *kobj, struct kobj_attribute *attr, char *buf)	\
+{									\
+	return sprintf(buf, fmt, tdx_sysinfo._name);			\
+}									\
+static struct kobj_attribute tdx_module_##_name = {			\
+	.attr = { .name = __stringify(_name), .mode = 0444 },		\
+	.show = tdx_module_ ## _name ## _show,				\
+}
+
+TDX_MODULE_ATTR_SHOW(attributes, "0x%08x");
+TDX_MODULE_ATTR_SHOW(vendor_id, "0x%08x");
+TDX_MODULE_ATTR_SHOW(build_date, "%d");
+TDX_MODULE_ATTR_SHOW(build_num, "0x%08x");
+TDX_MODULE_ATTR_SHOW(minor_version, "0x%08x");
+TDX_MODULE_ATTR_SHOW(major_version, "0x%08x");
+
+static struct attribute *tdx_module_attrs[] = {
+	&tdx_module_attributes.attr,
+	&tdx_module_vendor_id.attr,
+	&tdx_module_build_date.attr,
+	&tdx_module_build_num.attr,
+	&tdx_module_minor_version.attr,
+	&tdx_module_major_version.attr,
+	NULL,
+};
+
+static const struct attribute_group tdx_module_attr_group = {
+	.attrs = tdx_module_attrs,
+};
+
+static int tdx_module_sysfs_init(void)
+{
+	int ret = 0;
+
+	if (!tdx_module_kobj)
+		return -EINVAL;
+
+	ret = sysfs_create_group(tdx_module_kobj, &tdx_module_attr_group);
+	if (ret)
+		pr_err("Sysfs exporting tdx module attributes failed %d\n", ret);
 	return ret;
 }
 #endif

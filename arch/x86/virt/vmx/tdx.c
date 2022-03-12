@@ -108,6 +108,12 @@ static DEFINE_MUTEX(tdx_module_lock);
 
 static struct p_seamldr_info p_seamldr_info;
 
+#ifdef CONFIG_SYSFS
+static int p_seamldr_sysfs_init(void);
+#else
+static inline int p_seamldr_sysfs_init(void) { return 0; }
+#endif
+
 /* Base address of CMR array needs to be 512 bytes aligned. */
 static struct cmr_info tdx_cmr_array[MAX_CMRS] __aligned(CMR_INFO_ARRAY_ALIGNMENT);
 static int tdx_cmr_num;
@@ -572,6 +578,8 @@ static int detect_p_seamldr(void)
 
 		return ret;
 	}
+
+	p_seamldr_sysfs_init();
 
 	/*
 	 * If SEAMLDR.INFO was successful, it must be ready for SEAMCALL.
@@ -1894,4 +1902,65 @@ static int __init tdx_sysfs_init(void)
 	return ret;
 }
 device_initcall(tdx_sysfs_init);
+
+static struct kobject *p_seamldr_kobj;
+
+#define P_SEAMLDR_ATTR_SHOW(_name, fmt)					\
+static ssize_t p_seamldr_ ## _name ## _show(				\
+	struct kobject *kobj, struct kobj_attribute *attr, char *buf)	\
+{									\
+	return sprintf(buf, fmt, p_seamldr_info._name);			\
+}									\
+static struct kobj_attribute p_seamldr_##_name = {			\
+	.attr = { .name = __stringify(_name), .mode = 0444 },		\
+	.show = p_seamldr_ ## _name ## _show,				\
+}
+
+P_SEAMLDR_ATTR_SHOW(version, "0x%08x");
+P_SEAMLDR_ATTR_SHOW(attributes, "0x08%x");
+P_SEAMLDR_ATTR_SHOW(vendor_id, "0x%08x");
+P_SEAMLDR_ATTR_SHOW(build_date, "%d");
+P_SEAMLDR_ATTR_SHOW(build_num, "0x%04x");
+P_SEAMLDR_ATTR_SHOW(minor, "0x%08x");
+P_SEAMLDR_ATTR_SHOW(major, "0x%08x");
+
+static struct attribute *p_seamldr_attrs[] = {
+	&p_seamldr_version.attr,
+	&p_seamldr_attributes.attr,
+	&p_seamldr_vendor_id.attr,
+	&p_seamldr_build_date.attr,
+	&p_seamldr_build_num.attr,
+	&p_seamldr_minor.attr,
+	&p_seamldr_major.attr,
+	NULL,
+};
+
+static const struct attribute_group p_seamldr_attr_group = {
+	.attrs = p_seamldr_attrs,
+};
+
+static int p_seamldr_sysfs_init(void)
+{
+	int ret = 0;
+
+	if (!tdx_kobj)
+		return -EINVAL;
+
+	p_seamldr_kobj = kobject_create_and_add("p_seamldr", tdx_kobj);
+	if (!p_seamldr_kobj) {
+		pr_err("kobject_create_and_add p_seamldr failed\n");
+		ret = -EINVAL;
+		goto out;
+	}
+
+	ret = sysfs_create_group(p_seamldr_kobj, &p_seamldr_attr_group);
+	if (ret) {
+		pr_err("Sysfs exporting attribute failed with error %d", ret);
+		kobject_put(p_seamldr_kobj);
+		p_seamldr_kobj = NULL;
+	}
+
+out:
+	return ret;
+}
 #endif

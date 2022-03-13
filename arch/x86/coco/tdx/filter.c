@@ -64,14 +64,29 @@ struct pci_device_id pci_allow_ids[] = {
 	{ 0, },
 };
 
+/* List of ACPI HID allow list */
+static char *acpi_allow_hids[] = {
+	"LNXPWRBN",
+};
+
 static struct authorize_node allow_list[] = {
 	/* Allow devices in pci_allow_list in "pci" bus */
 	{ "pci", pci_allow_ids },
+	/* Allow devices in acpi_allow_hids in "acpi" bus */
+	{ "acpi", acpi_allow_hids },
 };
+
+static bool dev_is_acpi(struct device *dev)
+{
+	return !strcmp(dev_bus_name(dev), "acpi");
+}
 
 static bool authorized_node_match(struct device *dev,
 				  struct authorize_node *node)
 {
+	int i;
+
+
 	/* If bus matches "ALL" and dev_list is NULL, return true */
 	if (!strcmp(node->bus, "ALL") && !node->dev_list)
 		return true;
@@ -90,12 +105,18 @@ static bool authorized_node_match(struct device *dev,
 
 	/*
 	 * Do bus specific device ID match. Currently only PCI
-	 * bus is supported.
+	 * and ACPI bus is supported.
 	 */
 	if (dev_is_pci(dev)) {
 		if (pci_match_id((struct pci_device_id *)node->dev_list,
 				 to_pci_dev(dev)))
 			return true;
+	} else if (dev_is_acpi(dev)) {
+		for (i = 0; i < ARRAY_SIZE(acpi_allow_hids); i++) {
+			if (!strncmp(acpi_allow_hids[i], dev_name(dev),
+						strlen(acpi_allow_hids[i])))
+				return true;
+		}
 	}
 
 	return false;

@@ -20,6 +20,7 @@
 #include <linux/platform_data/x86/apple.h>
 #include <linux/pgtable.h>
 #include <linux/crc32.h>
+#include <linux/cc_platform.h>
 
 #include "internal.h"
 
@@ -748,6 +749,10 @@ static int __acpi_device_add(struct acpi_device *device,
 
 	device->dev.bus = &acpi_bus_type;
 	device->dev.release = release;
+
+	if (cc_platform_has(CC_ATTR_GUEST_DEVICE_FILTER))
+		device->dev.authorized = cc_guest_dev_authorized(&device->dev);
+
 	result = device_add(&device->dev);
 	if (result) {
 		dev_err(&device->dev, "Error registering device\n");

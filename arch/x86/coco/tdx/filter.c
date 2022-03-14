@@ -138,7 +138,10 @@ static struct pci_device_id *parse_pci_id(char *ids)
 		if (fields < 2)
 			continue;
 		cmd_pci_ids[cmd_pci_nodes_len].vendor = vendor;
-		cmd_pci_ids[cmd_pci_nodes_len++].device = device;
+		cmd_pci_ids[cmd_pci_nodes_len].device = device;
+		cmd_pci_ids[cmd_pci_nodes_len].subvendor = subvendor;
+		cmd_pci_ids[cmd_pci_nodes_len].subdevice = subdevice;
+		cmd_pci_nodes_len++;
 	}
 
 	return cmd_pci_ids;

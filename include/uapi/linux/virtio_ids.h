@@ -88,5 +88,6 @@
 #define VIRTIO1_ID_BLOCK		0x1042 /* transitional virtio block */
 #define VIRTIO1_ID_CONSOLE		0x1043 /* transitional virtio console */
 #define VIRTIO1_ID_9P			0x1049 /* transitional virtio 9p console */
+#define VIRTIO1_ID_VSOCK		0x1053 /* transitional virtio vsock transport */
 
 #endif /* _LINUX_VIRTIO_IDS_H */

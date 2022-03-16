@@ -197,6 +197,9 @@ void verify_td_lifecycle(void)
 	/* Create a TD VM with no memory.*/
 	vm = vm_create_tdx();
 
+	/* Get TDX capabilities */
+	get_tdx_capabilities(vm);
+
 	/* Allocate TD guest memory and initialize the TD.*/
 	initialize_td(vm);
 

@@ -15,10 +15,9 @@ char *tdx_cmd_str[] = {
 #define TDX_MAX_CMD_STR (ARRAY_SIZE(tdx_cmd_str))
 #define EIGHT_INT3_INSTRUCTIONS 0xCCCCCCCCCCCCCCCC
 
-static void tdx_ioctl(int fd, int ioctl_no, uint32_t metadata, void *data)
+static int __tdx_ioctl(int fd, int ioctl_no, uint32_t metadata, void *data)
 {
 	struct kvm_tdx_cmd tdx_cmd;
-	int r;
 
 	TEST_ASSERT(ioctl_no < TDX_MAX_CMD_STR, "Unknown TDX CMD : %d\n",
 		    ioctl_no);
@@ -27,9 +26,56 @@ static void tdx_ioctl(int fd, int ioctl_no, uint32_t metadata, void *data)
 	tdx_cmd.id = ioctl_no;
 	tdx_cmd.metadata = metadata;
 	tdx_cmd.data = (uint64_t)data;
-	r = ioctl(fd, KVM_MEMORY_ENCRYPT_OP, &tdx_cmd);
+	return ioctl(fd, KVM_MEMORY_ENCRYPT_OP, &tdx_cmd);
+}
+
+
+static void tdx_ioctl(int fd, int ioctl_no, uint32_t metadata, void *data)
+{
+	int r;
+
+	r = __tdx_ioctl(fd, ioctl_no, metadata, data);
 	TEST_ASSERT(r == 0, "%s failed: %d  %d", tdx_cmd_str[ioctl_no], r,
 		    errno);
+}
+
+/* Call KVM_TDX_CAPABILITIES for API test. The result isn't used. */
+void get_tdx_capabilities(struct kvm_vm *vm)
+{
+	int i;
+	int rc;
+	int nr_cpuid_configs = 8;
+	struct kvm_tdx_capabilities *tdx_cap = NULL;
+
+	while (true) {
+		tdx_cap = realloc(
+			tdx_cap, sizeof(*tdx_cap) +
+			nr_cpuid_configs * sizeof(*tdx_cap->cpuid_configs));
+		tdx_cap->nr_cpuid_configs = nr_cpuid_configs;
+		TEST_ASSERT(tdx_cap != NULL,
+			"Could not allocate memory for tdx capability "
+			"nr_cpuid_configs %d\n", nr_cpuid_configs);
+		rc = __tdx_ioctl(vm->fd, KVM_TDX_CAPABILITIES, 0, tdx_cap);
+		if (rc < 0 && errno == E2BIG) {
+			nr_cpuid_configs *= 2;
+			continue;
+		}
+		TEST_ASSERT(rc == 0, "%s failed: %d %d",
+			tdx_cmd_str[KVM_TDX_CAPABILITIES], rc, errno);
+		break;
+	}
+	pr_debug("tdx_cap: attrs: fixed0 0x%016llx fixed1 0x%016llx\n"
+		"tdx_cap: xfam fixed0 0x%016llx fixed1 0x%016llx\n",
+		tdx_cap->attrs_fixed0, tdx_cap->attrs_fixed1,
+		tdx_cap->xfam_fixed0, tdx_cap->xfam_fixed1);
+	for (i = 0; i < tdx_cap->nr_cpuid_configs; i++) {
+		const struct kvm_tdx_cpuid_config *config =
+			&tdx_cap->cpuid_configs[i];
+		pr_debug("cpuid config[%d]: leaf 0x%x sub_leaf 0x%x "
+			"eax 0x%08x ebx 0x%08x ecx 0x%08x edx 0x%08x\n",
+			i, config->leaf, config->sub_leaf,
+			config->eax, config->ebx, config->ecx, config->edx);
+	}
 }
 
 /*
@@ -73,7 +119,16 @@ void initialize_td(struct kvm_vm *vm)
 	ret = ioctl(vm->kvm_fd, KVM_GET_SUPPORTED_CPUID, &cpuid_data);
 	TEST_ASSERT(ret == 0, "KVM_GET_SUPPORTED_CPUID failed %d %d\n",
 		    ret, errno);
-	for (i = 0; i < KVM_MAX_CPUID_ENTRIES; i++) {
+#ifdef DEBUG
+	for (i = 0; i < cpuid_data.cpuid.nent; i++) {
+		struct kvm_cpuid_entry2 *e = &cpuid_data.entries[i];
+		pr_debug("%d: function 0x%08x index 0x%08x flags 0x%08x "
+			"eax 0x%08x ebx 0x%08x ecx 0x%08x edx 0x%08x\n",
+			i, e->function, e->index, e->flags,
+			e->eax, e->ebx, e->ecx, e->edx);
+	}
+#endif
+	for (i = 0; i < cpuid_data.cpuid.nent; i++) {
 		struct kvm_cpuid_entry2 *e = &cpuid_data.entries[i];
 
 		/* Setting max VA and PA bits to 48. This will make sure that

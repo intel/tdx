@@ -80,6 +80,7 @@ struct page_table {
 void add_td_memory(struct kvm_vm *vm, void *source_page,
 		   uint64_t gpa, int size);
 void finalize_td_memory(struct kvm_vm *vm);
+void get_tdx_capabilities(struct kvm_vm *vm);
 void initialize_td(struct kvm_vm *vm);
 void initialize_td_vcpu(struct kvm_vm *vm, uint32_t vcpuid);
 void prepare_source_image(struct kvm_vm *vm, void *guest_code,

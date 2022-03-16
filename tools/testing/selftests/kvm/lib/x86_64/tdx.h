@@ -119,6 +119,7 @@ struct page_table {
 void add_td_memory(struct kvm_vm *vm, void *source_page,
 		   uint64_t gpa, int size);
 void finalize_td_memory(struct kvm_vm *vm);
+void get_tdx_capabilities(struct kvm_vm *vm);
 void initialize_td(struct kvm_vm *vm);
 void initialize_td_with_attributes(struct kvm_vm *vm, uint64_t attributes);
 void initialize_td_vcpu(struct kvm_vcpu *vcpu);

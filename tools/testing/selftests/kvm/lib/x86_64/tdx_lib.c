@@ -27,10 +27,9 @@ char *tdx_cmd_str[] = {
 #define XFEATURE_MASK_XTILE	(XFEATURE_MASK_XTILECFG | XFEATURE_MASK_XTILEDATA)
 
 
-static void tdx_ioctl(int fd, int ioctl_no, uint32_t flags, void *data)
+static int __tdx_ioctl(int fd, int ioctl_no, uint32_t flags, void *data)
 {
 	struct kvm_tdx_cmd tdx_cmd;
-	int r;
 
 	TEST_ASSERT(ioctl_no < TDX_MAX_CMD_STR, "Unknown TDX CMD : %d\n",
 		    ioctl_no);
@@ -39,7 +38,15 @@ static void tdx_ioctl(int fd, int ioctl_no, uint32_t flags, void *data)
 	tdx_cmd.id = ioctl_no;
 	tdx_cmd.flags = flags;
 	tdx_cmd.data = (uint64_t)data;
-	r = ioctl(fd, KVM_MEMORY_ENCRYPT_OP, &tdx_cmd);
+	return ioctl(fd, KVM_MEMORY_ENCRYPT_OP, &tdx_cmd);
+}
+
+
+static void tdx_ioctl(int fd, int ioctl_no, uint32_t flags, void *data)
+{
+	int r;
+
+	r = __tdx_ioctl(fd, ioctl_no, flags, data);
 	TEST_ASSERT(r == 0, "%s failed: %d  %d", tdx_cmd_str[ioctl_no], r,
 		    errno);
 }
@@ -75,6 +82,45 @@ static struct tdx_cpuid_data get_tdx_cpuid_data(struct kvm_vm *vm)
 	}
 
 	return cpuid_data;
+}
+
+/* Call KVM_TDX_CAPABILITIES for API test. The result isn't used. */
+void get_tdx_capabilities(struct kvm_vm *vm)
+{
+	int i;
+	int rc;
+	int nr_cpuid_configs = 8;
+	struct kvm_tdx_capabilities *tdx_cap = NULL;
+
+	while (true) {
+		tdx_cap = realloc(
+			tdx_cap, sizeof(*tdx_cap) +
+			nr_cpuid_configs * sizeof(*tdx_cap->cpuid_configs));
+		tdx_cap->nr_cpuid_configs = nr_cpuid_configs;
+		TEST_ASSERT(tdx_cap != NULL,
+			"Could not allocate memory for tdx capability "
+			"nr_cpuid_configs %d\n", nr_cpuid_configs);
+		rc = __tdx_ioctl(vm->fd, KVM_TDX_CAPABILITIES, 0, tdx_cap);
+		if (rc < 0 && errno == E2BIG) {
+			nr_cpuid_configs *= 2;
+			continue;
+		}
+		TEST_ASSERT(rc == 0, "%s failed: %d %d",
+			tdx_cmd_str[KVM_TDX_CAPABILITIES], rc, errno);
+		break;
+	}
+	pr_debug("tdx_cap: attrs: fixed0 0x%016llx fixed1 0x%016llx\n"
+		"tdx_cap: xfam fixed0 0x%016llx fixed1 0x%016llx\n",
+		tdx_cap->attrs_fixed0, tdx_cap->attrs_fixed1,
+		tdx_cap->xfam_fixed0, tdx_cap->xfam_fixed1);
+	for (i = 0; i < tdx_cap->nr_cpuid_configs; i++) {
+		const struct kvm_tdx_cpuid_config *config =
+			&tdx_cap->cpuid_configs[i];
+		pr_debug("cpuid config[%d]: leaf 0x%x sub_leaf 0x%x "
+			"eax 0x%08x ebx 0x%08x ecx 0x%08x edx 0x%08x\n",
+			i, config->leaf, config->sub_leaf,
+			config->eax, config->ebx, config->ecx, config->edx);
+	}
 }
 
 /*

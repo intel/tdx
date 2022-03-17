@@ -582,7 +582,7 @@ struct kvm_vcpu *vm_arch_vcpu_add(struct kvm_vm *vm, uint32_t vcpu_id,
 	vcpu_regs_set(vcpu, &regs);
 
 	/* Setup the MP state */
-	mp_state.mp_state = 0;
+	mp_state.mp_state = KVM_MP_STATE_RUNNABLE;
 	vcpu_mp_state_set(vcpu, &mp_state);
 
 	return vcpu;
@@ -608,7 +608,7 @@ struct kvm_vcpu *vm_vcpu_add_tdx(struct kvm_vm *vm, uint32_t vcpu_id)
 	initialize_td_vcpu(vcpu);
 
 	/* Setup the MP state */
-	mp_state.mp_state = 0;
+	mp_state.mp_state = KVM_MP_STATE_RUNNABLE;
 	vcpu_mp_state_set(vcpu, &mp_state);
 
 	return vcpu;

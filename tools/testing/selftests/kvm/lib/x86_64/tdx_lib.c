@@ -25,7 +25,7 @@ char *tdx_cmd_str[] = {
 #define XFEATURE_MASK_XTILECFG	(1 << XFEATURE_XTILECFG)
 #define XFEATURE_MASK_XTILEDATA	(1 << XFEATURE_XTILEDATA)
 #define XFEATURE_MASK_XTILE	(XFEATURE_MASK_XTILECFG | XFEATURE_MASK_XTILEDATA)
-
+#define XFEATURE_MASK_CET	((1 << 11) | (1 << 12))
 
 static int __tdx_ioctl(int fd, int ioctl_no, uint32_t flags, void *data)
 {
@@ -72,12 +72,26 @@ static struct tdx_cpuid_data get_tdx_cpuid_data(struct kvm_vm *vm)
 	for (i = 0; i < KVM_MAX_CPUID_ENTRIES; i++) {
 		struct kvm_cpuid_entry2 *e = &cpuid_data.entries[i];
 
-		/* TDX doesn't support LBR and AMX features yet.
+		/* TDX doesn't support LBR yet.
 		 * Disable those bits from the XCR0 register.
 		 */
 		if (e->function == 0xd && (e->index == 0)) {
 			e->eax &= ~XFEATURE_MASK_LBR;
-			e->eax &= ~XFEATURE_MASK_XTILE;
+
+			/*
+			 * TDX modules requires both CET_{U, S} to be set even
+			 * if only one is supported.
+			 */
+			if (e->eax & XFEATURE_MASK_CET) {
+				e->eax |= XFEATURE_MASK_CET;
+			}
+			/*
+			 * TDX module requires both XTILE_{CFG, DATA} to be set.
+			 * Both bits are required for AMX to be functional.
+			 */
+			if ((e->eax & XFEATURE_MASK_XTILE) != XFEATURE_MASK_XTILE) {
+				e->eax &= ~XFEATURE_MASK_XTILE;
+			}
 		}
 	}
 

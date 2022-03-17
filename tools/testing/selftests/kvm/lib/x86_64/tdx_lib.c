@@ -136,8 +136,27 @@ void initialize_td(struct kvm_vm *vm)
 		 */
 		if (e->function == 0x80000008 && (e->index == 0)) {
 			e->eax = 0x3030;
-			break;
 		}
+
+		if (e->function == 0xd && e->index == 0) {
+			/*
+			 * TDX modules requires both CET_{U, S} to be set even
+			 * if only one is supported.
+			 */
+#define XFEATURE_MASK_CET	((1 << 11) | (1 << 12))
+			if (e->eax & XFEATURE_MASK_CET) {
+				e->eax |= XFEATURE_MASK_CET;
+			}
+			/*
+			 * TDX module requires both XTILE_{CFG, DATA} to be set.
+			 * Both bits are required for AMX to be functional.
+			 */
+#define XFEATURE_MASK_XTILE	((1 << 17) | (1 << 18))
+			if ((e->eax & XFEATURE_MASK_XTILE) != XFEATURE_MASK_XTILE) {
+				e->eax &= ~XFEATURE_MASK_XTILE;
+			}
+		}
+
 	}
 	init_vm.max_vcpus = 1;
 	init_vm.attributes = 0;

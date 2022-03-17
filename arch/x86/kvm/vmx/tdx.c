@@ -847,7 +847,8 @@ static void tdx_restore_host_xsave_state(struct kvm_vcpu *vcpu)
 		xsetbv(XCR_XFEATURE_ENABLED_MASK, host_xcr0);
 	if (static_cpu_has(X86_FEATURE_XSAVES) &&
 	    /* PT can be exposed to TD guest regardless of KVM's XSS support */
-	    host_xss != (kvm_tdx->xfam & (kvm_caps.supported_xss | XFEATURE_MASK_PT)))
+	    host_xss != (kvm_tdx->xfam &
+			 (kvm_caps.supported_xss | XFEATURE_MASK_PT | TDX_TD_XFAM_CET)))
 		wrmsrl(MSR_IA32_XSS, host_xss);
 	if (static_cpu_has(X86_FEATURE_PKU) &&
 	    (kvm_tdx->xfam & XFEATURE_MASK_PKRU))
@@ -2413,8 +2414,10 @@ static int setup_tdparams_xfam(struct kvm_cpuid2 *cpuid, struct td_params *td_pa
 		guest_supported_xss = (entry->ecx | ((u64)entry->edx << 32));
 	else
 		guest_supported_xss = 0;
+
 	/* PT can be exposed to TD guest regardless of KVM's XSS support */
-	guest_supported_xss &= (kvm_caps.supported_xss | XFEATURE_MASK_PT);
+	guest_supported_xss &=
+		(kvm_caps.supported_xss | XFEATURE_MASK_PT | TDX_TD_XFAM_CET);
 
 	td_params->xfam = guest_supported_xcr0 | guest_supported_xss;
 	if (td_params->xfam & XFEATURE_MASK_LBR) {

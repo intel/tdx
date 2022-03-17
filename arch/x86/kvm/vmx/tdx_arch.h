@@ -266,6 +266,7 @@ struct tdsysinfo_struct {
 #define TDX_TD_ATTRIBUTE_KL		BIT_ULL(31)
 #define TDX_TD_ATTRIBUTE_PERFMON	BIT_ULL(63)
 
+#define TDX_TD_XFAM_CET			(BIT_ULL(11) | BIT_ULL(12))
 #define TDX_TD_XFAM_LBR			BIT_ULL(15)
 #define TDX_TD_XFAM_AMX			(BIT_ULL(17) | BIT_ULL(18))
 

@@ -723,7 +723,7 @@ void vm_vcpu_add_tdx(struct kvm_vm *vm, uint32_t vcpuid)
 	vm_vcpu_add(vm, vcpuid);
 	initialize_td_vcpu(vm, vcpuid);
 
-	mp_state.mp_state = 0;
+	mp_state.mp_state = KVM_MP_STATE_RUNNABLE;
 	vcpu_set_mp_state(vm, vcpuid, &mp_state);
 }
 

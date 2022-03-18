@@ -1771,7 +1771,7 @@ bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)
 		flush = kvm_handle_gfn_range(kvm, range, kvm_unmap_rmapp);
 
 	if (is_tdp_mmu_enabled(kvm))
-		flush = kvm_tdp_mmu_unmap_gfn_range(kvm, range, flush);
+		flush = kvm_tdp_mmu_unmap_gfn_range(kvm, range, flush, false);
 
 	return flush;
 }
@@ -6125,11 +6125,8 @@ static void kvm_mmu_zap_memslot(struct kvm *kvm, struct kvm_memory_slot *slot)
 		      .may_block = false,
 		};
 
-		/*
-		 * For now, page migration isn't supported.  Not unmap private
-		 * gpa to keep private pages.
-		 */
-		flush = kvm_tdp_mmu_unmap_gfn_range(kvm, &range, flush);
+		/* All private page should be zapped on memslot deletion. */
+		flush = kvm_tdp_mmu_unmap_gfn_range(kvm, &range, flush, true);
 	} else {
 		flush = slot_handle_level(kvm, slot, kvm_zap_rmapp, PG_LEVEL_4K,
 					KVM_MAX_HUGEPAGE_LEVEL, true);

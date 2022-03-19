@@ -1671,13 +1671,47 @@ static int tdx_sept_free_private_sp(struct kvm *kvm, gfn_t gfn, enum pg_level le
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	int ret;
 
-	/*
-	 * free_private_sp() is (obviously) called when a shadow page is being
-	 * zapped.  KVM doesn't (yet) zap private SPs while the TD is active.
-	 */
-	if (KVM_BUG_ON(is_hkid_assigned(to_kvm_tdx(kvm)), kvm))
-		return -EINVAL;
+	if (is_hkid_assigned(kvm_tdx)) {
+		/*
+		 * Inefficient. But this is only called for deleting memslot
+		 * which isn't performance critical path.
+		 *
+		 * +1: remove this SEPT page from the parent's entry.
+		 */
+		gpa_t parent_gpa = gfn_to_gpa(gfn) & KVM_HPAGE_MASK(level + 1);
+		int parent_tdx_level = pg_level_to_tdx_sept_level(level + 1);
+		struct tdx_module_output out;
+		u64 err;
 
+		err = tdh_mem_range_block(kvm_tdx->tdr.pa, parent_gpa,
+					parent_tdx_level, &out);
+		if (KVM_BUG_ON(err, kvm)) {
+			pr_tdx_error(TDH_MEM_RANGE_BLOCK, err, &out);
+			return -EIO;
+		}
+
+		tdx_track(kvm_tdx);
+
+		err = tdh_mem_sept_remove(kvm_tdx->tdr.pa, parent_gpa,
+					parent_tdx_level, &out);
+		if (KVM_BUG_ON(err, kvm)) {
+			pr_tdx_error(TDH_MEM_PAGE_REMOVE, err, &out);
+			return -EIO;
+		}
+
+		err = tdh_phymem_page_wbinvd(
+			set_hkid_to_hpa(__pa(sept_page), kvm_tdx->hkid));
+		if (WARN_ON_ONCE(err)) {
+			pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
+			return -EIO;
+		}
+		return 0;
+	}
+
+	/*
+	 * When TD is being destroyed, HKID is unassigned and S-EPT is
+	 * inaccessible.
+	 */
 	spin_lock(&kvm_tdx->seamcall_lock);
 	ret = tdx_reclaim_page((unsigned long)sept_page, __pa(sept_page));
 	spin_unlock(&kvm_tdx->seamcall_lock);

@@ -1646,6 +1646,25 @@ static void tdx_sept_unzap_private_spte(struct kvm *kvm, gfn_t gfn,
 		pr_tdx_error(TDH_MEM_RANGE_UNBLOCK, err, &out);
 }
 
+static void tdx_track(struct kvm_tdx *kvm_tdx)
+{
+	u64 err;
+
+	WARN_ON(!is_hkid_assigned(kvm_tdx));
+	/* If TD isn't finalized, it's before any vcpu running. */
+	if (unlikely(!is_td_finalized(kvm_tdx)))
+		return;
+
+	kvm_tdx->tdh_mem_track = true;
+
+	kvm_make_all_cpus_request(&kvm_tdx->kvm, KVM_REQ_TLB_FLUSH);
+	err = tdh_mem_track(kvm_tdx->tdr.pa);
+	if (KVM_BUG_ON(err, &kvm_tdx->kvm))
+		pr_tdx_error(TDH_MEM_TRACK, err, NULL);
+
+	WRITE_ONCE(kvm_tdx->tdh_mem_track, false);
+}
+
 static int tdx_sept_free_private_sp(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 				    void *sept_page)
 {
@@ -1664,25 +1683,6 @@ static int tdx_sept_free_private_sp(struct kvm *kvm, gfn_t gfn, enum pg_level le
 	spin_unlock(&kvm_tdx->seamcall_lock);
 
 	return ret;
-}
-
-static void tdx_track(struct kvm_tdx *kvm_tdx)
-{
-	u64 err;
-
-	WARN_ON(!is_hkid_assigned(kvm_tdx));
-	/* If TD isn't finalized, it's before any vcpu running. */
-	if (unlikely(!is_td_finalized(kvm_tdx)))
-		return;
-
-	kvm_tdx->tdh_mem_track = true;
-
-	kvm_make_all_cpus_request(&kvm_tdx->kvm, KVM_REQ_TLB_FLUSH);
-	err = tdh_mem_track(kvm_tdx->tdr.pa);
-	if (KVM_BUG_ON(err, &kvm_tdx->kvm))
-		pr_tdx_error(TDH_MEM_TRACK, err, NULL);
-
-	WRITE_ONCE(kvm_tdx->tdh_mem_track, false);
 }
 
 static int tdx_sept_tlb_remote_flush_with_range(struct kvm *kvm,

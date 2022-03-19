@@ -1962,7 +1962,16 @@ static int tdx_sept_tlb_remote_flush(struct kvm *kvm)
 	if (!is_td(kvm))
 		return -EOPNOTSUPP;
 
+	/*
+	 * tlb_remote_flush can be called after freeing vcpus.
+	 * kvm_vcpu_destroy() => kvm_mmu_destroy() => kvm_mmu_free_roots()
+	 * => kvm_mmu_commit_zap_page() => kvm_flush_remote_tlbs().
+	 * Don't process the request if vcpus were freed.
+	 */
 	kvm_tdx = to_kvm_tdx(kvm);
+	if (!is_hkid_assigned(kvm_tdx))
+		return 0;
+
 	kvm_tdx->tdh_mem_track = true;
 
 	kvm_make_all_cpus_request(kvm, KVM_REQ_TLB_FLUSH);

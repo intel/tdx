@@ -35,11 +35,27 @@ void run_in_new_process(void (*func)(void))
 }
 
 /*
+ * REVERTME: for old TDX KVM ABI.
+ */
+#define KVM_X86_TDX_VM_OLD	2
+static int tdx_vm_type;
+
+/*
  * Verify that the TDX  is supported by the KVM.
  */
 bool is_tdx_enabled(void)
 {
-	return !!(kvm_check_cap(KVM_CAP_VM_TYPES) & BIT(KVM_X86_TDX_VM));
+	if (kvm_check_cap(KVM_CAP_VM_TYPES) & BIT(KVM_X86_TDX_VM)){
+		tdx_vm_type = KVM_X86_TDX_VM;
+		return true;
+	}
+
+	/*
+	 * KVM_X86_TDX_VM=1. With OLD TDX KVM ABI, KVM_X86_TDX_VM was 2.
+	 * try old ABI.
+	 */
+	tdx_vm_type = KVM_X86_TDX_VM_OLD;
+	return !!(kvm_check_cap(KVM_CAP_VM_TYPES) & BIT(KVM_X86_TDX_VM_OLD));
 }
 
 /*
@@ -65,7 +81,7 @@ void  verify_td_lifecycle(void)
 
 	printf("Verifying TD lifecycle:\n");
 	/* Create a TD VM with no memory.*/
-	vm = __vm_create(VM_MODE_DEFAULT, 0, O_RDWR, KVM_X86_TDX_VM);
+	vm = __vm_create(VM_MODE_DEFAULT, 0, O_RDWR, tdx_vm_type);
 
 	/* Get TDX capabilities */
 	get_tdx_capabilities(vm);
@@ -116,7 +132,7 @@ void  verify_td_ioexit(void)
 
 	printf("Verifying TD IO Exit:\n");
 	/* Create a TD VM with no memory.*/
-	vm = __vm_create(VM_MODE_DEFAULT, 0, O_RDWR, KVM_X86_TDX_VM);
+	vm = __vm_create(VM_MODE_DEFAULT, 0, O_RDWR, tdx_vm_type);
 
 	/* Allocate TD guest memory and initialize the TD.*/
 	initialize_td(vm);

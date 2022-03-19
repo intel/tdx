@@ -3488,7 +3488,7 @@ re_start:
 		return;
 
 	if (is_large_pte(spte) &&
-	    !kvm_page_type_valid_on_level(fault->gfn, slot, it.level)) {
+	    !kvm_page_type_valid_on_level(fault->gfn, slot, sp->role.level)) {
 		split_private_spte(vcpu, it.sptep, spte);
 		goto re_start;
 	}

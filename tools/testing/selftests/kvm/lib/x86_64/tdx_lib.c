@@ -46,6 +46,7 @@ void get_tdx_capabilities(struct kvm_vm *vm)
 	int rc;
 	int nr_cpuid_configs = 8;
 	struct kvm_tdx_capabilities *tdx_cap = NULL;
+	int fd = vm->fd;
 
 	while (true) {
 		tdx_cap = realloc(
@@ -55,7 +56,15 @@ void get_tdx_capabilities(struct kvm_vm *vm)
 		TEST_ASSERT(tdx_cap != NULL,
 			"Could not allocate memory for tdx capability "
 			"nr_cpuid_configs %d\n", nr_cpuid_configs);
-		rc = __tdx_ioctl(vm->fd, KVM_TDX_CAPABILITIES, 0, tdx_cap);
+		rc = __tdx_ioctl(fd, KVM_TDX_CAPABILITIES, 0, tdx_cap);
+		if (rc < 0 && errno == EINVAL && fd != vm->kvm_fd) {
+			/*
+			 * With old TDX KVM ABI, KVM_TDX_CAPABILITIES was
+			 * system-scoped ioctl.  Try kvm_fd.
+			 */
+			fd = vm->kvm_fd;
+			continue;
+		}
 		if (rc < 0 && errno == E2BIG) {
 			nr_cpuid_configs *= 2;
 			continue;

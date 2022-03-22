@@ -1015,15 +1015,10 @@ void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu)
 	u16 exit_reason = tdx->exit_reason.basic;
 
 	if (exit_reason == EXIT_REASON_EXCEPTION_NMI) {
-		if (tdx->guest_pmi_exit) {
-			kvm_make_request(KVM_REQ_PMI, vcpu);
-			tdx->guest_pmi_exit = false;
-		} else {
-			kvm_before_interrupt(vcpu, KVM_HANDLING_NMI);
-			vmx_handle_exception_nmi_irqoff(vcpu,
-							tdexit_intr_info(vcpu));
-			kvm_after_interrupt(vcpu);
-		}
+		kvm_before_interrupt(vcpu, KVM_HANDLING_NMI);
+		vmx_handle_exception_nmi_irqoff(vcpu,
+						tdexit_intr_info(vcpu));
+		kvm_after_interrupt(vcpu);
 	} else if (exit_reason == EXIT_REASON_EXTERNAL_INTERRUPT)
 		vmx_handle_external_interrupt_irqoff(vcpu,
 						     tdexit_intr_info(vcpu));

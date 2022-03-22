@@ -31,6 +31,11 @@ extern void fixup_irqs(void);
 
 #ifdef CONFIG_HAVE_KVM
 extern void kvm_set_posted_intr_wakeup_handler(void (*handler)(void));
+
+#ifdef CONFIG_INTEL_TDX_HOST
+extern void kvm_set_tdx_guest_pmi_handler(void (*handler)(void));
+#endif
+
 #endif
 
 extern void (*x86_platform_ipi_callback)(void);

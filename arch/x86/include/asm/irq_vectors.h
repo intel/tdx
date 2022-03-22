@@ -104,7 +104,11 @@
 #define HYPERV_STIMER0_VECTOR		0xed
 #endif
 
-#define LOCAL_TIMER_VECTOR		0xec
+#if defined(CONFIG_HAVE_KVM) && defined(CONFIG_INTEL_TDX_HOST)
+#define TDX_GUEST_PMI_VECTOR		0xec
+#endif
+
+#define LOCAL_TIMER_VECTOR		0xeb
 
 #define NR_VECTORS			 256
 

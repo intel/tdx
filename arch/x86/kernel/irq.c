@@ -182,6 +182,12 @@ int arch_show_interrupts(struct seq_file *p, int prec)
 			   irq_stats(j)->kvm_posted_intr_wakeup_ipis);
 	seq_puts(p, "  Posted-interrupt wakeup event\n");
 #endif
+#if defined(CONFIG_HAVE_KVM) && defined(CONFIG_INTEL_TDX_HOST)
+	seq_printf(p, "%*s", prec, "TGP");
+	for_each_online_cpu(j)
+		seq_printf(p, "%10u ", irq_stats(j)->kvm_tdx_guest_pmis);
+	seq_puts(p, "  TDX Guest performance monitoring interrupts\n");
+#endif
 	return 0;
 }
 
@@ -305,6 +311,18 @@ void kvm_set_posted_intr_wakeup_handler(void (*handler)(void))
 }
 EXPORT_SYMBOL_GPL(kvm_set_posted_intr_wakeup_handler);
 
+#ifdef CONFIG_INTEL_TDX_HOST
+static void (*kvm_tdx_guest_pmi_handler)(void) = dummy_handler;
+
+void kvm_set_tdx_guest_pmi_handler(void (*handler)(void))
+{
+	if (handler)
+		kvm_tdx_guest_pmi_handler = handler;
+	else
+		kvm_tdx_guest_pmi_handler = dummy_handler;
+}
+EXPORT_SYMBOL_GPL(kvm_set_tdx_guest_pmi_handler);
+#endif
 /*
  * Handler for POSTED_INTERRUPT_VECTOR.
  */
@@ -332,6 +350,15 @@ DEFINE_IDTENTRY_SYSVEC_SIMPLE(sysvec_kvm_posted_intr_nested_ipi)
 	ack_APIC_irq();
 	inc_irq_stat(kvm_posted_intr_nested_ipis);
 }
+
+#ifdef CONFIG_INTEL_TDX_HOST
+DEFINE_IDTENTRY_SYSVEC(sysvec_kvm_tdx_guest_pmi)
+{
+	ack_APIC_irq();
+	inc_irq_stat(kvm_tdx_guest_pmis);
+	kvm_tdx_guest_pmi_handler();
+}
+#endif
 #endif
 
 

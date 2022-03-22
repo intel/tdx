@@ -1104,7 +1104,8 @@ static int FNAME(sync_page)(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp)
 		gpa_t pte_gpa;
 		gfn_t gfn;
 
-		if (!__is_shadow_present_pte(sp->spt[i]))
+		if (!is_shadow_present_pte(sp->spt[i]) &&
+			!is_mmio_spte(vcpu->kvm, sp->spt[i]))
 			continue;
 
 		pte_gpa = first_pte_gpa + i * sizeof(pt_element_t);

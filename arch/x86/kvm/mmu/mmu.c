@@ -4161,8 +4161,8 @@ static int mmu_alloc_shadow_roots(struct kvm_vcpu *vcpu)
 	 * write-protect the guests page table root.
 	 */
 	if (mmu->root_level >= PT64_ROOT_4LEVEL) {
-		root = mmu_alloc_root(vcpu, root_gfn, 0, 0,
-				      vcpu->arch.mmu->shadow_root_level, false);
+		root = mmu_alloc_root(vcpu, root_gfn, 0,
+				vcpu->arch.mmu->shadow_root_level, false, false);
 		mmu->root_hpa = root;
 		goto set_root_pgd;
 	}
@@ -4207,8 +4207,8 @@ static int mmu_alloc_shadow_roots(struct kvm_vcpu *vcpu)
 			root_gfn = pdptrs[i] >> PAGE_SHIFT;
 		}
 
-		root = mmu_alloc_root(vcpu, root_gfn, 0, i << 30,
-				      PT32_ROOT_LEVEL, false);
+		root = mmu_alloc_root(vcpu, root_gfn, i << 30, PT32_ROOT_LEVEL,
+				      false, false);
 		mmu->pae_root[i] = root | pm_mask;
 	}
 

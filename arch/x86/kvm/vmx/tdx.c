@@ -1106,14 +1106,9 @@ void tdx_handle_exit_irqoff(struct kvm_vcpu *vcpu)
 		vmx_handle_external_interrupt_irqoff(vcpu,
 						     tdexit_intr_info(vcpu));
 	else if (exit_reason == EXIT_REASON_EXCEPTION_NMI) {
-		if (tdx->guest_pmi_exit) {
-			kvm_make_request(KVM_REQ_PMI, vcpu);
-			tdx->guest_pmi_exit = false;
-		} else {
-			kvm_before_interrupt(vcpu, KVM_HANDLING_NMI);
-			vmx_handle_exception_irqoff(vcpu, tdexit_intr_info(vcpu));
-			kvm_after_interrupt(vcpu);
-		}
+		kvm_before_interrupt(vcpu, KVM_HANDLING_NMI);
+		vmx_handle_exception_irqoff(vcpu, tdexit_intr_info(vcpu));
+		kvm_after_interrupt(vcpu);
 	} else if (unlikely(tdx->exit_reason.non_recoverable ||
 		 tdx->exit_reason.error)) {
 		/*

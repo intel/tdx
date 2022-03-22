@@ -676,6 +676,9 @@ DECLARE_IDTENTRY_SYSVEC(IRQ_WORK_VECTOR,		sysvec_irq_work);
 DECLARE_IDTENTRY_SYSVEC(POSTED_INTR_VECTOR,		sysvec_kvm_posted_intr_ipi);
 DECLARE_IDTENTRY_SYSVEC(POSTED_INTR_WAKEUP_VECTOR,	sysvec_kvm_posted_intr_wakeup_ipi);
 DECLARE_IDTENTRY_SYSVEC(POSTED_INTR_NESTED_VECTOR,	sysvec_kvm_posted_intr_nested_ipi);
+#ifdef CONFIG_INTEL_TDX_HOST
+DECLARE_IDTENTRY_SYSVEC(TDX_GUEST_PMI_VECTOR,		sysvec_kvm_tdx_guest_pmi);
+#endif
 #endif
 
 #if IS_ENABLED(CONFIG_HYPERV)

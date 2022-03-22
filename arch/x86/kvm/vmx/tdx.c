@@ -1028,6 +1028,13 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 		intel_pmu_lbr_xsaves();
 
 	/*
+	 * This is safe only when host PMU is disabled, e.g.
+	 * the intel_pmu_save() is called before.
+	 */
+	if (kvm_tdx->attributes & TDX_TD_ATTRIBUTE_PERFMON)
+		apic_write(APIC_LVTPC, TDX_GUEST_PMI_VECTOR);
+
+	/*
 	 * Before 1.0.3.3, TDH.VP.ENTER has special environment requirements
 	 * that RTM_DISABLE(bit 0) and TSX_CPUID_CLEAR(bit 1) of IA32_TSX_CTRL
 	 * must be 0 if it's supported.  MSR_IA32_TSX_CTRL is restored by user
@@ -1040,6 +1047,14 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	tdx_vcpu_enter_exit(vcpu, tdx);
 
 	tdx_user_return_update_cache(vcpu);
+
+	/*
+	 * This is safe only when host PMU is disabled, e.g.
+	 * the intel_pmu_save() is called before.
+	 */
+	if (kvm_tdx->attributes & TDX_TD_ATTRIBUTE_PERFMON)
+		apic_write(APIC_LVTPC, APIC_DM_NMI);
+
 	perf_restore_debug_store();
 	tdx_restore_host_xsave_state(vcpu);
 	tdx->host_state_need_restore = true;
@@ -1054,25 +1069,6 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	 * records in DS area.
 	 */
 	intel_pmu_restore();
-	if (to_kvm_tdx(vcpu->kvm)->attributes & TDX_TD_ATTRIBUTE_PERFMON) {
-		/*
-		 * Guest perf counters overflow leads to a PMI configured by
-		 * host VMM into APIC_LVTPC being delivered.  This PMI causes a
-		 * VM exit.  And as host counters are disabled before TDENTER, a
-		 * PMI pending (if mask is set) always means a guest counter
-		 * overflew.
-		 *
-		 * Simply set a flag to guide following NMI handling and unmask
-		 * APIC_LVTPC here as host counters are to be enabled.
-		 * Otherwise, a subsequent host PMI may be masked.
-		 */
-		if (tdx->exit_reason.basic == EXIT_REASON_EXCEPTION_NMI) {
-			if (apic_read(APIC_LVTPC) & APIC_LVT_MASKED) {
-				tdx->guest_pmi_exit = true;
-				apic_write(APIC_LVTPC, APIC_DM_NMI);
-			}
-		}
-	}
 
 	if (is_debug_td(vcpu))
 		tdx_reset_regs_cache(vcpu);
@@ -3902,6 +3898,21 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 	return 0;
 }
 
+static void tdx_guest_pmi_handler(void)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_tdx  *tdx;
+
+	vcpu = kvm_get_running_vcpu();
+
+	WARN_ON_ONCE(!vcpu || !is_td_vcpu(vcpu));
+
+	tdx = to_kvm_tdx(vcpu->kvm);
+	WARN_ON_ONCE(!(tdx->attributes & TDX_TD_ATTRIBUTE_PERFMON));
+
+	kvm_make_request(KVM_REQ_PMI, vcpu);
+}
+
 static int __init tdx_module_setup(void)
 {
 	const struct tdsysinfo_struct *tdsysinfo;
@@ -4412,6 +4423,7 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	x86_ops->mem_enc_read_memory = tdx_read_guest_memory;
 	x86_ops->mem_enc_write_memory = tdx_write_guest_memory;
 
+	kvm_set_tdx_guest_pmi_handler(tdx_guest_pmi_handler);
 	intel_reserve_lbr_buffers();
 	return 0;
 
@@ -4429,6 +4441,7 @@ void tdx_hardware_unsetup(void)
 	/* kfree accepts NULL. */
 	kfree(tdx_mng_key_config_lock);
 	misc_cg_set_capacity(MISC_CG_RES_TDX, 0);
+	kvm_set_tdx_guest_pmi_handler(NULL);
 }
 
 int tdx_offline_cpu(void)

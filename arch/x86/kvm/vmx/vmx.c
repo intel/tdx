@@ -6685,7 +6685,7 @@ int vmx_vm_init(struct kvm *kvm)
 	 */
 	if (enable_ept)
 		kvm_mmu_set_mmio_spte_mask(kvm, VMX_EPT_MISCONFIG_WX_VALUE,
-					   VMX_EPT_MISCONFIG_WX_VALUE, 0);
+					   VMX_EPT_RWX_MASK, 0);
 
 	if (boot_cpu_has(X86_BUG_L1TF) && enable_ept) {
 		switch (l1tf_mitigation) {

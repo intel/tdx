@@ -920,17 +920,6 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	}
 
 	/*
-	 * Always do PMU context switch here because SEAM module
-	 * unconditionally clear MSR_IA32_DS_AREA, otherwise CPU
-	 * may start to write data into DS area immediately after
-	 * SEAMRET to KVM, which cause PANIC with NULL access.
-	 */
-	intel_pmu_save();
-	if (!(kvm_tdx->attributes & TDX_TD_ATTRIBUTE_PERFMON) &&
-		td_profile_allowed(kvm_tdx))
-		tdx_switch_perf_msrs(vcpu);
-
-	/*
 	 * limited to debug td only due to now only debug
 	 * td guest need this feature for instructioin
 	 * emulation/skipping and TD-off debugging.
@@ -946,28 +935,29 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 			tdx_set_interrupt_shadow(vcpu, 0);
 	}
 
+	/*
+	 * Always do PMU context switch here because SEAM module
+	 * unconditionally clear MSR_IA32_DS_AREA, otherwise CPU
+	 * may start to write data into DS area immediately after
+	 * SEAMRET to KVM, which cause PANIC with NULL access.
+	 */
+	intel_pmu_save();
+	if (!(kvm_tdx->attributes & TDX_TD_ATTRIBUTE_PERFMON) &&
+		td_profile_allowed(kvm_tdx))
+		tdx_switch_perf_msrs(vcpu);
+
+	/*
+	 * This is safe only when host PMU is disabled, e.g.
+	 * the intel_pmu_save() is called before.
+	 */
+	if (kvm_tdx->attributes & TDX_TD_ATTRIBUTE_PERFMON)
+		apic_write(APIC_LVTPC, TDX_GUEST_PMI_VECTOR);
+
 	tdx_vcpu_enter_exit(vcpu, tdx);
 	tdx_user_return_update_cache();
 
-	if (kvm_tdx->attributes & TDX_TD_ATTRIBUTE_PERFMON) {
-		/*
-		 * Guest perf counters overflow leads to a PMI configured by
-		 * host VMM into APIC_LVTPC being delivered.  This PMI causes a
-		 * VM exit.  And as host counters are disabled before TDENTER, a
-		 * PMI pending (if mask is set) always means a guest counter
-		 * overflew.
-		 *
-		 * Simply set a flag to guide following NMI handling and unmask
-		 * APIC_LVTPC here as host counters are to be enabled.
-		 * Otherwise, a subsequent host PMI may be masked.
-		 */
-		if (tdx->exit_reason.basic == EXIT_REASON_EXCEPTION_NMI) {
-			if (apic_read(APIC_LVTPC) & APIC_LVT_MASKED) {
-				tdx->guest_pmi_exit = true;
-				apic_write(APIC_LVTPC, APIC_DM_NMI);
-			}
-		}
-	}
+	if (kvm_tdx->attributes & TDX_TD_ATTRIBUTE_PERFMON)
+		apic_write(APIC_LVTPC, APIC_DM_NMI);
 
 	perf_restore_debug_store();
 	tdx_restore_host_xsave_state(vcpu);
@@ -3380,17 +3370,34 @@ int tdx_skip_emulated_instruction(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static void tdx_guest_pmi_handler(void)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_tdx  *tdx;
+
+	vcpu = kvm_get_running_vcpu();
+
+	WARN_ON(!vcpu || !is_td_vcpu(vcpu));
+
+	tdx = to_kvm_tdx(vcpu->kvm);
+	WARN_ON(!(tdx->attributes & TDX_TD_ATTRIBUTE_PERFMON));
+
+	kvm_make_request(KVM_REQ_PMI, vcpu);
+}
+
 static int __init tdx_debugfs_init(void);
 static void __exit tdx_debugfs_exit(void);
 
 int __init tdx_init(void)
 {
+	kvm_set_tdx_guest_pmi_handler(tdx_guest_pmi_handler);
 	return tdx_debugfs_init();
 }
 
 void __exit tdx_exit(void)
 {
 	tdx_debugfs_exit();
+	kvm_set_tdx_guest_pmi_handler(NULL);
 }
 
 int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)

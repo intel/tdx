@@ -711,7 +711,7 @@ static bool is_valid_passthrough_msr(u32 msr)
 
 	r = possible_passthrough_msr_slot(msr) != -ENOENT;
 
-	WARN(!r, "Invalid MSR %x, please adapt vmx_possible_passthrough_msrs[]", msr);
+	//WARN(!r, "Invalid MSR %x, please adapt vmx_possible_passthrough_msrs[]", msr);
 
 	return r;
 }

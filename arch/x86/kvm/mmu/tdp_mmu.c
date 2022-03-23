@@ -1278,7 +1278,7 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 			 * TODO: large page support.
 			 * Doesn't support large page for TDX now
 			 */
-			WARN_ON(is_private_spte(&iter.old_spte));
+			WARN_ON(is_private_spte(iter.sptep));
 
 
 			/*

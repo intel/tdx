@@ -138,8 +138,10 @@ static long tdx_attest_ioctl(struct file *file, unsigned int cmd,
 		if (get_user(rtmr, (u64 __user *)argp))
 			break;
 		/* Don't allow to extend BIOS/kernel RTMRs */
-		if (rtmr == 0 || rtmr == 1)
-			return -EINVAL;
+		if (rtmr == 0 || rtmr == 1) {
+			ret = -EINVAL;
+			break;
+		}
 		if (copy_from_user(report_data, argp + 8, TDX_EXTEND_LEN))
 			break;
 

@@ -37,9 +37,7 @@ struct kvm_tdx {
 	unsigned long tsc_khz;
 
 	/* TDP MMU */
-	gfn_t low_gfn;
-	gfn_t high_gfn;
-	bool has_private_zapped;
+	bool has_range_blocked;
 
 	/*
 	 * Lock to prevent seamcalls from running concurrently

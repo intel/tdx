@@ -508,10 +508,7 @@ int tdx_vm_init(struct kvm *kvm)
 	}
 
 	spin_lock_init(&kvm_tdx->seamcall_lock);
-	kvm_tdx->has_private_zapped = false;
-	kvm_tdx->low_gfn = -1ULL;
-	kvm_tdx->high_gfn = 0;
-
+	kvm_tdx->has_range_blocked = false;
 
 	/*
 	 * Note, TDH_MNG_INIT cannot be invoked here.  TDH_MNG_INIT requires a dedicated
@@ -1601,14 +1598,6 @@ static int tdx_sept_link_private_sp(struct kvm *kvm, gfn_t gfn,
 	return 0;
 }
 
-static void tdx_merge_private_tlb_flush_range(struct kvm_tdx *kvm_tdx,
-					      gfn_t start, gfn_t end)
-{
-	kvm_tdx->has_private_zapped = true;
-	kvm_tdx->low_gfn = min(kvm_tdx->low_gfn, start);
-	kvm_tdx->high_gfn = max(kvm_tdx->high_gfn, end);
-}
-
 static void tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn,
 				      enum pg_level level)
 {
@@ -1626,8 +1615,7 @@ static void tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn,
 	if (KVM_BUG_ON(err, kvm))
 		pr_tdx_error(TDH_MEM_RANGE_BLOCK, err, &out);
 
-	/* make sure flush_tlb_range call tdx_track() */
-	tdx_merge_private_tlb_flush_range(kvm_tdx, gfn, gfn + 1);
+	kvm_tdx->has_range_blocked = true;
 }
 
 static void tdx_sept_unzap_private_spte(struct kvm *kvm, gfn_t gfn,
@@ -1723,9 +1711,6 @@ static int tdx_sept_tlb_remote_flush_with_range(struct kvm *kvm,
 						struct kvm_tlb_range *range)
 {
 	struct kvm_tdx *kvm_tdx;
-	gfn_t max_gfn_host = 1ULL << (boot_cpu_data.x86_phys_bits - PAGE_SHIFT);
-	gfn_t start = range->start_gfn;
-	gfn_t end = min(range->start_gfn + range->pages, max_gfn_host);
 
 	lockdep_assert_held_write(&kvm->mmu_lock);
 	if (!is_td(kvm))
@@ -1735,31 +1720,13 @@ static int tdx_sept_tlb_remote_flush_with_range(struct kvm *kvm,
 	if (!is_hkid_assigned(kvm_tdx))
 		return 0;
 
-	if (kvm_tdx->has_private_zapped) {
-		start = max(start, kvm_tdx->low_gfn);
-		end = min(end, kvm_tdx->high_gfn);
-	}
-	if (!kvm_tdx->has_private_zapped || start >= end) {
+	if (!kvm_tdx->has_range_blocked) {
 		kvm_make_all_cpus_request(kvm, KVM_REQ_TLB_FLUSH);
 		return 0;
 	}
 
+	kvm_tdx->has_range_blocked = false;
 	tdx_track(kvm_tdx);
-	kvm_tdp_mmu_drop_private_zapped_gfn(kvm, start, end);
-	if (start <= kvm_tdx->low_gfn &&
-		kvm_tdx->high_gfn <= end) {
-		kvm_tdx->has_private_zapped = false;
-		kvm_tdx->low_gfn = -1;
-		kvm_tdx->high_gfn = 0;
-	} else if (kvm_tdx->low_gfn < start &&
-		start + 1 < kvm_tdx->high_gfn &&
-		kvm_tdx->high_gfn <= end) {
-		kvm_tdx->high_gfn = start;
-	} else if (start <= kvm_tdx->low_gfn &&
-		kvm_tdx->low_gfn < end &&
-		end < kvm_tdx->high_gfn) {
-		kvm_tdx->low_gfn = end;
-	}
 
 	return 0;
 }

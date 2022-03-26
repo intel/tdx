@@ -461,6 +461,22 @@ static void __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 	bool pfn_changed = old_pfn != new_pfn;
 	bool was_private_zapped = is_private_zapped_spte(old_spte);
 	bool is_private_zapped = is_private_zapped_spte(new_spte);
+	struct kvm_spte_change change = {
+		.gfn = gfn,
+		.level = level,
+		.old = {
+			.pfn = old_pfn,
+			.is_present = was_present,
+			.is_leaf = was_leaf,
+			.is_private_zapped = was_private_zapped,
+		},
+		.new = {
+			.pfn = new_pfn,
+			.is_present = is_present,
+			.is_leaf = is_leaf,
+			.is_private_zapped = is_private_zapped,
+		},
+	};
 
 	WARN_ON(level > PT64_ROOT_MAX_LEVEL);
 	WARN_ON(level < PG_LEVEL_4K);
@@ -571,6 +587,7 @@ static void __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 			WARN_ON(sp->role.level + 1 != level);
 			WARN_ON(sp->gfn != gfn);
 		}
+		change.sept_page = sept_page;
 
 		/*
 		 * SPTE_PRIVATE_PROHIBIT is only changed by map_gpa that obtains
@@ -587,11 +604,8 @@ static void __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 		WARN_ON(!shared && is_leaf &&
 			!is_private_zapped &&
 			!is_private_prohibit_spte(new_spte));
-		static_call(kvm_x86_handle_changed_private_spte)(
-			kvm, gfn, level,
-			old_pfn, was_present, was_leaf,
-			new_pfn, is_present, is_leaf, is_private_zapped,
-			sept_page);
+
+		static_call(kvm_x86_handle_changed_private_spte)(kvm, &change);
 	}
 }
 

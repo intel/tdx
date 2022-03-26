@@ -1332,6 +1332,21 @@ static inline u16 kvm_lapic_irq_dest_mode(bool dest_mode_logical)
 	return dest_mode_logical ? APIC_DEST_LOGICAL : APIC_DEST_PHYSICAL;
 }
 
+struct kvm_spte {
+	kvm_pfn_t pfn;
+	bool is_present;
+	bool is_leaf;
+	bool is_private_zapped;
+};
+
+struct kvm_spte_change {
+	gfn_t gfn;
+	enum pg_level level;
+	struct kvm_spte old;
+	struct kvm_spte new;
+	void *sept_page;
+};
+
 struct kvm_x86_ops {
 	const char *name;
 
@@ -1449,10 +1464,7 @@ struct kvm_x86_ops {
 		struct kvm *kvm, gfn_t gfn, enum pg_level level,
 		kvm_pfn_t old_pfn, bool is_present);
 	void (*handle_changed_private_spte)(
-		struct kvm *kvm, gfn_t gfn, enum pg_level level,
-		kvm_pfn_t old_pfn, bool was_present, bool was_leaf,
-		kvm_pfn_t new_pfn, bool is_present, bool is_leaf,
-		bool is_private_zapped, void *sept_page);
+		struct kvm *kvm, const struct kvm_spte_change *change);
 
 	/*
 	 * The following five operations are only for legacy MMU.

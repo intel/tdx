@@ -1804,49 +1804,49 @@ static void tdx_handle_private_zapped_spte(
 }
 
 static void tdx_handle_changed_private_spte(
-	struct kvm *kvm, gfn_t gfn, enum pg_level level,
-	kvm_pfn_t old_pfn, bool was_present, bool was_leaf,
-	kvm_pfn_t new_pfn, bool is_present, bool is_leaf, bool is_private_zapped,
-	void *sept_page)
+	struct kvm *kvm, const struct kvm_spte_change *change)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 
 	WARN_ON(!is_td(kvm));
 	lockdep_assert_held(&kvm->mmu_lock);
 
-	if (is_present) {
+	if (change->new.is_present) {
 		/* TDP MMU doesn't change present -> present/private_zapped */
-		WARN_ON(was_present);
-		WARN_ON(is_private_zapped);
+		WARN_ON(change->old.is_present);
+		WARN_ON(change->new.is_private_zapped);
 
 		/*
 		 * Use different call to either set up middle level
 		 * private page table, or leaf.
 		 */
-		if (is_leaf)
-			tdx_sept_set_private_spte(kvm, gfn, level, new_pfn);
+		if (change->new.is_leaf)
+			tdx_sept_set_private_spte(kvm, change->gfn,
+						change->level, change->new.pfn);
 		else {
-			WARN_ON(!sept_page);
-			if (tdx_sept_link_private_sp(kvm, gfn, level, sept_page))
+			WARN_ON(!change->sept_page);
+			if (tdx_sept_link_private_sp(
+					kvm, change->gfn, change->level,
+					change->sept_page))
 				/* failed to update Secure-EPT.  */
 				WARN_ON(1);
 		}
-	} else if (was_leaf) {
+	} else if (change->old.is_leaf) {
 		/* non-present -> non-present doesn't make sense. */
-		WARN_ON(!was_present);
+		WARN_ON(!change->old.is_present);
 
 		/*
 		 * Zap private leaf SPTE.  Zapping private table is done
 		 * below in handle_removed_tdp_mmu_page().
 		 */
-		tdx_sept_zap_private_spte(kvm, gfn, level);
+		tdx_sept_zap_private_spte(kvm, change->gfn, change->level);
 
-		if (is_private_zapped) {
+		if (change->new.is_private_zapped) {
 			lockdep_assert_held_write(&kvm->mmu_lock);
-			WARN_ON(new_pfn != old_pfn);
+			WARN_ON(change->new.pfn != change->old.pfn);
 		} else {
 			lockdep_assert_held_read(&kvm->mmu_lock);
-			WARN_ON(new_pfn);
+			WARN_ON(change->new.pfn);
 
 			/*
 			 * TDX requires TLB tracking before dropping private
@@ -1855,7 +1855,8 @@ static void tdx_handle_changed_private_spte(
 			if (is_hkid_assigned(kvm_tdx))
 				tdx_track(kvm_tdx);
 
-			tdx_sept_drop_private_spte(kvm, gfn, level, old_pfn);
+			tdx_sept_drop_private_spte(kvm, change->gfn,
+						change->level, change->old.pfn);
 		}
 	}
 }

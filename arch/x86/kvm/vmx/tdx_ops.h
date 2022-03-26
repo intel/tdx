@@ -73,6 +73,13 @@ static inline u64 tdh_vp_addcx(hpa_t tdvpr, hpa_t addr)
 	return kvm_seamcall(TDH_VP_ADDCX, addr, tdvpr, 0, 0, NULL);
 }
 
+static inline u64 tdh_mem_page_relocate(hpa_t tdr, gpa_t gpa, hpa_t hpa,
+					struct tdx_module_output *out)
+{
+	tdx_clflush_page(hpa);
+	return kvm_seamcall(TDH_MEM_PAGE_RELOCATE, gpa, tdr, hpa, 0, out);
+}
+
 static inline u64 tdh_mem_page_aug(hpa_t tdr, gpa_t gpa, hpa_t hpa,
 				struct tdx_module_output *out)
 {

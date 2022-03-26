@@ -1780,6 +1780,9 @@ static void tdx_handle_private_zapped_spte(
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 
 	WARN_ON(!is_td(kvm));
+	WARN_ON(change->old.is_present);
+	WARN_ON(!change->old.is_private_zapped);
+	WARN_ON(change->new.is_private_zapped);
 
 	/*
 	 * Handle special case of old_spte being temporarily blocked private
@@ -1793,7 +1796,31 @@ static void tdx_handle_private_zapped_spte(
 	 */
 	if (change->new.is_present) {
 		lockdep_assert_held_read(&kvm->mmu_lock);
-		tdx_sept_unzap_private_spte(kvm, change->gfn, change->level);
+
+		if (change->old.pfn == change->new.pfn) {
+			tdx_sept_unzap_private_spte(kvm, change->gfn, change->level);
+		} else {
+			u64 err;
+			struct tdx_module_output out;
+
+			/* Page migration */
+			err = tdh_mem_page_relocate(
+				kvm_tdx->tdr.pa, gfn_to_gpa(change->gfn),
+				gfn_to_gpa(change->new.pfn), &out);
+			if (WARN_ON_ONCE(err)) {
+				pr_tdx_error(TDH_MEM_PAGE_RELOCATE, err, &out);
+				return;
+			}
+			get_page(pfn_to_page(change->new.pfn));
+			err = tdh_phymem_page_wbinvd(
+				set_hkid_to_hpa(pfn_to_hpa(change->old.pfn),
+						kvm_tdx->hkid));
+			if (WARN_ON_ONCE(err)) {
+				pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
+				return;
+			}
+			put_page(pfn_to_page(change->old.pfn));
+		}
 	} else {
 		lockdep_assert_held_write(&kvm->mmu_lock);
 		if (is_hkid_assigned(kvm_tdx))

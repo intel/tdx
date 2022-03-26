@@ -305,7 +305,6 @@ static inline u8 permission_fault(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu,
 }
 
 void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end);
-void kvm_tdp_mmu_drop_private_zapped_gfn(struct kvm *kvm, gfn_t start, gfn_t end);
 
 int kvm_arch_write_log_dirty(struct kvm_vcpu *vcpu);
 

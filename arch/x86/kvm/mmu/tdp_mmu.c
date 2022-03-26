@@ -1418,62 +1418,6 @@ static __always_inline bool kvm_tdp_mmu_handle_gfn(struct kvm *kvm,
 	return ret;
 }
 
-static void drop_private_zapped_spte(struct kvm *kvm, struct tdp_iter *iter)
-{
-	u64 new_spte;
-	struct kvm_spte_change change;
-
-	if (WARN_ON(!is_private_spte(iter->sptep)))
-		return;
-	if (!is_private_zapped_spte(iter->old_spte))
-		return;
-
-	new_spte = shadow_init_spte(iter->old_spte);
-	change = (struct kvm_spte_change) {
-		.gfn = iter->gfn,
-		.level = iter->level,
-		.old = {
-			.pfn = spte_to_pfn(iter->old_spte),
-			.is_present = is_shadow_present_pte(iter->old_spte),
-			.is_leaf = is_shadow_present_pte(iter->old_spte) &&
-				   is_last_spte(iter->old_spte, iter->level),
-			.is_private_zapped = is_private_zapped_spte(iter->old_spte),
-		},
-		.new = {
-			.pfn = spte_to_pfn(new_spte),
-			.is_present = is_shadow_present_pte(new_spte),
-			.is_leaf = is_shadow_present_pte(new_spte) &&
-				   is_last_spte(new_spte, iter->level),
-			.is_private_zapped = is_private_zapped_spte(new_spte),
-		},
-	};
-	static_call(kvm_x86_handle_private_zapped_spte)(kvm, &change);
-
-	WRITE_ONCE(*rcu_dereference(iter->sptep), new_spte);
-}
-
-void kvm_tdp_mmu_drop_private_zapped_gfn(struct kvm *kvm,
-					gfn_t start, gfn_t end)
-{
-	struct kvm_mmu_page *root;
-	int as_id;
-	struct tdp_iter iter;
-
-	lockdep_assert_held_write(&kvm->mmu_lock);
-
-	for (as_id = 0; as_id < KVM_ADDRESS_SPACE_NUM; as_id++) {
-		for_each_tdp_mmu_root_yield_safe(kvm, root, as_id, false) {
-			if (!is_private_sp(root))
-				continue;
-			tdp_root_for_each_pte(iter, root, start, end) {
-				if (is_private_zapped_spte(iter.old_spte))
-					drop_private_zapped_spte(kvm, &iter);
-			}
-		}
-	}
-}
-EXPORT_SYMBOL_GPL(kvm_tdp_mmu_drop_private_zapped_gfn);
-
 /*
  * Mark the SPTEs range of GFNs [start, end) unaccessed and return non-zero
  * if any of the GFNs in the range have been accessed.

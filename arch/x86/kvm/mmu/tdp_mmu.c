@@ -514,8 +514,7 @@ static void __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 
 	if (was_private_zapped) {
 		WARN_ON(is_private_zapped);
-		static_call(kvm_x86_handle_private_zapped_spte)(
-			kvm, gfn, level, old_pfn, is_present);
+		static_call(kvm_x86_handle_private_zapped_spte)(kvm, &change);
 		/* Temporarily blocked private SPTE can only be leaf. */
 		WARN_ON(!is_last_spte(old_spte, level));
 		return;
@@ -1422,16 +1421,34 @@ static __always_inline bool kvm_tdp_mmu_handle_gfn(struct kvm *kvm,
 static void drop_private_zapped_spte(struct kvm *kvm, struct tdp_iter *iter)
 {
 	u64 new_spte;
+	struct kvm_spte_change change;
 
 	if (WARN_ON(!is_private_spte(iter->sptep)))
 		return;
 	if (!is_private_zapped_spte(iter->old_spte))
 		return;
 
-	static_call(kvm_x86_handle_private_zapped_spte)(
-		kvm, iter->gfn, iter->level, spte_to_pfn(iter->old_spte), false);
-
 	new_spte = shadow_init_spte(iter->old_spte);
+	change = (struct kvm_spte_change) {
+		.gfn = iter->gfn,
+		.level = iter->level,
+		.old = {
+			.pfn = spte_to_pfn(iter->old_spte),
+			.is_present = is_shadow_present_pte(iter->old_spte),
+			.is_leaf = is_shadow_present_pte(iter->old_spte) &&
+				   is_last_spte(iter->old_spte, iter->level),
+			.is_private_zapped = is_private_zapped_spte(iter->old_spte),
+		},
+		.new = {
+			.pfn = spte_to_pfn(new_spte),
+			.is_present = is_shadow_present_pte(new_spte),
+			.is_leaf = is_shadow_present_pte(new_spte) &&
+				   is_last_spte(new_spte, iter->level),
+			.is_private_zapped = is_private_zapped_spte(new_spte),
+		},
+	};
+	static_call(kvm_x86_handle_private_zapped_spte)(kvm, &change);
+
 	WRITE_ONCE(*rcu_dereference(iter->sptep), new_spte);
 }
 

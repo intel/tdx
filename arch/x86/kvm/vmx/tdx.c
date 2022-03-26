@@ -1775,8 +1775,7 @@ static int tdx_sept_tlb_remote_flush(struct kvm *kvm)
 }
 
 static void tdx_handle_private_zapped_spte(
-	struct kvm *kvm, gfn_t gfn, enum pg_level level,
-	kvm_pfn_t old_pfn, bool is_present)
+	struct kvm *kvm, const struct kvm_spte_change *change)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 
@@ -1792,14 +1791,15 @@ static void tdx_handle_private_zapped_spte(
 	 * Do this before handling "!was_present && !is_present" case below,
 	 * because blocked private SPTE is also non-present.
 	 */
-	if (is_present) {
+	if (change->new.is_present) {
 		lockdep_assert_held_read(&kvm->mmu_lock);
-		tdx_sept_unzap_private_spte(kvm, gfn, level);
+		tdx_sept_unzap_private_spte(kvm, change->gfn, change->level);
 	} else {
 		lockdep_assert_held_write(&kvm->mmu_lock);
 		if (is_hkid_assigned(kvm_tdx))
 			tdx_track(kvm_tdx);
-		tdx_sept_drop_private_spte(kvm, gfn, level, old_pfn);
+		tdx_sept_drop_private_spte(kvm, change->gfn, change->level,
+					change->old.pfn);
 	}
 }
 

@@ -1890,6 +1890,59 @@ bool kvm_tdp_mmu_write_protect_gfn(struct kvm *kvm,
 	return spte_set;
 }
 
+/*
+ * Allocate shadow page table for given gfn so that the following operations
+ * on sptes can be done without memory allocation.
+ */
+int kvm_tdp_mmu_populate_nonleaf(struct kvm_vcpu *vcpu, gfn_t start, gfn_t end)
+{
+	struct kvm *kvm = vcpu->kvm;
+	struct tdp_iter iter;
+	int ret = 0;
+	bool is_private = kvm_is_private_gfn(kvm, start);
+
+	kvm_lockdep_assert_mmu_lock_held(kvm, false);
+	rcu_read_lock();
+	tdp_mmu_for_each_pte(iter, vcpu->arch.mmu, is_private, start, end) {
+		if (iter.level == PG_LEVEL_4K)
+			continue;
+		if (is_shadow_present_pte(iter.old_spte) &&
+			is_large_pte(iter.old_spte)) {
+			/* TODO: large page support. */
+			WARN_ON_ONCE(true);
+			return -ENOSYS;
+		}
+
+		if (is_shadow_present_pte(iter.old_spte))
+			continue;
+
+		/*
+		 * Guarantee that alloc_tdp_mmu_page() succees which
+		 * assumes page allocation from cache always successes.
+		 */
+		if (vcpu->arch.mmu_page_header_cache.nobjs == 0 ||
+			vcpu->arch.mmu_shadow_page_cache.nobjs == 0 ||
+			vcpu->arch.mmu_private_sp_cache.nobjs == 0) {
+			ret = -EAGAIN;
+			break;
+		}
+		/*
+		 * write lock of mmu_lock is held.  No other thread
+		 * freezes SPTE.
+		 */
+		if (!tdp_mmu_populate_nonleaf(
+				vcpu, &iter, is_private, false)) {
+			/* As write lock is held, this case sholdn't happen. */
+			WARN_ON_ONCE(true);
+			ret = -EAGAIN;
+			break;
+		}
+	}
+	rcu_read_unlock();
+
+	return ret;
+}
+
 typedef void (*update_spte_t)(
 	struct kvm *kvm, struct tdp_iter *iter, bool allow_private);
 

@@ -6552,6 +6552,38 @@ static int mmu_map_gpa(struct kvm_vcpu *vcpu, gfn_t gfn, bool allow_private)
 	return ret;
 }
 
+static int kvm_mmu_populate_nonleaf(struct kvm_vcpu *vcpu, gfn_t start, gfn_t end)
+{
+	struct kvm *kvm = vcpu->kvm;
+	struct kvm_memslots *slots;
+	struct kvm_memslot_iter iter;
+	int ret = 0;
+
+	/* No need to populate as mmu_map_gpa() handles single GPA. */
+	if (!is_tdp_mmu_enabled(kvm))
+		return 0;
+
+	slots = __kvm_memslots(kvm, 0 /* only normal ram. not SMM. */);
+	kvm_for_each_memslot_in_gfn_range(&iter, slots, start, end) {
+		struct kvm_memory_slot *memslot = iter.slot;
+		gfn_t s = max(start, memslot->base_gfn);
+		gfn_t e = min(end, memslot->base_gfn + memslot->npages);
+
+		if (WARN_ON_ONCE(s >= e))
+			continue;
+
+		ret = kvm_tdp_mmu_populate_nonleaf(vcpu, kvm_gfn_private(kvm, s),
+						kvm_gfn_private(kvm, e));
+		if (ret)
+			break;
+		ret = kvm_tdp_mmu_populate_nonleaf(vcpu, kvm_gfn_shared(kvm, s),
+						kvm_gfn_shared(kvm, e));
+		if (ret)
+			break;
+	}
+	return ret;
+}
+
 int kvm_mmu_map_gpa(struct kvm_vcpu *vcpu, gfn_t *startp, gfn_t end)
 {
 	struct kvm *kvm = vcpu->kvm;
@@ -6564,16 +6596,35 @@ int kvm_mmu_map_gpa(struct kvm_vcpu *vcpu, gfn_t *startp, gfn_t end)
 	if (!kvm_gfn_stolen_mask(kvm))
 		return -EOPNOTSUPP;
 
-	ret = mmu_topup_memory_caches(vcpu, false);
-	if (ret)
-		return ret;
-
 	allow_private = kvm_is_private_gfn(kvm, start);
 	start = kvm_gfn_unalias(kvm, start);
 	end = kvm_gfn_unalias(kvm, end);
 
-	mutex_lock(&kvm->slots_lock);
-	write_lock(&kvm->mmu_lock);
+	/*
+	 * Allocate S-EPT pages first so that the operations leaf SPTE entry
+	 * can be done without memory allocation.
+	 */
+	while (true) {
+		ret = mmu_topup_memory_caches(vcpu, false);
+		if (ret)
+			return ret;
+
+		mutex_lock(&kvm->slots_lock);
+		write_lock(&kvm->mmu_lock);
+
+		ret = kvm_mmu_populate_nonleaf(vcpu, start, end);
+		if (!ret)
+			break;
+
+		write_unlock(&kvm->mmu_lock);
+		mutex_unlock(&kvm->slots_lock);
+		if (ret == -EAGAIN) {
+			if (need_resched())
+				cond_resched();
+			continue;
+		}
+		return ret;
+	}
 
 	slots = __kvm_memslots(kvm, 0 /* only normal ram. not SMM. */);
 	kvm_for_each_memslot_in_gfn_range(&iter, slots, start, end) {

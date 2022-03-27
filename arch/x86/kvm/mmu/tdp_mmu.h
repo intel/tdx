@@ -74,6 +74,7 @@ bool kvm_tdp_mmu_write_protect_gfn(struct kvm *kvm,
 				   struct kvm_memory_slot *slot, gfn_t gfn,
 				   int min_level);
 
+int kvm_tdp_mmu_populate_nonleaf(struct kvm_vcpu *vcpu, gfn_t start, gfn_t end);
 int kvm_tdp_mmu_map_gpa(struct kvm_vcpu *vcpu,
 			gfn_t *startp, gfn_t end, bool is_private);
 

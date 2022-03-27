@@ -8,6 +8,8 @@
 #include <asm/clocksource.h>
 #include <asm/pvclock-abi.h>
 
+#include "vmx/tdx_arch.h"
+
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM kvm
 
@@ -146,7 +148,112 @@ TRACE_EVENT(kvm_xen_hypercall,
 		  __entry->a3, __entry->a4, __entry->a5)
 );
 
+#define TDG_VP_VMCALL(x) {x, #x}
 
+#define kvm_trace_symbol_tdvmcall				\
+	TDG_VP_VMCALL(EXIT_REASON_CPUID),			\
+	TDG_VP_VMCALL(EXIT_REASON_HLT),				\
+	TDG_VP_VMCALL(EXIT_REASON_IO_INSTRUCTION),		\
+	TDG_VP_VMCALL(EXIT_REASON_EPT_VIOLATION),		\
+	TDG_VP_VMCALL(EXIT_REASON_MSR_READ),			\
+	TDG_VP_VMCALL(EXIT_REASON_MSR_WRITE),			\
+	TDG_VP_VMCALL(TDG_VP_VMCALL_GET_TD_VM_CALL_INFO),	\
+	TDG_VP_VMCALL(TDG_VP_VMCALL_MAP_GPA),			\
+	TDG_VP_VMCALL(TDG_VP_VMCALL_GET_QUOTE),			\
+	TDG_VP_VMCALL(TDG_VP_VMCALL_REPORT_FATAL_ERROR),	\
+	TDG_VP_VMCALL(TDG_VP_VMCALL_SETUP_EVENT_NOTIFY_INTERRUPT)
+
+TRACE_EVENT(kvm_tdx_hypercall,
+	TP_PROTO(__u64 subfunction, __u64 reg_mask, __u64 r12, __u64 r13,
+		 __u64 r14, __u64 rbx, __u64 rdi, __u64 rsi, __u64 r8, __u64 r9,
+		 __u64 rdx),
+
+	TP_ARGS(subfunction, reg_mask, r12, r13, r14, rbx, rdi, rsi, r8, r9, rdx),
+
+	TP_STRUCT__entry(
+		__field(	__u64,		subfunction	)
+		__field(	__u64,		reg_mask	)
+		__field(	__u64,		r12		)
+		__field(	__u64,		r13		)
+		__field(	__u64,		r14		)
+		__field(	__u64,		rbx		)
+		__field(	__u64,		rdi		)
+		__field(	__u64,		rsi		)
+		__field(	__u64,		r8		)
+		__field(	__u64,		r9		)
+		__field(	__u64,		rdx		)
+	),
+
+	TP_fast_assign(
+		__entry->subfunction	= subfunction;
+		__entry->reg_mask	= reg_mask;
+		__entry->r12		= r12;
+		__entry->r13		= r13;
+		__entry->r14		= r14;
+		__entry->rbx		= rbx;
+		__entry->rdi		= rdi;
+		__entry->rsi		= rsi;
+		__entry->r8		= r8;
+		__entry->r9		= r9;
+		__entry->rdx		= rdx;
+	),
+
+	TP_printk("%s reg_mask 0x%llx r12 0x%llx r13 0x%llx r14 0x%llx "
+		  "rbx 0x%llx rdi 0x%llx rsi 0x%llx r8 0x%llx r9 0x%llx "
+		  "rdx 0x%llx",
+		  __print_symbolic(__entry->subfunction,
+				   kvm_trace_symbol_tdvmcall),
+		  __entry->reg_mask, __entry->r12, __entry->r13, __entry->r14,
+		  __entry->rbx, __entry->rdi, __entry->rsi, __entry->r8,
+		  __entry->r9, __entry->rdx)
+);
+
+TRACE_EVENT(kvm_tdx_hypercall_done,
+	TP_PROTO(int r, __u64 subfunction, __u64 status_code, __u64 r12, __u64 r13,
+		 __u64 r14, __u64 rbx, __u64 rdi, __u64 rsi, __u64 r8, __u64 r9,
+		__u64 rdx),
+	TP_ARGS(r, subfunction, status_code, r12, r13, r14, rbx, rdi, rsi, r8, r9, rdx),
+
+	TP_STRUCT__entry(
+		__field(	int,		r		)
+		__field(	__u64,		subfunction	)
+		__field(	__u64,		status_code	)
+		__field(	__u64,		r12		)
+		__field(	__u64,		r13		)
+		__field(	__u64,		r14		)
+		__field(	__u64,		rbx		)
+		__field(	__u64,		rdi		)
+		__field(	__u64,		rsi		)
+		__field(	__u64,		r8		)
+		__field(	__u64,		r9		)
+		__field(	__u64,		rdx		)
+	),
+
+	TP_fast_assign(
+		__entry->r		= r;
+		__entry->subfunction	= subfunction;
+		__entry->status_code	= status_code;
+		__entry->r12		= r12;
+		__entry->r13		= r13;
+		__entry->r14		= r14;
+		__entry->rbx		= rbx;
+		__entry->rdi		= rdi;
+		__entry->rsi		= rsi;
+		__entry->r8		= r8;
+		__entry->r9		= r9;
+		__entry->rdx		= rdx;
+	),
+
+	TP_printk("%s r 0x%x status_code 0x%llx r12 0x%llx r13 0x%llx r14 0x%llx "
+		  "rbx 0x%llx rdi 0x%llx rsi 0x%llx r8 0x%llx r9 0x%llx "
+		  "rdx 0x%llx",
+		  __print_symbolic(__entry->subfunction,
+				   kvm_trace_symbol_tdvmcall),
+		  __entry->r, __entry->status_code,
+		  __entry->r12, __entry->r13, __entry->r14, __entry->rbx,
+		  __entry->rdi, __entry->rsi, __entry->r8, __entry->r9,
+		  __entry->rdx)
+);
 
 /*
  * Tracepoint for PIO.

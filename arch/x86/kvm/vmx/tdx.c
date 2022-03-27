@@ -1364,48 +1364,78 @@ static int tdx_setup_event_notify_interrupt(struct kvm_vcpu *vcpu)
 	return tdx_vp_vmcall_to_user(vcpu);
 }
 
+static void tdx_trace_tdvmcall_done(struct kvm_vcpu *vcpu)
+{
+	trace_kvm_tdx_hypercall_done(kvm_r11_read(vcpu), kvm_r10_read(vcpu),
+				     kvm_r12_read(vcpu), kvm_r13_read(vcpu), kvm_r14_read(vcpu),
+				     kvm_rbx_read(vcpu), kvm_rdi_read(vcpu), kvm_rsi_read(vcpu),
+				     kvm_r8_read(vcpu), kvm_r9_read(vcpu), kvm_rdx_read(vcpu));
+}
+
+
 static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 {
+	int r;
+
 	if (tdvmcall_exit_type(vcpu))
 		return tdx_emulate_vmcall(vcpu);
 
+	trace_kvm_tdx_hypercall(tdvmcall_leaf(vcpu), kvm_rcx_read(vcpu),
+				kvm_r12_read(vcpu), kvm_r13_read(vcpu), kvm_r14_read(vcpu),
+				kvm_rbx_read(vcpu), kvm_rdi_read(vcpu), kvm_rsi_read(vcpu),
+				kvm_r8_read(vcpu), kvm_r9_read(vcpu), kvm_rdx_read(vcpu));
+
 	switch (tdvmcall_leaf(vcpu)) {
 	case EXIT_REASON_CPUID:
-		return tdx_emulate_cpuid(vcpu);
+		r = tdx_emulate_cpuid(vcpu);
+		break;
 	case EXIT_REASON_HLT:
-		return tdx_emulate_hlt(vcpu);
+		r = tdx_emulate_hlt(vcpu);
+		break;
 	case EXIT_REASON_IO_INSTRUCTION:
-		return tdx_emulate_io(vcpu);
+		r = tdx_emulate_io(vcpu);
+		break;
 	case EXIT_REASON_EPT_VIOLATION:
-		return tdx_emulate_mmio(vcpu);
+		r = tdx_emulate_mmio(vcpu);
+		break;
 	case EXIT_REASON_MSR_READ:
-		return tdx_emulate_rdmsr(vcpu);
+		r = tdx_emulate_rdmsr(vcpu);
+		break;
 	case EXIT_REASON_MSR_WRITE:
-		return tdx_emulate_wrmsr(vcpu);
+		r = tdx_emulate_wrmsr(vcpu);
+		break;
 	case TDG_VP_VMCALL_GET_TD_VM_CALL_INFO:
-		return tdx_get_td_vm_call_info(vcpu);
+		r = tdx_get_td_vm_call_info(vcpu);
+		break;
 	case TDG_VP_VMCALL_REPORT_FATAL_ERROR:
 		/*
 		 * Exit to userspace device model for tear down.
 		 * Because guest TD is already panicking, returning an error to
 		 * guest TD doesn't make sense.  No argument check is done.
 		 */
-		return tdx_vp_vmcall_to_user(vcpu);
+		r = tdx_vp_vmcall_to_user(vcpu);
+		break;
 	case TDG_VP_VMCALL_MAP_GPA:
-		return tdx_map_gpa(vcpu);
+		r = tdx_map_gpa(vcpu);
+		break;
 	case TDG_VP_VMCALL_SETUP_EVENT_NOTIFY_INTERRUPT:
-		return tdx_setup_event_notify_interrupt(vcpu);
+		r = tdx_setup_event_notify_interrupt(vcpu);
+		break;
 	case TDG_VP_VMCALL_GET_QUOTE:
-		return tdx_get_quote(vcpu);
+		r = tdx_get_quote(vcpu);
+		break;
 	default:
+		/*
+		 * Unknown VMCALL.  Toss the request to the user space as it may
+		 * know how to handle.
+		 */
+		tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
+		r = tdx_vp_vmcall_to_user(vcpu);
 		break;
 	}
 
-	/*
-	 * Unknown VMCALL.  Toss the request to the user space as it may know
-	 * how to handle.
-	 */
-	return tdx_vp_vmcall_to_user(vcpu);
+	tdx_trace_tdvmcall_done(vcpu);
+	return r;
 }
 
 void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int pgd_level)

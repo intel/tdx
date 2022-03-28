@@ -1771,6 +1771,10 @@ bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)
 		flush = kvm_handle_gfn_range(kvm, range, kvm_unmap_rmapp);
 
 	if (is_tdp_mmu_enabled(kvm))
+		/*
+		 * private page needs to be kept and handle page migration
+		 * on next EPT violation.
+		 */
 		flush = kvm_tdp_mmu_unmap_gfn_range(kvm, range, flush, false);
 
 	return flush;
@@ -6051,7 +6055,7 @@ restart:
  * not use any resource of the being-deleted slot or all slots
  * after calling the function.
  */
-static void kvm_mmu_zap_all_fast(struct kvm *kvm)
+static void kvm_mmu_zap_all_fast(struct kvm *kvm, bool drop_private)
 {
 	lockdep_assert_held(&kvm->slots_lock);
 
@@ -6096,7 +6100,7 @@ static void kvm_mmu_zap_all_fast(struct kvm *kvm)
 	 */
 	if (is_tdp_mmu_enabled(kvm)) {
 		read_lock(&kvm->mmu_lock);
-		kvm_tdp_mmu_zap_invalidated_roots(kvm);
+		kvm_tdp_mmu_zap_invalidated_roots(kvm, drop_private);
 		read_unlock(&kvm->mmu_lock);
 	}
 }
@@ -6154,7 +6158,7 @@ static void kvm_mmu_invalidate_zap_pages_in_memslot(struct kvm *kvm,
 			struct kvm_page_track_notifier_node *node)
 {
 	if (memslot_update_zap_all && !kvm_gfn_stolen_mask(kvm))
-		kvm_mmu_zap_all_fast(kvm);
+		kvm_mmu_zap_all_fast(kvm, true);
 	else
 		kvm_mmu_zap_memslot(kvm, slot);
 }
@@ -6239,8 +6243,7 @@ void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end)
 	if (is_tdp_mmu_enabled(kvm)) {
 		for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++)
 			flush = kvm_tdp_mmu_zap_gfn_range(kvm, i, gfn_start,
-							  gfn_end, flush,
-							  false);
+							  gfn_end, flush);
 	}
 
 	if (flush)
@@ -6480,7 +6483,7 @@ void kvm_mmu_invalidate_mmio_sptes(struct kvm *kvm, u64 gen)
 	 */
 	if (unlikely(gen == 0)) {
 		kvm_debug_ratelimited("kvm: zapping shadow pages for mmio generation wraparound\n");
-		kvm_mmu_zap_all_fast(kvm);
+		kvm_mmu_zap_all_fast(kvm, true);
 	}
 }
 
@@ -6776,7 +6779,7 @@ static int set_nx_huge_pages(const char *val, const struct kernel_param *kp)
 
 		list_for_each_entry(kvm, &vm_list, vm_list) {
 			mutex_lock(&kvm->slots_lock);
-			kvm_mmu_zap_all_fast(kvm);
+			kvm_mmu_zap_all_fast(kvm, false);
 			mutex_unlock(&kvm->slots_lock);
 
 			wake_up_process(kvm->arch.nx_lpage_recovery_thread);

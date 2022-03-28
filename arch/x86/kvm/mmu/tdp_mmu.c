@@ -58,9 +58,16 @@ static gfn_t tdp_iter_gfn_unalias(struct kvm *kvm, struct tdp_iter *iter)
 	return kvm_gfn_unalias(kvm, iter->gfn);
 }
 
+static bool __zap_gfn_range(struct kvm *kvm, struct kvm_mmu_page *root,
+			    gfn_t start, gfn_t end, bool can_yield, bool flush,
+			    bool shared, bool drop_private);
 static bool zap_gfn_range(struct kvm *kvm, struct kvm_mmu_page *root,
 			  gfn_t start, gfn_t end, bool can_yield, bool flush,
-			  bool shared, bool drop_private);
+			  bool shared)
+{
+	return __zap_gfn_range(kvm, root, start, end, can_yield, flush, shared,
+			is_private_sp(root));
+}
 
 static void tdp_mmu_free_sp(struct kvm_mmu_page *sp)
 {
@@ -100,8 +107,7 @@ void kvm_tdp_mmu_put_root(struct kvm *kvm, struct kvm_mmu_page *root,
 	list_del_rcu(&root->link);
 	spin_unlock(&kvm->arch.tdp_mmu_pages_lock);
 
-	zap_gfn_range(kvm, root, 0, -1ull, false, false, shared,
-		is_private_sp(root));
+	zap_gfn_range(kvm, root, 0, -1ull, false, false, shared);
 
 	call_rcu(&root->rcu_head, tdp_mmu_free_sp_rcu_callback);
 }
@@ -876,9 +882,9 @@ static inline bool __must_check tdp_mmu_iter_cond_resched(struct kvm *kvm,
  * structures concurrently. If shared is false, this thread should hold the
  * MMU lock in write mode.
  */
-static bool zap_gfn_range(struct kvm *kvm, struct kvm_mmu_page *root,
-			  gfn_t start, gfn_t end, bool can_yield, bool flush,
-			  bool shared, bool drop_private)
+static bool __zap_gfn_range(struct kvm *kvm, struct kvm_mmu_page *root,
+			    gfn_t start, gfn_t end, bool can_yield, bool flush,
+			    bool shared, bool drop_private)
 {
 	gfn_t max_gfn_host = 1ULL << (shadow_phys_bits - PAGE_SHIFT);
 	bool zap_all = (start == 0 && end >= max_gfn_host);
@@ -991,17 +997,13 @@ retry:
  * MMU lock.
  */
 bool __kvm_tdp_mmu_zap_gfn_range(struct kvm *kvm, int as_id, gfn_t start,
-				 gfn_t end, bool can_yield, bool flush,
-				 bool drop_private)
+				 gfn_t end, bool can_yield, bool flush)
 {
 	struct kvm_mmu_page *root;
 
 	for_each_tdp_mmu_root_yield_safe(kvm, root, as_id, false) {
-		/* Skip private page table if not requested */
-		if (!drop_private && is_private_sp(root))
-			continue;
 		flush = zap_gfn_range(kvm, root, start, end, can_yield, flush,
-				false, drop_private && is_private_sp(root));
+				false);
 	}
 
 	return flush;
@@ -1013,7 +1015,7 @@ void kvm_tdp_mmu_zap_all(struct kvm *kvm)
 	int i;
 
 	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++)
-		flush = kvm_tdp_mmu_zap_gfn_range(kvm, i, 0, -1ull, flush, true);
+		flush = kvm_tdp_mmu_zap_gfn_range(kvm, i, 0, -1ull, flush);
 
 	if (flush)
 		kvm_flush_remote_tlbs(kvm);
@@ -1049,7 +1051,7 @@ static struct kvm_mmu_page *next_invalidated_root(struct kvm *kvm,
  * only has to do a trivial amount of work. Since the roots are invalid,
  * no new SPTEs should be created under them.
  */
-void kvm_tdp_mmu_zap_invalidated_roots(struct kvm *kvm)
+void kvm_tdp_mmu_zap_invalidated_roots(struct kvm *kvm, bool drop_private)
 {
 	struct kvm_mmu_page *next_root;
 	struct kvm_mmu_page *root;
@@ -1073,7 +1075,8 @@ void kvm_tdp_mmu_zap_invalidated_roots(struct kvm *kvm)
 
 		rcu_read_unlock();
 
-		flush = zap_gfn_range(kvm, root, 0, -1ull, true, flush, true, false);
+		flush = __zap_gfn_range(kvm, root, 0, -1ull, true, flush, true,
+					drop_private);
 
 		/*
 		 * Put the reference acquired in
@@ -1365,11 +1368,9 @@ bool kvm_tdp_mmu_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range,
 
 	lockdep_assert_held_write(&kvm->mmu_lock);
 	for_each_tdp_mmu_root_yield_safe(kvm, root, range->slot->as_id, false) {
-		if (!drop_private && is_private_sp(root))
-			continue;
-		flush = zap_gfn_range(kvm, root, range->start, range->end,
-				range->may_block, flush, false,
-				drop_private && is_private_sp(root));
+		flush = __zap_gfn_range(kvm, root, range->start, range->end,
+					range->may_block, flush, false,
+					drop_private);
 	}
 
 	return flush;

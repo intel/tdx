@@ -1152,9 +1152,9 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_DISABLE_QUIRKS2 213
 /* #define KVM_CAP_VM_TSC_CONTROL 214 */
 #define KVM_CAP_SYSTEM_EVENT_DATA 215
-#define KVM_CAP_ENCRYPT_MEMORY_DEBUG 220
 
 /* TODO: remove this workaround to avoid CAP number conflict in the upstream. */
+#define KVM_CAP_ENCRYPT_MEMORY_DEBUG 300
 #define KVM_CAP_VM_TYPES 1000
 
 #ifdef KVM_CAP_IRQ_ROUTING

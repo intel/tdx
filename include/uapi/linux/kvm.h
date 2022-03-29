@@ -1258,9 +1258,9 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_S390_PROTECTED_DUMP 217
 #define KVM_CAP_X86_TRIPLE_FAULT_EVENT 218
 #define KVM_CAP_X86_NOTIFY_VMEXIT 219
-#define KVM_CAP_ENCRYPT_MEMORY_DEBUG 220
 
 /* TODO: remove this workaround to avoid CAP number conflict in the upstream. */
+#define KVM_CAP_ENCRYPT_MEMORY_DEBUG 300
 #define KVM_CAP_VM_TYPES 1000
 
 #ifdef KVM_CAP_IRQ_ROUTING

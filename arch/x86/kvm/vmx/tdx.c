@@ -2372,11 +2372,7 @@ int tdx_module_setup(void)
 
 bool tdx_is_vm_type_supported(unsigned long type)
 {
-#ifdef CONFIG_X86_TDX_KVM_EXPERIMENTAL
 	return type == KVM_X86_TDX_VM && READ_ONCE(enable_tdx);
-#else
-	return false;
-#endif
 }
 
 static int __init __tdx_hardware_setup(struct kvm_x86_ops *x86_ops)

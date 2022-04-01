@@ -97,13 +97,15 @@ extern int tdx_hcall_gpa_intent(phys_addr_t start, phys_addr_t end,
 
 extern void tdx_accept_memory(phys_addr_t start, phys_addr_t end);
 
-int tdx_mcall_tdreport(u64 data, u64 reportdata);
+int tdx_mcall_tdreport(void *data, void *reportdata);
 
-int tdx_mcall_rtmr_extend(u64 data, u64 rmtr);
+int tdx_mcall_rtmr_extend(void *data, u64 rmtr);
 
-int tdx_hcall_get_quote(u64 data);
+int tdx_hcall_get_quote(void *data, u64 len);
 
-extern void (*tdx_event_notify_handler)(void);
+void tdx_setup_ev_notify_handler(void (*handler)(void));
+
+void tdx_remove_ev_notify_handler(void);
 
 bool tdx_guest_dev_authorized(struct device *dev);
 

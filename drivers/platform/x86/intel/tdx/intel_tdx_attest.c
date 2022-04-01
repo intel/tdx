@@ -5,7 +5,7 @@
  * Implements user interface to trigger attestation process and
  * read the TD Quote result.
  *
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2021-2022 Intel Corporation
  *
  * Author:
  *     Kuppuswamy Sathyanarayanan <sathyanarayanan.kuppuswamy@linux.intel.com>
@@ -48,11 +48,6 @@ static void *tdreport_data;
 /* DMA handle used to allocate and free tdquote DMA buffer */
 dma_addr_t tdquote_dma_handle;
 
-struct tdx_gen_quote {
-	void *buf __user;
-	size_t len;
-};
-
 static void attestation_callback_handler(void)
 {
 	complete(&attestation_done);
@@ -76,8 +71,7 @@ static long tdx_attest_ioctl(struct file *file, unsigned int cmd,
 		}
 
 		/* Generate TDREPORT_STRUCT */
-		if (tdx_mcall_tdreport(virt_to_phys(tdreport_data),
-				       virt_to_phys(report_data))) {
+		if (tdx_mcall_tdreport(tdreport_data, report_data)) {
 			ret = -EIO;
 			break;
 		}
@@ -105,7 +99,7 @@ static long tdx_attest_ioctl(struct file *file, unsigned int cmd,
 		}
 
 		/* Submit GetQuote Request */
-		if (tdx_hcall_get_quote(virt_to_phys(tdquote_data))) {
+		if (tdx_hcall_get_quote(tdquote_data, GET_QUOTE_MAX_SIZE)) {
 			ret = -EIO;
 			break;
 		}
@@ -146,7 +140,7 @@ static long tdx_attest_ioctl(struct file *file, unsigned int cmd,
 			break;
 
 		ret = 0;
-		if (tdx_mcall_rtmr_extend(virt_to_phys(report_data), rtmr))
+		if (tdx_mcall_rtmr_extend(report_data, rtmr))
 			ret = -EIO;
 
 		break;
@@ -182,9 +176,12 @@ static int __init tdx_attest_init(void)
 	dma_addr_t handle;
 	long ret = 0;
 
+	mutex_lock(&attestation_lock);
+
 	ret = misc_register(&tdx_attest_device);
 	if (ret) {
 		pr_err("misc device registration failed\n");
+		mutex_unlock(&attestation_lock);
 		return ret;
 	}
 
@@ -216,11 +213,10 @@ static int __init tdx_attest_init(void)
 
 	tdquote_dma_handle =  handle;
 
-	/*
-	 * Currently tdx_event_notify_handler is only used in attestation
-	 * driver. But, WRITE_ONCE is used as benign data race notice.
-	 */
-	WRITE_ONCE(tdx_event_notify_handler, attestation_callback_handler);
+	/* Register attestation event notify handler */
+	tdx_setup_ev_notify_handler(attestation_callback_handler);
+
+	mutex_unlock(&attestation_lock);
 
 	pr_debug("module initialization success\n");
 
@@ -231,6 +227,8 @@ failed:
 		free_pages((unsigned long)tdreport_data, 0);
 
 	misc_deregister(&tdx_attest_device);
+
+	mutex_unlock(&attestation_lock);
 
 	pr_debug("module initialization failed\n");
 
@@ -245,11 +243,8 @@ static void __exit tdx_attest_exit(void)
 			  tdquote_data, tdquote_dma_handle);
 	free_pages((unsigned long)tdreport_data, 0);
 	misc_deregister(&tdx_attest_device);
-	/*
-	 * Currently tdx_event_notify_handler is only used in attestation
-	 * driver. But, WRITE_ONCE is used as benign data race notice.
-	 */
-	WRITE_ONCE(tdx_event_notify_handler, NULL);
+	/* Unregister attestation event notify handler */
+	tdx_remove_ev_notify_handler();
 	mutex_unlock(&attestation_lock);
 	pr_debug("module is successfully removed\n");
 }

@@ -47,4 +47,9 @@
 /* Report input buffer size for TDX_CMD_EXTEND_RTMR */
 #define TDX_CMD_GET_EXTEND_SIZE		_IOR('T', 0x05, __u64)
 
+struct tdx_gen_quote {
+	void *buf __user;
+	size_t len;
+};
+
 #endif /* _UAPI_MISC_TDX_H */

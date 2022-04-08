@@ -926,8 +926,10 @@ static void notify_invalidate_page(struct inode *inode, struct folio *folio,
 	memfile_notifier_invalidate(&info->memfile_notifiers, start, end);
 #endif
 
-	if (info->xflags & SHM_F_INACCESSIBLE)
-		atomic64_sub(end - start, &current->mm->pinned_vm);
+	if (info->xflags & SHM_F_INACCESSIBLE) {
+		if (current->mm)
+			atomic64_sub(end - start, &current->mm->pinned_vm);
+	}
 }
 
 /*

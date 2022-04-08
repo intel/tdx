@@ -525,6 +525,8 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	if (!vcpu->arch.apic)
 		return -EINVAL;
 
+	vcpu->arch.apic->guest_apic_protected = true;
+
 	ret = tdx_alloc_td_page(&tdx->tdvpr);
 	if (ret)
 		return ret;
@@ -586,6 +588,11 @@ void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 
 	list_add(&tdx->cpu_list, &per_cpu(associated_tdvcpus, cpu));
 	local_irq_enable();
+}
+
+bool tdx_protected_apic_has_interrupt(struct kvm_vcpu *vcpu)
+{
+	return pi_has_pending_interrupt(vcpu);
 }
 
 void tdx_prepare_switch_to_guest(struct kvm_vcpu *vcpu)

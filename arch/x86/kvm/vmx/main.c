@@ -49,6 +49,9 @@ static __init int vt_hardware_setup(void)
 
 	enable_tdx = enable_tdx && !tdx_hardware_setup(&vt_x86_ops);
 
+	if (!enable_tdx)
+		vt_x86_ops.protected_apic_has_interrupt = NULL;
+
 	/*
 	 * As kvm_mmu_set_ept_masks() updates enable_mmio_caching, call it
 	 * before checking enable_mmio_caching.
@@ -206,6 +209,13 @@ static void vt_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	}
 
 	vmx_vcpu_load(vcpu, cpu);
+}
+
+static bool vt_protected_apic_has_interrupt(struct kvm_vcpu *vcpu)
+{
+	KVM_BUG_ON(!is_td_vcpu(vcpu), vcpu->kvm);
+
+	return tdx_protected_apic_has_interrupt(vcpu);
 }
 
 static void vt_flush_tlb_all(struct kvm_vcpu *vcpu)
@@ -400,6 +410,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.sync_pir_to_irr = vmx_sync_pir_to_irr,
 	.deliver_interrupt = vmx_deliver_interrupt,
 	.dy_apicv_has_pending_interrupt = pi_has_pending_interrupt,
+	.protected_apic_has_interrupt = vt_protected_apic_has_interrupt,
 
 	.set_tss_addr = vmx_set_tss_addr,
 	.set_identity_map_addr = vmx_set_identity_map_addr,

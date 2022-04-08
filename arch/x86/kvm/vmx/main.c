@@ -77,6 +77,8 @@ static __init int vt_hardware_setup(void)
 		vt_x86_ops.free_external_spt = tdx_sept_free_private_spt;
 		vt_x86_ops.remove_external_spte = tdx_sept_remove_private_spte;
 	}
+	else
+		vt_x86_ops.protected_apic_has_interrupt = NULL;
 
 #if IS_ENABLED(CONFIG_INTEL_TDX_HOST)
 	if (enable_tdx) {
@@ -388,6 +390,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.sync_pir_to_irr = vmx_sync_pir_to_irr,
 	.deliver_interrupt = vmx_deliver_interrupt,
 	.dy_apicv_has_pending_interrupt = pi_has_pending_interrupt,
+	.protected_apic_has_interrupt = tdx_protected_apic_has_interrupt,
 
 	.set_tss_addr = vmx_set_tss_addr,
 	.set_identity_map_addr = vmx_set_identity_map_addr,

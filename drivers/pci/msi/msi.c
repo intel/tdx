@@ -715,7 +715,7 @@ static int msix_capability_init(struct pci_dev *dev, struct msix_entry *entries,
 
 	pci_read_config_word(dev, dev->msix_cap + PCI_MSIX_FLAGS, &control);
 	/* Request & Map MSI-X table region */
-	tsize = msix_table_size(control);
+	tsize = pci_msix_vec_count(dev);
 	dev->msix_base = msix_map_region(dev, tsize);
 	if (!dev->msix_base) {
 		ret = -ENOMEM;

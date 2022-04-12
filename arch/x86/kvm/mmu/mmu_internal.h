@@ -229,6 +229,8 @@ static inline int kvm_mmu_link_private_sp(struct kvm *kvm,
 }
 #endif
 
+void kvm_mmu_release_fault(struct kvm_page_fault *fault);
+
 static inline bool kvm_mmu_page_ad_need_write_protect(struct kvm_mmu_page *sp)
 {
 	/*

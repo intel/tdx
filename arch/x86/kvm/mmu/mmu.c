@@ -4352,7 +4352,8 @@ static bool kvm_faultin_pfn_private_slot(struct kvm_vcpu *vcpu,
 	vcpu->run->exit_reason = KVM_EXIT_MEMORY_ERROR;
 	vcpu->run->memory.flags = flags;
 	vcpu->run->memory.padding = 0;
-	vcpu->run->memory.gpa = fault->gfn << PAGE_SHIFT;
+	vcpu->run->memory.gpa = fault->addr &
+		~gfn_to_gpa(kvm_gfn_shared_mask(vcpu->kvm));
 	vcpu->run->memory.size = PAGE_SIZE;
 	fault->pfn = -1;
 	*r = -1;

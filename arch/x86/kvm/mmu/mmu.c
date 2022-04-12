@@ -4279,7 +4279,7 @@ static bool kvm_faultin_pfn_private(struct kvm_vcpu *vcpu,
 	vcpu->run->exit_reason = KVM_EXIT_MEMORY_ERROR;
 	vcpu->run->memory.flags = flags;
 	vcpu->run->memory.padding = 0;
-	vcpu->run->memory.gpa = fault->gfn << PAGE_SHIFT;
+	vcpu->run->memory.gpa = kvm_gpa_unalias(vcpu->kvm, fault->addr);
 	vcpu->run->memory.size = PAGE_SIZE;
 	fault->pfn = -1;
 	*r = -1;

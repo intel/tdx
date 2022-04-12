@@ -17,7 +17,7 @@ struct memfile_notifier_ops {
 };
 
 struct memfile_pfn_ops {
-	long (*get_lock_pfn)(struct inode *inode, pgoff_t offset, int *order);
+	unsigned long (*get_lock_pfn)(struct inode *inode, pgoff_t offset, int *order);
 	void (*put_unlock_pfn)(unsigned long pfn);
 };
 

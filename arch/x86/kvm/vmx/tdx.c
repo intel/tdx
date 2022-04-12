@@ -1574,12 +1574,17 @@ static void tdx_measure_page(struct kvm_tdx *kvm_tdx, hpa_t gpa)
 	}
 }
 
-static void tdx_unpin_pfn(struct kvm *kvm, kvm_pfn_t pfn)
+static void tdx_unpin(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn)
 {
+	struct kvm_memory_slot *slot = gfn_to_memslot(kvm, gfn);
 	struct page *page = pfn_to_page(pfn);
 
 	put_page(page);
 	WARN_ON(!page_count(page) && to_kvm_tdx(kvm)->hkid > 0);
+	if (kvm_slot_is_private(slot)) {
+		/* Private slot case */
+		return;
+	}
 }
 
 static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
@@ -1607,7 +1612,7 @@ static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 		err = tdh_mem_page_aug(kvm_tdx->tdr.pa, gpa, hpa, &out);
 		if (KVM_BUG_ON(err, kvm)) {
 			pr_tdx_error(TDH_MEM_PAGE_AUG, err, &out);
-			tdx_unpin_pfn(kvm, pfn);
+			tdx_unpin(kvm, gfn, pfn);
 		}
 		return;
 	}
@@ -1622,7 +1627,7 @@ static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	 * always uses vcpu 0's page table and protected by vcpu->mutex).
 	 */
 	if (KVM_BUG_ON(kvm_tdx->source_pa == INVALID_PAGE, kvm)) {
-		tdx_unpin_pfn(kvm, pfn);
+		tdx_unpin(kvm, gfn, pfn);
 		return;
 	}
 
@@ -1631,7 +1636,7 @@ static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	err = tdh_mem_page_add(kvm_tdx->tdr.pa, gpa, hpa, source_pa, &out);
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_MEM_PAGE_ADD, err, &out);
-		tdx_unpin_pfn(kvm, pfn);
+		tdx_unpin(kvm, gfn, pfn);
 	} else if ((kvm_tdx->source_pa & KVM_TDX_MEASURE_MEMORY_REGION))
 		tdx_measure_page(kvm_tdx, gpa);
 
@@ -1688,7 +1693,7 @@ unlock:
 	spin_unlock(&kvm_tdx->seamcall_lock);
 
 	if (!err)
-		tdx_unpin_pfn(kvm, pfn);
+		tdx_unpin(kvm, gfn, pfn);
 }
 
 static int tdx_sept_link_private_sp(struct kvm *kvm, gfn_t gfn,

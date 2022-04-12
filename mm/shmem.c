@@ -3980,14 +3980,15 @@ static struct file_system_type shmem_fs_type = {
 };
 
 #ifdef CONFIG_MEMFILE_NOTIFIER
-static long shmem_get_lock_pfn(struct inode *inode, pgoff_t offset, int *order)
+static unsigned long shmem_get_lock_pfn(struct inode *inode, pgoff_t offset,
+					int *order)
 {
 	struct page *page;
 	int ret;
 
 	ret = shmem_getpage(inode, offset, &page, SGP_NOALLOC);
 	if (ret)
-		return ret;
+		return ~0UL;
 
 	*order = thp_order(compound_head(page));
 

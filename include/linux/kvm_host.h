@@ -2248,8 +2248,8 @@ static inline void kvm_handle_signal_exit(struct kvm_vcpu *vcpu)
 #define  KVM_DIRTY_RING_MAX_ENTRIES  65536
 
 #ifdef CONFIG_MEMFILE_NOTIFIER
-static inline long kvm_memfile_get_pfn(struct kvm_memory_slot *slot, gfn_t gfn,
-				       int *order)
+static inline kvm_pfn_t kvm_memfile_get_pfn(
+	struct kvm_memory_slot *slot, gfn_t gfn, int *order)
 {
 	pgoff_t index = gfn - slot->base_gfn +
 			(slot->private_offset >> PAGE_SHIFT);
@@ -2265,8 +2265,8 @@ static inline void kvm_memfile_put_pfn(struct kvm_memory_slot *slot,
 }
 
 #else
-static inline long kvm_memfile_get_pfn(struct kvm_memory_slot *slot, gfn_t gfn,
-				       int *order)
+static inline kvm_pfn_t kvm_memfile_get_pfn(
+	struct kvm_memory_slot *slot, gfn_t gfn, int *order)
 {
 	return -1;
 }

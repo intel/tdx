@@ -632,7 +632,7 @@ static int msix_capability_init(struct pci_dev *dev, struct msix_entry *entries,
 
 	pci_read_config_word(dev, dev->msix_cap + PCI_MSIX_FLAGS, &control);
 	/* Request & Map MSI-X table region */
-	tsize = msix_table_size(control);
+	tsize = pci_msix_vec_count(dev);
 	base = msix_map_region(dev, tsize);
 	if (!base) {
 		ret = -ENOMEM;
@@ -791,8 +791,13 @@ int pci_msix_vec_count(struct pci_dev *dev)
 	if (!dev->msix_cap)
 		return -EINVAL;
 
+	if (dev->flags_qsize)
+		return dev->flags_qsize;
+
 	pci_read_config_word(dev, dev->msix_cap + PCI_MSIX_FLAGS, &control);
-	return msix_table_size(control);
+	dev->flags_qsize = msix_table_size(control);
+
+	return dev->flags_qsize;
 }
 EXPORT_SYMBOL(pci_msix_vec_count);
 

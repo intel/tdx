@@ -1558,9 +1558,15 @@ static void tdx_pin_gfn(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn)
 	 * kvm memslot is protected by rcu, so gfn_to_hva requires() rcu read
 	 * lock.  TDP MMU calls calbacks with rcu read locked.
 	 */
-	unsigned long uaddr = gfn_to_hva(kvm, gfn);
+	struct kvm_memory_slot *slot = gfn_to_memslot(kvm, gfn);
+	unsigned long uaddr;
 	struct page *page;
 	int npinned;
+
+	if (kvm_slot_is_private(slot)) {
+		get_page(pfn_to_page(pfn));
+		return;
+	}
 
 	/*
 	 * This function is called with write kvm.mmu_lock held.  Which blocks
@@ -1568,6 +1574,7 @@ static void tdx_pin_gfn(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn)
 	 * hva remain valid that pfn kvm_faultin_pfn() obtained after
 	 * write-locking kvm.mmu_lock.
 	 */
+	uaddr = gfn_to_hva(kvm, gfn);
 	WARN_ON(uaddr == KVM_HVA_ERR_BAD);
 	WARN_ON(uaddr == KVM_HVA_ERR_RO_BAD);
 	npinned = pin_user_pages_fast_only(
@@ -1576,9 +1583,15 @@ static void tdx_pin_gfn(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn)
 	WARN_ON(page_to_pfn(page) != pfn);
 }
 
-static void tdx_unpin_pfn(kvm_pfn_t pfn)
+static void tdx_unpin(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn)
 {
+	struct kvm_memory_slot *slot = gfn_to_memslot(kvm, gfn);
 	struct page *page = pfn_to_page(pfn);
+
+	if (kvm_slot_is_private(slot)) {
+		put_page(page);
+		return;
+	}
 
 	WARN_ON(!page_maybe_dma_pinned(page));
 	unpin_user_page(page);
@@ -1609,7 +1622,7 @@ static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 		err = tdh_mem_page_aug(kvm_tdx->tdr.pa, gpa, hpa, &out);
 		if (KVM_BUG_ON(err, kvm)) {
 			pr_tdx_error(TDH_MEM_PAGE_AUG, err, &out);
-			tdx_unpin_pfn(pfn);
+			tdx_unpin(kvm, gfn, pfn);
 		}
 		return;
 	}
@@ -1629,7 +1642,7 @@ static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	err = tdh_mem_page_add(kvm_tdx->tdr.pa, gpa, hpa, source_pa, &out);
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_MEM_PAGE_ADD, err, &out);
-		tdx_unpin_pfn(pfn);
+		tdx_unpin(kvm, gfn, pfn);
 	} else if ((kvm_tdx->source_pa & KVM_TDX_MEASURE_MEMORY_REGION))
 		tdx_measure_page(kvm_tdx, gpa);
 
@@ -1686,7 +1699,7 @@ unlock:
 	spin_unlock(&kvm_tdx->seamcall_lock);
 
 	if (!err)
-		tdx_unpin_pfn(pfn);
+		tdx_unpin(kvm, gfn, pfn);
 }
 
 static int tdx_sept_link_private_sp(struct kvm *kvm, gfn_t gfn,
@@ -1902,7 +1915,7 @@ static void tdx_handle_private_zapped_spte(
 				pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
 				return;
 			}
-			tdx_unpin_pfn(change->old.pfn);
+			tdx_unpin(kvm, change->gfn, change->old.pfn);
 		}
 	} else {
 		lockdep_assert_held_write(&kvm->mmu_lock);

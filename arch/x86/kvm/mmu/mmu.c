@@ -4314,16 +4314,20 @@ static bool kvm_vcpu_is_private_gfn(struct kvm_vcpu *vcpu, gfn_t gfn)
 }
 
 static bool kvm_faultin_pfn_private_slot(struct kvm_vcpu *vcpu,
-					 struct kvm_page_fault *fault,
-					 bool *is_private_pfn, int *r)
+					 struct kvm_page_fault *fault, int *r)
 {
 	int order;
 	unsigned int flags = 0;
 	struct kvm_memory_slot *slot = fault->slot;
-	long pfn = kvm_memfile_get_pfn(slot, fault->gfn, &order);
+	kvm_pfn_t pfn;
 
+	fault->is_private_pfn = false;
+	if (!kvm_slot_is_private(slot))
+		return false;
+
+	pfn = kvm_memfile_get_pfn(slot, fault->gfn, &order);
 	if (kvm_vcpu_is_private_gfn(vcpu, fault->addr >> PAGE_SHIFT)) {
-		if (pfn < 0)
+		if (!VALID_PAGE(pfn))
 			flags |= KVM_MEMORY_EXIT_FLAG_PRIVATE;
 		else {
 			fault->pfn = pfn;
@@ -4334,12 +4338,12 @@ static bool kvm_faultin_pfn_private_slot(struct kvm_vcpu *vcpu,
 
 			if (order == 0)
 				fault->max_level = PG_LEVEL_4K;
-			*is_private_pfn = true;
+			fault->is_private_pfn = true;
 			*r = RET_PF_FIXED;
 			return true;
 		}
 	} else {
-		if (pfn < 0)
+		if (!VALID_PAGE(pfn))
 			return false;
 
 		kvm_memfile_put_pfn(slot, pfn);
@@ -4388,7 +4392,7 @@ static bool kvm_faultin_pfn_private(struct kvm_vcpu *vcpu,
 }
 
 static bool kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
-			    bool *is_private_pfn, int *r)
+			    int *r)
 {
 	struct kvm_memory_slot *slot = fault->slot;
 	bool async;
@@ -4422,9 +4426,8 @@ static bool kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
 		}
 	}
 
-	if (kvm_slot_is_private(slot) &&
-	    kvm_faultin_pfn_private_slot(vcpu, fault, is_private_pfn, r))
-		return *r == RET_PF_FIXED ? false : true;
+	if (kvm_faultin_pfn_private_slot(vcpu, fault, r))
+		return *r != RET_PF_FIXED;
 
 	if (fault->is_private)
 		return kvm_faultin_pfn_private(vcpu, fault, r);
@@ -4465,6 +4468,9 @@ static bool is_page_fault_stale(struct kvm_vcpu *vcpu,
 {
 	struct kvm_mmu_page *sp = to_shadow_page(vcpu->arch.mmu->root.hpa);
 
+	if (fault->is_private_pfn)
+		return false;
+
 	/* Special roots, e.g. pae_root, are not backed by shadow pages. */
 	if (sp && is_obsolete_sp(vcpu->kvm, sp))
 		return true;
@@ -4489,8 +4495,7 @@ void kvm_mmu_release_fault(struct kvm *kvm, struct kvm_page_fault *fault, int r)
 	if (is_error_noslot_pfn(fault->pfn) || kvm_is_reserved_pfn(fault->pfn))
 		return;
 
-	/* FIXME: this condition doesn't make sense. use is_private_pfn. */
-	if (kvm_vcpu_is_private_gfn(NULL, gpa_to_gfn(fault->addr))) {
+	if (fault->is_private_pfn) {
 		kvm_memfile_put_pfn(fault->slot, fault->pfn);
 	} else {
 		if (fault->is_private) {
@@ -4506,7 +4511,6 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 	bool is_tdp_mmu_fault = is_tdp_mmu(vcpu->arch.mmu);
 
 	unsigned long mmu_seq;
-	bool is_private_pfn = false;
 	int r;
 
 	fault->gfn = gpa_to_gfn(fault->addr) & ~kvm_gfn_shared_mask(vcpu->kvm);
@@ -4526,7 +4530,7 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 	mmu_seq = vcpu->kvm->mmu_notifier_seq;
 	smp_rmb();
 
-	if (kvm_faultin_pfn(vcpu, fault, &is_private_pfn, &r))
+	if (kvm_faultin_pfn(vcpu, fault, &r))
 		return r;
 
 	if (handle_abnormal_pfn(vcpu, fault, ACC_ALL, &r))
@@ -4539,7 +4543,7 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 	else
 		write_lock(&vcpu->kvm->mmu_lock);
 
-	if (!is_private_pfn && is_page_fault_stale(vcpu, fault, mmu_seq))
+	if (is_page_fault_stale(vcpu, fault, mmu_seq))
 		goto out_unlock;
 
 	r = make_mmu_pages_available(vcpu);

@@ -4231,15 +4231,21 @@ static bool kvm_arch_setup_async_pf(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 				  kvm_vcpu_gfn_to_hva(vcpu, gfn), &arch);
 }
 
-static bool kvm_vcpu_is_private_gfn(struct kvm_vcpu *vcpu, gfn_t gfn)
-{
-	/*
-	 * At this time private gfn has not been supported yet. Other patch
-	 * that enables it should change this.
-	 */
-	return false;
-}
-
+/*
+ * return value
+ * true: - r: RET_PF_FIXED
+ *          private pfn is taken for private GPA.  proceed to resolve private GPA.
+ *       - r: -1
+ *          exit to user space as KVM_EXIT_MEMORY_ERROR so that user space VMM
+ *          (e.g. qemu) can fix shared/private GPA.
+ * false: - private pfn is found for private GPA.  proceed to resolve kvm page
+ *          fault for private GPA. or
+ *        - private pfn isn't found for shared GPA.  proceed to resolve kvm page
+ *          fault for shared GPA.
+ *        - kvm memslot isn't private.  Proceed to conventional kvm page fault
+ *          path
+ *        - *r is invalid
+ */
 static bool kvm_faultin_pfn_private(struct kvm_vcpu *vcpu,
 				    struct kvm_page_fault *fault, int *r)
 {
@@ -4253,7 +4259,7 @@ static bool kvm_faultin_pfn_private(struct kvm_vcpu *vcpu,
 		return false;
 
 	pfn = kvm_memfile_get_pfn(slot, fault->gfn, &order);
-	if (kvm_vcpu_is_private_gfn(vcpu, fault->addr >> PAGE_SHIFT)) {
+	if (kvm_is_private_fault(vcpu->kvm, fault)) {
 		if (!VALID_PAGE(pfn))
 			flags |= KVM_MEMORY_EXIT_FLAG_PRIVATE;
 		else {
@@ -4286,6 +4292,17 @@ static bool kvm_faultin_pfn_private(struct kvm_vcpu *vcpu,
 	return true;
 }
 
+/*
+ * On return
+ * true: don't proceed to resolve kvm page fault.  fault->pfn is invalid.
+ *       The reason is stored in in *r.  The caller needs to take action based
+ *       on the value *r.
+ *       RET_PF_RETRY, RET_PF_EMULATE, RET_PF_INVALID, RET_PF_FIXED, and
+ *       RET_PF_SPURIOUS
+ *       -1: exit to user space VMM.
+ * false: pfn is taken properly and kvm page fault isn't resolved.  proceed to
+ *        resolve kvm page fault.  The *r is invalid.
+ */
 static bool kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
 			    int *r)
 {

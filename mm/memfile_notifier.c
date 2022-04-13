@@ -9,7 +9,7 @@
 #include <linux/memfile_notifier.h>
 #include <linux/srcu.h>
 
-DEFINE_STATIC_SRCU(srcu);
+DEFINE_STATIC_SRCU(srcu_memfile);
 static LIST_HEAD(backing_store_list);
 
 void memfile_notifier_invalidate(struct memfile_notifier_list *list,
@@ -18,13 +18,13 @@ void memfile_notifier_invalidate(struct memfile_notifier_list *list,
 	struct memfile_notifier *notifier;
 	int id;
 
-	id = srcu_read_lock(&srcu);
+	id = srcu_read_lock(&srcu_memfile);
 	list_for_each_entry_srcu(notifier, &list->head, list,
-				 srcu_read_lock_held(&srcu)) {
+				 srcu_read_lock_held(&srcu_memfile)) {
 		if (notifier->ops && notifier->ops->invalidate)
 			notifier->ops->invalidate(notifier, start, end);
 	}
-	srcu_read_unlock(&srcu, id);
+	srcu_read_unlock(&srcu_memfile, id);
 }
 
 void memfile_notifier_fallocate(struct memfile_notifier_list *list,
@@ -33,13 +33,13 @@ void memfile_notifier_fallocate(struct memfile_notifier_list *list,
 	struct memfile_notifier *notifier;
 	int id;
 
-	id = srcu_read_lock(&srcu);
+	id = srcu_read_lock(&srcu_memfile);
 	list_for_each_entry_srcu(notifier, &list->head, list,
-				 srcu_read_lock_held(&srcu)) {
+				 srcu_read_lock_held(&srcu_memfile)) {
 		if (notifier->ops && notifier->ops->fallocate)
 			notifier->ops->fallocate(notifier, start, end);
 	}
-	srcu_read_unlock(&srcu, id);
+	srcu_read_unlock(&srcu_memfile, id);
 }
 
 void memfile_register_backing_store(struct memfile_backing_store *bs)
@@ -109,6 +109,6 @@ void memfile_unregister_notifier(struct inode *inode,
 	list_del_rcu(&notifier->list);
 	spin_unlock(&list->lock);
 
-	synchronize_srcu(&srcu);
+	synchronize_srcu(&srcu_memfile);
 }
 EXPORT_SYMBOL_GPL(memfile_unregister_notifier);

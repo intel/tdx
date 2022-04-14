@@ -565,6 +565,18 @@ static bool tdx_handle_cpuid(struct pt_regs *regs)
 {
 	struct tdx_hypercall_output out;
 
+        /*
+         * Only allow VMM to control range reserved for hypervisor
+         * communication.
+         *
+         * Return all-zeros for any CPUID outside the range. It matches CPU
+         * behaviour for non-supported leaf.
+         */
+        if (regs->ax < 0x40000000 || regs->ax > 0x4fffffff) {
+                regs->ax = regs->bx = regs->cx = regs->dx = 0;
+                return true;
+        }
+
 	/*
 	 * Emulate the CPUID instruction via a hypercall. More info about
 	 * ABI can be found in TDX Guest-Host-Communication Interface

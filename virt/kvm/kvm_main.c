@@ -2066,9 +2066,10 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	if (mem->flags & KVM_MEM_PRIVATE) {
 		new->private_file = fget(mem->private_fd);
 		if (!new->private_file) {
-			r = -EINVAL;
+			r = -EBADF;
 			goto out;
 		}
+		/* TODO: Check if file is kvm memslot compatible. */
 		new->private_offset = mem->private_offset;
 	}
 

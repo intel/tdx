@@ -2011,7 +2011,8 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	if (mem->flags & KVM_MEM_PRIVATE) {
 		file = fdget(region_ext->private_fd).file;
 		if (!file)
-			return -EINVAL;
+			return -EBADF;
+		/* TODO: Check if file is kvm memslot compatible. */
 	}
 
 	if ((change == KVM_MR_CREATE || change == KVM_MR_MOVE) &&

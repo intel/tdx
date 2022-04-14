@@ -1411,6 +1411,7 @@ static int tdx_map_gpa(struct kvm_vcpu *vcpu)
 	gpa_t end = gpa + size;
 	bool allow_private = kvm_is_private_gpa(kvm, gpa);
 	int ret = 0;
+	bool private_slot;
 
 	tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
 	if (!IS_ALIGNED(gpa, 4096) || !IS_ALIGNED(size, 4096) ||
@@ -1466,7 +1467,13 @@ static int tdx_map_gpa(struct kvm_vcpu *vcpu)
 	 * FIXME: race condition between kvm kernel and user space VMM.
 	 * multiple MapGpa request can come.
 	 */
-	return tdx_vp_vmcall_to_user(vcpu);
+       mutex_lock(&kvm->slots_lock);
+       private_slot = kvm_slot_is_private(
+	       gfn_to_memslot(kvm, gpa & ~gfn_to_gpa(kvm_gfn_shared_mask(kvm))));
+       mutex_unlock(&kvm->slots_lock);
+       if (private_slot)
+	       return tdx_vp_vmcall_to_user(vcpu);
+       return 1;
 }
 
 static int tdx_get_quote(struct kvm_vcpu *vcpu)

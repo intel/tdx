@@ -1585,8 +1585,14 @@ static void tdx_pin_gfn(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn)
 	hva = gfn_to_hva(kvm, gfn);
 	WARN_ON(hva == KVM_HVA_ERR_BAD);
 	WARN_ON(hva == KVM_HVA_ERR_RO_BAD);
-	npinned = pin_user_pages_fast_only(
-		hva, 1, FOLL_WRITE | FOLL_LONGTERM, &page);
+
+	/*
+	 * This function is called via mmu_notifier whose caller locked
+	 * mm.mmap_sem.
+	 */
+	lockdep_assert_held(&current->mm->mmap_lock);
+	npinned = pin_user_pages(
+		hva, 1, FOLL_WRITE | FOLL_LONGTERM, &page, NULL);
 	WARN_ON(npinned != 1);
 	WARN_ON(page_to_pfn(page) != pfn);
 }
@@ -1624,8 +1630,10 @@ static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	if (KVM_BUG_ON(level != PG_LEVEL_4K, kvm))
 		return;
 
-	/* Pin the page, TDX KVM doesn't yet support page migration. */
-	tdx_pin_gfn(kvm, gfn, pfn);
+	/*
+	 * The caller pinned this pfn for us and don't unpin when success.
+	 * See kvm_faultin_pfn_private_gfn() and kvm_mmu_release_fault().
+	 */
 
 	/* Build-time faults are induced and handled via TDH_MEM_PAGE_ADD. */
 	if (likely(is_td_finalized(kvm_tdx))) {

@@ -4246,8 +4246,8 @@ static bool kvm_arch_setup_async_pf(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
  *          path
  *        - *r is invalid
  */
-static bool kvm_faultin_pfn_private(struct kvm_vcpu *vcpu,
-				    struct kvm_page_fault *fault, int *r)
+static bool kvm_faultin_pfn_private_slot(struct kvm_vcpu *vcpu,
+					 struct kvm_page_fault *fault, int *r)
 {
 	int order;
 	unsigned int flags = 0;
@@ -4290,6 +4290,33 @@ static bool kvm_faultin_pfn_private(struct kvm_vcpu *vcpu,
 	fault->pfn = -1;
 	*r = -1;
 	return true;
+}
+
+static bool kvm_faultin_pfn_private_gfn(struct kvm_vcpu *vcpu,
+					struct kvm_page_fault *fault, int *r)
+{
+	hva_t hva = gfn_to_hva_memslot(fault->slot, fault->gfn);
+	struct page *page[1];
+	unsigned int flags;
+	int npages;
+
+	fault->map_writable = false;
+	fault->pfn = KVM_PFN_ERR_FAULT;
+	*r = -1;
+	if (hva == KVM_HVA_ERR_RO_BAD || hva == KVM_HVA_ERR_BAD)
+		return true;
+
+	/* TDX allows only RWX.  Read-only isn't supported. */
+	WARN_ON_ONCE(!fault->write);
+	flags = FOLL_WRITE | FOLL_LONGTERM;
+
+	npages = pin_user_pages_fast(hva, 1, flags, page);
+	if (npages != 1)
+		return true;
+
+	fault->map_writable = true;
+	fault->pfn = page_to_pfn(page[0]);
+	return false;
 }
 
 /*
@@ -4338,8 +4365,11 @@ static bool kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
 		}
 	}
 
-	if (kvm_faultin_pfn_private(vcpu, fault, r))
+	if (kvm_faultin_pfn_private_slot(vcpu, fault, r))
 		return *r != RET_PF_FIXED;
+
+	if (kvm_is_private_gpa(vcpu->kvm, fault->addr))
+		return kvm_faultin_pfn_private_gfn(vcpu, fault, r);
 
 	async = false;
 	fault->pfn = __gfn_to_pfn_memslot(slot, fault->gfn, false, &async,
@@ -4399,15 +4429,20 @@ static bool is_page_fault_stale(struct kvm_vcpu *vcpu,
 	       mmu_notifier_retry_hva(vcpu->kvm, mmu_seq, fault->hva);
 }
 
-void kvm_mmu_release_fault(struct kvm_page_fault *fault)
+void kvm_mmu_release_fault(struct kvm *kvm, struct kvm_page_fault *fault, int r)
 {
 	if (is_error_noslot_pfn(fault->pfn) || kvm_is_reserved_pfn(fault->pfn))
 		return;
 
 	if (fault->is_private_pfn)
 		kvm_memfile_put_pfn(fault->slot, fault->pfn);
-	else
-		kvm_release_pfn_clean(fault->pfn);
+	else {
+		if (kvm_is_private_gpa(kvm, fault->addr)) {
+			if (r != RET_PF_FIXED)
+				unpin_user_page(pfn_to_page(fault->pfn));
+		} else
+			kvm_release_pfn_clean(fault->pfn);
+	}
 }
 
 static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
@@ -4465,7 +4500,7 @@ out_unlock:
 	else
 		write_unlock(&vcpu->kvm->mmu_lock);
 
-	kvm_mmu_release_fault(fault);
+	kvm_mmu_release_fault(vcpu->kvm, fault, r);
 	return r;
 }
 

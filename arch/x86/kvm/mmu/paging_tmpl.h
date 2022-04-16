@@ -906,7 +906,7 @@ static int FNAME(page_fault)(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 
 out_unlock:
 	write_unlock(&vcpu->kvm->mmu_lock);
-	kvm_mmu_release_fault(fault);
+	kvm_mmu_release_fault(vcpu->kvm, fault, r);
 	return r;
 }
 

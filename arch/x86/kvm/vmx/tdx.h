@@ -109,6 +109,8 @@ struct vcpu_tdx {
 	bool host_state_need_save;
 	bool host_state_need_restore;
 	u64 msr_host_kernel_gs_base;
+
+	unsigned long dr6;
 };
 
 static inline bool is_td(struct kvm *kvm)
@@ -168,6 +170,7 @@ static __always_inline void tdvps_gpr_check(u64 field, u8 bits)
 
 static __always_inline void tdvps_state_non_arch_check(u64 field, u8 bits) {}
 static __always_inline void tdvps_management_check(u64 field, u8 bits) {}
+static __always_inline void tdvps_dr_check(u64 field, u8 bits) {}
 
 #define TDX_BUILD_TDVPS_ACCESSORS(bits, uclass, lclass)				\
 static __always_inline u##bits td_##lclass##_read##bits(struct vcpu_tdx *tdx,	\
@@ -232,6 +235,7 @@ TDX_BUILD_TDVPS_ACCESSORS(64, VMCS, vmcs);
 TDX_BUILD_TDVPS_ACCESSORS(64, STATE_NON_ARCH, state_non_arch);
 TDX_BUILD_TDVPS_ACCESSORS(8, MANAGEMENT, management);
 TDX_BUILD_TDVPS_ACCESSORS(64, GPR, gpr);
+TDX_BUILD_TDVPS_ACCESSORS(64, DR, dr);
 
 static __always_inline u64 td_tdcs_exec_read64(struct kvm_tdx *kvm_tdx, u32 field)
 {

@@ -1545,6 +1545,7 @@ struct kvm_x86_ops {
 	int (*vm_copy_enc_context_from)(struct kvm *kvm, unsigned int source_fd);
 	int (*vm_move_enc_context_from)(struct kvm *kvm, unsigned int source_fd);
 	int (*mem_enc_read_memory)(struct kvm *kvm, struct kvm_rw_memory *argp);
+	int (*mem_enc_write_memory)(struct kvm *kvm, struct kvm_rw_memory *argp);
 
 	int (*get_msr_feature)(struct kvm_msr_entry *entry);
 

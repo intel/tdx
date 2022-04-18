@@ -3056,6 +3056,24 @@ static int tdx_read_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memor
 	return ret;
 }
 
+static int tdx_write_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memory)
+{
+	int ret;
+	u64 complete_len = 0;
+
+	rw_memory->addr = kvm_gpa_unalias(kvm, rw_memory->addr);
+
+	ret = tdx_guest_memory_access_check(kvm, rw_memory);
+	if (!ret)
+		ret = tdx_read_write_memory(kvm, rw_memory->addr,
+					    rw_memory->len, &complete_len,
+					    (void __user *)rw_memory->ubuf,
+					    NULL);
+
+	rw_memory->len = complete_len;
+	return ret;
+}
+
 static int __init __tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 {
 	int max_pkgs;
@@ -3110,6 +3128,7 @@ static int __init __tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	x86_ops->unzap_private_spte = tdx_sept_unzap_private_spte;
 	x86_ops->link_private_sp = tdx_sept_link_private_sp;
 	x86_ops->mem_enc_read_memory = tdx_read_guest_memory;
+	x86_ops->mem_enc_write_memory = tdx_write_guest_memory;
 
 	return 0;
 }

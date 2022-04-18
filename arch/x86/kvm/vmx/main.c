@@ -390,7 +390,7 @@ static int vt_get_cpl(struct kvm_vcpu *vcpu)
 static void vt_get_cs_db_l_bits(struct kvm_vcpu *vcpu, int *db, int *l)
 {
 	if (is_td_vcpu(vcpu))
-		return;
+		return tdx_get_cs_db_l_bits(vcpu, db, l);
 
 	vmx_get_cs_db_l_bits(vcpu, db, l);
 }

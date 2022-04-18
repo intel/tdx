@@ -2587,6 +2587,12 @@ int tdx_skip_emulated_instruction(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+void tdx_load_guest_debug_regs(struct kvm_vcpu *vcpu)
+{
+	kvm_pr_unimpl("unexpected %s\n", __func__);
+}
+
+
 static int tdx_capabilities(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 {
 	struct kvm_tdx_capabilities __user *user_caps;

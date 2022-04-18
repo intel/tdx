@@ -359,7 +359,19 @@ static void __init setup_init_fpu_buf(void)
 
 	print_xstate_features();
 
-	xstate_init_xcomp_bv(&init_fpstate.regs.xsave, fpu_kernel_cfg.max_features);
+	/*
+	 * We can't use fpu_kernel_cfg.max_features here because
+	 * we need to make sure xcomp_bv matches the default allocated
+	 * componets by fpu_kernel_cfg.default_size for each new process.
+	 * xstros instruction does memory reading to last byte of compacted
+	 * format component memory when it's doing component initialization,
+	 * such component initialization happens when FPU state is loaded
+	 * first time for a new created(fork() then exec()) process, which
+	 * causes memory reading overflow, it's hard to catch but happens
+	 * actually there.
+	 */
+	xstate_init_xcomp_bv(&init_fpstate.regs.xsave,
+			     fpu_kernel_cfg.default_features);
 
 	/*
 	 * Init all the features state with header.xfeatures being 0x0

@@ -239,7 +239,6 @@ static __always_inline int pg_level_to_tdx_sept_level(enum pg_level level)
 	WARN_ON(level == PG_LEVEL_NONE);
 	return level - 1;
 }
-
 #else
 #define enable_tdx false
 static inline int tdx_module_setup(void) { return -ENODEV; };

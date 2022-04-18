@@ -642,7 +642,7 @@ static void vt_inject_irq(struct kvm_vcpu *vcpu)
 static void vt_queue_exception(struct kvm_vcpu *vcpu)
 {
 	if (is_td_vcpu(vcpu))
-		return;
+		return tdx_queue_exception(vcpu);
 
 	vmx_queue_exception(vcpu);
 }

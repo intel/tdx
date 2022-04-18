@@ -121,6 +121,11 @@ static inline bool is_td_vcpu(struct kvm_vcpu *vcpu)
 	return is_td(vcpu->kvm);
 }
 
+static inline bool is_debug_td(struct kvm_vcpu *vcpu)
+{
+	return !vcpu->arch.guest_state_protected;
+}
+
 static inline struct kvm_tdx *to_kvm_tdx(struct kvm *kvm)
 {
 	return container_of(kvm, struct kvm_tdx, kvm);
@@ -153,6 +158,12 @@ static __always_inline void tdvps_vmcs_check(u32 field, u8 bits)
 	BUILD_BUG_ON_MSG(bits != 16 && __builtin_constant_p(field) &&
 			 ((field) & 0x6000) == 0x0000,
 			 "Invalid TD VMCS access for 16-bit field");
+}
+
+static __always_inline void tdvps_gpr_check(u64 field, u8 bits)
+{
+	BUILD_BUG_ON_MSG(__builtin_constant_p(field) && (field) >= NR_VCPU_REGS,
+			 "Invalid TDX Guest GPR index");
 }
 
 static __always_inline void tdvps_state_non_arch_check(u64 field, u8 bits) {}
@@ -220,6 +231,7 @@ TDX_BUILD_TDVPS_ACCESSORS(64, VMCS, vmcs);
 
 TDX_BUILD_TDVPS_ACCESSORS(64, STATE_NON_ARCH, state_non_arch);
 TDX_BUILD_TDVPS_ACCESSORS(8, MANAGEMENT, management);
+TDX_BUILD_TDVPS_ACCESSORS(64, GPR, gpr);
 
 static __always_inline u64 td_tdcs_exec_read64(struct kvm_tdx *kvm_tdx, u32 field)
 {
@@ -253,6 +265,7 @@ struct vcpu_tdx {
 
 static inline bool is_td(struct kvm *kvm) { return false; }
 static inline bool is_td_vcpu(struct kvm_vcpu *vcpu) { return false; }
+static inline bool is_debug_td(struct kvm_vcpu *vcpu) { return false; }
 static inline struct kvm_tdx *to_kvm_tdx(struct kvm *kvm) { return NULL; }
 static inline struct vcpu_tdx *to_tdx(struct kvm_vcpu *vcpu) { return NULL; }
 #endif /* CONFIG_INTEL_TDX_HOST */

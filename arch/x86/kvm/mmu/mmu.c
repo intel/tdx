@@ -7251,12 +7251,24 @@ void kvm_mmu_pre_destroy_vm(struct kvm *kvm)
  */
 int kvm_mmu_is_page_private(struct kvm *kvm,
 			    struct kvm_memory_slot *memslot,
-			    gfn_t gfn, bool *is_private)
+			    gfn_t gfn, bool *is_private, kvm_pfn_t *pfn)
 {
 	struct slot_rmap_walk_iterator s_iter;
 	struct rmap_iterator r_iter;
 	u64 *sptep;
 	int ret = -EINVAL;
+
+	if (kvm_slot_is_private(memslot)) {
+		int order;
+
+		/* The caller must call kvm_memfile_put_pfn(memslot, pfn); */
+		*pfn = kvm_memfile_get_pfn(memslot, gfn, &order);
+		*is_private = VALID_PAGE(*pfn);
+		return 0;
+	}
+
+	if (is_tdp_mmu_enabled(kvm))
+		return kvm_tdp_mmu_is_page_private(kvm, memslot, gfn, is_private);
 
 	for_each_slot_rmap_range(memslot, PG_LEVEL_4K,
 				 KVM_MAX_HUGEPAGE_LEVEL,

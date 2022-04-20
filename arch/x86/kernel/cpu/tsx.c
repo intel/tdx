@@ -194,6 +194,7 @@ void __init tsx_init(void)
 		tsx_ctrl_state = TSX_CTRL_NOT_SUPPORTED;
 		return;
 	}
+	ia32_tsx_ctrl_supported = true;
 
 	ret = cmdline_find_option(boot_command_line, "tsx", arg, sizeof(arg));
 	if (ret >= 0) {

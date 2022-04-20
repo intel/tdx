@@ -76,9 +76,7 @@ static bool tsx_ctrl_is_supported(void)
 	 * tsx= cmdline requests will do nothing on CPUs without
 	 * MSR_IA32_TSX_CTRL support.
 	 */
-	ia32_tsx_ctrl_supported = !!(ia32_cap & ARCH_CAP_TSX_CTRL_MSR);
-
-	return ia32_tsx_ctrl_supported;
+	return !!(ia32_cap & ARCH_CAP_TSX_CTRL_MSR);
 }
 
 static enum tsx_ctrl_states x86_get_tsx_auto_mode(void)
@@ -200,6 +198,7 @@ void __init tsx_init(void)
 		tsx_ctrl_state = TSX_CTRL_NOT_SUPPORTED;
 		return;
 	}
+	ia32_tsx_ctrl_supported = true;
 
 	ret = cmdline_find_option(boot_command_line, "tsx", arg, sizeof(arg));
 	if (ret >= 0) {

@@ -4514,7 +4514,8 @@ void kvm_mmu_release_fault(struct kvm *kvm, struct kvm_page_fault *fault, int r)
 		return;
 
 	if (fault->is_private_pfn) {
-		kvm_memfile_put_pfn(fault->slot, fault->pfn);
+		if (r != RET_PF_FIXED)
+			kvm_memfile_put_pfn(fault->slot, fault->pfn);
 	} else {
 		if (fault->is_private) {
 			if (r != RET_PF_FIXED)

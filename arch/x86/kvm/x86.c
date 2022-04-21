@@ -11402,7 +11402,7 @@ static void __get_sregs_common(struct kvm_vcpu *vcpu, struct kvm_sregs *sregs)
 	sregs->gdt.limit = dt.size;
 	sregs->gdt.base = dt.address;
 
-	sregs->cr2 = vcpu->arch.cr2;
+	sregs->cr2 = static_call(kvm_x86_get_cr2)(vcpu);
 	sregs->cr3 = kvm_read_cr3(vcpu);
 
 skip_protected_regs:
@@ -13749,6 +13749,13 @@ int kvm_sev_es_string_io(struct kvm_vcpu *vcpu, unsigned int size,
 		  : kvm_sev_es_outs(vcpu, size, port);
 }
 EXPORT_SYMBOL_GPL(kvm_sev_es_string_io);
+
+/* Common function for legacy VMX and SVM guest*/
+unsigned long kvm_get_cr2(struct kvm_vcpu *vcpu)
+{
+	return vcpu->arch.cr2;
+}
+EXPORT_SYMBOL_GPL(kvm_get_cr2);
 
 bool kvm_arch_dirty_log_supported(struct kvm *kvm)
 {

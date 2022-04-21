@@ -92,6 +92,11 @@ enum tdx_tdcs_execution_control {
 #define TDVPS_GPR(gpr)			BUILD_TDX_FIELD(TDVPS_CLASS_GUEST_GPR, (gpr))
 
 enum tdx_vcpu_guest_other_state {
+	TD_VCPU_DR0 = 0,
+	TD_VCPU_DR1 = 1,
+	TD_VCPU_DR2 = 2,
+	TD_VCPU_DR3 = 3,
+	TD_VCPU_DR6 = 6,
 	TD_VCPU_XCR0 = 0x20,
 	TD_VCPU_CR2 = 0x28,
 	TD_VCPU_STATE_DETAILS_NON_ARCH = 0x100,

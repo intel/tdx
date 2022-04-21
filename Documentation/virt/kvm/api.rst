@@ -5946,6 +5946,48 @@ as the descriptors in Descriptors block.
 :Parameters: struct kvm_xsave (out)
 :Returns: 0 on success, -1 on error
 
+4.135 KVM_MEMORY_ENCRYPT_READ_MEMORY / KVM_MEMORY_ENCRYPT_WRITE_MEMORY
+----------------------------------------------------------------------
+:Capability: KVM_CAP_ENCRYPT_MEMORY_DEBUG
+:Architectures: x86
+:Type: vm ioctl
+:Parameters: struct kvm_rw_memory
+:Returns: 0 on success, < 0 on error
+
+::
+
+  struct kvm_rw_memory
+  {
+	__u64 addr;
+
+The guest address which userspace want to read from/write to, it can
+be GPA or HVA, depends on the implementation in KVM.
+
+::
+	__u64 len;
+
+The length in byte userspace want to read from/write to, it will be
+updated to operation completed byte size when the ioctl return
+
+::
+	__u64 ubuf;
+
+The userspace buffer to receive the data for reading/send the data for
+writing.
+
+  };
+
+::
+  Example:
+  struct kvm_rw_memory rw_memory;
+
+  rw_memory.addr = gpa_addr_for_read_OR_write
+  rw_memory.len = size;
+  rw_memory.buf = buf_for_save_read_data_OR_provide_data_to_write
+
+  r = ioctl(kvm_vm_fd,
+            KVM_MEMORY_ENCRYPT_{READ,WRITE}_MEMORY,
+            &rw_memory);
 
 ::
 

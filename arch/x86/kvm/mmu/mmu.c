@@ -7727,12 +7727,28 @@ void kvm_arch_update_mem_attr(struct kvm *kvm, unsigned int attr,
  */
 int kvm_mmu_is_page_private(struct kvm *kvm,
 			    struct kvm_memory_slot *memslot,
-			    gfn_t gfn, bool *is_private)
+			    gfn_t gfn, bool *is_private, kvm_pfn_t *pfn)
 {
 	struct slot_rmap_walk_iterator s_iter;
 	struct rmap_iterator r_iter;
 	u64 *sptep;
 	int ret = -EINVAL;
+
+	if (kvm_slot_can_be_private(memslot)) {
+		int order;
+		int r;
+
+		/* The caller must call kvm_memfile_put_pfn(memslot, pfn); */
+		r = kvm_private_mem_get_pfn(memslot, gfn, pfn, &order);
+		if (r)
+			*is_private = false;
+		else
+			*is_private = true;
+		return 0;
+	}
+
+	if (is_tdp_mmu_enabled(kvm))
+		return kvm_tdp_mmu_is_page_private(kvm, memslot, gfn, is_private);
 
 	for_each_slot_rmap_range(memslot, PG_LEVEL_4K,
 				 KVM_MAX_HUGEPAGE_LEVEL,

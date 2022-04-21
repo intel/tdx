@@ -3211,6 +3211,39 @@ bool tdx_is_vm_type_supported(unsigned long type)
 	return type == KVM_X86_TDX_VM;
 }
 
+static int tdx_guest_memory_access_check(struct kvm *kvm, struct kvm_rw_memory *rw_memory)
+{
+	if (!is_td(kvm))
+		return -EINVAL;
+
+	if (!(to_kvm_tdx(kvm)->attributes & TDX_TD_ATTRIBUTE_DEBUG))
+		return -EINVAL;
+
+	if (!is_hkid_assigned(to_kvm_tdx(kvm)))
+		return -EINVAL;
+
+	if (rw_memory->len == 0 || !rw_memory->ubuf)
+		return -EINVAL;
+
+	if (rw_memory->addr + rw_memory->len < rw_memory->addr)
+		return -EINVAL;
+
+	return 0;
+}
+
+static int tdx_read_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memory)
+{
+	int ret;
+
+	rw_memory->addr = rw_memory->addr & ~gfn_to_gpa(kvm_gfn_shared_mask(kvm));
+
+	/*TODO: actual reading function */
+	ret = tdx_guest_memory_access_check(kvm, rw_memory);
+	rw_memory->len = 0;
+
+	return ret;
+}
+
 struct vmx_tdx_enabled {
 	cpumask_var_t vmx_enabled;
 	atomic_t err;
@@ -3321,6 +3354,7 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	x86_ops->zap_private_spte = tdx_sept_zap_private_spte;
 	x86_ops->unzap_private_spte = tdx_sept_unzap_private_spte;
 	x86_ops->drop_private_spte = tdx_sept_drop_private_spte;
+	x86_ops->mem_enc_read_memory = tdx_read_guest_memory;
 
 	return 0;
 

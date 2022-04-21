@@ -203,6 +203,7 @@ void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int root_level);
 void tdx_load_guest_debug_regs(struct kvm_vcpu *vcpu);
 void tdx_sync_dirty_debug_regs(struct kvm_vcpu *vcpu);
 void tdx_update_exception_bitmap(struct kvm_vcpu *vcpu);
+void tdx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val);
 
 void tdx_gmem_invalidate(struct kvm *kvm, kvm_pfn_t start, kvm_pfn_t end);
 int tdx_vm_move_enc_context_from(struct kvm *kvm, unsigned int source_fd);
@@ -282,6 +283,7 @@ static inline void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int r
 static inline void tdx_load_guest_debug_regs(struct kvm_vcpu *vcpu) {}
 static inline void tdx_sync_dirty_debug_regs(struct kvm_vcpu *vcpu) {}
 static inline void tdx_update_exception_bitmap(struct kvm_vcpu *vcpu) {}
+static inline void tdx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val) {}
 
 static inline void tdx_gmem_invalidate(struct kvm *kvm, kvm_pfn_t start, kvm_pfn_t end) {}
 static inline int tdx_vm_move_enc_context_from(struct kvm *kvm, unsigned int source_fd)

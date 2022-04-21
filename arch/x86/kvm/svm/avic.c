@@ -995,7 +995,8 @@ out:
 	return ret;
 }
 
-bool avic_check_apicv_inhibit_reasons(enum kvm_apicv_inhibit reason)
+bool avic_check_apicv_inhibit_reasons(struct kvm *kvm,
+				      enum kvm_apicv_inhibit reason)
 {
 	ulong supported = BIT(APICV_INHIBIT_REASON_DISABLE) |
 			  BIT(APICV_INHIBIT_REASON_ABSENT) |

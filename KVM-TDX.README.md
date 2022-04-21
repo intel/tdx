@@ -15,6 +15,12 @@ Configurations:
 - CONFIG_INTEL_TDX_HOST=y: enable TDX KVM support.
 - CONFIG_INTEL_TDX_HOST_DEBUG: debug support for TDX module. optional. say N.
 - CONFIG_INTEL_TDX_GUEST: guest TD support.  Optional. Not needed for TDX KVM.
+- CONFIG_X86_TDX_KVM_EXPERIMENTAL=y: Enable experimental TDX KVM support.
+  Optional, needed for
+  https://github.com/intel/tdx/releases/tag/kvm-upstream-2022.03.29-v5.17-rc8-workaround. TDX
+  KVM needs many patches and the patches will be merged step by step, not at
+  once. Set it to y to enable TDX KVM support so that developer can exercise
+  TDX KVM code.
 
 kernel command line:
 - tdx_host=on

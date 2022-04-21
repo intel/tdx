@@ -593,6 +593,16 @@ static void vt_sync_dirty_debug_regs(struct kvm_vcpu *vcpu)
 	vmx_sync_dirty_debug_regs(vcpu);
 }
 
+static void vt_load_guest_debug_regs(struct kvm_vcpu *vcpu)
+{
+	if (is_td_vcpu(vcpu)) {
+		tdx_load_guest_debug_regs(vcpu);
+		return;
+	}
+
+	load_guest_debug_regs(vcpu);
+}
+
 static void vt_cache_reg(struct kvm_vcpu *vcpu, enum kvm_reg reg)
 {
 	if (is_td_vcpu(vcpu)) {
@@ -1084,6 +1094,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.set_gdt = vt_set_gdt,
 	.set_dr7 = vt_set_dr7,
 	.sync_dirty_debug_regs = vt_sync_dirty_debug_regs,
+	.load_guest_debug_regs = vt_load_guest_debug_regs,
 	.cache_reg = vt_cache_reg,
 	.get_rflags = vt_get_rflags,
 	.set_rflags = vt_set_rflags,

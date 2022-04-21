@@ -1004,6 +1004,14 @@ void tdx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val)
 	td_vmcs_write64(tdx, GUEST_DR7, val);
 }
 
+bool tdx_check_apicv_inhibit_reasons(struct kvm *kvm, ulong bit)
+{
+	ulong supported = BIT(APICV_INHIBIT_REASON_ABSENT);
+
+	return supported & BIT(bit);
+}
+
+
 static void tdx_emulate_inject_bp_begin(struct kvm_vcpu *vcpu)
 {
 	unsigned long guest_debug_old;

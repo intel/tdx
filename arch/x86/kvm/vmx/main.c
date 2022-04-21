@@ -576,8 +576,10 @@ static void vt_set_gdt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
 
 static void vt_set_dr7(struct kvm_vcpu *vcpu, unsigned long val)
 {
-	if (is_td_vcpu(vcpu))
+	if (is_td_vcpu(vcpu)) {
+		tdx_set_dr7(vcpu, val);
 		return;
+	}
 
 	vmx_set_dr7(vcpu, val);
 }

@@ -86,6 +86,9 @@ enum tdx_tdcs_execution_control {
 /* @field is the VMCS field encoding */
 #define TDVPS_VMCS(field)		BUILD_TDX_FIELD(TDVPS_CLASS_VMCS, (field))
 
+/* @field is enum tdx_vcpu_guest_gpr_state field encoding */
+#define TDVPS_GPR(gpr)			BUILD_TDX_FIELD(TDVPS_CLASS_GUEST_GPR, (gpr))
+
 enum tdx_vcpu_guest_other_state {
 	TD_VCPU_STATE_DETAILS_NON_ARCH = 0x100,
 };

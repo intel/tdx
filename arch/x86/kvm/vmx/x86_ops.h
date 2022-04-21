@@ -205,6 +205,7 @@ void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int root_level);
 
 void tdx_load_guest_debug_regs(struct kvm_vcpu *vcpu);
 void tdx_sync_dirty_debug_regs(struct kvm_vcpu *vcpu);
+void tdx_update_exception_bitmap(struct kvm_vcpu *vcpu);
 #else
 static inline int tdx_init(void) { return 0; };
 static inline int tdx_hardware_setup(struct kvm_x86_ops *x86_ops) { return 0; }
@@ -276,6 +277,7 @@ static inline void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int r
 
 static inline void tdx_load_guest_debug_regs(struct kvm_vcpu *vcpu) {}
 static inline void tdx_sync_dirty_debug_regs(struct kvm_vcpu *vcpu) {}
+static inline void tdx_update_exception_bitmap(struct kvm_vcpu *vcpu) {}
 #endif
 
 #if defined(CONFIG_INTEL_TDX_HOST) && defined(CONFIG_KVM_SMM)

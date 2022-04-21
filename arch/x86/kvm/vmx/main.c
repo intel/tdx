@@ -379,7 +379,7 @@ static void vt_vcpu_after_set_cpuid(struct kvm_vcpu *vcpu)
 static void vt_update_exception_bitmap(struct kvm_vcpu *vcpu)
 {
 	if (is_td_vcpu(vcpu))
-		return;
+		return tdx_update_exception_bitmap(vcpu);
 
 	vmx_update_exception_bitmap(vcpu);
 }

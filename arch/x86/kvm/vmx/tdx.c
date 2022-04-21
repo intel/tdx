@@ -3465,6 +3465,70 @@ static int tdx_read_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memor
 	return ret;
 }
 
+static int write_private_memory(struct kvm *kvm, gpa_t addr, u64 *val)
+{
+	u64 err;
+	struct tdx_module_output tdx_ret;
+
+	err = tdh_mem_wr(to_kvm_tdx(kvm)->tdr_pa, addr, *val, &tdx_ret);
+	if (WARN_ON_ONCE(err)) {
+		pr_tdx_error(TDH_MEM_WR, err, NULL);
+		return -EIO;
+	}
+
+	return 0;
+}
+
+static int write_private_memory_unalign(struct kvm *kvm, gpa_t addr,
+					u32 request_len,
+					u32 *complete_len, void *in_buf)
+{
+	gpa_t chunk_addr;
+	u32 in_chunk_offset;
+	u32 len;
+	void *ptr;
+	int ret;
+	union {
+		u64 u64;
+		u8 u8[TDX_MEMORY_RW_CHUNK];
+	} l_buf;
+
+	tdx_get_memory_chunk_and_offset(addr, &chunk_addr, &in_chunk_offset);
+	len = min(request_len, TDX_MEMORY_RW_CHUNK - in_chunk_offset);
+	if (len < TDX_MEMORY_RW_CHUNK) {
+		ret = read_private_memory(kvm,
+					  chunk_addr,
+					  &l_buf.u64);
+		if (!ret)
+			memcpy(l_buf.u8 + in_chunk_offset, in_buf, len);
+		ptr = l_buf.u8;
+	} else {
+		ret = 0;
+		ptr = in_buf;
+	}
+
+	if (!ret)
+		ret = write_private_memory(kvm, chunk_addr, ptr);
+
+	if (complete_len && !ret)
+		*complete_len = len;
+
+	return ret;
+}
+
+static int prepare_write_private_memory(void __user *ubuf, void *kbuf, u32 size)
+{
+	if (copy_from_user(kbuf, ubuf, size))
+		return -EFAULT;
+	return 0;
+}
+
+static struct tdx_guest_memory_operator tdx_memory_write_operator = {
+	.s_accessor = kvm_write_guest_atomic,
+	.p_accessor = write_private_memory_unalign,
+	.prepare_access = prepare_write_private_memory,
+};
+
 static int tdx_write_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memory)
 {
 	int ret;
@@ -3477,7 +3541,7 @@ static int tdx_write_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memo
 		ret = tdx_read_write_memory(kvm, rw_memory->addr,
 					    rw_memory->len, &complete_len,
 					    (void __user *)rw_memory->ubuf,
-					    NULL);
+					    &tdx_memory_write_operator);
 
 	rw_memory->len = complete_len;
 	return ret;

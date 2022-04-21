@@ -22,6 +22,7 @@
 #define TDH_VP_CREATE			10
 #define TDH_MNG_RD			11
 #define TDH_MEM_RD			12
+#define TDH_MEM_WR			14
 #define TDH_MEM_PAGE_DEMOTE		15
 #define TDH_MR_EXTEND			16
 #define TDH_MR_FINALIZE			17

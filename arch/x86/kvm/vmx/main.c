@@ -707,6 +707,8 @@ static void vt_inject_irq(struct kvm_vcpu *vcpu, bool reinjected)
 
 static void vt_inject_exception(struct kvm_vcpu *vcpu)
 {
+	if (is_td_vcpu(vcpu) && is_debug_td(vcpu))
+		return tdx_inject_exception(vcpu);
 	if (is_td_vcpu(vcpu))
 		return;
 

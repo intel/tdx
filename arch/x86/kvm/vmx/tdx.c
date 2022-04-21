@@ -88,6 +88,8 @@ static atomic_t nr_configured_hkid;
  */
 static DEFINE_PER_CPU(struct list_head, associated_tdvcpus);
 
+static int tdx_emulate_inject_bp_end(struct kvm_vcpu *vcpu, unsigned long dr6);
+
 static __always_inline hpa_t set_hkid_to_hpa(hpa_t pa, u16 hkid)
 {
 	return pa | ((hpa_t)hkid << boot_cpu_data.x86_phys_bits);
@@ -1046,6 +1048,9 @@ static int tdx_handle_exception(struct kvm_vcpu *vcpu)
 	case DB_VECTOR: {
 		unsigned long dr6 = tdexit_exit_qual(vcpu);
 
+		if (tdx_emulate_inject_bp_end(vcpu, dr6))
+			return 1;
+
 		if (!tdx_kvm_use_dr(vcpu)) {
 			if (is_icebp(intr_info))
 				KVM_BUG_ON(!tdx_skip_emulated_instruction(vcpu), vcpu->kvm);
@@ -1083,6 +1088,61 @@ void tdx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val)
 		return;
 
 	td_vmcs_write64(tdx, GUEST_DR7, val);
+}
+
+static void tdx_emulate_inject_bp_begin(struct kvm_vcpu *vcpu)
+{
+	unsigned long guest_debug_old;
+	unsigned long rflags;
+
+	/*
+	 * Set the flag firstly because tdx_update_exception_bitmap()
+	 * checkes it for deciding intercept #DB or not.
+	 */
+	to_tdx(vcpu)->emulate_inject_bp = true;
+
+	/*
+	 * Disable #BP intercept and enable single stepping
+	 * so the int3 will execute normally in guest and
+	 * return to KVM due to single stepping enabled,
+	 * this emulates the #BP injection.
+	 */
+	guest_debug_old = vcpu->guest_debug;
+	vcpu->guest_debug &= ~KVM_GUESTDBG_USE_SW_BP;
+	tdx_update_exception_bitmap(vcpu);
+	vcpu->guest_debug = guest_debug_old;
+
+	rflags = tdx_get_rflags(vcpu);
+	rflags |= X86_EFLAGS_TF;
+	tdx_set_rflags(vcpu, rflags);
+}
+
+static int tdx_emulate_inject_bp_end(struct kvm_vcpu *vcpu, unsigned long dr6)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	if (!tdx->emulate_inject_bp)
+		return  0;
+
+	if (!(dr6 & DR6_BS))
+		return 0;
+
+	tdx->emulate_inject_bp = false;
+
+	/* Check if we need enable #BP interception again */
+	tdx_update_exception_bitmap(vcpu);
+
+	/* No guest debug single step request, so clear it */
+	if (!(vcpu->guest_debug & KVM_GUESTDBG_SINGLESTEP)) {
+		unsigned long rflags;
+
+		rflags = tdx_get_rflags(vcpu);
+		rflags &= ~X86_EFLAGS_TF;
+		tdx_set_rflags(vcpu, rflags);
+		kvm_make_request(KVM_REQ_EVENT, vcpu);
+	}
+
+	return 1;
 }
 
 static int tdx_handle_external_interrupt(struct kvm_vcpu *vcpu)
@@ -2657,6 +2717,13 @@ void tdx_inject_exception(struct kvm_vcpu *vcpu)
 	error_code = vcpu->arch.exception.error_code;
 	intr_info = vector | INTR_INFO_VALID_MASK;
 
+	/*
+	 * Emulate BP injection due to
+	 * TDX doesn't support exception injection
+	 */
+	if (vector == BP_VECTOR)
+		return tdx_emulate_inject_bp_begin(vcpu);
+
 	kvm_deliver_exception_payload(vcpu, &vcpu->arch.exception);
 
 	if (has_error_code) {
@@ -2789,7 +2856,7 @@ void tdx_update_exception_bitmap(struct kvm_vcpu *vcpu)
 	 * is using DR register to avoid break DR feature
 	 * inside guest.
 	 */
-	if (tdx_kvm_use_dr(vcpu))
+	if (tdx_kvm_use_dr(vcpu) || tdx->emulate_inject_bp)
 		new_eb |= (1u << DB_VECTOR);
 
 	if (vcpu->guest_debug & KVM_GUESTDBG_USE_SW_BP)

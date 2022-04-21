@@ -914,6 +914,15 @@ static int vt_skip_emulated_instruction(struct kvm_vcpu *vcpu)
 	return vmx_skip_emulated_instruction(vcpu);
 }
 
+static bool vt_check_apicv_inhibit_reasons(struct kvm *kvm,
+					   enum kvm_apicv_inhibit reason)
+{
+	if (is_td(kvm))
+		return tdx_check_apicv_inhibit_reasons(kvm, reason);
+
+	return vmx_check_apicv_inhibit_reasons(kvm, reason);
+}
+
 struct kvm_x86_ops vt_x86_ops __initdata = {
 	.name = KBUILD_MODNAME,
 
@@ -1000,7 +1009,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.refresh_apicv_exec_ctrl = vt_refresh_apicv_exec_ctrl,
 	.load_eoi_exitmap = vt_load_eoi_exitmap,
 	.apicv_post_state_restore = vt_apicv_post_state_restore,
-	.check_apicv_inhibit_reasons = vmx_check_apicv_inhibit_reasons,
+	.check_apicv_inhibit_reasons = vt_check_apicv_inhibit_reasons,
 	.hwapic_irr_update = vt_hwapic_irr_update,
 	.hwapic_isr_update = vt_hwapic_isr_update,
 	.guest_apic_has_interrupt = vt_guest_apic_has_interrupt,

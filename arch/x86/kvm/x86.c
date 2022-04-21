@@ -12400,6 +12400,7 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 		return -EINVAL;
 
 	kvm->arch.vm_type = type;
+	kvm->arch.required_apicv_inhibits = kvm_x86_ops.required_apicv_inhibits;
 
 	ret = kvm_page_track_init(kvm);
 	if (ret)

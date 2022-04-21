@@ -3376,6 +3376,78 @@ static int tdx_guest_memory_access_check(struct kvm *kvm, struct kvm_rw_memory *
 	return 0;
 }
 
+static __always_inline void tdx_get_memory_chunk_and_offset(gpa_t addr,
+							    u64 *chunk,
+							    u32 *offset)
+{
+	*chunk = addr & TDX_MEMORY_RW_CHUNK_MASK;
+	*offset = addr & TDX_MEMORY_RW_CHUNK_OFFSET_MASK;
+}
+
+static int read_private_memory(struct kvm *kvm, gpa_t addr, u64 *val)
+{
+	u64 err;
+	struct tdx_module_output tdx_ret;
+
+	err = tdh_mem_rd(to_kvm_tdx(kvm)->tdr_pa, addr, &tdx_ret);
+	if (WARN_ON_ONCE(err)) {
+		pr_tdx_error(TDH_MEM_RD, err, NULL);
+		return -EIO;
+	}
+
+	*val = tdx_ret.r8;
+	return 0;
+}
+
+static int read_private_memory_unalign(struct kvm *kvm, gpa_t addr,
+				       u32 request_len,
+				       u32 *complete_len, void *out_buf)
+{
+	gpa_t chunk_addr;
+	u32 in_chunk_offset;
+	u32 len;
+	int ret;
+	union {
+		u64 u64;
+		u8 u8[TDX_MEMORY_RW_CHUNK];
+	} l_buf;
+
+	tdx_get_memory_chunk_and_offset(addr, &chunk_addr,
+					&in_chunk_offset);
+	len = min(request_len, TDX_MEMORY_RW_CHUNK - in_chunk_offset);
+	if (len < TDX_MEMORY_RW_CHUNK) {
+		/* unaligned GPA head/tail */
+		ret = read_private_memory(kvm,
+					  chunk_addr,
+					  &l_buf.u64);
+		if (!ret)
+			memcpy(out_buf,
+			       l_buf.u8 + in_chunk_offset,
+			       len);
+	} else {
+		ret = read_private_memory(kvm,
+					  chunk_addr,
+					  out_buf);
+	}
+
+	if (complete_len && !ret)
+		*complete_len = len;
+	return ret;
+}
+
+static int finish_read_private_memory(void __user *ubuf, void *kbuf, u32 size)
+{
+	if (copy_to_user(ubuf, kbuf, size))
+		return -EFAULT;
+	return 0;
+}
+
+static struct tdx_guest_memory_operator tdx_memory_read_operator = {
+	.s_accessor = kvm_read_guest_atomic,
+	.p_accessor = read_private_memory_unalign,
+	.finish_access = finish_read_private_memory,
+};
+
 static int tdx_read_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memory)
 {
 	int ret;
@@ -3388,7 +3460,7 @@ static int tdx_read_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memor
 		ret = tdx_read_write_memory(kvm, rw_memory->addr,
 					    rw_memory->len, &complete_len,
 					    (void __user *)rw_memory->ubuf,
-					    NULL);
+					    &tdx_memory_read_operator);
 	rw_memory->len = complete_len;
 	return ret;
 }

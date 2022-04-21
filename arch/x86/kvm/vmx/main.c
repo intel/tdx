@@ -423,7 +423,7 @@ static void vt_set_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var,
 
 static int vt_get_cpl(struct kvm_vcpu *vcpu)
 {
-	if (KVM_BUG_ON(is_td_vcpu(vcpu), vcpu->kvm))
+	if (is_td_vcpu(vcpu))
 		return tdx_get_cpl(vcpu);
 
 	return vmx_get_cpl(vcpu);

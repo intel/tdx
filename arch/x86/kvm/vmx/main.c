@@ -398,7 +398,7 @@ static void vt_update_exception_bitmap(struct kvm_vcpu *vcpu)
 
 static u64 vt_get_segment_base(struct kvm_vcpu *vcpu, int seg)
 {
-	if (KVM_BUG_ON(is_td_vcpu(vcpu), vcpu->kvm))
+	if (is_td_vcpu(vcpu))
 		return tdx_get_segment_base(vcpu, seg);
 
 	return vmx_get_segment_base(vcpu, seg);
@@ -407,7 +407,7 @@ static u64 vt_get_segment_base(struct kvm_vcpu *vcpu, int seg)
 static void vt_get_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var,
 			      int seg)
 {
-	if (KVM_BUG_ON(is_td_vcpu(vcpu), vcpu->kvm))
+	if (is_td_vcpu(vcpu))
 		return tdx_get_segment(vcpu, var, seg);
 
 	vmx_get_segment(vcpu, var, seg);
@@ -432,8 +432,8 @@ static int vt_get_cpl(struct kvm_vcpu *vcpu)
 
 static void vt_get_cs_db_l_bits(struct kvm_vcpu *vcpu, int *db, int *l)
 {
-	if (KVM_BUG_ON(is_td_vcpu(vcpu), vcpu->kvm))
-		return;
+	if (is_td_vcpu(vcpu))
+		return tdx_get_cs_db_l_bits(vcpu, db, l);
 
 	vmx_get_cs_db_l_bits(vcpu, db, l);
 }

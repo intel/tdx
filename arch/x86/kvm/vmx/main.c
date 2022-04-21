@@ -538,7 +538,7 @@ static bool vt_get_if_flag(struct kvm_vcpu *vcpu)
 static unsigned long vt_get_cr2(struct kvm_vcpu *vcpu)
 {
 	if (is_td_vcpu(vcpu))
-		return 0;
+		return tdx_get_cr2(vcpu);
 
 	return kvm_get_cr2(vcpu);
 }

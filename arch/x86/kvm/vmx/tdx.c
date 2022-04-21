@@ -2340,6 +2340,15 @@ unsigned long tdx_get_rflags(struct kvm_vcpu *vcpu)
 	return td_vmcs_read64(to_tdx(vcpu), GUEST_RFLAGS);
 }
 
+unsigned long tdx_get_cr2(struct kvm_vcpu *vcpu)
+{
+	if (!is_debug_td(vcpu))
+		return 0;
+
+	vcpu->arch.cr2 = td_state_read64(to_tdx(vcpu), TD_VCPU_CR2);
+	return vcpu->arch.cr2;
+}
+
 bool tdx_get_if_flag(struct kvm_vcpu *vcpu)
 {
 	if (!is_debug_td(vcpu))

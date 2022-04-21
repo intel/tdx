@@ -202,6 +202,7 @@ bool tdx_set_memory_attributes(struct kvm *kvm, struct kvm_gfn_range *range);
 
 void tdx_load_guest_debug_regs(struct kvm_vcpu *vcpu);
 void tdx_sync_dirty_debug_regs(struct kvm_vcpu *vcpu);
+void tdx_update_exception_bitmap(struct kvm_vcpu *vcpu);
 #else
 static inline int tdx_hardware_setup(struct kvm_x86_ops *x86_ops) { return -EOPNOTSUPP; }
 static inline void tdx_hardware_unsetup(void) {}
@@ -277,6 +278,7 @@ static inline bool tdx_set_memory_attributes(struct kvm *kvm, struct kvm_gfn_ran
 
 static inline void tdx_load_guest_debug_regs(struct kvm_vcpu *vcpu) {}
 static inline void tdx_sync_dirty_debug_regs(struct kvm_vcpu *vcpu) {}
+static inline void tdx_update_exception_bitmap(struct kvm_vcpu *vcpu) {}
 #endif
 
 #if defined(CONFIG_INTEL_TDX_HOST) && defined(CONFIG_KVM_SMM)

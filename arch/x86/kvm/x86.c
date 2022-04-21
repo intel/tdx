@@ -10563,6 +10563,17 @@ void __kvm_request_immediate_exit(struct kvm_vcpu *vcpu)
 }
 EXPORT_SYMBOL_GPL(__kvm_request_immediate_exit);
 
+/* Exported for all x86 normal guests */
+void load_guest_debug_regs(struct kvm_vcpu *vcpu)
+{
+	set_debugreg(0, 7);
+	set_debugreg(vcpu->arch.eff_db[0], 0);
+	set_debugreg(vcpu->arch.eff_db[1], 1);
+	set_debugreg(vcpu->arch.eff_db[2], 2);
+	set_debugreg(vcpu->arch.eff_db[3], 3);
+}
+EXPORT_SYMBOL_GPL(load_guest_debug_regs);
+
 /*
  * Called within kvm->srcu read side.
  * Returns 1 to let vcpu_run() continue the guest execution loop without
@@ -10821,11 +10832,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		wrmsrl(MSR_IA32_XFD_ERR, vcpu->arch.guest_fpu.xfd_err);
 
 	if (unlikely(vcpu->arch.switch_db_regs & ~KVM_DEBUGREG_AUTO_SWITCH)) {
-		set_debugreg(0, 7);
-		set_debugreg(vcpu->arch.eff_db[0], 0);
-		set_debugreg(vcpu->arch.eff_db[1], 1);
-		set_debugreg(vcpu->arch.eff_db[2], 2);
-		set_debugreg(vcpu->arch.eff_db[3], 3);
+		static_call(kvm_x86_load_guest_debug_regs)(vcpu);
 	} else if (unlikely(hw_breakpoint_active())) {
 		set_debugreg(0, 7);
 	}

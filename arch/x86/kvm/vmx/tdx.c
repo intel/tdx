@@ -2252,7 +2252,17 @@ void tdx_set_virtual_apic_mode(struct kvm_vcpu *vcpu)
 
 int tdx_get_cpl(struct kvm_vcpu *vcpu)
 {
-	return 0;
+	if (!is_debug_td(vcpu))
+		return 0;
+
+	/*
+	 * tdx_get_cpl() is called before TDX vCPU is ready,
+	 * just return for this case to avoid SEAMCALL failure
+	 */
+	if (!to_tdx(vcpu)->initialized)
+		return 0;
+
+	return VMX_AR_DPL(td_vmcs_read32(to_tdx(vcpu), GUEST_SS_AR_BYTES));
 }
 
 void tdx_cache_reg(struct kvm_vcpu *vcpu, enum kvm_reg reg)

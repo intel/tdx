@@ -637,6 +637,14 @@ static unsigned long vt_get_cr2(struct kvm_vcpu *vcpu)
 	return kvm_get_cr2(vcpu);
 }
 
+static unsigned long vt_get_xcr(struct kvm_vcpu *vcpu, int index)
+{
+	if (is_td_vcpu(vcpu))
+		return 0;
+
+	return kvm_get_xcr(vcpu, index);
+}
+
 static void vt_flush_tlb_all(struct kvm_vcpu *vcpu)
 {
 	if (is_td_vcpu(vcpu)) {
@@ -1066,6 +1074,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.set_rflags = vt_set_rflags,
 	.get_if_flag = vt_get_if_flag,
 	.get_cr2 = vt_get_cr2,
+	.get_xcr = vt_get_xcr,
 
 	.flush_tlb_all = vt_flush_tlb_all,
 	.flush_tlb_current = vt_flush_tlb_current,

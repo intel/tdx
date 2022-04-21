@@ -582,13 +582,10 @@ static void vt_set_dr7(struct kvm_vcpu *vcpu, unsigned long val)
 
 static void vt_sync_dirty_debug_regs(struct kvm_vcpu *vcpu)
 {
-	/*
-	 * MOV-DR exiting is always cleared for TD guest, even in debug mode.
-	 * Thus KVM_DEBUGREG_WONT_EXIT can never be set and it should never
-	 * reach here for TD vcpu.
-	 */
-	if (KVM_BUG_ON(is_td_vcpu(vcpu), vcpu->kvm))
+	if (is_td_vcpu(vcpu)) {
+		tdx_sync_dirty_debug_regs(vcpu);
 		return;
+	}
 
 	vmx_sync_dirty_debug_regs(vcpu);
 }

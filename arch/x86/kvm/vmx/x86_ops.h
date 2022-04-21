@@ -201,6 +201,7 @@ int tdx_sept_flush_remote_tlbs_range(struct kvm *kvm, gfn_t gfn, gfn_t nr_pages)
 void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int root_level);
 
 void tdx_load_guest_debug_regs(struct kvm_vcpu *vcpu);
+void tdx_sync_dirty_debug_regs(struct kvm_vcpu *vcpu);
 
 int tdx_vm_move_enc_context_from(struct kvm *kvm, unsigned int source_fd);
 #else
@@ -277,6 +278,7 @@ static inline int tdx_sept_flush_remote_tlbs_range(struct kvm *kvm, gfn_t gfn, g
 static inline void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int root_level) {}
 
 static inline void tdx_load_guest_debug_regs(struct kvm_vcpu *vcpu) {}
+static inline void tdx_sync_dirty_debug_regs(struct kvm_vcpu *vcpu) {}
 
 static inline int tdx_vm_move_enc_context_from(struct kvm *kvm, unsigned int source_fd)
 {

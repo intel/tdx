@@ -464,18 +464,16 @@ static int vt_set_efer(struct kvm_vcpu *vcpu, u64 efer)
 
 static void vt_get_idt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
 {
-	if (KVM_BUG_ON(is_td_vcpu(vcpu), vcpu->kvm)) {
-		memset(dt, 0, sizeof(*dt));
-		return;
-	}
+	if (is_td_vcpu(vcpu))
+		return tdx_get_idt(vcpu, dt);
 
 	vmx_get_idt(vcpu, dt);
 }
 
 static void vt_set_idt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
 {
-	if (KVM_BUG_ON(is_td_vcpu(vcpu), vcpu->kvm))
-		return;
+	if (is_td_vcpu(vcpu))
+		return tdx_set_idt(vcpu, dt);
 
 	vmx_set_idt(vcpu, dt);
 }

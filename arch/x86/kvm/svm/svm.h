@@ -641,7 +641,8 @@ void avic_vcpu_load(struct kvm_vcpu *vcpu, int cpu);
 void avic_vcpu_put(struct kvm_vcpu *vcpu);
 void avic_apicv_post_state_restore(struct kvm_vcpu *vcpu);
 void avic_refresh_apicv_exec_ctrl(struct kvm_vcpu *vcpu);
-bool avic_check_apicv_inhibit_reasons(enum kvm_apicv_inhibit reason);
+bool avic_check_apicv_inhibit_reasons(struct kvm *kvm,
+				      enum kvm_apicv_inhibit reason);
 int avic_pi_update_irte(struct kvm *kvm, unsigned int host_irq,
 			uint32_t guest_irq, bool set);
 void avic_vcpu_blocking(struct kvm_vcpu *vcpu);

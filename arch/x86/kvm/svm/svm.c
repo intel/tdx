@@ -1353,6 +1353,8 @@ static void svm_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 
 	if (!init_event)
 		__svm_vcpu_reset(vcpu);
+
+	kvm_rip_write(vcpu, 0xfff0);
 }
 
 void svm_switch_vmcb(struct vcpu_svm *svm, struct kvm_vmcb_info *target_vmcb)

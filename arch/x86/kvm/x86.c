@@ -5477,7 +5477,8 @@ static void kvm_vcpu_ioctl_x86_get_xcrs(struct kvm_vcpu *vcpu,
 	guest_xcrs->nr_xcrs = 1;
 	guest_xcrs->flags = 0;
 	guest_xcrs->xcrs[0].xcr = XCR_XFEATURE_ENABLED_MASK;
-	guest_xcrs->xcrs[0].value = vcpu->arch.xcr0;
+	guest_xcrs->xcrs[0].value =
+		static_call(kvm_x86_get_xcr)(vcpu, XCR_XFEATURE_ENABLED_MASK);
 }
 
 static int kvm_vcpu_ioctl_x86_set_xcrs(struct kvm_vcpu *vcpu,
@@ -13779,6 +13780,18 @@ unsigned long kvm_get_cr2(struct kvm_vcpu *vcpu)
 	return vcpu->arch.cr2;
 }
 EXPORT_SYMBOL_GPL(kvm_get_cr2);
+
+/* Common function for legacy VMx and SVM guest*/
+unsigned long kvm_get_xcr(struct kvm_vcpu *vcpu, int index)
+{
+	switch (index) {
+	case XCR_XFEATURE_ENABLED_MASK:
+		return vcpu->arch.xcr0;
+	default:
+		return 0;
+	}
+}
+EXPORT_SYMBOL_GPL(kvm_get_xcr);
 
 bool kvm_arch_dirty_log_supported(struct kvm *kvm)
 {

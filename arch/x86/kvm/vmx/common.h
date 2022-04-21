@@ -9,7 +9,55 @@
 #include "posted_intr.h"
 #include "mmu.h"
 #include "vmcs.h"
+#include "vmx_ops.h"
 #include "x86.h"
+#include "tdx.h"
+
+#ifdef CONFIG_INTEL_TDX_HOST
+
+#define VT_BUILD_VMCS_HELPERS(type, bits, tdbits)			   \
+static __always_inline type vmread##bits(struct kvm_vcpu *vcpu,		   \
+					 unsigned long field)		   \
+{									   \
+	if (unlikely(is_td_vcpu(vcpu))) {				   \
+		if (KVM_BUG_ON(!is_debug_td(vcpu), vcpu->kvm))		   \
+			return 0;					   \
+		return td_vmcs_read##tdbits(to_tdx(vcpu), field);	   \
+	}								   \
+	return vmcs_read##bits(field);					   \
+}									   \
+static __always_inline void vmwrite##bits(struct kvm_vcpu *vcpu,	   \
+					  unsigned long field, type value) \
+{									   \
+	if (unlikely(is_td_vcpu(vcpu))) {				   \
+		if (KVM_BUG_ON(!is_debug_td(vcpu), vcpu->kvm))		   \
+			return;						   \
+		return td_vmcs_write##tdbits(to_tdx(vcpu), field, value);  \
+	}								   \
+	vmcs_write##bits(field, value);					   \
+}
+
+#else /* !CONFIG_INTEL_TDX_HOST */
+
+#define VT_BUILD_VMCS_HELPERS(type, bits, tdbits)			   \
+static __always_inline type vmread##bits(struct kvm_vcpu *vcpu,		   \
+					 unsigned long field)		   \
+{									   \
+	return vmcs_read##bits(field);					   \
+}									   \
+static __always_inline void vmwrite##bits(struct kvm_vcpu *vcpu,	   \
+					  unsigned long field, type value) \
+{									   \
+	vmcs_write##bits(field, value);					   \
+}
+
+#endif
+
+VT_BUILD_VMCS_HELPERS(u16, 16, 16);
+VT_BUILD_VMCS_HELPERS(u32, 32, 32);
+VT_BUILD_VMCS_HELPERS(u64, 64, 64);
+VT_BUILD_VMCS_HELPERS(unsigned long, l, 64);
+
 
 struct kvm_vmx_segment_field {
 	unsigned int selector;

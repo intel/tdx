@@ -2544,3 +2544,48 @@ u64 *kvm_tdp_mmu_fast_pf_get_last_sptep(struct kvm_vcpu *vcpu, u64 addr,
 	 */
 	return rcu_dereference(sptep);
 }
+
+#ifdef CONFIG_INTEL_TDX_HOST
+int kvm_tdp_mmu_is_page_private(struct kvm *kvm, struct kvm_memory_slot *memslot,
+				gfn_t gfn, bool *is_private)
+{
+	int ret = -EINVAL;
+	struct tdp_iter iter;
+	struct kvm_mmu_page *root;
+
+	rcu_read_lock();
+
+	for_each_tdp_mmu_root(kvm, root, memslot->as_id) {
+		if (root->role.invalid)
+			continue;
+
+		if (!refcount_read(&root->tdp_mmu_root_count))
+			continue;
+
+		if (root->role.guest_mode)
+			continue;
+
+		if (is_private_sp(root))
+			gfn = kvm_gfn_to_private(kvm, gfn);
+		else
+			gfn = kvm_gfn_to_shared(kvm, gfn);
+
+		tdp_root_for_each_pte(iter, root, gfn, gfn + 1) {
+			if (!is_shadow_present_pte(iter.old_spte))
+				continue;
+
+			if (!is_last_spte(iter.old_spte, iter.level))
+				continue;
+
+			*is_private = is_private_sp(root);
+			ret = 0;
+			goto exit;
+		}
+	}
+ exit:
+	rcu_read_unlock();
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(kvm_tdp_mmu_is_page_private);
+#endif

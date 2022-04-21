@@ -777,8 +777,11 @@ static void vt_sched_in(struct kvm_vcpu *vcpu, int cpu)
 
 static void vt_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask)
 {
-	if (is_td_vcpu(vcpu))
+	if (is_td_vcpu(vcpu)) {
+		tdx_set_interrupt_shadow(vcpu, mask);
 		return;
+	}
+
 	vmx_set_interrupt_shadow(vcpu, mask);
 }
 
@@ -1015,6 +1018,14 @@ static int vt_vcpu_mem_enc_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 	return tdx_vcpu_ioctl(vcpu, argp);
 }
 
+static int vt_skip_emulated_instruction(struct kvm_vcpu *vcpu)
+{
+	if (is_td_vcpu(vcpu))
+		return tdx_skip_emulated_instruction(vcpu);
+
+	return vmx_skip_emulated_instruction(vcpu);
+}
+
 #define VMX_REQUIRED_APICV_INHIBITS				\
 	(BIT(APICV_INHIBIT_REASON_DISABLE)|			\
 	 BIT(APICV_INHIBIT_REASON_ABSENT) |			\
@@ -1088,7 +1099,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.vcpu_pre_run = vt_vcpu_pre_run,
 	.vcpu_run = vt_vcpu_run,
 	.handle_exit = vt_handle_exit,
-	.skip_emulated_instruction = vmx_skip_emulated_instruction,
+	.skip_emulated_instruction = vt_skip_emulated_instruction,
 	.update_emulated_instruction = vmx_update_emulated_instruction,
 	.set_interrupt_shadow = vt_set_interrupt_shadow,
 	.get_interrupt_shadow = vt_get_interrupt_shadow,

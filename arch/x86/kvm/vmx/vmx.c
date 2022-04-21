@@ -506,12 +506,7 @@ struct vmx_capability vmx_capability __ro_after_init;
 		.ar_bytes = GUEST_##seg##_AR_BYTES,	   	\
 	}
 
-static const struct kvm_vmx_segment_field {
-	unsigned selector;
-	unsigned base;
-	unsigned limit;
-	unsigned ar_bytes;
-} kvm_vmx_segment_fields[] = {
+const struct kvm_vmx_segment_field kvm_vmx_segment_fields[] = {
 	VMX_SEGMENT_FIELD(CS),
 	VMX_SEGMENT_FIELD(DS),
 	VMX_SEGMENT_FIELD(ES),
@@ -3497,22 +3492,8 @@ void vmx_get_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var, int seg)
 	var->limit = vmx_read_guest_seg_limit(vmx, seg);
 	var->selector = vmx_read_guest_seg_selector(vmx, seg);
 	ar = vmx_read_guest_seg_ar(vmx, seg);
-	var->unusable = (ar >> 16) & 1;
-	var->type = ar & 15;
-	var->s = (ar >> 4) & 1;
-	var->dpl = (ar >> 5) & 3;
-	/*
-	 * Some userspaces do not preserve unusable property. Since usable
-	 * segment has to be present according to VMX spec we can use present
-	 * property to amend userspace bug by making unusable segment always
-	 * nonpresent. vmx_segment_access_rights() already marks nonpresent
-	 * segment as unusable.
-	 */
-	var->present = !var->unusable;
-	var->avl = (ar >> 12) & 1;
-	var->l = (ar >> 13) & 1;
-	var->db = (ar >> 14) & 1;
-	var->g = (ar >> 15) & 1;
+
+	vmx_decode_ar_bytes(var, ar);
 }
 
 u64 vmx_get_segment_base(struct kvm_vcpu *vcpu, int seg)

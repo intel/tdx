@@ -546,7 +546,7 @@ static unsigned long vt_get_cr2(struct kvm_vcpu *vcpu)
 static unsigned long vt_get_xcr(struct kvm_vcpu *vcpu, int index)
 {
 	if (is_td_vcpu(vcpu))
-		return 0;
+		return tdx_get_xcr(vcpu, index);
 
 	return kvm_get_xcr(vcpu, index);
 }

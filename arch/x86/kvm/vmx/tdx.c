@@ -540,6 +540,9 @@ int tdx_vm_init(struct kvm *kvm)
 
 	kvm_tdx->has_range_blocked = false;
 
+	/* apicv */
+	kvm->arch.required_apicv_inhibits = BIT(APICV_INHIBIT_REASON_ABSENT);
+
 	/*
 	 * This function initializes only KVM software construct.  It doesn't
 	 * initialize TDX stuff, e.g. TDCS, TDR, TDCX, HKID etc.

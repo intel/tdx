@@ -855,6 +855,12 @@ static void tdx_restore_host_xsave_state(struct kvm_vcpu *vcpu)
 		write_pkru(vcpu->arch.host_pkru);
 }
 
+static void tdx_reset_regs_cache(struct kvm_vcpu *vcpu)
+{
+	vcpu->arch.regs_avail = 0;
+	vcpu->arch.regs_dirty = 0;
+}
+
 u64 __tdx_vcpu_run(hpa_t tdvpr, void *regs, u32 regs_mask);
 
 static noinstr void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu,
@@ -908,7 +914,11 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	tdx_restore_host_xsave_state(vcpu);
 	tdx->host_state_need_restore = true;
 
-	vcpu->arch.regs_avail &= ~VMX_REGS_LAZY_LOAD_SET;
+	if (is_debug_td(vcpu))
+		tdx_reset_regs_cache(vcpu);
+	else
+		vcpu->arch.regs_avail &= ~VMX_REGS_LAZY_LOAD_SET;
+
 	trace_kvm_exit(vcpu, KVM_ISA_VMX);
 
 	tdx_complete_interrupts(vcpu);
@@ -2242,14 +2252,64 @@ int tdx_get_cpl(struct kvm_vcpu *vcpu)
 
 void tdx_cache_reg(struct kvm_vcpu *vcpu, enum kvm_reg reg)
 {
+	struct vcpu_tdx *vcpu_tdx;
+	unsigned long guest_owned_bits;
+
+	if (!is_td_vcpu(vcpu))
+		return;
+
+	if (!is_debug_td(vcpu)) {
+		/* RIP can be read by tracepoints, stuff a bogus value and
+		 * avoid a WARN/error.
+		 */
+		if (reg == VCPU_REGS_RIP) {
+			kvm_register_mark_available(vcpu, reg);
+			vcpu->arch.regs[reg] = 0xdeadul << 48;
+		}
+		return;
+	}
+
+	vcpu_tdx = to_tdx(vcpu);
 	kvm_register_mark_available(vcpu, reg);
+
 	switch (reg) {
 	case VCPU_REGS_RSP:
+		vcpu->arch.regs[reg] =
+			td_vmcs_read64(vcpu_tdx, GUEST_RSP);
+		break;
 	case VCPU_REGS_RIP:
+		vcpu->arch.regs[reg] =
+			td_vmcs_read64(vcpu_tdx, GUEST_RIP);
+		break;
 	case VCPU_EXREG_PDPTR:
+		WARN_ONCE(1, "PAE paging should not used by TDX guest\n");
+		break;
 	case VCPU_EXREG_CR0:
+		guest_owned_bits = vcpu->arch.cr0_guest_owned_bits;
+		vcpu->arch.cr0 &= ~guest_owned_bits;
+		vcpu->arch.cr0 |= (td_vmcs_read64(vcpu_tdx, GUEST_CR0) &
+				   guest_owned_bits);
+		break;
 	case VCPU_EXREG_CR3:
+		vcpu->arch.cr3 = td_vmcs_read64(vcpu_tdx, GUEST_CR3);
+		break;
 	case VCPU_EXREG_CR4:
+		guest_owned_bits = vcpu->arch.cr4_guest_owned_bits;
+		vcpu->arch.cr4 &= guest_owned_bits;
+		vcpu->arch.cr4 |= (td_vmcs_read64(vcpu_tdx, GUEST_CR4) &
+				   guest_owned_bits);
+		break;
+	case VCPU_REGS_RAX:
+	case VCPU_REGS_RCX:
+	case VCPU_REGS_RDX:
+	case VCPU_REGS_RBX:
+	case VCPU_REGS_RBP:
+	case VCPU_REGS_RSI:
+	case VCPU_REGS_RDI:
+#ifdef CONFIG_X86_64
+	case VCPU_REGS_R8 ... VCPU_REGS_R15:
+#endif
+		vcpu->arch.regs[reg] = td_gpr_read64(vcpu_tdx, reg);
 		break;
 	default:
 		KVM_BUG_ON(1, vcpu->kvm);

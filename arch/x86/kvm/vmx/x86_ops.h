@@ -171,6 +171,8 @@ void tdx_set_virtual_apic_mode(struct kvm_vcpu *vcpu);
 int tdx_get_cpl(struct kvm_vcpu *vcpu);
 void tdx_cache_reg(struct kvm_vcpu *vcpu, enum kvm_reg reg);
 unsigned long tdx_get_rflags(struct kvm_vcpu *vcpu);
+bool tdx_get_if_flag(struct kvm_vcpu *vcpu);
+void tdx_set_rflags(struct kvm_vcpu *vcpu, unsigned long rflags);
 bool tdx_is_emulated_msr(u32 index, bool write);
 u64 tdx_get_segment_base(struct kvm_vcpu *vcpu, int seg);
 void tdx_get_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var, int seg);
@@ -228,6 +230,8 @@ static inline void tdx_set_virtual_apic_mode(struct kvm_vcpu *vcpu) {}
 static inline int tdx_get_cpl(struct kvm_vcpu *vcpu) { return 0; }
 static inline void tdx_cache_reg(struct kvm_vcpu *vcpu, enum kvm_reg reg) {}
 static inline unsigned long tdx_get_rflags(struct kvm_vcpu *vcpu) { return 0; }
+static inline bool tdx_get_if_flag(struct kvm_vcpu *vcpu) { return 0; }
+static inline void tdx_set_rflags(struct kvm_vcpu *vcpu, unsigned long rflags) {}
 static inline u64 tdx_get_segment_base(struct kvm_vcpu *vcpu, int seg) { return 0;}
 static inline void tdx_get_segment(
 	struct kvm_vcpu *vcpu, struct kvm_segment *var, int seg) {}

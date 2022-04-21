@@ -2322,6 +2322,20 @@ unsigned long tdx_get_cr2(struct kvm_vcpu *vcpu)
 	return vcpu->arch.cr2;
 }
 
+unsigned long tdx_get_xcr(struct kvm_vcpu *vcpu, int index)
+{
+	if (!is_debug_td(vcpu))
+		return 0;
+
+	switch (index) {
+	case XCR_XFEATURE_ENABLED_MASK:
+		vcpu->arch.xcr0 = td_state_read64(to_tdx(vcpu), TD_VCPU_XCR0);
+		return vcpu->arch.xcr0;
+	default:
+		return 0;
+	}
+}
+
 bool tdx_get_if_flag(struct kvm_vcpu *vcpu)
 {
 	if (!is_debug_td(vcpu))

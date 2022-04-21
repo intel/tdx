@@ -179,6 +179,7 @@ unsigned long tdx_get_rflags(struct kvm_vcpu *vcpu);
 bool tdx_get_if_flag(struct kvm_vcpu *vcpu);
 void tdx_set_rflags(struct kvm_vcpu *vcpu, unsigned long rflags);
 unsigned long tdx_get_cr2(struct kvm_vcpu *vcpu);
+unsigned long tdx_get_xcr(struct kvm_vcpu *vcpu, int index);
 u64 tdx_get_segment_base(struct kvm_vcpu *vcpu, int seg);
 void tdx_get_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var, int seg);
 void tdx_get_cs_db_l_bits(struct kvm_vcpu *vcpu, int *db, int *l);
@@ -243,6 +244,7 @@ static inline unsigned long tdx_get_rflags(struct kvm_vcpu *vcpu) { return 0; }
 static inline bool tdx_get_if_flag(struct kvm_vcpu *vcpu) { return 0; }
 static inline void tdx_set_rflags(struct kvm_vcpu *vcpu, unsigned long rflags) {}
 static inline unsigned long tdx_get_cr2(struct kvm_vcpu *vcpu) { return 0; }
+static inline unsigned long tdx_get_xcr(struct kvm_vcpu *vcpu, int index) { return 0; }
 static inline u64 tdx_get_segment_base(struct kvm_vcpu *vcpu, int seg) { return 0; }
 static inline void tdx_get_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var,
 				   int seg) {}

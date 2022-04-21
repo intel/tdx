@@ -3211,6 +3211,151 @@ bool tdx_is_vm_type_supported(unsigned long type)
 	return type == KVM_X86_TDX_VM;
 }
 
+struct tdx_guest_memory_operator {
+	int (*prepare_access)(void __user *ubuf, void *kbuf, u32 size);
+
+	int (*finish_access)(void __user *ubuf, void *kbuf, u32 size);
+
+	/* shared page accessor */
+	int (*s_accessor)(struct kvm_memory_slot *slot, gfn_t gfn,
+			  void *data, int offset, unsigned long len);
+	/* private page accessor */
+	int (*p_accessor)(struct kvm *kvm, gpa_t addr, u32 request_len,
+			  u32 *complete_len, void *buf);
+};
+
+static int tdx_access_guest_memory(struct kvm *kvm,
+				   struct kvm_memory_slot *memslot,
+				   gpa_t gpa, void *buf, u32 access_len,
+				   u32 *completed_len,
+				   struct tdx_guest_memory_operator *operator)
+{
+	u32 offset = offset_in_page(gpa);
+	u32 done_len;
+	bool is_private;
+	int ret;
+
+	if (!access_len ||
+	    access_len > PAGE_SIZE ||
+	    access_len + offset > PAGE_SIZE) {
+		*completed_len = 0;
+		return -EINVAL;
+	}
+
+	write_lock(&kvm->mmu_lock);
+
+	if (kvm_mmu_is_page_private(kvm, memslot, gpa_to_gfn(gpa),
+				    &is_private)) {
+		ret = -EFAULT;
+		done_len = 0;
+		goto exit_unlock;
+	}
+
+	if (is_private) {
+		u32 len = 0;
+
+		ret = 0;
+		for (done_len = 0; done_len < access_len && !ret;
+		     done_len += len)
+			ret = operator->p_accessor(kvm, gpa + done_len,
+						   access_len - done_len,
+						   &len, buf + done_len);
+	} else {
+		ret = operator->s_accessor(memslot,
+					   gpa_to_gfn(gpa), buf,
+					   offset, access_len);
+		done_len = !ret ? access_len : 0;
+	}
+exit_unlock:
+	write_unlock(&kvm->mmu_lock);
+
+	if (completed_len)
+		*completed_len = done_len;
+	return ret;
+}
+
+static int tdx_read_write_memory(struct kvm *kvm, gpa_t gpa, u64 len,
+				 u64 *complete_len, void __user *buf,
+				 struct tdx_guest_memory_operator *operator)
+{
+	void *tmp_buf;
+	u32 access_len;
+	u32 done_len;
+	u64 complete;
+	gpa_t gpa_end;
+	int idx;
+	int ret = 0;
+	struct kvm_memory_slot *memslot;
+
+	if (!operator) {
+		complete = 0;
+		ret = -EFAULT;
+		goto exit;
+	}
+
+	tmp_buf = (void *)__get_free_page(GFP_KERNEL);
+	if (!tmp_buf) {
+		if (complete_len)
+			*complete_len = 0;
+		return -ENOMEM;
+	}
+
+	complete = 0;
+	gpa_end = gpa + len;
+	while (gpa < gpa_end) {
+		cond_resched();
+		if (signal_pending(current)) {
+			ret = -EINTR;
+			break;
+		}
+
+		access_len = min(len - complete,
+				 (u64)(PAGE_SIZE - offset_in_page(gpa)));
+
+		if (operator->prepare_access) {
+			ret = operator->prepare_access(buf, tmp_buf,
+						       access_len);
+			if (ret)
+				break;
+		}
+
+		idx = srcu_read_lock(&kvm->srcu);
+
+		memslot = gfn_to_memslot(kvm, gpa_to_gfn(gpa));
+		if (!kvm_is_visible_memslot(memslot)) {
+			srcu_read_unlock(&kvm->srcu, idx);
+			ret = -EINVAL;
+			break;
+		}
+		ret = tdx_access_guest_memory(kvm, memslot, gpa,
+					      tmp_buf, access_len,
+					      &done_len, operator);
+		if (ret) {
+			srcu_read_unlock(&kvm->srcu, idx);
+			break;
+		}
+
+		srcu_read_unlock(&kvm->srcu, idx);
+
+		if (operator->finish_access) {
+			ret = operator->finish_access(buf, tmp_buf,
+						      done_len);
+			if (ret)
+				break;
+		}
+
+		buf += done_len;
+		complete += done_len;
+		gpa += done_len;
+	}
+
+	free_page((u64)tmp_buf);
+ exit:
+	if (complete_len)
+		*complete_len = complete;
+	return ret;
+}
+
 static int tdx_guest_memory_access_check(struct kvm *kvm, struct kvm_rw_memory *rw_memory)
 {
 	if (!is_td(kvm))
@@ -3234,13 +3379,17 @@ static int tdx_guest_memory_access_check(struct kvm *kvm, struct kvm_rw_memory *
 static int tdx_read_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memory)
 {
 	int ret;
+	u64 complete_len = 0;
 
 	rw_memory->addr = rw_memory->addr & ~gfn_to_gpa(kvm_gfn_shared_mask(kvm));
 
-	/*TODO: actual reading function */
 	ret = tdx_guest_memory_access_check(kvm, rw_memory);
-	rw_memory->len = 0;
-
+	if (!ret)
+		ret = tdx_read_write_memory(kvm, rw_memory->addr,
+					    rw_memory->len, &complete_len,
+					    (void __user *)rw_memory->ubuf,
+					    NULL);
+	rw_memory->len = complete_len;
 	return ret;
 }
 

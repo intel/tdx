@@ -199,6 +199,7 @@ int tdx_sept_tlb_remote_flush_with_range(struct kvm *kvm,
 void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int root_level);
 
 void tdx_load_guest_debug_regs(struct kvm_vcpu *vcpu);
+void tdx_sync_dirty_debug_regs(struct kvm_vcpu *vcpu);
 #else
 static inline int tdx_hardware_setup(struct kvm_x86_ops *x86_ops) { return -ENOSYS; }
 static inline void tdx_hardware_unsetup(void) {}
@@ -270,6 +271,7 @@ static inline int tdx_sept_tlb_remote_flush_with_range(struct kvm *kvm,
 static inline void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int root_level) {}
 
 static inline void tdx_load_guest_debug_regs(struct kvm_vcpu *vcpu) {}
+static inline void tdx_sync_dirty_debug_regs(struct kvm_vcpu *vcpu) {}
 #endif
 
 #if defined(CONFIG_INTEL_TDX_HOST) && defined(CONFIG_KVM_SMM)

@@ -1070,6 +1070,16 @@ static int tdx_handle_exception(struct kvm_vcpu *vcpu)
 	return -EFAULT;
 }
 
+void tdx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	if (!is_debug_td(vcpu) || !tdx->initialized)
+		return;
+
+	td_vmcs_write64(tdx, GUEST_DR7, val);
+}
+
 static int tdx_handle_external_interrupt(struct kvm_vcpu *vcpu)
 {
 	++vcpu->stat.irq_exits;

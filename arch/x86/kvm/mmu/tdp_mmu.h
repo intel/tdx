@@ -77,4 +77,15 @@ static inline bool is_tdp_mmu_page(struct kvm_mmu_page *sp) { return sp->tdp_mmu
 static inline bool is_tdp_mmu_page(struct kvm_mmu_page *sp) { return false; }
 #endif
 
+#ifdef CONFIG_INTEL_TDX_HOST
+int kvm_tdp_mmu_is_page_private(struct kvm *kvm, struct kvm_memory_slot *memslot,
+				gfn_t gfn, bool *is_private);
+#else
+static inline int kvm_tdp_mmu_is_page_private(struct kvm *kvm, struct kvm_memory_slot *memslot,
+					      gfn_t gfn, bool *is_private)
+{
+	return -EOPNOTSUPP;
+}
+#endif
+
 #endif /* __KVM_X86_MMU_TDP_MMU_H */

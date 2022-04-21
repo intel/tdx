@@ -11,7 +11,15 @@
 #include "vmcs.h"
 #include "x86.h"
 
+struct kvm_vmx_segment_field {
+	unsigned int selector;
+	unsigned int base;
+	unsigned int limit;
+	unsigned int ar_bytes;
+};
+
 extern unsigned long vmx_host_idt_base;
+extern const struct kvm_vmx_segment_field kvm_vmx_segment_fields[];
 void vmx_do_interrupt_nmi_irqoff(unsigned long entry);
 
 static inline void vmx_handle_interrupt_nmi_irqoff(struct kvm_vcpu *vcpu,
@@ -173,6 +181,27 @@ static inline void __vmx_deliver_posted_interrupt(struct kvm_vcpu *vcpu,
 	 * posted interrupt "fails" because vcpu->mode != IN_GUEST_MODE.
 	 */
 	kvm_vcpu_trigger_posted_interrupt(vcpu, POSTED_INTR_VECTOR);
+}
+
+static inline void vmx_decode_ar_bytes(struct kvm_segment *var, u32 ar)
+{
+	var->unusable = (ar >> 16) & 1;
+	var->type = ar & 15;
+	var->s = (ar >> 4) & 1;
+	var->dpl = (ar >> 5) & 3;
+	/*
+	 * Some userspaces do not preserve unusable property. Since usable
+	 * segment has to be present according to VMX spec we can use present
+	 * property to amend userspace bug by making unusable segment always
+	 * nonpresent. vmx_segment_access_rights() already marks nonpresent
+	 * segment as unusable.
+	 */
+	var->present = !var->unusable;
+	var->avl = (ar >> 12) & 1;
+	var->l = (ar >> 13) & 1;
+	var->db = (ar >> 14) & 1;
+	var->g = (ar >> 15) & 1;
+
 }
 
 #endif /* __KVM_X86_VMX_COMMON_H */

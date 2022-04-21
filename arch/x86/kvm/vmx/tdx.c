@@ -2426,6 +2426,26 @@ void tdx_set_idt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
 	td_vmcs_write64(to_tdx(vcpu), GUEST_IDTR_BASE, dt->address);
 }
 
+void tdx_get_gdt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
+{
+	if (!is_debug_td(vcpu)) {
+		memset(dt, 0, sizeof(*dt));
+		return;
+	}
+
+	dt->size = td_vmcs_read32(to_tdx(vcpu), GUEST_GDTR_LIMIT);
+	dt->address = td_vmcs_read64(to_tdx(vcpu), GUEST_GDTR_BASE);
+}
+
+void tdx_set_gdt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
+{
+	if (!is_debug_td(vcpu))
+		return;
+
+	td_vmcs_write32(to_tdx(vcpu), GUEST_GDTR_LIMIT, dt->size);
+	td_vmcs_write64(to_tdx(vcpu), GUEST_GDTR_BASE, dt->address);
+}
+
 static int tdx_get_capabilities(struct kvm_tdx_cmd *cmd)
 {
 	struct kvm_tdx_capabilities __user *user_caps;

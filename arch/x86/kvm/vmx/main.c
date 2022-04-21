@@ -558,10 +558,8 @@ static void vt_set_idt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
 
 static void vt_get_gdt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
 {
-	if (is_td_vcpu(vcpu)) {
-		memset(dt, 0, sizeof(*dt));
-		return;
-	}
+	if (is_td_vcpu(vcpu))
+		return tdx_get_gdt(vcpu, dt);
 
 	vmx_get_gdt(vcpu, dt);
 }
@@ -569,7 +567,7 @@ static void vt_get_gdt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
 static void vt_set_gdt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
 {
 	if (is_td_vcpu(vcpu))
-		return;
+		return tdx_set_gdt(vcpu, dt);
 
 	vmx_set_gdt(vcpu, dt);
 }

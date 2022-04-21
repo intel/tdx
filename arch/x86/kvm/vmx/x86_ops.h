@@ -191,6 +191,8 @@ void tdx_set_idt(struct kvm_vcpu *vcpu, struct desc_ptr *dt);
 void tdx_get_gdt(struct kvm_vcpu *vcpu, struct desc_ptr *dt);
 void tdx_set_gdt(struct kvm_vcpu *vcpu, struct desc_ptr *dt);
 void tdx_inject_exception(struct kvm_vcpu *vcpu);
+int tdx_skip_emulated_instruction(struct kvm_vcpu *vcpu);
+void tdx_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask);
 
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp);
 int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp);
@@ -254,6 +256,8 @@ static inline void tdx_set_idt(struct kvm_vcpu *vcpu, struct desc_ptr *dt) {}
 static inline void tdx_get_gdt(struct kvm_vcpu *vcpu, struct desc_ptr *dt) {}
 static inline void tdx_set_gdt(struct kvm_vcpu *vcpu, struct desc_ptr *dt) {}
 static inline void tdx_inject_exception(struct kvm_vcpu *vcpu) {}
+static inline int tdx_skip_emulated_instruction(struct kvm_vcpu *vcpu) { return -EOPNOTSUPP; }
+static inline void tdx_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask) {}
 
 static inline int tdx_vm_ioctl(struct kvm *kvm, void __user *argp) { return -EOPNOTSUPP; }
 static inline int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp) { return -EOPNOTSUPP; }

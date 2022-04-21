@@ -796,6 +796,15 @@ void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 		return;
 
 	/*
+	 * tdx_vcpu_run()  load GPRs from KVM's internal cache
+	 * into TDX guest for DEBUG TDX guest, but this should
+	 * NOT happen before the 1st time VCPU start to run,
+	 * to avoid break VCPU INIT state set by TDX module
+	 */
+	if (is_debug_td(vcpu))
+		vcpu->arch.regs_dirty = 0;
+
+	/*
 	 * Don't update mp_state to runnable because more initialization
 	 * is needed by TDX_VCPU_INIT.
 	 */
@@ -861,6 +870,27 @@ static void tdx_reset_regs_cache(struct kvm_vcpu *vcpu)
 	vcpu->arch.regs_dirty = 0;
 }
 
+static void tdx_load_gprs(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	int i;
+
+	for (i = 0; i < NR_VCPU_REGS; i++) {
+		if (!kvm_register_is_dirty(vcpu, i))
+			continue;
+
+		if (i == VCPU_REGS_RSP) {
+			td_vmcs_write64(tdx, GUEST_RSP, vcpu->arch.regs[i]);
+			continue;
+		}
+		if (i == VCPU_REGS_RIP) {
+			td_vmcs_write64(tdx, GUEST_RIP, vcpu->arch.regs[i]);
+			continue;
+		}
+		td_gpr_write64(tdx, i, vcpu->arch.regs[i]);
+	}
+}
+
 u64 __tdx_vcpu_run(hpa_t tdvpr, void *regs, u32 regs_mask);
 
 static noinstr void tdx_vcpu_enter_exit(struct vcpu_tdx *tdx)
@@ -901,6 +931,9 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 
 		kvm_wait_lapic_expire(vcpu);
 	}
+
+	if (is_debug_td(vcpu))
+		tdx_load_gprs(vcpu);
 
 	/*
 	 * Before 1.0.3.3, TDH.VP.ENTER has special environment requirements

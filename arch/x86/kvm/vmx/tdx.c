@@ -862,8 +862,16 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 		kvm_wait_lapic_expire(vcpu);
 	}
 
-	if (is_debug_td(vcpu))
+	if (is_debug_td(vcpu)) {
 		tdx_load_gprs(vcpu);
+		/*
+		 * Clear corresponding interruptibility bits for STI
+		 * and MOV SS as legacy guest, refer vmx_vcpu_run()
+		 * for more informaiton
+		 */
+		if (vcpu->guest_debug & KVM_GUESTDBG_SINGLESTEP)
+			tdx_set_interrupt_shadow(vcpu, 0);
+	}
 
 	/*
 	 * TDH.VP.ENTER has special environment requirements that

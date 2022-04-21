@@ -174,6 +174,7 @@ unsigned long tdx_get_rflags(struct kvm_vcpu *vcpu);
 bool tdx_is_emulated_msr(u32 index, bool write);
 u64 tdx_get_segment_base(struct kvm_vcpu *vcpu, int seg);
 void tdx_get_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var, int seg);
+void tdx_get_cs_db_l_bits(struct kvm_vcpu *vcpu, int *db, int *l);
 
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp);
 int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp);
@@ -230,6 +231,7 @@ static inline unsigned long tdx_get_rflags(struct kvm_vcpu *vcpu) { return 0; }
 static inline u64 tdx_get_segment_base(struct kvm_vcpu *vcpu, int seg) { return 0;}
 static inline void tdx_get_segment(
 	struct kvm_vcpu *vcpu, struct kvm_segment *var, int seg) {}
+static inline void tdx_get_cs_db_l_bits(struct kvm_vcpu *vcpu, int *db, int *l) {}
 
 static inline int tdx_vm_ioctl(struct kvm *kvm, void __user *argp) { return -EOPNOTSUPP; }
 static inline int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp) { return -EOPNOTSUPP; }

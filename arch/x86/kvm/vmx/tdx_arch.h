@@ -71,6 +71,7 @@
 #define TDVPS_GPR(gpr)			BUILD_TDX_FIELD(16, (gpr))
 
 enum tdx_guest_state {
+	TD_VCPU_XCR0 = 0x20,
 	TD_VCPU_CR2 = 0x28,
 };
 

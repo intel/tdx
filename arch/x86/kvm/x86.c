@@ -4657,6 +4657,11 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		if (kvm_is_vm_type_supported(KVM_X86_SNP_VM))
 			r |= BIT(KVM_X86_SNP_VM);
 		break;
+	case KVM_CAP_ENCRYPT_MEMORY_DEBUG:
+		if (kvm_x86_ops.mem_enc_read_memory &&
+		    kvm_x86_ops.mem_enc_write_memory)
+			r = 1;
+		break;
 	default:
 		break;
 	}
@@ -7095,6 +7100,40 @@ set_pit2_out:
 			goto out;
 
 		r = static_call(kvm_x86_mem_enc_unregister_region)(kvm, &region);
+		break;
+	}
+	case KVM_MEMORY_ENCRYPT_READ_MEMORY: {
+		struct kvm_rw_memory rw;
+		struct kvm_rw_memory __user *rw_user = (void __user *)argp;
+
+		r = -EFAULT;
+		if (copy_from_user(&rw, rw_user, sizeof(rw)))
+			goto out;
+
+		r = -ENOTTY;
+		if (kvm_x86_ops.mem_enc_read_memory) {
+			r = static_call(kvm_x86_mem_enc_read_memory)(kvm, &rw);
+			if (copy_to_user(&rw_user->len, &rw.len,
+					 sizeof(rw.len)))
+				r = -EFAULT;
+		}
+		break;
+	}
+	case KVM_MEMORY_ENCRYPT_WRITE_MEMORY: {
+		struct kvm_rw_memory rw;
+		struct kvm_rw_memory __user *rw_user = (void __user *)argp;
+
+		r = -EFAULT;
+		if (copy_from_user(&rw, rw_user, sizeof(rw)))
+			goto out;
+
+		r = -ENOTTY;
+		if (kvm_x86_ops.mem_enc_write_memory) {
+			r = static_call(kvm_x86_mem_enc_write_memory)(kvm, &rw);
+			if (copy_to_user(&rw_user->len, &rw.len,
+					 sizeof(rw.len)))
+				r = -EFAULT;
+		}
 		break;
 	}
 	case KVM_HYPERV_EVENTFD: {

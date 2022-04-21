@@ -5441,6 +5441,8 @@ out:
 
 void vmx_sync_dirty_debug_regs(struct kvm_vcpu *vcpu)
 {
+	WARN_ON(vcpu->arch.switch_db_regs & KVM_DEBUGREG_AUTO_SWITCH);
+
 	get_debugreg(vcpu->arch.db[0], 0);
 	get_debugreg(vcpu->arch.db[1], 1);
 	get_debugreg(vcpu->arch.db[2], 2);

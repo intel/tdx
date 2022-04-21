@@ -816,6 +816,9 @@ static void tdx_complete_interrupts(struct kvm_vcpu *vcpu)
 	if (vcpu->arch.nmi_injected)
 		vcpu->arch.nmi_injected = td_management_read8(to_tdx(vcpu),
 							      TD_VCPU_PEND_NMI);
+
+	if (is_debug_td(vcpu))
+		kvm_clear_exception_queue(vcpu);
 }
 
 struct tdx_uret_msr {
@@ -2500,6 +2503,42 @@ void tdx_set_gdt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
 
 	td_vmcs_write32(to_tdx(vcpu), GUEST_GDTR_LIMIT, dt->size);
 	td_vmcs_write64(to_tdx(vcpu), GUEST_GDTR_BASE, dt->address);
+}
+void tdx_inject_exception(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx;
+	unsigned int vector;
+	bool has_error_code;
+	u32 error_code;
+	u32 intr_info;
+
+	if (KVM_BUG_ON(!is_debug_td(vcpu), vcpu->kvm))
+		return;
+
+	tdx = to_tdx(vcpu);
+	vector = vcpu->arch.exception.vector;
+	has_error_code = vcpu->arch.exception.has_error_code;
+	error_code = vcpu->arch.exception.error_code;
+	intr_info = vector | INTR_INFO_VALID_MASK;
+
+	kvm_deliver_exception_payload(vcpu, &vcpu->arch.exception);
+
+	if (has_error_code) {
+		td_vmcs_write32(tdx, VM_ENTRY_EXCEPTION_ERROR_CODE,
+				error_code);
+		intr_info |= INTR_INFO_DELIVER_CODE_MASK;
+	}
+
+	if (kvm_exception_is_soft(vector)) {
+		td_vmcs_write32(tdx, VM_ENTRY_INSTRUCTION_LEN,
+				vcpu->arch.event_exit_inst_len);
+		intr_info |= INTR_TYPE_SOFT_EXCEPTION;
+	} else {
+		intr_info |= INTR_TYPE_HARD_EXCEPTION;
+	}
+
+	pr_warn_once("Exception injection is not supported by TDX.\n");
+	/* td_vmcs_write32(tdx, VM_ENTRY_INTR_INFO_FIELD, intr_info);*/
 }
 
 static int tdx_get_capabilities(struct kvm_tdx_cmd *cmd)

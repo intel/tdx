@@ -1334,6 +1334,7 @@ struct kvm_arch {
 	/* Protects apicv_inhibit_reasons */
 	struct rw_semaphore apicv_update_lock;
 	unsigned long apicv_inhibit_reasons;
+	unsigned long required_apicv_inhibits;
 
 	gpa_t wall_clock;
 

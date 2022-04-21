@@ -7956,6 +7956,10 @@ int kvm_mmu_is_page_private(struct kvm *kvm,
 	u64 *sptep;
 	int ret = -EINVAL;
 
+	if (tdp_mmu_enabled)
+		return kvm_tdp_mmu_is_page_private(kvm, memslot,
+						   gfn, is_private);
+
 	for_each_slot_rmap_range(memslot, PG_LEVEL_4K,
 				 KVM_MAX_HUGEPAGE_LEVEL,
 				 gfn, gfn, &s_iter) {

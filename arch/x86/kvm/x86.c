@@ -10860,7 +10860,7 @@ static void __get_sregs_common(struct kvm_vcpu *vcpu, struct kvm_sregs *sregs)
 	sregs->gdt.limit = dt.size;
 	sregs->gdt.base = dt.address;
 
-	sregs->cr2 = vcpu->arch.cr2;
+	sregs->cr2 = static_call(kvm_x86_get_cr2)(vcpu);
 	sregs->cr3 = kvm_read_cr3(vcpu);
 
 skip_protected_regs:
@@ -13214,6 +13214,13 @@ bool kvm_arch_private_mem_supported(struct kvm *kvm)
 {
 	return kvm->arch.vm_type == KVM_X86_TDX_VM;
 }
+
+/* Common function for legacy VMX and SVM guest*/
+unsigned long kvm_get_cr2(struct kvm_vcpu *vcpu)
+{
+	return vcpu->arch.cr2;
+}
+EXPORT_SYMBOL_GPL(kvm_get_cr2);
 
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_entry);
 EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_exit);

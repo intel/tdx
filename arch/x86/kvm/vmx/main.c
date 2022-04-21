@@ -715,6 +715,8 @@ static void vt_inject_irq(struct kvm_vcpu *vcpu, bool reinjected)
 
 static void vt_queue_exception(struct kvm_vcpu *vcpu)
 {
+	if (is_td_vcpu(vcpu) && is_debug_td(vcpu))
+		return tdx_queue_exception(vcpu);
 	if (KVM_BUG_ON(is_td_vcpu(vcpu), vcpu->kvm))
 		return;
 

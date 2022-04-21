@@ -1178,6 +1178,8 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_S390_ZPCI_OP 221
 #define KVM_CAP_S390_CPU_TOPOLOGY 222
 #define KVM_CAP_DIRTY_LOG_RING_ACQ_REL 223
+#define KVM_CAP_ENCRYPT_MEMORY_DEBUG 224
+
 /* TODO: remove this workaround to avoid CAP number conflict in the upstream. */
 #define KVM_CAP_VM_TYPES 500
 #define KVM_CAP_VM_TYPES 1000

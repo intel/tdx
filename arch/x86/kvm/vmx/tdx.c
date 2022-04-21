@@ -2324,12 +2324,42 @@ unsigned long tdx_get_rflags(struct kvm_vcpu *vcpu)
 
 u64 tdx_get_segment_base(struct kvm_vcpu *vcpu, int seg)
 {
-	return 0;
+	if (!is_debug_td(vcpu))
+		return 0;
+
+	return td_vmcs_read64(to_tdx(vcpu), kvm_vmx_segment_fields[seg].base);
 }
 
 void tdx_get_segment(struct kvm_vcpu *vcpu, struct kvm_segment *var, int seg)
 {
-	memset(var, 0, sizeof(*var));
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	u32 ar;
+
+	if (!is_debug_td(vcpu)) {
+		memset(var, 0, sizeof(*var));
+		return;
+	}
+
+	var->base = td_vmcs_read64(tdx, kvm_vmx_segment_fields[seg].base);
+	var->limit = td_vmcs_read32(tdx, kvm_vmx_segment_fields[seg].limit);
+	var->selector = td_vmcs_read16(tdx, kvm_vmx_segment_fields[seg].selector);
+	ar = td_vmcs_read32(tdx, kvm_vmx_segment_fields[seg].ar_bytes);
+
+	vmx_decode_ar_bytes(var, ar);
+}
+
+
+void tdx_get_cs_db_l_bits(struct kvm_vcpu *vcpu, int *db, int *l)
+{
+	u32 ar;
+
+	if (KVM_BUG_ON(!is_debug_td(vcpu), vcpu->kvm))
+		return;
+
+	ar = td_vmcs_read32(to_tdx(vcpu),
+			    kvm_vmx_segment_fields[VCPU_SREG_CS].ar_bytes);
+	*db = (ar >> 14) & 1;
+	*l = (ar >> 13) & 1;
 }
 
 static int tdx_get_capabilities(struct kvm_tdx_cmd *cmd)

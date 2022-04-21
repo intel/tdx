@@ -1542,7 +1542,8 @@ u32 vmx_get_interrupt_shadow(struct kvm_vcpu *vcpu)
 
 void vmx_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask)
 {
-	u32 interruptibility_old = vmcs_read32(GUEST_INTERRUPTIBILITY_INFO);
+	u32 interruptibility_old = vmread32(vcpu,
+					    GUEST_INTERRUPTIBILITY_INFO);
 	u32 interruptibility = interruptibility_old;
 
 	interruptibility &= ~(GUEST_INTR_STATE_STI | GUEST_INTR_STATE_MOV_SS);
@@ -1553,7 +1554,8 @@ void vmx_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask)
 		interruptibility |= GUEST_INTR_STATE_STI;
 
 	if ((interruptibility != interruptibility_old))
-		vmcs_write32(GUEST_INTERRUPTIBILITY_INFO, interruptibility);
+		vmwrite32(vcpu, GUEST_INTERRUPTIBILITY_INFO,
+			  interruptibility);
 }
 
 static int vmx_rtit_ctl_check(struct kvm_vcpu *vcpu, u64 data)
@@ -1688,13 +1690,7 @@ static int skip_emulated_instruction(struct kvm_vcpu *vcpu)
 		orig_rip = kvm_rip_read(vcpu);
 		rip = orig_rip + instr_len;
 #ifdef CONFIG_X86_64
-		/*
-		 * We need to mask out the high 32 bits of RIP if not in 64-bit
-		 * mode, but just finding out that we are in 64-bit mode is
-		 * quite expensive.  Only do it if there was a carry.
-		 */
-		if (unlikely(((rip ^ orig_rip) >> 31) == 3) && !is_64_bit_mode(vcpu))
-			rip = (u32)rip;
+		rip = vmx_mask_out_guest_rip(vcpu, orig_rip, rip);
 #endif
 		kvm_rip_write(vcpu, rip);
 	} else {

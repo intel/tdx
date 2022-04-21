@@ -3249,9 +3249,9 @@ static int tdx_access_guest_memory(struct kvm *kvm,
 
 	write_lock(&kvm->mmu_lock);
 
-	if (kvm_mmu_is_page_private(kvm, memslot, gpa_to_gfn(gpa),
-				    &is_private)) {
-		ret = -EFAULT;
+	ret = kvm_mmu_is_page_private(kvm, memslot, gpa_to_gfn(gpa),
+				      &is_private);
+	if (ret) {
 		done_len = 0;
 		goto exit_unlock;
 	}

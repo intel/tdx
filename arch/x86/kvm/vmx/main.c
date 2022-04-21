@@ -526,7 +526,7 @@ static unsigned long vt_get_rflags(struct kvm_vcpu *vcpu)
 static void vt_set_rflags(struct kvm_vcpu *vcpu, unsigned long rflags)
 {
 	if (is_td_vcpu(vcpu))
-		return;
+		return tdx_set_rflags(vcpu, rflags);
 
 	vmx_set_rflags(vcpu, rflags);
 }
@@ -534,7 +534,7 @@ static void vt_set_rflags(struct kvm_vcpu *vcpu, unsigned long rflags)
 static bool vt_get_if_flag(struct kvm_vcpu *vcpu)
 {
 	if (is_td_vcpu(vcpu))
-		return false;
+		return tdx_get_if_flag(vcpu);
 
 	return vmx_get_if_flag(vcpu);
 }

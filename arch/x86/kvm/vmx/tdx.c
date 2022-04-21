@@ -2329,7 +2329,36 @@ void tdx_cache_reg(struct kvm_vcpu *vcpu, enum kvm_reg reg)
 
 unsigned long tdx_get_rflags(struct kvm_vcpu *vcpu)
 {
-	return 0;
+	if (!is_debug_td(vcpu))
+		return 0;
+
+	return td_vmcs_read64(to_tdx(vcpu), GUEST_RFLAGS);
+}
+
+bool tdx_get_if_flag(struct kvm_vcpu *vcpu)
+{
+	if (!is_debug_td(vcpu))
+		return 0;
+
+	return td_vmcs_read64(to_tdx(vcpu), GUEST_RFLAGS) & X86_EFLAGS_IF;
+}
+
+void tdx_set_rflags(struct kvm_vcpu *vcpu, unsigned long rflags)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	if (!is_debug_td(vcpu))
+		return;
+
+	/*
+	 * set_rflags happens before KVM_TDX_INIT_VCPU can
+	 * do nothing because the guest has not been initialized.
+	 * Just return for this case.
+	 */
+	if (!tdx->initialized)
+		return;
+
+	td_vmcs_write64(tdx, GUEST_RFLAGS, rflags);
 }
 
 u64 tdx_get_segment_base(struct kvm_vcpu *vcpu, int seg)

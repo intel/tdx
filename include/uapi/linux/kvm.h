@@ -1303,6 +1303,8 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_COUNTER_OFFSET 227
 #define KVM_CAP_ARM_EAGER_SPLIT_CHUNK_SIZE 228
 #define KVM_CAP_ARM_SUPPORTED_BLOCK_SIZES 229
+#define KVM_CAP_ENCRYPT_MEMORY_DEBUG 230
+
 /* TODO: remove this workaround to avoid CAP number conflict in the upstream. */
 #define KVM_CAP_MEMORY_ATTRIBUTES 500
 #define KVM_CAP_USER_MEMORY2 750
@@ -1994,6 +1996,10 @@ struct kvm_xen_vcpu_attr {
 #define KVM_XEN_VCPU_ATTR_TYPE_VCPU_ID		0x6
 #define KVM_XEN_VCPU_ATTR_TYPE_TIMER		0x7
 #define KVM_XEN_VCPU_ATTR_TYPE_UPCALL_VECTOR	0x8
+
+/* Read/write encrypted guest memory, for guest debugging support in QEMU*/
+#define KVM_MEMORY_ENCRYPT_READ_MEMORY   _IOWR(KVMIO, 0xcc, struct kvm_rw_memory)
+#define KVM_MEMORY_ENCRYPT_WRITE_MEMORY  _IOWR(KVMIO, 0xcd, struct kvm_rw_memory)
 
 /* Secure Encrypted Virtualization command */
 enum sev_cmd_id {

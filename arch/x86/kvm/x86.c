@@ -10475,7 +10475,7 @@ void __kvm_set_or_clear_apicv_inhibit(struct kvm *kvm,
 
 	lockdep_assert_held_write(&kvm->arch.apicv_update_lock);
 
-	if (!(kvm_x86_ops.required_apicv_inhibits & BIT(reason)))
+	if (!(kvm->arch.required_apicv_inhibits & BIT(reason)))
 		return;
 
 	old = new = kvm->arch.apicv_inhibit_reasons;
@@ -12418,6 +12418,7 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 		return -EINVAL;
 
 	kvm->arch.vm_type = type;
+	kvm->arch.required_apicv_inhibits = kvm_x86_ops.required_apicv_inhibits;
 
 	ret = kvm_page_track_init(kvm);
 	if (ret)

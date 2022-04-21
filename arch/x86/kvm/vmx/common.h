@@ -244,4 +244,19 @@ static inline void vmx_decode_ar_bytes(struct kvm_segment *var, u32 ar)
 
 }
 
+static inline unsigned long vmx_mask_out_guest_rip(struct kvm_vcpu *vcpu,
+						   unsigned long orig_rip,
+						   unsigned long new_rip)
+{
+	/*
+	 * We need to mask out the high 32 bits of RIP if not in 64-bit
+	 * mode, but just finding out that we are in 64-bit mode is
+	 * quite expensive.  Only do it if there was a carry.
+	 */
+	if (unlikely(((new_rip ^ orig_rip) >> 31) == 3) &&
+	    !is_64_bit_mode(vcpu))
+		return (u32)new_rip;
+	return new_rip;
+}
+
 #endif /* __KVM_X86_VMX_COMMON_H */

@@ -7759,3 +7759,37 @@ void kvm_arch_set_memory_attributes(struct kvm *kvm,
 		kvm_update_lpage_private_shared_mixed(kvm, slot, attrs,
 						      start, end);
 }
+
+#ifdef CONFIG_INTEL_TDX_HOST
+/*
+ * return -EINVAL if no rmap entry, because we can't decide the
+ * GFN is mapped in shared or private case.
+ * Caller should hold the kvm srcu and kvm mmu lock
+ */
+int kvm_mmu_is_page_private(struct kvm *kvm,
+			    struct kvm_memory_slot *memslot,
+			    gfn_t gfn, bool *is_private)
+{
+	struct slot_rmap_walk_iterator s_iter;
+	struct rmap_iterator r_iter;
+	u64 *sptep;
+	int ret = -EINVAL;
+
+	for_each_slot_rmap_range(memslot, PG_LEVEL_4K,
+				 KVM_MAX_HUGEPAGE_LEVEL,
+				 gfn, gfn, &s_iter) {
+		sptep = rmap_get_first(s_iter.rmap, &r_iter);
+		if (!sptep)
+			continue;
+
+		if (KVM_BUG_ON(!!rmap_get_next(&r_iter), kvm))
+			return -EFAULT;
+
+		*is_private = is_private_sptep(sptep);
+		return 0;
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL(kvm_mmu_is_page_private);
+#endif

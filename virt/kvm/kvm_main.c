@@ -3303,8 +3303,9 @@ int kvm_vcpu_read_guest(struct kvm_vcpu *vcpu, gpa_t gpa, void *data, unsigned l
 }
 EXPORT_SYMBOL_GPL(kvm_vcpu_read_guest);
 
-static int __kvm_read_guest_atomic(struct kvm_memory_slot *slot, gfn_t gfn,
-			           void *data, int offset, unsigned long len)
+static int __kvm_read_write_guest_atomic(struct kvm_memory_slot *slot,
+					 gfn_t gfn, void *data, int offset,
+					 unsigned long len, bool write)
 {
 	int r;
 	unsigned long addr;
@@ -3313,7 +3314,13 @@ static int __kvm_read_guest_atomic(struct kvm_memory_slot *slot, gfn_t gfn,
 	if (kvm_is_error_hva(addr))
 		return -EFAULT;
 	pagefault_disable();
-	r = __copy_from_user_inatomic(data, (void __user *)addr + offset, len);
+	if (write)
+		r = __copy_to_user_inatomic((void __user *)addr + offset,
+					    data, len);
+	else
+		r = __copy_from_user_inatomic(data,
+					      (void __user *)addr + offset,
+					      len);
 	pagefault_enable();
 	if (r)
 		return -EFAULT;
@@ -3323,9 +3330,19 @@ static int __kvm_read_guest_atomic(struct kvm_memory_slot *slot, gfn_t gfn,
 int kvm_read_guest_atomic(struct kvm_memory_slot *slot, gfn_t gfn,
 			  void *data, int offset, unsigned long len)
 {
-	return __kvm_read_guest_atomic(slot, gfn, data, offset, len);
+	return __kvm_read_write_guest_atomic(slot, gfn, data, offset, len,
+					     false);
 }
 EXPORT_SYMBOL_GPL(kvm_read_guest_atomic);
+
+int kvm_write_guest_atomic(struct kvm_memory_slot *slot,
+			   gfn_t gfn, void *data,
+			   int offset, unsigned long len)
+{
+	return __kvm_read_write_guest_atomic(slot, gfn, data, offset, len,
+					     true);
+}
+EXPORT_SYMBOL_GPL(kvm_write_guest_atomic);
 
 int kvm_vcpu_read_guest_atomic(struct kvm_vcpu *vcpu, gpa_t gpa,
 			       void *data, unsigned long len)
@@ -3334,7 +3351,8 @@ int kvm_vcpu_read_guest_atomic(struct kvm_vcpu *vcpu, gpa_t gpa,
 	struct kvm_memory_slot *slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
 	int offset = offset_in_page(gpa);
 
-	return __kvm_read_guest_atomic(slot, gfn, data, offset, len);
+	return __kvm_read_write_guest_atomic(slot, gfn, data, offset, len,
+					     false);
 }
 EXPORT_SYMBOL_GPL(kvm_vcpu_read_guest_atomic);
 

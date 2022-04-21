@@ -3428,6 +3428,13 @@ static int __kvm_read_guest_atomic(struct kvm_memory_slot *slot, gfn_t gfn,
 	return 0;
 }
 
+int kvm_read_guest_atomic(struct kvm_memory_slot *slot, gfn_t gfn,
+			  void *data, int offset, unsigned long len)
+{
+	return __kvm_read_guest_atomic(slot, gfn, data, offset, len);
+}
+EXPORT_SYMBOL_GPL(kvm_read_guest_atomic);
+
 int kvm_vcpu_read_guest_atomic(struct kvm_vcpu *vcpu, gpa_t gpa,
 			       void *data, unsigned long len)
 {

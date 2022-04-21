@@ -336,6 +336,16 @@ static inline u64 tdh_vp_create(hpa_t tdr, hpa_t tdvpr)
 	return r;
 }
 
+static inline u64 tdh_mem_rd(hpa_t tdr, gpa_t addr, struct tdx_module_args *out)
+{
+	struct tdx_module_args in = {
+		.rcx = addr,
+		.rdx = tdr,
+	};
+
+	return tdx_seamcall(TDH_MEM_RD, &in, out);
+}
+
 static inline u64 tdh_mng_rd(hpa_t tdr, u64 field, struct tdx_module_args *out)
 {
 	struct tdx_module_args in = {

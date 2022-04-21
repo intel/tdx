@@ -21,6 +21,9 @@
 #undef pr_fmt
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#define pr_err_skip_ud(_x) \
+	pr_err_once("Skip #UD injection for " _x " due to it's not supported in TDX 1.0\n")
+
 #define TDX_MAX_NR_CPUID_CONFIGS					\
 	((TDSYSINFO_STRUCT_SIZE -					\
 		offsetof(struct tdsysinfo_struct, cpuid_configs))	\
@@ -1988,6 +1991,97 @@ static int tdx_handle_bus_lock_vmexit(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static bool tdx_kvm_use_dr(struct kvm_vcpu *vcpu)
+{
+	return !!(vcpu->guest_debug &
+		  (KVM_GUESTDBG_USE_HW_BP | KVM_GUESTDBG_SINGLESTEP));
+}
+
+static int tdx_handle_dr_exit(struct kvm_vcpu *vcpu)
+{
+	unsigned long exit_qual;
+	int dr, dr7, reg;
+
+	exit_qual = tdexit_exit_qual(vcpu);
+	dr = exit_qual & DEBUG_REG_ACCESS_NUM;
+	if (!kvm_require_dr(vcpu, dr)) {
+		pr_err_skip_ud("accessing to DR4/5");
+		return kvm_complete_insn_gp(vcpu, 0);
+	}
+
+	if (tdx_get_cpl(vcpu) > 0) {
+		pr_err_skip_ud("DR accessing with CPL > 0");
+		return kvm_complete_insn_gp(vcpu, 0);
+	}
+
+	dr7 = td_vmcs_read64(to_tdx(vcpu), GUEST_DR7);
+	if (dr7 & DR7_GD) {
+		/*
+		 * DR VMEXIT takes precedence over the debug trap,see 25.1.3 in
+		 * SDM Vol3. We need emulate it for host or guest debugging itself.
+		 */
+		if (vcpu->guest_debug & KVM_GUESTDBG_USE_HW_BP) {
+			vcpu->run->debug.arch.dr6 = DR6_BD | DR6_ACTIVE_LOW;
+			vcpu->run->debug.arch.dr7 = dr7;
+			vcpu->run->debug.arch.pc = kvm_get_linear_rip(vcpu);
+			vcpu->run->debug.arch.exception = DB_VECTOR;
+			vcpu->run->exit_reason = KVM_EXIT_DEBUG;
+			return 0;
+		}
+
+		kvm_queue_exception_p(vcpu, DB_VECTOR, DR6_BD);
+		return 1;
+	}
+
+	/*
+	 * Why do emulation when DR is only using by guest debug feature:
+	 *
+	 * Unlike VMX, we don't always intercept #DB for TDX guest, because
+	 * #DB injection is not supported in TDX 1.0. We don't have correct
+	 * DR6 value in hand when #DB is not intercepted, guest will get
+	 * incorrect value if we still try to emulate the DR accessing in
+	 * this scenario, for example:
+	 *
+	 *   Only KVM_GUESTDBG_USE_SW_BP is set AND guest is using DR
+	 *
+	 * We don't intercept #DB in this case, because we can't inject #DB
+	 * back to guest and we need keep DR working in guest side, so we
+	 * need rely on KVM_DEBUGREG_WONT_EXIT to sync (but ignore
+	 * DR6) and retrieve DR6 (includes DR6) but not emulation.
+	 */
+	if (tdx_kvm_use_dr(vcpu)) {
+		int err;
+		unsigned long val;
+
+		reg = DEBUG_REG_ACCESS_REG(exit_qual);
+		if (exit_qual & TYPE_MOV_FROM_DR) {
+			err = 0;
+			kvm_get_dr(vcpu, dr, &val);
+			kvm_register_write(vcpu, reg, val);
+		} else {
+			err = kvm_set_dr(vcpu, dr, kvm_register_read(vcpu, reg));
+		}
+
+		if (err) {
+			pr_err_skip_ud("setting DR violation");
+			err = 0;
+		}
+
+		return kvm_complete_insn_gp(vcpu, err);
+	}
+
+	td_vmcs_clearbit32(to_tdx(vcpu),
+			   CPU_BASED_VM_EXEC_CONTROL,
+			   CPU_BASED_MOV_DR_EXITING);
+	/*
+	 * force a reload of the debug registers
+	 * and reenter on this instruction.  The next vmexit will
+	 * retrieve the full state of the debug registers.
+	 */
+	vcpu->arch.switch_db_regs |= KVM_DEBUGREG_WONT_EXIT;
+	return 1;
+}
+
 static int __tdx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t fastpath)
 {
 	union tdx_exit_reason exit_reason = to_tdx(vcpu)->exit_reason;
@@ -2083,6 +2177,8 @@ static int __tdx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t fastpath)
 	case EXIT_REASON_BUS_LOCK:
 		tdx_handle_bus_lock_vmexit(vcpu);
 		return 1;
+	case EXIT_REASON_DR_ACCESS:
+		return tdx_handle_dr_exit(vcpu);
 	default:
 		break;
 	}

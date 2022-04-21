@@ -21,6 +21,7 @@
 #define TDH_MNG_CREATE			9
 #define TDH_VP_CREATE			10
 #define TDH_MNG_RD			11
+#define TDH_MEM_RD			12
 #define TDH_MEM_PAGE_DEMOTE		15
 #define TDH_MR_EXTEND			16
 #define TDH_MR_FINALIZE			17
@@ -174,6 +175,11 @@ struct td_params {
 #define TDX_TSC_25MHZ_TO_KHZ(tsc_in_25mhz)	((tsc_in_25mhz) * (25 * 1000))
 #define TDX_MIN_TSC_FREQUENCY_KHZ		(100 * 1000)
 #define TDX_MAX_TSC_FREQUENCY_KHZ		(10 * 1000 * 1000)
+
+/* The private memory reading/writing must be 8 bytes chunk  */
+#define TDX_MEMORY_RW_CHUNK 8
+#define TDX_MEMORY_RW_CHUNK_OFFSET_MASK (TDX_MEMORY_RW_CHUNK - 1)
+#define TDX_MEMORY_RW_CHUNK_MASK (~TDX_MEMORY_RW_CHUNK_OFFSET_MASK)
 
 union tdx_ext_exit_qualification {
 	struct {

@@ -3465,6 +3465,24 @@ static int tdx_read_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memor
 	return ret;
 }
 
+static int tdx_write_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memory)
+{
+	int ret;
+	u64 complete_len = 0;
+
+	rw_memory->addr = rw_memory->addr & ~gfn_to_gpa(kvm_gfn_shared_mask(kvm));
+
+	ret = tdx_guest_memory_access_check(kvm, rw_memory);
+	if (!ret)
+		ret = tdx_read_write_memory(kvm, rw_memory->addr,
+					    rw_memory->len, &complete_len,
+					    (void __user *)rw_memory->ubuf,
+					    NULL);
+
+	rw_memory->len = complete_len;
+	return ret;
+}
+
 struct vmx_tdx_enabled {
 	cpumask_var_t vmx_enabled;
 	atomic_t err;
@@ -3576,6 +3594,7 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	x86_ops->unzap_private_spte = tdx_sept_unzap_private_spte;
 	x86_ops->drop_private_spte = tdx_sept_drop_private_spte;
 	x86_ops->mem_enc_read_memory = tdx_read_guest_memory;
+	x86_ops->mem_enc_write_memory = tdx_write_guest_memory;
 
 	return 0;
 

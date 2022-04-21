@@ -788,6 +788,7 @@ void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 
 void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 {
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
 
 	/* vcpu_deliver_init method silently discards INIT event. */
 	if (KVM_BUG_ON(init_event, vcpu->kvm))
@@ -803,6 +804,7 @@ void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	 */
 	if (is_debug_td(vcpu))
 		vcpu->arch.regs_dirty = 0;
+	tdx->dr6 = vcpu->arch.dr6;
 
 	/*
 	 * Don't update mp_state to runnable because more initialization
@@ -2589,7 +2591,49 @@ int tdx_skip_emulated_instruction(struct kvm_vcpu *vcpu)
 
 void tdx_load_guest_debug_regs(struct kvm_vcpu *vcpu)
 {
-	kvm_pr_unimpl("unexpected %s\n", __func__);
+	struct vcpu_tdx *tdx_vcpu = to_tdx(vcpu);
+
+	if (!is_debug_td(vcpu))
+		return;
+
+	td_state_write64(tdx_vcpu, TD_VCPU_DR0, vcpu->arch.eff_db[0]);
+	td_state_write64(tdx_vcpu, TD_VCPU_DR1, vcpu->arch.eff_db[1]);
+	td_state_write64(tdx_vcpu, TD_VCPU_DR2, vcpu->arch.eff_db[2]);
+	td_state_write64(tdx_vcpu, TD_VCPU_DR3, vcpu->arch.eff_db[3]);
+
+	if (tdx_vcpu->dr6 != vcpu->arch.dr6) {
+		td_state_write64(tdx_vcpu, TD_VCPU_DR6, vcpu->arch.dr6);
+		tdx_vcpu->dr6 = vcpu->arch.dr6;
+	}
+
+	/*
+	 * TDX module handle the DR context switch so we don't
+	 * need to update DR every time.
+	 */
+	vcpu->arch.switch_db_regs &= ~KVM_DEBUGREG_BP_ENABLED;
+}
+
+void tdx_sync_dirty_debug_regs(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx_vcpu = to_tdx(vcpu);
+
+	if (!is_debug_td(vcpu))
+		return;
+
+	vcpu->arch.db[0] = td_state_read64(tdx_vcpu, TD_VCPU_DR0);
+	vcpu->arch.db[1] = td_state_read64(tdx_vcpu, TD_VCPU_DR1);
+	vcpu->arch.db[2] = td_state_read64(tdx_vcpu, TD_VCPU_DR2);
+	vcpu->arch.db[3] = td_state_read64(tdx_vcpu, TD_VCPU_DR3);
+
+	vcpu->arch.dr6 = td_state_read64(tdx_vcpu, TD_VCPU_DR6);
+	tdx_vcpu->dr6 = vcpu->arch.dr6;
+
+	vcpu->arch.dr7 = td_vmcs_read64(to_tdx(vcpu), GUEST_DR7);
+
+	vcpu->arch.switch_db_regs &= ~KVM_DEBUGREG_WONT_EXIT;
+	td_vmcs_setbit32(tdx_vcpu,
+			 CPU_BASED_VM_EXEC_CONTROL,
+			 CPU_BASED_MOV_DR_EXITING);
 }
 
 static int tdx_get_capabilities(struct kvm_tdx_cmd *cmd)
@@ -3476,6 +3520,12 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 		td_vmcs_setbit32(tdx,
 				 SECONDARY_VM_EXEC_CONTROL,
 				 SECONDARY_EXEC_BUS_LOCK_DETECTION);
+
+	if (is_debug_td(vcpu)) {
+		td_vmcs_setbit32(tdx,
+				 CPU_BASED_VM_EXEC_CONTROL,
+				 CPU_BASED_MOV_DR_EXITING);
+	}
 
 	tdx->initialized = true;
 	return 0;

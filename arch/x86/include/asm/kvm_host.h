@@ -1940,6 +1940,11 @@ void kvm_mmu_invalidate_mmio_sptes(struct kvm *kvm, u64 gen);
 void kvm_mmu_change_mmu_pages(struct kvm *kvm, unsigned long kvm_nr_mmu_pages);
 void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end);
 
+#ifdef CONFIG_INTEL_TDX_HOST
+int kvm_mmu_is_page_private(struct kvm *kvm, struct kvm_memory_slot *memslot,
+			    gfn_t gfn, bool *is_private);
+#endif
+
 int load_pdptrs(struct kvm_vcpu *vcpu, unsigned long cr3);
 
 int emulator_write_phys(struct kvm_vcpu *vcpu, gpa_t gpa,

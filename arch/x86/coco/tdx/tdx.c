@@ -22,6 +22,8 @@
 #include <asm/irqdomain.h>
 #include <uapi/asm/tdx.h>
 
+#include "tdx.h"
+
 /* TDX module Call Leaf IDs */
 #define TDX_GET_INFO			1
 #define TDX_GET_VEINFO			3
@@ -889,6 +891,9 @@ static long tdx_guest_ioctl(struct file *file, unsigned int cmd,
 	case TDX_CMD_GET_REPORT:
 		ret = tdx_get_report(argp);
 		break;
+	case TDX_CMD_GET_QUOTE:
+		ret = tdx_get_quote(argp);
+		break;
 	default:
 		pr_debug("cmd %d not supported\n", cmd);
 		break;
@@ -919,6 +924,13 @@ static int __init tdx_guest_init(void)
 	ret = misc_register(&tdx_misc_dev);
 	if (ret) {
 		pr_err("misc device registration failed\n");
+		return ret;
+	}
+
+	ret = tdx_attest_init(&tdx_misc_dev);
+	if (ret) {
+		pr_err("attestation init failed\n");
+		misc_deregister(&tdx_misc_dev);
 		return ret;
 	}
 

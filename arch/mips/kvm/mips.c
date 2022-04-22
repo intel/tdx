@@ -1642,12 +1642,11 @@ static int __init kvm_mips_init(void)
 		return -EOPNOTSUPP;
 	}
 
+	/*
+	 * kvm_init() calls kvm_arch_hardware_enable/disable().  The early
+	 * initialization is needed before calling kvm_init().
+	 */
 	ret = kvm_mips_entry_setup();
-	if (ret)
-		return ret;
-
-	ret = kvm_init(NULL, sizeof(struct kvm_vcpu), 0, THIS_MODULE);
-
 	if (ret)
 		return ret;
 
@@ -1655,6 +1654,13 @@ static int __init kvm_mips_init(void)
 		kvm_priority_to_irq = kvm_loongson3_priority_to_irq;
 
 	register_die_notifier(&kvm_mips_csr_die_notifier);
+
+	ret = kvm_init(NULL, sizeof(struct kvm_vcpu), 0, THIS_MODULE);
+
+	if (ret) {
+		unregister_die_notifier(&kvm_mips_csr_die_notifier);
+		return ret;
+	}
 
 	return 0;
 }

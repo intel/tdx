@@ -11,6 +11,7 @@
 #include "tdx_errno.h"
 
 #ifdef CONFIG_INTEL_TDX_HOST
+
 struct kvm_tdx {
 	struct kvm kvm;
 
@@ -50,7 +51,6 @@ static __always_inline struct vcpu_tdx *to_tdx(struct kvm_vcpu *vcpu)
  * 'struct kvm_tdx' and 'struct vcpu_tdx'.
  */
 #include "tdx_ops.h"
-
 #else
 struct kvm_tdx {
 	struct kvm kvm;

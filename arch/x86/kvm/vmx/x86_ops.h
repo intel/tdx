@@ -141,10 +141,12 @@ void vmx_setup_mce(struct kvm_vcpu *vcpu);
 int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops);
 int tdx_hardware_enable(void);
 bool tdx_is_vm_type_supported(unsigned long type);
+int tdx_dev_ioctl(void __user *argp);
 #else
 static inline int tdx_hardware_setup(struct kvm_x86_ops *x86_ops) { return -ENOSYS; }
 static inline int tdx_hardware_enable(void) { return -EOPNOTSUPP; }
 static inline bool tdx_is_vm_type_supported(unsigned long type) { return false; }
+static inline int tdx_dev_ioctl(void __user *argp) { return -EOPNOTSUPP; };
 #endif
 
 #endif /* __KVM_X86_VMX_X86_OPS_H */

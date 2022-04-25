@@ -4718,6 +4718,12 @@ long kvm_arch_dev_ioctl(struct file *filp,
 		r = kvm_x86_dev_has_attr(&attr);
 		break;
 	}
+	case KVM_MEMORY_ENCRYPT_OP:
+		r = -EINVAL;
+		if (!kvm_x86_ops.dev_mem_enc_ioctl)
+			goto out;
+		r = static_call(kvm_x86_dev_mem_enc_ioctl)(argp);
+		break;
 	default:
 		r = -EINVAL;
 		break;

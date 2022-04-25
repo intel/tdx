@@ -1137,6 +1137,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.vcpu_deliver_sipi_vector = vt_vcpu_deliver_sipi_vector,
 	.vcpu_deliver_init = vt_vcpu_deliver_init,
 
+	.dev_mem_enc_ioctl = tdx_dev_ioctl,
 	.mem_enc_ioctl = vt_mem_enc_ioctl,
 	.vcpu_mem_enc_ioctl = vt_vcpu_mem_enc_ioctl,
 };

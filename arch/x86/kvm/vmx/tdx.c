@@ -3,6 +3,7 @@
 #include <asm/tdx.h>
 #include "capabilities.h"
 #include "x86_ops.h"
+#include "mmu.h"
 #include "tdx.h"
 
 #undef pr_fmt
@@ -30,6 +31,72 @@ static void __used tdx_guest_keyid_free(int keyid)
 	ida_free(&tdx_guest_keyid_pool, keyid);
 }
 
+static int tdx_get_capabilities(struct kvm_tdx_cmd *cmd)
+{
+	const struct tdx_sysinfo_td_conf *td_conf = &tdx_sysinfo->td_conf;
+	struct kvm_tdx_capabilities __user *user_caps;
+	struct kvm_tdx_capabilities *caps = NULL;
+	int i, ret = 0;
+
+	/* flags is reserved for future use */
+	if (cmd->flags)
+		return -EINVAL;
+
+	caps = kmalloc(sizeof(*caps), GFP_KERNEL);
+	if (!caps)
+		return -ENOMEM;
+
+	user_caps = u64_to_user_ptr(cmd->data);
+	if (copy_from_user(caps, user_caps, sizeof(*caps))) {
+		ret = -EFAULT;
+		goto out;
+	}
+
+	if (caps->nr_cpuid_configs < td_conf->num_cpuid_config) {
+		ret = -E2BIG;
+		goto out;
+	}
+
+	*caps = (struct kvm_tdx_capabilities) {
+		.attrs_fixed0 = td_conf->attributes_fixed0,
+		.attrs_fixed1 = td_conf->attributes_fixed1,
+		.xfam_fixed0 = td_conf->xfam_fixed0,
+		.xfam_fixed1 = td_conf->xfam_fixed1,
+		.supported_gpaw = TDX_CAP_GPAW_48 |
+		((kvm_get_shadow_phys_bits() >= 52 &&
+		  cpu_has_vmx_ept_5levels()) ? TDX_CAP_GPAW_52 : 0),
+		.nr_cpuid_configs = td_conf->num_cpuid_config,
+		.padding = 0,
+	};
+
+	if (copy_to_user(user_caps, caps, sizeof(*caps))) {
+		ret = -EFAULT;
+		goto out;
+	}
+
+	for (i = 0; i < td_conf->num_cpuid_config; i++) {
+		struct kvm_tdx_cpuid_config cpuid_config = {
+			.leaf = (u32)td_conf->cpuid_config_leaves[i],
+			.sub_leaf = td_conf->cpuid_config_leaves[i] >> 32,
+			.eax = (u32)td_conf->cpuid_config_values[i].eax_ebx,
+			.ebx = td_conf->cpuid_config_values[i].eax_ebx >> 32,
+			.ecx = (u32)td_conf->cpuid_config_values[i].ecx_edx,
+			.edx = td_conf->cpuid_config_values[i].ecx_edx >> 32,
+		};
+
+		if (copy_to_user(&(user_caps->cpuid_configs[i]), &cpuid_config,
+					sizeof(struct kvm_tdx_cpuid_config))) {
+			ret = -EFAULT;
+			break;
+		}
+	}
+
+out:
+	/* kfree() accepts NULL. */
+	kfree(caps);
+	return ret;
+}
+
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 {
 	struct kvm_tdx_cmd tdx_cmd;
@@ -48,6 +115,9 @@ int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 	mutex_lock(&kvm->lock);
 
 	switch (tdx_cmd.id) {
+	case KVM_TDX_CAPABILITIES:
+		r = tdx_get_capabilities(&tdx_cmd);
+		break;
 	default:
 		r = -EINVAL;
 		goto out;

@@ -2010,6 +2010,27 @@ static int tdx_get_capabilities(struct kvm_tdx_cmd *cmd)
 	return 0;
 }
 
+int tdx_dev_ioctl(void __user *argp)
+{
+	struct kvm_tdx_cmd cmd;
+
+	BUILD_BUG_ON(sizeof(struct kvm_tdx_cpuid_config) !=
+		     sizeof(struct tdx_cpuid_config));
+
+	if (copy_from_user(&cmd, argp, sizeof(cmd)))
+		return -EFAULT;
+	if (cmd.error || cmd.unused)
+		return -EINVAL;
+	/*
+	 * Currently only KVM_TDX_CAPABILITIES is defined for system-scoped
+	 * mem_enc_ioctl().
+	 */
+	if (cmd.id != KVM_TDX_CAPABILITIES)
+		return -EINVAL;
+
+	return tdx_get_capabilities(&cmd);
+}
+
 static void setup_tdparams_eptp_controls(struct kvm_cpuid2 *cpuid, struct td_params *td_params)
 {
 	const struct kvm_cpuid_entry2 *entry;

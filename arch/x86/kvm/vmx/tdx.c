@@ -492,6 +492,7 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	vcpu->arch.switch_db_regs = KVM_DEBUGREG_AUTO_SWITCH;
 	vcpu->arch.cr0_guest_owned_bits = -1ul;
 	vcpu->arch.cr4_guest_owned_bits = -1ul;
+	vcpu->arch.root_mmu.no_prefetch = true;
 
 	vcpu->arch.tsc_offset = to_kvm_tdx(vcpu->kvm)->tsc_offset;
 	vcpu->arch.l1_tsc_offset = vcpu->arch.tsc_offset;
@@ -1516,8 +1517,8 @@ static void tdx_sept_drop_private_spte(
 	}
 }
 
-static int tdx_sept_link_private_sp(struct kvm *kvm, gfn_t gfn,
-				    enum pg_level level, void *private_spt)
+static int tdx_sept_link_private_spt(struct kvm *kvm, gfn_t gfn,
+				     enum pg_level level, void *private_spt)
 {
 	int tdx_level = pg_level_to_tdx_sept_level(level);
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
@@ -1798,7 +1799,7 @@ static void tdx_handle_changed_private_spte(
 				kvm, gfn, level, change->new.pfn);
 		else {
 			WARN_ON(!change->private_spt);
-			if (tdx_sept_link_private_sp(
+			if (tdx_sept_link_private_spt(
 				    kvm, gfn, level, change->private_spt))
 				/* failed to update Secure-EPT.  */
 				WARN_ON(1);
@@ -2873,6 +2874,11 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	x86_ops->free_private_spt = tdx_sept_free_private_spt;
 	x86_ops->handle_private_zapped_spte = tdx_handle_private_zapped_spte;
 	x86_ops->handle_changed_private_spte = tdx_handle_changed_private_spte;
+	x86_ops->set_private_spte = tdx_sept_set_private_spte;
+	x86_ops->drop_private_spte = tdx_sept_drop_private_spte;
+	x86_ops->zap_private_spte = tdx_sept_zap_private_spte;
+	x86_ops->unzap_private_spte = tdx_sept_unzap_private_spte;
+	x86_ops->link_private_spt = tdx_sept_link_private_spt;
 
 	return 0;
 }

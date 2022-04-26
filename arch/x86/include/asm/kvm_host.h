@@ -509,6 +509,8 @@ struct kvm_mmu {
 
 	struct rsvd_bits_validate guest_rsvd_check;
 
+	bool no_prefetch;
+
 	u64 pdptrs[4]; /* pae */
 };
 
@@ -1643,6 +1645,19 @@ struct kvm_x86_ops {
 					    const struct kvm_spte_change *change);
 	void (*handle_private_zapped_spte)(struct kvm *kvm,
 					   const struct kvm_spte_change *change);
+
+	/*
+	 * The following five operations are only for legacy MMU.
+	 * They aren't used for TDP MMU.
+	 */
+	void (*set_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+				 kvm_pfn_t pfn);
+	void (*drop_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+				  kvm_pfn_t pfn);
+	void (*zap_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level);
+	void (*unzap_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level);
+	int (*link_private_spt)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+				void *private_spt);
 
 	bool (*has_wbinvd_exit)(void);
 

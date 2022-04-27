@@ -169,7 +169,8 @@ void initialize_td(struct kvm_vm *vm)
 	}
 	init_vm.max_vcpus = 1;
 	init_vm.attributes = 0;
-	init_vm.cpuid = (uint64_t)&cpuid_data;
+	static_assert(sizeof(cpuid_data) <= sizeof(init_vm.reserved));
+	memcpy(&init_vm.cpuid, &cpuid_data, sizeof(cpuid_data));
 	tdx_ioctl(vm->fd, KVM_TDX_INIT_VM, 0, &init_vm);
 }
 

@@ -362,6 +362,9 @@ struct vcpu_vmx {
 		DECLARE_BITMAP(read, MAX_POSSIBLE_PASSTHROUGH_MSRS);
 		DECLARE_BITMAP(write, MAX_POSSIBLE_PASSTHROUGH_MSRS);
 	} shadow_msr_intercept;
+
+	/* ve_info must be page aligned. */
+	struct vmx_ve_information *ve_info;
 };
 
 struct kvm_vmx {
@@ -566,6 +569,7 @@ static inline u8 vmx_get_rvi(void)
 	SECONDARY_EXEC_RDSEED_EXITING |				\
 	SECONDARY_EXEC_RDRAND_EXITING |				\
 	SECONDARY_EXEC_ENABLE_PML |				\
+	SECONDARY_EXEC_EPT_VIOLATION_VE |			\
 	SECONDARY_EXEC_TSC_SCALING |				\
 	SECONDARY_EXEC_ENABLE_USR_WAIT_PAUSE |			\
 	SECONDARY_EXEC_PT_USE_GPA |				\

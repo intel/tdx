@@ -4329,7 +4329,7 @@ static int kvm_faultin_pfn_private_mapped(struct kvm_vcpu *vcpu,
 	fault->map_writable = false;
 	fault->pfn = KVM_PFN_ERR_FAULT;
 	if (hva == KVM_HVA_ERR_RO_BAD || hva == KVM_HVA_ERR_BAD)
-		return RET_PF_CONTINUE;
+		return RET_PF_INVALID;
 
 	/* TDX allows only RWX.  Read-only isn't supported. */
 	WARN_ON_ONCE(!fault->write);

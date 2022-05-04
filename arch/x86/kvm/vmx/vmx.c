@@ -7105,10 +7105,14 @@ static fastpath_t vmx_exit_handlers_fastpath(struct kvm_vcpu *vcpu)
 	}
 }
 
-static noinstr void vmx_vcpu_enter_exit(struct kvm_vcpu *vcpu,
+/*
+ * to_vmx() calls KVM_VM_BUG() which doesn't have noinst.  The caller should
+ * convert it to avoid section mismatch.
+ */
+static noinstr void vmx_vcpu_enter_exit(struct vcpu_vmx *vmx,
 					unsigned int flags)
 {
-	struct vcpu_vmx *vmx = to_vmx(vcpu);
+	struct kvm_vcpu *vcpu = &vmx->vcpu;
 
 	guest_state_enter_irqoff();
 
@@ -7239,7 +7243,7 @@ fastpath_t vmx_vcpu_run(struct kvm_vcpu *vcpu)
 	kvm_wait_lapic_expire(vcpu);
 
 	/* The actual VMENTER/EXIT is in the .noinstr.text section. */
-	vmx_vcpu_enter_exit(vcpu, __vmx_vcpu_run_flags(vmx));
+	vmx_vcpu_enter_exit(to_vmx(vcpu), __vmx_vcpu_run_flags(vmx));
 
 	/* All fields are clean at this point */
 	if (kvm_is_using_evmcs()) {

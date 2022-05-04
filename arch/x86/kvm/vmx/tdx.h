@@ -10,6 +10,8 @@ void tdx_cleanup(void);
 
 extern bool enable_tdx;
 
+#include "pmu_intel.h"
+
 struct kvm_tdx {
 	struct kvm kvm;
 
@@ -27,6 +29,12 @@ struct vcpu_tdx {
 	struct kvm_vcpu	vcpu;
 
 	unsigned long tdvpr_pa;
+
+	/*
+	 * Dummy to make pmu_intel not corrupt memory.
+	 * TODO: Support PMU for TDX.  Future work.
+	 */
+	struct lbr_desc lbr_desc;
 };
 
 static inline bool is_td(struct kvm *kvm)

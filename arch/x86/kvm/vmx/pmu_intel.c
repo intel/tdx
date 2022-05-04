@@ -17,6 +17,7 @@
 #include "lapic.h"
 #include "nested.h"
 #include "pmu.h"
+#include "tdx.h"
 
 #define MSR_PMC_FULL_WIDTH_BIT      (MSR_IA32_PMC0 - MSR_IA32_PERFCTR0)
 
@@ -34,6 +35,26 @@ static struct kvm_event_hw_type_mapping intel_arch_events[] = {
 
 /* mapping between fixed pmc index and intel_arch_events array */
 static int fixed_pmc_events[] = {1, 0, 7};
+
+struct lbr_desc *vcpu_to_lbr_desc(struct kvm_vcpu *vcpu)
+{
+#ifdef CONFIG_INTEL_TDX_HOST
+	if (is_td_vcpu(vcpu))
+		return &to_tdx(vcpu)->lbr_desc;
+#endif
+
+	return &to_vmx(vcpu)->lbr_desc;
+}
+
+struct x86_pmu_lbr *vcpu_to_lbr_records(struct kvm_vcpu *vcpu)
+{
+#ifdef CONFIG_INTEL_TDX_HOST
+	if (is_td_vcpu(vcpu))
+		return &to_tdx(vcpu)->lbr_desc.records;
+#endif
+
+	return &to_vmx(vcpu)->lbr_desc.records;
+}
 
 static void reprogram_fixed_counters(struct kvm_pmu *pmu, u64 data)
 {
@@ -169,6 +190,9 @@ static inline struct kvm_pmc *get_fw_gp_pmc(struct kvm_pmu *pmu, u32 msr)
 
 bool intel_pmu_lbr_is_compatible(struct kvm_vcpu *vcpu)
 {
+	if (is_td_vcpu(vcpu))
+		return false;
+
 	/*
 	 * As a first step, a guest could only enable LBR feature if its
 	 * cpu model is the same as the host because the LBR registers
@@ -180,6 +204,9 @@ bool intel_pmu_lbr_is_compatible(struct kvm_vcpu *vcpu)
 bool intel_pmu_lbr_is_enabled(struct kvm_vcpu *vcpu)
 {
 	struct x86_pmu_lbr *lbr = vcpu_to_lbr_records(vcpu);
+
+	if (is_td_vcpu(vcpu))
+		return false;
 
 	return lbr->nr && (vcpu_get_perf_capabilities(vcpu) & PMU_CAP_LBR_FMT);
 }
@@ -281,6 +308,9 @@ int intel_pmu_create_guest_lbr_event(struct kvm_vcpu *vcpu)
 		.branch_sample_type = PERF_SAMPLE_BRANCH_CALL_STACK |
 					PERF_SAMPLE_BRANCH_USER,
 	};
+
+	if (WARN_ON(is_td_vcpu(vcpu)))
+		return 0;
 
 	if (unlikely(lbr_desc->event)) {
 		__set_bit(INTEL_PMC_IDX_FIXED_VLBR, pmu->pmc_in_use);
@@ -588,6 +618,9 @@ static void intel_pmu_reset(struct kvm_vcpu *vcpu)
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
 	struct kvm_pmc *pmc = NULL;
 	int i;
+
+	if (is_td_vcpu(vcpu))
+		return;
 
 	for (i = 0; i < INTEL_PMC_MAX_GENERIC; i++) {
 		pmc = &pmu->gp_counters[i];

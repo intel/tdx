@@ -4236,7 +4236,6 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 	case KVM_CAP_IOEVENTFD_NO_LENGTH:
 	case KVM_CAP_PIT2:
 	case KVM_CAP_PIT_STATE2:
-	case KVM_CAP_SET_IDENTITY_MAP_ADDR:
 	case KVM_CAP_VCPU_EVENTS:
 	case KVM_CAP_HYPERV:
 	case KVM_CAP_HYPERV_VAPIC:
@@ -4388,6 +4387,12 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 	}
 	case KVM_CAP_DISABLE_QUIRKS2:
 		r = KVM_X86_VALID_QUIRKS;
+		break;
+	case KVM_CAP_SET_IDENTITY_MAP_ADDR:
+		if (kvm && kvm->arch.vm_type == KVM_X86_TDX_VM)
+			r = 0;
+		else
+			r = 1;
 		break;
 	case KVM_CAP_VM_TYPES:
 		r = BIT(KVM_X86_DEFAULT_VM);

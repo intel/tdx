@@ -639,11 +639,16 @@ static inline unsigned long vmx_l1_guest_owned_cr0_bits(void)
 
 static __always_inline struct kvm_vmx *to_kvm_vmx(struct kvm *kvm)
 {
+	KVM_BUG_ON(kvm->arch.vm_type != KVM_X86_DEFAULT_VM &&
+		   kvm->arch.vm_type != KVM_X86_SW_PROTECTED_VM, kvm);
 	return container_of(kvm, struct kvm_vmx, kvm);
 }
 
 static __always_inline struct vcpu_vmx *to_vmx(struct kvm_vcpu *vcpu)
 {
+	KVM_BUG_ON(vcpu->kvm->arch.vm_type != KVM_X86_DEFAULT_VM &&
+		   vcpu->kvm->arch.vm_type != KVM_X86_SW_PROTECTED_VM,
+		   vcpu->kvm);
 	return container_of(vcpu, struct vcpu_vmx, vcpu);
 }
 

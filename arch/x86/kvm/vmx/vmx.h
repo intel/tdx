@@ -636,11 +636,13 @@ BUILD_CONTROLS_SHADOW(tertiary_exec, TERTIARY_VM_EXEC_CONTROL, 64)
 
 static inline struct kvm_vmx *to_kvm_vmx(struct kvm *kvm)
 {
+	WARN_ON(kvm->arch.vm_type == KVM_X86_TDX_VM);
 	return container_of(kvm, struct kvm_vmx, kvm);
 }
 
 static inline struct vcpu_vmx *to_vmx(struct kvm_vcpu *vcpu)
 {
+	WARN_ON(vcpu->kvm->arch.vm_type == KVM_X86_TDX_VM);
 	return container_of(vcpu, struct vcpu_vmx, vcpu);
 }
 

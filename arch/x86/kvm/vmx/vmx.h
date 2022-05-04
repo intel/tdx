@@ -639,11 +639,16 @@ static inline unsigned long vmx_l1_guest_owned_cr0_bits(void)
 
 static __always_inline struct kvm_vmx *to_kvm_vmx(struct kvm *kvm)
 {
+	KVM_BUG_ON(kvm->arch.vm_type != KVM_X86_DEFAULT_VM &&
+		   kvm->arch.vm_type != KVM_X86_SW_PROTECTED_VM, kvm);
 	return container_of(kvm, struct kvm_vmx, kvm);
 }
 
 static __always_inline struct vcpu_vmx *to_vmx(struct kvm_vcpu *vcpu)
 {
+	KVM_BUG_ON(vcpu->kvm->arch.vm_type != KVM_X86_DEFAULT_VM &&
+		   vcpu->kvm->arch.vm_type != KVM_X86_SW_PROTECTED_VM,
+		   vcpu->kvm);
 	return container_of(vcpu, struct vcpu_vmx, vcpu);
 }
 
@@ -661,14 +666,18 @@ static __always_inline unsigned long vmx_get_exit_qual(struct kvm_vcpu *vcpu)
 	return vmx->exit_qualification;
 }
 
-static __always_inline u32 vmx_get_intr_info(struct kvm_vcpu *vcpu)
+/* For noinstr vmx_vcpu_enter_exit(). See the comment on it. */
+static __always_inline u32 __vmx_get_intr_info(struct vcpu_vmx *vmx)
 {
-	struct vcpu_vmx *vmx = to_vmx(vcpu);
-
-	if (!kvm_register_test_and_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_2))
+	if (!kvm_register_test_and_mark_available(&vmx->vcpu, VCPU_EXREG_EXIT_INFO_2))
 		vmx->exit_intr_info = vmcs_read32(VM_EXIT_INTR_INFO);
 
 	return vmx->exit_intr_info;
+}
+
+static __always_inline u32 vmx_get_intr_info(struct kvm_vcpu *vcpu)
+{
+	return __vmx_get_intr_info(to_vmx(vcpu));
 }
 
 struct vmcs *alloc_vmcs_cpu(bool shadow, int cpu, gfp_t flags);

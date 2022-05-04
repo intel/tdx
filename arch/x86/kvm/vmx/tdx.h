@@ -10,6 +10,8 @@ void tdx_cleanup(void);
 
 extern bool enable_tdx;
 
+#include "irq.h"
+#include "posted_intr.h"
 #include "pmu_intel.h"
 
 struct kvm_tdx {
@@ -74,6 +76,13 @@ union tdx_exit_reason {
 
 struct vcpu_tdx {
 	struct kvm_vcpu	vcpu;
+
+	/* Posted interrupt descriptor */
+	struct pi_desc pi_desc;
+
+	/* Used if this vCPU is waiting for PI notification wakeup. */
+	struct list_head pi_wakeup_list;
+	/* Until here same layout to struct vcpu_pi. */
 
 	unsigned long tdvpr_pa;
 	unsigned long *tdcx_pa;

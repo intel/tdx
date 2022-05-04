@@ -137,11 +137,13 @@ static inline bool is_td_vcpu(struct kvm_vcpu *vcpu)
 
 static inline struct kvm_tdx *to_kvm_tdx(struct kvm *kvm)
 {
+	WARN_ON(!is_td(kvm));
 	return container_of(kvm, struct kvm_tdx, kvm);
 }
 
 static inline struct vcpu_tdx *to_tdx(struct kvm_vcpu *vcpu)
 {
+	WARN_ON(!is_td_vcpu(vcpu));
 	return container_of(vcpu, struct vcpu_tdx, vcpu);
 }
 

@@ -53,6 +53,11 @@ branches:
 
 TDVF
 ----
+Now TDVF is merged into EDK2 upstream.
+https://github.com/tianocore/edk2
+Build with edk2/OvmfPkg/IntelTdx/IntelTdxX64.dsc
+
+TDVF staging tree exists for more features.
 git repository:
 https://github.com/tianocore/edk2-staging/tree/TDVF
 

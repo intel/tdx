@@ -34,6 +34,12 @@
 #define VE_GET_PORT_NUM(e)	((e) >> 16)
 #define VE_IS_IO_STRING(e)	((e) & BIT(4))
 
+/* Caches GPA width from TDG.VP.INFO TDCALL */
+static unsigned int gpa_width __ro_after_init;
+
+/* Caches TD Attributes from TDG.VP.INFO TDCALL */
+static u64 td_attr __ro_after_init;
+
 /*
  * Wrapper for standard use of __tdx_hypercall with no output aside from
  * return code.
@@ -98,17 +104,16 @@ static inline void tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
 		panic("TDCALL %lld failed (Buggy TDX module!)\n", fn);
 }
 
-static u64 get_cc_mask(void)
+static void tdx_parse_tdinfo(void)
 {
 	struct tdx_module_output out;
-	unsigned int gpa_width;
 
 	/*
 	 * TDINFO TDX module call is used to get the TD execution environment
 	 * information like GPA width, number of available vcpus, debug mode
-	 * information, etc. More details about the ABI can be found in TDX
-	 * Guest-Host-Communication Interface (GHCI), section 2.4.2 TDCALL
-	 * [TDG.VP.INFO].
+	 * information, TD attributes etc. More details about the ABI can be
+	 * found in TDX Guest-Host-Communication Interface (GHCI), section
+	 * 2.4.2 TDCALL [TDG.VP.INFO].
 	 *
 	 * The GPA width that comes out of this call is critical. TDX guests
 	 * can not meaningfully run without it.
@@ -116,7 +121,11 @@ static u64 get_cc_mask(void)
 	tdx_module_call(TDX_GET_INFO, 0, 0, 0, 0, &out);
 
 	gpa_width = out.rcx & GENMASK(5, 0);
+	td_attr = out.rdx;
+}
 
+static u64 get_cc_mask(void)
+{
 	/*
 	 * The highest bit of a guest physical address is the "sharing" bit.
 	 * Set it for shared pages and clear it for private pages.
@@ -754,6 +763,12 @@ void __init tdx_early_init(void)
 
 	if (memcmp(TDX_IDENT, sig, sizeof(sig)))
 		return;
+
+	/*
+	 * Initializes gpa_width and td_attr. Must be called before
+	 * get_cc_mask() or attribute checks.
+	 */
+	tdx_parse_tdinfo();
 
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
 

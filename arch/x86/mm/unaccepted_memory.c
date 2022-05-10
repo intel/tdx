@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#include <linux/kexec.h>
 #include <linux/memblock.h>
 #include <linux/mm.h>
 #include <linux/pfn.h>
@@ -95,3 +96,21 @@ bool range_contains_unaccepted_memory(phys_addr_t start, phys_addr_t end)
 
 	return ret;
 }
+
+static int __init unaccepted_init(void)
+{
+	if (!boot_params.unaccepted_memory)
+		return 0;
+
+#ifdef CONFIG_KEXEC_CORE
+	/*
+	 * TODO: Information on memory acceptance status has to be communicated
+	 * between kernel.
+	 */
+	pr_warn("Disable kexec: not yet supported on systems with unaccepted memory\n");
+	kexec_load_disabled = 1;
+#endif
+
+	return 0;
+}
+fs_initcall(unaccepted_init);

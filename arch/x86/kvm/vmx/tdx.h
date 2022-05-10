@@ -17,6 +17,7 @@ struct kvm_tdx {
 	u64 attributes;
 	u64 xfam;
 	int hkid;
+	struct misc_cg *misc_cg;
 
 	hpa_t source_pa;
 

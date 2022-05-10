@@ -62,6 +62,12 @@ static LIST_HEAD(tdx_memlist);
 u32 tdx_global_keyid __read_mostly;
 EXPORT_SYMBOL_GPL(tdx_global_keyid);
 
+u32 tdx_get_num_keyid(void)
+{
+	return nr_tdx_keyids;
+}
+EXPORT_SYMBOL_GPL(tdx_get_num_keyid);
+
 /* REVERTME: tdx module debug */
 /* Non-architectural debug configuration SEAMCALLs. */
 #define SEAMCALL_TDDEBUGCONFIG		0xFE

@@ -60,6 +60,12 @@ static struct tdmr_info_list tdx_tdmr_list;
 
 static atomic_t tdx_may_has_private_mem;
 
+u32 tdx_get_nr_guest_keyids(void)
+{
+	return tdx_nr_guest_keyids;
+}
+EXPORT_SYMBOL_GPL(tdx_get_nr_guest_keyids);
+
 /* REVERTME: tdx module debug */
 /* Non-architectural debug configuration SEAMCALLs. */
 #define SEAMCALL_TDDEBUGCONFIG		0xFE

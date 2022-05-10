@@ -17,6 +17,7 @@ struct kvm_tdx {
 	u64 attributes;
 	u64 xfam;
 	int hkid;
+	struct misc_cg *misc_cg;
 
 	/*
 	 * Used on each TD-exit, see tdx_user_return_update_cache().

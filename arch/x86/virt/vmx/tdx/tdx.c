@@ -95,6 +95,12 @@ static inline int sc_retry_prerr(sc_func_t func, sc_err_func_t err_func,
 #define seamcall_prerr_ret(__fn, __args)					\
 	sc_retry_prerr(__seamcall_ret, seamcall_err_ret, (__fn), (__args))
 
+u32 tdx_get_nr_guest_keyids(void)
+{
+	return tdx_nr_guest_keyids;
+}
+EXPORT_SYMBOL_GPL(tdx_get_nr_guest_keyids);
+
 /* TDX KeyID pool */
 static DEFINE_IDA(tdx_guest_keyid_pool);
 

@@ -73,6 +73,12 @@ u32 tdx_get_global_keyid(void)
 }
 EXPORT_SYMBOL_GPL(tdx_get_global_keyid);
 
+u32 tdx_get_num_keyid(void)
+{
+	return tdx_keyid_num;
+}
+EXPORT_SYMBOL_GPL(tdx_get_num_keyid);
+
 /* REVERTME: tdx module debug */
 /* Non-architectural debug configuration SEAMCALLs. */
 #define SEAMCALL_TDDEBUGCONFIG		0xFE

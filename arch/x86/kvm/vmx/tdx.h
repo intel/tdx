@@ -19,6 +19,7 @@ struct kvm_tdx {
 	int hkid;
 	/* To release hkid */
 	struct mmu_notifier mmu_notifier;
+	struct misc_cg *misc_cg;
 
 	/*
 	 * Used on each TD-exit, see tdx_user_return_update_cache().

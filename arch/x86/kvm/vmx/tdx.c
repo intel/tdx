@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/cpu.h>
 #include <linux/mmu_context.h>
+#include <linux/misc_cgroup.h>
 
 #include <asm/fpu/xcr.h>
 #include <asm/virtext.h>
@@ -153,6 +154,9 @@ static inline void tdx_hkid_free(struct kvm_tdx *kvm_tdx)
 {
 	tdx_keyid_free(kvm_tdx->hkid);
 	kvm_tdx->hkid = 0;
+	misc_cg_uncharge(MISC_CG_RES_TDX, kvm_tdx->misc_cg, 1);
+	put_misc_cg(kvm_tdx->misc_cg);
+	kvm_tdx->misc_cg = NULL;
 }
 
 static inline bool is_hkid_assigned(struct kvm_tdx *kvm_tdx)
@@ -3038,6 +3042,10 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params)
 	if (ret < 0)
 		return ret;
 	kvm_tdx->hkid = ret;
+	kvm_tdx->misc_cg = get_current_misc_cg();
+	ret = misc_cg_try_charge(MISC_CG_RES_TDX, kvm_tdx->misc_cg, 1);
+	if (ret)
+		goto free_hkid;
 
 	va = __get_free_page(GFP_KERNEL_ACCOUNT);
 	if (!va)
@@ -3977,6 +3985,15 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 		return -EIO;
 	}
 
+	/*
+	 * TDX supports tdx_num_keyids keys total, the first private key is used
+	 * as global encryption key to encrypt TDX module managed global scope.
+	 * The left private keys is the available keys for launching guest TDs.
+	 * The total number of available keys for TDs is (tdx_num_keyid - 1).
+	 */
+	if (misc_cg_set_capacity(MISC_CG_RES_TDX, tdx_get_num_keyid() - 1))
+		return  -EINVAL;
+
 	max_pkgs = topology_max_packages();
 	tdx_mng_key_config_lock = kcalloc(max_pkgs, sizeof(*tdx_mng_key_config_lock),
 				   GFP_KERNEL);
@@ -4012,6 +4029,7 @@ void tdx_hardware_unsetup(void)
 {
 	/* kfree accepts NULL. */
 	kfree(tdx_mng_key_config_lock);
+	misc_cg_set_capacity(MISC_CG_RES_TDX, 0);
 }
 
 int tdx_offline_cpu(void)

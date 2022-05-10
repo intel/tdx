@@ -716,6 +716,13 @@ static efi_status_t allocate_unaccepted_bitmap(struct boot_params *params,
 	}
 
 	/*
+	 * range_contains_unaccepted_memory() may need to check one 2M chunk
+	 * beyond the end of RAM to deal with load_unaligned_zeropad(). Make
+	 * sure that the bitmap is large enough handle it.
+	 */
+	max_addr += PMD_SIZE;
+
+	/*
 	 * If unaccepted memory is present, allocate a bitmap to track what
 	 * memory has to be accepted before access.
 	 *

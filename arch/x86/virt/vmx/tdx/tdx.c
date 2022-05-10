@@ -57,6 +57,12 @@ static LIST_HEAD(tdx_memlist);
 /* The list of TDMRs passed to TDX module */
 struct tdmr_info_list tdx_tdmr_list;
 
+u32 tdx_get_nr_guest_keyids(void)
+{
+	return tdx_nr_guest_keyids;
+}
+EXPORT_SYMBOL_GPL(tdx_get_nr_guest_keyids);
+
 /* REVERTME: tdx module debug */
 /* Non-architectural debug configuration SEAMCALLs. */
 #define SEAMCALL_TDDEBUGCONFIG		0xFE
@@ -1344,12 +1350,6 @@ static int init_tdx_module(void)
 	ret = config_global_keyid();
 	if (ret)
 		goto out_free_pamts;
-
-	/*
-	 * Reserve the first TDX KeyID as global KeyID to protect
-	 * TDX module metadata.
-	 */
-	tdx_global_keyid = tdx_keyid_start;
 
 	/* Initialize TDMRs to complete the TDX module initialization */
 	ret = init_tdmrs(&tdx_tdmr_list);

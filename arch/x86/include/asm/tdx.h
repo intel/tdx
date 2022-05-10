@@ -171,6 +171,7 @@ int tdx_cpu_online(unsigned int cpu);
  * id for cache flush unlike other TD-related pages.
  */
 extern u32 tdx_global_keyid __ro_after_init;
+u32 tdx_get_nr_guest_keyids(void);
 int tdx_guest_keyid_alloc(void);
 void tdx_guest_keyid_free(int keyid);
 
@@ -182,6 +183,7 @@ static inline const struct tdsysinfo_struct *tdx_get_sysinfo(void) { return NULL
 static inline bool platform_tdx_enabled(void) { return false; }
 static inline int tdx_enable(void)  { return -EINVAL; }
 static inline int tdx_cpu_online(unsigned int cpu) { return 0; }
+static inline u32 tdx_get_nr_guest_keyids(void) { return 0; }
 static inline int tdx_guest_keyid_alloc(void) { return -EOPNOTSUPP; }
 static inline void tdx_guest_keyid_free(int keyid) { }
 #endif	/* CONFIG_INTEL_TDX_HOST */

@@ -174,6 +174,7 @@ bool tdx_is_private_mem(unsigned long phys);
  */
 extern bool tdx_tsx_supported __read_mostly;
 extern u32 tdx_global_keyid __ro_after_init;
+u32 tdx_get_nr_guest_keyids(void);
 int tdx_guest_keyid_alloc(void);
 void tdx_guest_keyid_free(int keyid);
 
@@ -188,6 +189,7 @@ static inline int tdx_enable(void)  { return -ENODEV; }
 static inline bool tdx_is_private_mem(unsigned long phys) { return false; }
 static inline u64 __seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
 			     struct tdx_module_output *out) { return TDX_SEAMCALL_UD; };
+static inline u32 tdx_get_nr_guest_keyids(void) { return 0; }
 static inline int tdx_guest_keyid_alloc(void) { return -EOPNOTSUPP; }
 static inline void tdx_guest_keyid_free(int keyid) { }
 #endif	/* CONFIG_INTEL_TDX_HOST */

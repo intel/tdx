@@ -62,6 +62,12 @@ static DEFINE_MUTEX(tdx_module_lock);
 /* All TDX-usable memory regions.  Protected by mem_hotplug_lock. */
 static LIST_HEAD(tdx_memlist);
 
+u32 tdx_get_nr_guest_keyids(void)
+{
+	return tdx_nr_guest_keyids;
+}
+EXPORT_SYMBOL_GPL(tdx_get_nr_guest_keyids);
+
 /* REVERTME: tdx module debug */
 /* Non-architectural debug configuration SEAMCALLs. */
 #define SEAMCALL_TDDEBUGCONFIG		0xFE

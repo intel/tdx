@@ -153,6 +153,7 @@ int tdx_init(void);
 bool platform_has_tdx(void);
 const struct tdsysinfo_struct *tdx_get_sysinfo(void);
 u32 tdx_get_global_keyid(void);
+u32 tdx_get_num_keyid(void);
 int tdx_keyid_alloc(void);
 void tdx_keyid_free(int keyid);
 
@@ -166,7 +167,8 @@ static inline int tdx_init(void) { return -ENODEV; }
 static inline bool platform_has_tdx(void) { return false; }
 struct tdsysinfo_struct;
 static inline const struct tdsysinfo_struct *tdx_get_sysinfo(void) { return NULL; }
-static inline u32 tdx_get_global_keyid(void) { return 0; };
+static inline u32 tdx_get_global_keyid(void) { return 0; }
+static inline u32 tdx_get_num_keyid(void) { return 0; }
 static inline int tdx_keyid_alloc(void) { return -EOPNOTSUPP; }
 static inline void tdx_keyid_free(int keyid) { }
 #endif /* CONFIG_INTEL_TDX_HOST */

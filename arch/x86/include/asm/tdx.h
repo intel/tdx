@@ -177,6 +177,7 @@ bool tdx_cc_memory_compatible(unsigned long start_pfn, unsigned long end_pfn);
  * id for cache flush unlike other TD-related pages.
  */
 extern u32 tdx_global_keyid __read_mostly;
+u32 tdx_get_num_keyid(void);
 int tdx_keyid_alloc(void);
 void tdx_keyid_free(int keyid);
 
@@ -189,6 +190,7 @@ static inline bool platform_tdx_enabled(void) { return false; }
 static inline int tdx_enable(void)  { return -ENODEV; }
 static inline bool tdx_cc_memory_compatible(unsigned long start_pfn,
 		unsigned long end_pfn) { return true; }
+static inline u32 tdx_get_num_keyid(void) { return 0; }
 static inline int tdx_keyid_alloc(void) { return -EOPNOTSUPP; }
 static inline void tdx_keyid_free(int keyid) { }
 #endif	/* CONFIG_INTEL_TDX_HOST */

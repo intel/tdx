@@ -48,5 +48,5 @@ SYM_FUNC_START(__seamcall)
 	FRAME_BEGIN
 	TDX_MODULE_CALL host=1
 	FRAME_END
-	ret
+	RET
 SYM_FUNC_END(__seamcall)

@@ -4341,7 +4341,7 @@ static u32 vmx_secondary_exec_control(struct vcpu_vmx *vmx)
 	return exec_control;
 }
 
-int vmx_get_pid_table_order(struct kvm *kvm)
+static int vmx_get_pid_table_order(struct kvm *kvm)
 {
 	return get_order(kvm->arch.max_vcpu_ids * sizeof(*to_kvm_vmx(kvm)->pid_table));
 }

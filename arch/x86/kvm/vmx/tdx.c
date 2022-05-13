@@ -572,15 +572,8 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 
 	vcpu->arch.tsc_offset = to_kvm_tdx(vcpu->kvm)->tsc_offset;
 	vcpu->arch.l1_tsc_offset = vcpu->arch.tsc_offset;
-	/*
-	 * TODO: support off-TD debug.  If TD DEBUG is enabled, guest state
-	 * can be accessed. guest_state_protected = false. and kvm ioctl to
-	 * access CPU states should be usable for user space VMM (e.g. qemu).
-	 *
-	 * vcpu->arch.guest_state_protected =
-	 *	!(to_kvm_tdx(vcpu->kvm)->attributes & TDX_TD_ATTRIBUTE_DEBUG);
-	 */
-	vcpu->arch.guest_state_protected = true;
+	vcpu->arch.guest_state_protected =
+		!(to_kvm_tdx(vcpu->kvm)->attributes & TDX_TD_ATTRIBUTE_DEBUG);
 
 	if ((kvm_tdx->xfam & XFEATURE_MASK_XTILE) == XFEATURE_MASK_XTILE)
 		vcpu->arch.xfd_no_write_intercept = true;

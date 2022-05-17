@@ -2981,17 +2981,7 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 	int i;
 
 	td_params->max_vcpus = init_vm->max_vcpus;
-
 	td_params->attributes = init_vm->attributes;
-	if (td_params->attributes & TDX_TD_ATTRIBUTE_PERFMON) {
-		/*
-		 * TODO: save/restore PMU related registers around TDENTER.
-		 * Once it's done, remove this guard.
-		 */
-		pr_warn("TD doesn't support perfmon yet. KVM needs to save/restore "
-			"host perf registers properly.\n");
-		return -EOPNOTSUPP;
-	}
 
 	for (i = 0; i < tdx_caps.nr_cpuid_configs; i++) {
 		const struct tdx_cpuid_config *config = &tdx_caps.cpuid_configs[i];

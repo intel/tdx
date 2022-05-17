@@ -17,6 +17,7 @@
 #include "vmx.h"
 #include "x86.h"
 #include "smm.h"
+#include "common.h"
 
 static bool __read_mostly enable_shadow_vmcs = 1;
 module_param_named(enable_shadow_vmcs, enable_shadow_vmcs, bool, S_IRUGO);
@@ -3547,7 +3548,7 @@ static int nested_vmx_run(struct kvm_vcpu *vcpu, bool launch)
 	struct vmcs12 *vmcs12;
 	enum nvmx_vmentry_status status;
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
-	u32 interrupt_shadow = vmx_get_interrupt_shadow(vcpu);
+	u32 interrupt_shadow = __vmx_get_interrupt_shadow(vcpu);
 	enum nested_evmptrld_status evmptrld_status;
 
 	if (!nested_vmx_check_permission(vcpu))

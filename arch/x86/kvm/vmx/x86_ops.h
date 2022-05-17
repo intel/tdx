@@ -105,7 +105,6 @@ int vmx_tlb_remote_flush_with_range(struct kvm *kvm,
 void vmx_flush_tlb_gva(struct kvm_vcpu *vcpu, gva_t addr);
 void vmx_flush_tlb_guest(struct kvm_vcpu *vcpu);
 void vmx_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask);
-u32 vmx_get_interrupt_shadow(struct kvm_vcpu *vcpu);
 void vmx_patch_hypercall(struct kvm_vcpu *vcpu, unsigned char *hypercall);
 void vmx_inject_irq(struct kvm_vcpu *vcpu, bool reinjected);
 void vmx_inject_nmi(struct kvm_vcpu *vcpu);

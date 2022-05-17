@@ -223,6 +223,20 @@ static inline void __vmx_deliver_posted_interrupt(struct kvm_vcpu *vcpu,
 	kvm_vcpu_trigger_posted_interrupt(vcpu, POSTED_INTR_VECTOR);
 }
 
+static inline u32 __vmx_get_interrupt_shadow(struct kvm_vcpu *vcpu)
+{
+	u32 interruptibility;
+	int ret = 0;
+
+	interruptibility = vmread32(vcpu, GUEST_INTERRUPTIBILITY_INFO);
+	if (interruptibility & GUEST_INTR_STATE_STI)
+		ret |= KVM_X86_SHADOW_INT_STI;
+	if (interruptibility & GUEST_INTR_STATE_MOV_SS)
+		ret |= KVM_X86_SHADOW_INT_MOV_SS;
+
+	return ret;
+}
+
 static inline void vmx_decode_ar_bytes(struct kvm_segment *var, u32 ar)
 {
 	var->unusable = (ar >> 16) & 1;

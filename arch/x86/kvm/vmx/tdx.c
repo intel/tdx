@@ -3209,16 +3209,6 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 	if (kvm->created_vcpus)
 		return -EBUSY;
 
-	if (td_params->attributes & TDX_TD_ATTRIBUTE_PERFMON) {
-		/*
-		 * TODO: save/restore PMU related registers around TDENTER.
-		 * Once it's done, remove this guard.
-		 */
-#define MSG_PERFMON	"TD doesn't support perfmon yet. KVM needs to save/restore host perf registers properly.\n"
-		pr_warn(MSG_PERFMON);
-		return -EOPNOTSUPP;
-	}
-
 	td_params->max_vcpus = kvm->max_vcpus;
 	td_params->attributes = init_vm->attributes;
 	td_params->tsc_frequency = TDX_TSC_KHZ_TO_25MHZ(kvm->arch.default_tsc_khz);

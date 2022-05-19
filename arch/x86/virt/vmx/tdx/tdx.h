@@ -2,6 +2,7 @@
 #ifndef _X86_VIRT_TDX_H
 #define _X86_VIRT_TDX_H
 
+#include <linux/types.h>
 #include <linux/bits.h>
 
 /*
@@ -43,5 +44,15 @@
 #define TDX_KEYID_START(_keyid_part)	\
 		((u32)(((_keyid_part) & 0xffffffffull) + 1))
 #define TDX_KEYID_NUM(_keyid_part)	((u32)((_keyid_part) >> 32))
+
+
+/*
+ * Do not put any hardware-defined TDX structure representations below this
+ * comment!
+ */
+
+struct tdx_module_output;
+u64 __seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
+	       struct tdx_module_output *out);
 
 #endif

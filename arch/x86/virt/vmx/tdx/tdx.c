@@ -125,6 +125,48 @@ bool platform_tdx_enabled(void)
 }
 
 /*
+ * Wrapper of __seamcall() to convert SEAMCALL leaf function error code
+ * to kernel error code.  @seamcall_ret and @out contain the SEAMCALL
+ * leaf function return code and the additional output respectively if
+ * not NULL.
+ */
+static int __always_unused seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
+				    u64 *seamcall_ret,
+				    struct tdx_module_output *out)
+{
+	u64 sret;
+
+	sret = __seamcall(fn, rcx, rdx, r8, r9, out);
+
+	/* Save SEAMCALL return code if caller wants it */
+	if (seamcall_ret)
+		*seamcall_ret = sret;
+
+	/* SEAMCALL was successful */
+	if (!sret)
+		return 0;
+
+	switch (sret) {
+	case TDX_SEAMCALL_GP:
+		/*
+		 * platform_tdx_enabled() is checked to be true
+		 * before making any SEAMCALL.
+		 */
+		WARN_ON_ONCE(1);
+		fallthrough;
+	case TDX_SEAMCALL_VMFAILINVALID:
+		/* Return -ENODEV if the TDX module is not loaded. */
+		return -ENODEV;
+	case TDX_SEAMCALL_UD:
+		/* Return -EINVAL if CPU isn't in VMX operation. */
+		return -EINVAL;
+	default:
+		/* Return -EIO if the actual SEAMCALL leaf failed. */
+		return -EIO;
+	}
+}
+
+/*
  * Detect and initialize the TDX module.
  *
  * Return -ENODEV when the TDX module is not loaded, 0 when it

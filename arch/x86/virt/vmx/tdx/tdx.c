@@ -101,6 +101,55 @@ bool platform_tdx_enabled(void)
 	return !!nr_tdx_keyids;
 }
 
+/*
+ * Wrapper of __seamcall() to convert SEAMCALL leaf function error code
+ * to kernel error code.  @seamcall_ret and @out contain the SEAMCALL
+ * leaf function return code and the additional output respectively if
+ * not NULL.
+ */
+static int __always_unused seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
+				    u64 *seamcall_ret,
+				    struct tdx_module_output *out)
+{
+	u64 sret;
+
+	sret = __seamcall(fn, rcx, rdx, r8, r9, out);
+
+	/* Save SEAMCALL return code if the caller wants it */
+	if (seamcall_ret)
+		*seamcall_ret = sret;
+
+	/* SEAMCALL was successful */
+	if (!sret)
+		return 0;
+
+	switch (sret) {
+	case TDX_SEAMCALL_GP:
+		/*
+		 * tdx_enable() has already checked that BIOS has
+		 * enabled TDX at the very beginning before going
+		 * forward.  It's likely a firmware bug if the
+		 * SEAMCALL still caused #GP.
+		 */
+		pr_err_once("[firmware bug]: TDX is not enabled by BIOS.\n");
+		return -ENODEV;
+	case TDX_SEAMCALL_VMFAILINVALID:
+		pr_err_once("TDX module is not loaded.\n");
+		return -ENODEV;
+	case TDX_SEAMCALL_UD:
+		pr_err_once("CPU is not in VMX operation.\n");
+		return -EINVAL;
+	default:
+		pr_err_once("SEAMCALL failed: leaf %llu, error 0x%llx.\n",
+				fn, sret);
+		if (out)
+			pr_err_once("additional output: rcx 0x%llx, rdx 0x%llx, r8 0x%llx, r9 0x%llx, r10 0x%llx, r11 0x%llx.\n",
+					out->rcx, out->rdx, out->r8,
+					out->r9, out->r10, out->r11);
+		return -EIO;
+	}
+}
+
 static int init_tdx_module(void)
 {
 	/*

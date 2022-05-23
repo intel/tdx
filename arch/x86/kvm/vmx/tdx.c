@@ -3972,14 +3972,15 @@ struct tdx_guest_memory_operator {
 };
 
 static int tdx_access_guest_memory(struct kvm *kvm,
-				   struct kvm_memory_slot *memslot,
 				   gpa_t gpa, void *buf, u32 access_len,
 				   u32 *completed_len,
 				   struct tdx_guest_memory_operator *operator)
 {
+	struct kvm_memory_slot *memslot;
 	u32 offset = offset_in_page(gpa);
 	u32 done_len;
 	bool is_private;
+	int idx;
 	int ret;
 
 	if (!access_len ||
@@ -3989,8 +3990,15 @@ static int tdx_access_guest_memory(struct kvm *kvm,
 		return -EINVAL;
 	}
 
-	write_lock(&kvm->mmu_lock);
+	idx = srcu_read_lock(&kvm->srcu);
+	memslot = gfn_to_memslot(kvm, gpa_to_gfn(gpa));
+	if (!kvm_is_visible_memslot(memslot)) {
+		done_len = 0;
+		ret = -EINVAL;
+		goto exit_unlock_srcu;
+	}
 
+	write_lock(&kvm->mmu_lock);
 	ret = kvm_mmu_is_page_private(kvm, memslot, gpa_to_gfn(gpa),
 				      &is_private);
 	if (ret) {
@@ -4013,8 +4021,11 @@ static int tdx_access_guest_memory(struct kvm *kvm,
 					   offset, access_len);
 		done_len = !ret ? access_len : 0;
 	}
+
 exit_unlock:
 	write_unlock(&kvm->mmu_lock);
+exit_unlock_srcu:
+	srcu_read_unlock(&kvm->srcu, idx);
 
 	if (completed_len)
 		*completed_len = done_len;
@@ -4026,13 +4037,9 @@ static int tdx_read_write_memory(struct kvm *kvm, gpa_t gpa, u64 len,
 				 struct tdx_guest_memory_operator *operator)
 {
 	void *tmp_buf;
-	u32 access_len;
-	u32 done_len;
 	u64 complete;
 	gpa_t gpa_end;
-	int idx;
 	int ret = 0;
-	struct kvm_memory_slot *memslot;
 
 	if (!operator) {
 		complete = 0;
@@ -4050,14 +4057,15 @@ static int tdx_read_write_memory(struct kvm *kvm, gpa_t gpa, u64 len,
 	complete = 0;
 	gpa_end = gpa + len;
 	while (gpa < gpa_end) {
+		u32 done_len;
+		u32 access_len = min(len - complete,
+				 (u64)(PAGE_SIZE - offset_in_page(gpa)));
+
 		cond_resched();
 		if (signal_pending(current)) {
 			ret = -EINTR;
 			break;
 		}
-
-		access_len = min(len - complete,
-				 (u64)(PAGE_SIZE - offset_in_page(gpa)));
 
 		if (operator->prepare_access) {
 			ret = operator->prepare_access(buf, tmp_buf,
@@ -4066,23 +4074,11 @@ static int tdx_read_write_memory(struct kvm *kvm, gpa_t gpa, u64 len,
 				break;
 		}
 
-		idx = srcu_read_lock(&kvm->srcu);
-
-		memslot = gfn_to_memslot(kvm, gpa_to_gfn(gpa));
-		if (!kvm_is_visible_memslot(memslot)) {
-			srcu_read_unlock(&kvm->srcu, idx);
-			ret = -EINVAL;
-			break;
-		}
-		ret = tdx_access_guest_memory(kvm, memslot, gpa,
+		ret = tdx_access_guest_memory(kvm, gpa,
 					      tmp_buf, access_len,
 					      &done_len, operator);
-		if (ret) {
-			srcu_read_unlock(&kvm->srcu, idx);
+		if (ret)
 			break;
-		}
-
-		srcu_read_unlock(&kvm->srcu, idx);
 
 		if (operator->finish_access) {
 			ret = operator->finish_access(buf, tmp_buf,

@@ -3976,6 +3976,23 @@ struct tdx_guest_memory_operator {
 			  u32 *complete_len, void *buf);
 };
 
+static int tdx_access_guest_memory_prepare(void __user *ubuf,
+					   void *kbuf, u32 size,
+					   struct tdx_guest_memory_operator *op)
+{
+	if (op && op->prepare_access)
+		return op->prepare_access(ubuf, kbuf, size);
+	return 0;
+}
+
+static int tdx_access_guest_memory_finish(void __user *ubuf, void *kbuf, u32 size,
+					  struct tdx_guest_memory_operator *op)
+{
+	if (op && op->finish_access)
+		return op->finish_access(ubuf, kbuf, size);
+	return 0;
+}
+
 static int tdx_access_guest_memory(struct kvm *kvm,
 				   gpa_t gpa, void *buf, u32 access_len,
 				   u32 *completed_len,
@@ -4072,12 +4089,10 @@ static int tdx_read_write_memory(struct kvm *kvm, gpa_t gpa, u64 len,
 			break;
 		}
 
-		if (operator->prepare_access) {
-			ret = operator->prepare_access(buf, tmp_buf,
-						       access_len);
-			if (ret)
-				break;
-		}
+		ret = tdx_access_guest_memory_prepare(buf, tmp_buf, access_len,
+						      operator);
+		if (ret)
+			break;
 
 		ret = tdx_access_guest_memory(kvm, gpa,
 					      tmp_buf, access_len,
@@ -4085,12 +4100,10 @@ static int tdx_read_write_memory(struct kvm *kvm, gpa_t gpa, u64 len,
 		if (ret)
 			break;
 
-		if (operator->finish_access) {
-			ret = operator->finish_access(buf, tmp_buf,
-						      done_len);
-			if (ret)
-				break;
-		}
+		ret = tdx_access_guest_memory_finish(buf, tmp_buf, done_len,
+						     operator);
+		if (ret)
+			break;
 
 		buf += done_len;
 		complete += done_len;

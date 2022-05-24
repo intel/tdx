@@ -1337,7 +1337,9 @@ static bool __drop_large_spte(struct kvm_vcpu *vcpu, u64 *sptep)
 
 		if (is_private_sptep(sptep)) {
 			old_spte = *sptep;
-			kvm_mmu_zap_private_spte(vcpu->kvm, sptep);
+
+			if (!is_private_zapped_spte(old_spte))
+				kvm_mmu_zap_private_spte(vcpu->kvm, sptep);
 			split_private_spte(vcpu, sptep, old_spte);
 		} else {
 			drop_spte(vcpu->kvm, sptep);

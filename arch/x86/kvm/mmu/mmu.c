@@ -1169,6 +1169,7 @@ static void drop_spte(struct kvm *kvm, u64 *sptep)
 
 static bool kvm_mmu_zap_private_spte(struct kvm *kvm, u64 *sptep);
 static void split_private_spte(struct kvm *kvm, u64 *sptep, u64 old_spte);
+static bool kvm_mmu_zap_private_spte(struct kvm *kvm, u64 *sptep);
 
 static void drop_large_spte(struct kvm *kvm, u64 *sptep, bool flush)
 {
@@ -1180,7 +1181,8 @@ static void drop_large_spte(struct kvm *kvm, u64 *sptep, bool flush)
 
 	if (is_private_sptep(sptep)) {
 		old_spte = *sptep;
-		kvm_mmu_zap_private_spte(kvm, sptep);
+		if (!is_private_zapped_spte(old_spte))
+			kvm_mmu_zap_private_spte(kvm, sptep);
 		split_private_spte(kvm, sptep, old_spte);
 		flush = true;
 	} else

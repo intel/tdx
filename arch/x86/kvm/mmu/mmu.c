@@ -1207,7 +1207,8 @@ static void drop_large_spte(struct kvm *kvm, u64 *sptep, bool flush)
 
 	if (is_private_sptep(sptep)) {
 		old_spte = *sptep;
-		kvm_mmu_zap_private_spte(kvm, sptep);
+		if (!is_private_zapped_spte(old_spte))
+			kvm_mmu_zap_private_spte(kvm, sptep);
 		split_private_spt(kvm, sptep, old_spte);
 		flush = true;
 	} else

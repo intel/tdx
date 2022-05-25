@@ -1086,6 +1086,14 @@ bool kvm_tdp_mmu_zap_sp(struct kvm *kvm, struct kvm_mmu_page *sp)
 	return true;
 }
 
+
+static struct kvm_mmu_page *tdp_mmu_alloc_sp_for_split(struct kvm *kvm,
+						       struct tdp_iter *iter,
+						       bool shared);
+
+static int tdp_mmu_split_huge_page(struct kvm *kvm, struct tdp_iter *iter,
+				   struct kvm_mmu_page *sp, bool shared);
+
 /*
  * Zap leafs SPTEs for the range of gfns, [start, end). Returns true if SPTEs
  * have been cleared and a TLB flush is needed before releasing the MMU lock.
@@ -1100,7 +1108,9 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 			      gfn_t start, gfn_t end, bool can_yield, bool flush,
 			      bool drop_private)
 {
+	struct kvm_memory_slot *slot;
 	struct tdp_iter iter;
+	struct kvm_mmu_page *sp;
 
 	end = min(end, tdp_mmu_max_gfn_exclusive());
 
@@ -1125,6 +1135,19 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 		if (!is_shadow_present_pte(iter.old_spte) ||
 		    !is_last_spte(iter.old_spte, iter.level))
 			continue;
+
+		if (kvm_gfn_shared_mask(kvm) && is_large_pte(iter.old_spte)) {
+			slot = gfn_to_memslot(kvm, iter.gfn);
+			if (!kvm_page_type_valid_on_level(iter.gfn, slot, iter.level)) {
+				sp = tdp_mmu_alloc_sp_for_split(kvm, &iter, false);
+				if (!sp) {
+					WARN_ON(1);
+				}
+
+				tdp_mmu_split_huge_page(kvm, &iter, sp, false);
+				continue;
+			}
+		}
 
 		/*
 		 * Skip non-present SPTE, with exception of temporarily
@@ -1716,8 +1739,6 @@ static struct kvm_mmu_page *tdp_mmu_alloc_sp_for_split(struct kvm *kvm,
 	struct kvm_mmu_page *sp;
 	bool is_private = iter->is_private;
 
-	/* TODO: For now large page isn't supported for private SPTE. */
-	WARN_ON(is_private);
 	WARN_ON(iter->is_private != is_private_sptep(iter->sptep));
 
 	/*

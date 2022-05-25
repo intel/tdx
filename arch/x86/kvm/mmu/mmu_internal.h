@@ -442,4 +442,7 @@ static inline void kvm_private_mem_put_pfn(struct kvm_memory_slot *slot,
 }
 #endif /* CONFIG_HAVE_KVM_PRIVATE_MEM */
 
+bool kvm_page_type_valid_on_level(gfn_t gfn, struct kvm_memory_slot *slot,
+				  enum pg_level level);
+
 #endif /* __KVM_X86_MMU_INTERNAL_H */

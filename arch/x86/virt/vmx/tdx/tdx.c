@@ -208,8 +208,23 @@ static void seamcall_on_each_cpu(struct seamcall_ctx *sc)
  */
 static int init_tdx_module(void)
 {
-	/* The TDX module hasn't been detected */
-	return -ENODEV;
+	int ret;
+
+	/*
+	 * Call TDH.SYS.INIT to do the global initialization of
+	 * the TDX module.  It also detects the module.
+	 */
+	ret = seamcall(TDH_SYS_INIT, 0, 0, 0, 0, NULL, NULL);
+	if (ret)
+		goto out;
+
+	/*
+	 * Return -EINVAL until all steps of TDX module initialization
+	 * process are done.
+	 */
+	ret = -EINVAL;
+out:
+	return ret;
 }
 
 static void shutdown_tdx_module(void)

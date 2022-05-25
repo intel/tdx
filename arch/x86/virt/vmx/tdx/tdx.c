@@ -15,6 +15,7 @@
 #include <linux/cpumask.h>
 #include <linux/smp.h>
 #include <linux/atomic.h>
+#include <linux/align.h>
 #include <asm/msr-index.h>
 #include <asm/msr.h>
 #include <asm/apic.h>
@@ -39,6 +40,11 @@ static u32 tdx_keyid_num __ro_after_init;
 static enum tdx_module_status_t tdx_module_status;
 /* Prevent concurrent attempts on TDX detection and initialization */
 static DEFINE_MUTEX(tdx_module_lock);
+
+/* Below two are used in TDH.SYS.INFO SEAMCALL ABI */
+static struct tdsysinfo_struct tdx_sysinfo;
+static struct cmr_info tdx_cmr_array[MAX_CMRS] __aligned(CMR_INFO_ARRAY_ALIGNMENT);
+static int tdx_cmr_num;
 
 /*
  * Detect TDX private KeyIDs to see whether TDX has been enabled by the
@@ -208,6 +214,121 @@ static int tdx_module_init_cpus(void)
 	return atomic_read(&sc.err);
 }
 
+static inline bool is_cmr_empty(struct cmr_info *cmr)
+{
+	return !cmr->size;
+}
+
+static inline bool is_cmr_ok(struct cmr_info *cmr)
+{
+	/* CMR must be page aligned */
+	return IS_ALIGNED(cmr->base, PAGE_SIZE) &&
+		IS_ALIGNED(cmr->size, PAGE_SIZE);
+}
+
+static void print_cmrs(struct cmr_info *cmr_array, int cmr_num,
+		       const char *name)
+{
+	int i;
+
+	for (i = 0; i < cmr_num; i++) {
+		struct cmr_info *cmr = &cmr_array[i];
+
+		pr_info("%s : [0x%llx, 0x%llx)\n", name,
+				cmr->base, cmr->base + cmr->size);
+	}
+}
+
+/* Check CMRs reported by TDH.SYS.INFO, and trim tail empty CMRs. */
+static int trim_empty_cmrs(struct cmr_info *cmr_array, int *actual_cmr_num)
+{
+	struct cmr_info *cmr;
+	int i, cmr_num;
+
+	/*
+	 * Intel TDX module spec, 20.7.3 CMR_INFO:
+	 *
+	 *   TDH.SYS.INFO leaf function returns a MAX_CMRS (32) entry
+	 *   array of CMR_INFO entries. The CMRs are sorted from the
+	 *   lowest base address to the highest base address, and they
+	 *   are non-overlapping.
+	 *
+	 * This implies that BIOS may generate invalid empty entries
+	 * if total CMRs are less than 32.  Need to skip them manually.
+	 *
+	 * CMR also must be 4K aligned.  TDX doesn't trust BIOS.  TDX
+	 * actually verifies CMRs before it gets enabled, so anything
+	 * doesn't meet above means kernel bug (or TDX is broken).
+	 */
+	cmr = &cmr_array[0];
+	/* There must be at least one valid CMR */
+	if (WARN_ON_ONCE(is_cmr_empty(cmr) || !is_cmr_ok(cmr)))
+		goto err;
+
+	cmr_num = *actual_cmr_num;
+	for (i = 1; i < cmr_num; i++) {
+		struct cmr_info *cmr = &cmr_array[i];
+		struct cmr_info *prev_cmr = NULL;
+
+		/* Skip further empty CMRs */
+		if (is_cmr_empty(cmr))
+			break;
+
+		/*
+		 * Do sanity check anyway to make sure CMRs:
+		 *  - are 4K aligned
+		 *  - don't overlap
+		 *  - are in address ascending order.
+		 */
+		if (WARN_ON_ONCE(!is_cmr_ok(cmr)))
+			goto err;
+
+		prev_cmr = &cmr_array[i - 1];
+		if (WARN_ON_ONCE((prev_cmr->base + prev_cmr->size) >
+					cmr->base))
+			goto err;
+	}
+
+	/* Update the actual number of CMRs */
+	*actual_cmr_num = i;
+
+	/* Print kernel checked CMRs */
+	print_cmrs(cmr_array, *actual_cmr_num, "Kernel-checked-CMR");
+
+	return 0;
+err:
+	pr_info("[TDX broken ?]: Invalid CMRs detected\n");
+	print_cmrs(cmr_array, cmr_num, "BIOS-CMR");
+	return -EINVAL;
+}
+
+static int tdx_get_sysinfo(void)
+{
+	struct tdx_module_output out;
+	int ret;
+
+	BUILD_BUG_ON(sizeof(struct tdsysinfo_struct) != TDSYSINFO_STRUCT_SIZE);
+
+	ret = seamcall(TDH_SYS_INFO, __pa(&tdx_sysinfo), TDSYSINFO_STRUCT_SIZE,
+			__pa(tdx_cmr_array), MAX_CMRS, NULL, &out);
+	if (ret)
+		return ret;
+
+	/* R9 contains the actual entries written the CMR array. */
+	tdx_cmr_num = out.r9;
+
+	pr_info("TDX module: atributes 0x%x, vendor_id 0x%x, major_version %u, minor_version %u, build_date %u, build_num %u",
+		tdx_sysinfo.attributes, tdx_sysinfo.vendor_id,
+		tdx_sysinfo.major_version, tdx_sysinfo.minor_version,
+		tdx_sysinfo.build_date, tdx_sysinfo.build_num);
+
+	/*
+	 * trim_empty_cmrs() updates the actual number of CMRs by
+	 * dropping all tail empty CMRs.
+	 */
+	return trim_empty_cmrs(tdx_cmr_array, &tdx_cmr_num);
+}
+
 /*
  * Detect and initialize the TDX module.
  *
@@ -229,6 +350,10 @@ static int init_tdx_module(void)
 
 	/* Logical-cpu scope initialization */
 	ret = tdx_module_init_cpus();
+	if (ret)
+		goto out;
+
+	ret = tdx_get_sysinfo();
 	if (ret)
 		goto out;
 

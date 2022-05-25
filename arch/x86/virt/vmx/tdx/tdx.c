@@ -15,6 +15,8 @@
 #include <linux/cpumask.h>
 #include <linux/smp.h>
 #include <linux/atomic.h>
+#include <linux/sizes.h>
+#include <linux/memblock.h>
 #include <asm/cpufeatures.h>
 #include <asm/cpufeature.h>
 #include <asm/msr-index.h>
@@ -339,6 +341,91 @@ static int tdx_get_sysinfo(struct tdsysinfo_struct *tdsysinfo,
 }
 
 /*
+ * Skip the memory region below 1MB.  Return true if the entire
+ * region is skipped.  Otherwise, the updated range is returned.
+ */
+static bool pfn_range_skip_lowmem(unsigned long *p_start_pfn,
+				  unsigned long *p_end_pfn)
+{
+	u64 start, end;
+
+	start = *p_start_pfn << PAGE_SHIFT;
+	end = *p_end_pfn << PAGE_SHIFT;
+
+	if (start < SZ_1M)
+		start = SZ_1M;
+
+	if (start >= end)
+		return true;
+
+	*p_start_pfn = (start >> PAGE_SHIFT);
+
+	return false;
+}
+
+/*
+ * Walks over all memblock memory regions that are intended to be
+ * converted to TDX memory.  Essentially, it is all memblock memory
+ * regions excluding the low memory below 1MB.
+ *
+ * This is because on some TDX platforms the low memory below 1MB is
+ * not included in CMRs.  Excluding the low 1MB can still guarantee
+ * that the pages managed by the page allocator are always TDX memory,
+ * as the low 1MB is reserved during kernel boot and won't end up to
+ * the ZONE_DMA (see reserve_real_mode()).
+ */
+#define memblock_for_each_tdx_mem_pfn_range(i, p_start, p_end, p_nid)	\
+	for_each_mem_pfn_range(i, MAX_NUMNODES, p_start, p_end, p_nid)	\
+		if (!pfn_range_skip_lowmem(p_start, p_end))
+
+/* Check whether first range is the subrange of the second */
+static bool is_subrange(u64 r1_start, u64 r1_end, u64 r2_start, u64 r2_end)
+{
+	return r1_start >= r2_start && r1_end <= r2_end;
+}
+
+/* Check whether address range is covered by any CMR or not. */
+static bool range_covered_by_cmr(struct cmr_info *cmr_array, int cmr_num,
+				 u64 start, u64 end)
+{
+	int i;
+
+	for (i = 0; i < cmr_num; i++) {
+		struct cmr_info *cmr = &cmr_array[i];
+
+		if (is_subrange(start, end, cmr->base, cmr->base + cmr->size))
+			return true;
+	}
+
+	return false;
+}
+
+/*
+ * Check whether all memory regions in memblock are TDX convertible
+ * memory.  Return 0 if all memory regions are convertible, or error.
+ */
+static int check_memblock_tdx_convertible(void)
+{
+	unsigned long start_pfn, end_pfn;
+	int i;
+
+	memblock_for_each_tdx_mem_pfn_range(i, &start_pfn, &end_pfn, NULL) {
+		u64 start, end;
+
+		start = start_pfn << PAGE_SHIFT;
+		end = end_pfn << PAGE_SHIFT;
+		if (!range_covered_by_cmr(tdx_cmr_array, tdx_cmr_num, start,
+					end)) {
+			pr_err("[0x%llx, 0x%llx) is not fully convertible memory\n",
+					start, end);
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
+/*
  * Detect and initialize the TDX module.
  *
  * Return -ENODEV when the TDX module is not loaded, 0 when it
@@ -368,6 +455,19 @@ static int init_tdx_module(void)
 		goto out;
 
 	ret = tdx_get_sysinfo(&tdx_sysinfo, tdx_cmr_array, &tdx_cmr_num);
+	if (ret)
+		goto out;
+
+	/*
+	 * To avoid having to modify the page allocator to distinguish
+	 * TDX and non-TDX memory allocation, convert all memory regions
+	 * in memblock to TDX memory to make sure all pages managed by
+	 * the page allocator are TDX memory.
+	 *
+	 * Sanity check all memory regions are fully covered by CMRs to
+	 * make sure they are truly convertible.
+	 */
+	ret = check_memblock_tdx_convertible();
 	if (ret)
 		goto out;
 

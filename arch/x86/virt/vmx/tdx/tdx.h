@@ -4,6 +4,18 @@
 
 #include <linux/types.h>
 
+/*
+ * This file contains both macros and data structures defined by the TDX
+ * architecture and Linux defined software data structures and functions.
+ * The two should not be mixed together for better readability.  The
+ * architectural definitions come first.
+ */
+
+ /*
+  * TDX module SEAMCALL leaf functions
+  */
+#define TDH_SYS_INIT		33
+
 /* Kernel defined TDX module status during module initialization. */
 enum tdx_module_status_t {
 	TDX_MODULE_UNKNOWN,

@@ -172,10 +172,19 @@ out:
 
 static int init_tdx_module(void)
 {
+	int ret;
+
+	/*
+	 * TDX module global initialization.  All '0's are just
+	 * unused parameters.
+	 */
+	ret = seamcall(TDH_SYS_INIT, 0, 0, 0, 0, NULL, NULL);
+	if (ret)
+		return ret;
+
 	/*
 	 * TODO:
 	 *
-	 *  - TDX module global initialization.
 	 *  - TDX module per-cpu initialization.
 	 *  - Get TDX module information and TDX-capable memory regions.
 	 *  - Build the list of TDX-usable memory regions.

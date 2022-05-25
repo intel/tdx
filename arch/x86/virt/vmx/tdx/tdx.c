@@ -427,6 +427,24 @@ static int check_memblock_tdx_convertible(void)
 	return 0;
 }
 
+/* TDMR must be 1gb aligned */
+#define TDMR_ALIGNMENT		BIT_ULL(30)
+#define TDMR_PFN_ALIGNMENT	(TDMR_ALIGNMENT >> PAGE_SHIFT)
+
+/* Align up and down the address to TDMR boundary */
+#define TDMR_ALIGN_DOWN(_addr)	ALIGN_DOWN((_addr), TDMR_ALIGNMENT)
+#define TDMR_ALIGN_UP(_addr)	ALIGN((_addr), TDMR_ALIGNMENT)
+
+static inline u64 tdmr_start(struct tdmr_info *tdmr)
+{
+	return tdmr->base;
+}
+
+static inline u64 tdmr_end(struct tdmr_info *tdmr)
+{
+	return tdmr->base + tdmr->size;
+}
+
 /* Calculate the actual TDMR_INFO size */
 static inline int cal_tdmr_size(void)
 {
@@ -464,6 +482,82 @@ static struct tdmr_info *alloc_tdmr_array(int *array_sz)
 	return alloc_pages_exact(*array_sz, GFP_KERNEL | __GFP_ZERO);
 }
 
+static struct tdmr_info *tdmr_array_entry(struct tdmr_info *tdmr_array,
+					  int idx)
+{
+	return (struct tdmr_info *)((unsigned long)tdmr_array +
+			cal_tdmr_size() * idx);
+}
+
+/*
+ * Create TDMRs to cover all memory regions in memblock.  The actual
+ * number of TDMRs is set to @tdmr_num.
+ */
+static int create_tdmrs(struct tdmr_info *tdmr_array, int *tdmr_num)
+{
+	unsigned long start_pfn, end_pfn;
+	int i, nid, tdmr_idx = 0;
+
+	/*
+	 * Loop over all memory regions in memblock and create TDMRs to
+	 * cover them.  To keep it simple, always try to use one TDMR to
+	 * cover memory region.
+	 */
+	memblock_for_each_tdx_mem_pfn_range(i, &start_pfn, &end_pfn, &nid) {
+		struct tdmr_info *tdmr;
+		u64 start, end;
+
+		tdmr = tdmr_array_entry(tdmr_array, tdmr_idx);
+		start = TDMR_ALIGN_DOWN(start_pfn << PAGE_SHIFT);
+		end = TDMR_ALIGN_UP(end_pfn << PAGE_SHIFT);
+
+		/*
+		 * If the current TDMR's size hasn't been initialized,
+		 * it is a new TDMR to cover the new memory region.
+		 * Otherwise, the current TDMR has already covered the
+		 * previous memory region.  In the latter case, check
+		 * whether the current memory region has been fully or
+		 * partially covered by the current TDMR, since TDMR is
+		 * 1G aligned.
+		 */
+		if (tdmr->size) {
+			/*
+			 * Loop to the next memory region if the current
+			 * region has already fully covered by the
+			 * current TDMR.
+			 */
+			if (end <= tdmr_end(tdmr))
+				continue;
+
+			/*
+			 * If part of the current memory region has
+			 * already been covered by the current TDMR,
+			 * skip the already covered part.
+			 */
+			if (start < tdmr_end(tdmr))
+				start = tdmr_end(tdmr);
+
+			/*
+			 * Create a new TDMR to cover the current memory
+			 * region, or the remaining part of it.
+			 */
+			tdmr_idx++;
+			if (tdmr_idx >= tdx_sysinfo.max_tdmrs)
+				return -E2BIG;
+
+			tdmr = tdmr_array_entry(tdmr_array, tdmr_idx);
+		}
+
+		tdmr->base = start;
+		tdmr->size = end - start;
+	}
+
+	/* @tdmr_idx is always the index of last valid TDMR. */
+	*tdmr_num = tdmr_idx + 1;
+
+	return 0;
+}
+
 /*
  * Construct an array of TDMRs to cover all memory regions in memblock.
  * This makes sure all pages managed by the page allocator are TDX
@@ -472,8 +566,16 @@ static struct tdmr_info *alloc_tdmr_array(int *array_sz)
 static int construct_tdmrs_memeblock(struct tdmr_info *tdmr_array,
 				     int *tdmr_num)
 {
+	int ret;
+
+	ret = create_tdmrs(tdmr_array, tdmr_num);
+	if (ret)
+		goto err;
+
 	/* Return -EINVAL until constructing TDMRs is done */
-	return -EINVAL;
+	ret = -EINVAL;
+err:
+	return ret;
 }
 
 /*

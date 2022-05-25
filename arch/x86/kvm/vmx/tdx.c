@@ -1790,13 +1790,18 @@ static void tdx_measure_page(struct kvm_tdx *kvm_tdx, hpa_t gpa, int size)
 	}
 }
 
-static void tdx_unpin(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn)
+static void tdx_unpin(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
+		      enum pg_level level)
 {
 	struct kvm_memory_slot *slot = gfn_to_memslot(kvm, gfn);
-	struct page *page = pfn_to_page(pfn);
+	int i;
 
-	put_page(page);
-	WARN_ON(!page_count(page) && to_kvm_tdx(kvm)->hkid > 0);
+	for (i = 0; i < KVM_PAGES_PER_HPAGE(level); i++) {
+		struct page *page = pfn_to_page(pfn + i);
+
+		put_page(page);
+		WARN_ON(!page_count(page) && to_kvm_tdx(kvm)->hkid > 0);
+	}
 	if (kvm_slot_is_private(slot)) {
 		/* Private slot case */
 		return;
@@ -1831,7 +1836,7 @@ static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 		err = tdh_mem_page_aug(kvm_tdx->tdr.pa, gpa, tdx_level, hpa, &out);
 		if (KVM_BUG_ON(err, kvm)) {
 			pr_tdx_error(TDH_MEM_PAGE_AUG, err, &out);
-			tdx_unpin(kvm, gfn, pfn);
+			tdx_unpin(kvm, gfn, pfn, level);
 		}
 		return;
 	}
@@ -1846,7 +1851,7 @@ static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	 * always uses vcpu 0's page table and protected by vcpu->mutex).
 	 */
 	if (KVM_BUG_ON(kvm_tdx->source_pa == INVALID_PAGE, kvm)) {
-		tdx_unpin(kvm, gfn, pfn);
+		tdx_unpin(kvm, gfn, pfn, level);
 		return;
 	}
 
@@ -1855,7 +1860,7 @@ static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	err = tdh_mem_page_add(kvm_tdx->tdr.pa, gpa, tdx_level, hpa, source_pa, &out);
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_MEM_PAGE_ADD, err, &out);
-		tdx_unpin(kvm, gfn, pfn);
+		tdx_unpin(kvm, gfn, pfn, level);
 	} else if ((kvm_tdx->source_pa & KVM_TDX_MEASURE_MEMORY_REGION))
 		tdx_measure_page(kvm_tdx, gpa, KVM_HPAGE_SIZE(level));
 
@@ -1905,7 +1910,7 @@ static void tdx_sept_drop_private_spte(
 			if (WARN_ON_ONCE(err))
 				pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
 			else
-				tdx_unpin(kvm, gfn + i, pfn + i);
+				tdx_unpin(kvm, gfn + i, pfn + i, PG_LEVEL_4K);
 			hpa += PAGE_SIZE;
 		}
 	} else {
@@ -1918,7 +1923,7 @@ static void tdx_sept_drop_private_spte(
 				       false, 0);
 		spin_unlock(&kvm_tdx->seamcall_lock);
 		if (!err)
-			tdx_unpin(kvm, gfn, pfn);
+			tdx_unpin(kvm, gfn, pfn, level);
 	}
 }
 

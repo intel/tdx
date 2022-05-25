@@ -17,6 +17,8 @@
 #include <linux/atomic.h>
 #include <linux/sizes.h>
 #include <linux/memblock.h>
+#include <linux/gfp.h>
+#include <linux/align.h>
 #include <asm/cpufeatures.h>
 #include <asm/cpufeature.h>
 #include <asm/msr-index.h>
@@ -425,6 +427,55 @@ static int check_memblock_tdx_convertible(void)
 	return 0;
 }
 
+/* Calculate the actual TDMR_INFO size */
+static inline int cal_tdmr_size(void)
+{
+	int tdmr_sz;
+
+	/*
+	 * The actual size of TDMR_INFO depends on the maximum number
+	 * of reserved areas.
+	 */
+	tdmr_sz = sizeof(struct tdmr_info);
+	tdmr_sz += sizeof(struct tdmr_reserved_area) *
+		   tdx_sysinfo.max_reserved_per_tdmr;
+
+	/*
+	 * TDX requires each TDMR_INFO to be 512-byte aligned.  Always
+	 * round up TDMR_INFO size to the 512-byte boundary.
+	 */
+	return ALIGN(tdmr_sz, TDMR_INFO_ALIGNMENT);
+}
+
+static struct tdmr_info *alloc_tdmr_array(int *array_sz)
+{
+	/*
+	 * TDX requires each TDMR_INFO to be 512-byte aligned.
+	 * Use alloc_pages_exact() to allocate all TDMRs at once.
+	 * Each TDMR_INFO will still be 512-byte aligned since
+	 * cal_tdmr_size() always return 512-byte aligned size.
+	 */
+	*array_sz = cal_tdmr_size() * tdx_sysinfo.max_tdmrs;
+
+	/*
+	 * Zero the buffer so 'struct tdmr_info::size' can be
+	 * used to determine whether a TDMR is valid.
+	 */
+	return alloc_pages_exact(*array_sz, GFP_KERNEL | __GFP_ZERO);
+}
+
+/*
+ * Construct an array of TDMRs to cover all memory regions in memblock.
+ * This makes sure all pages managed by the page allocator are TDX
+ * memory.  The actual number of TDMRs is kept to @tdmr_num.
+ */
+static int construct_tdmrs_memeblock(struct tdmr_info *tdmr_array,
+				     int *tdmr_num)
+{
+	/* Return -EINVAL until constructing TDMRs is done */
+	return -EINVAL;
+}
+
 /*
  * Detect and initialize the TDX module.
  *
@@ -434,6 +485,9 @@ static int check_memblock_tdx_convertible(void)
  */
 static int init_tdx_module(void)
 {
+	struct tdmr_info *tdmr_array;
+	int tdmr_array_sz;
+	int tdmr_num;
 	int ret;
 
 	/*
@@ -471,11 +525,30 @@ static int init_tdx_module(void)
 	if (ret)
 		goto out;
 
+	/* Prepare enough space to construct TDMRs */
+	tdmr_array = alloc_tdmr_array(&tdmr_array_sz);
+	if (!tdmr_array) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	/* Construct TDMRs to cover all memory regions in memblock */
+	ret = construct_tdmrs_memeblock(tdmr_array, &tdmr_num);
+	if (ret)
+		goto out_free_tdmrs;
+
 	/*
 	 * Return -EINVAL until all steps of TDX module initialization
 	 * process are done.
 	 */
 	ret = -EINVAL;
+out_free_tdmrs:
+	/*
+	 * The array of TDMRs is freed no matter the initialization is
+	 * successful or not.  They are not needed anymore after the
+	 * module initialization.
+	 */
+	free_pages_exact(tdmr_array, tdmr_array_sz);
 out:
 	return ret;
 }

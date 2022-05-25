@@ -1069,6 +1069,10 @@ static int init_tdx_module(void)
 	struct tdmr_info_list tdmr_list;
 	int ret;
 
+	ret = seamcall(TDH_SYS_INIT, 0, 0, 0, 0, NULL, NULL);
+	if (ret)
+		goto out;
+
 	ret = tdx_get_sysinfo(sysinfo, cmr_array);
 	if (ret)
 		goto out;

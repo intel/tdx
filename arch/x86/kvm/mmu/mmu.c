@@ -7227,6 +7227,15 @@ static inline bool linfo_is_mixed(struct kvm_lpage_info *linfo)
 	return linfo->disallow_lpage & KVM_LPAGE_PRIVATE_SHARED_MIXED;
 }
 
+bool kvm_mem_attr_is_mixed(struct kvm_memory_slot *slot, gfn_t gfn, int level)
+{
+       struct kvm_lpage_info *linfo = lpage_info_slot(gfn & KVM_HPAGE_MASK(level),
+						      slot, level);
+
+       WARN_ON_ONCE(level == PG_LEVEL_4K);
+       return linfo_is_mixed(linfo);
+}
+
 static inline void linfo_update_mixed(struct kvm_lpage_info *linfo, bool mixed)
 {
 	if (mixed)

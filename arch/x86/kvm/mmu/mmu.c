@@ -7086,6 +7086,9 @@ static void kvm_mmu_map_gfn_in_slot(struct kvm *kvm,
 
 		__kvm_mmu_map_gfn_in_slot(kvm, memslot, start_gfn, level, is_private);
 		start_gfn += KVM_PAGES_PER_HPAGE(level);
+
+		if (need_resched())
+			cond_resched();
 	}
 }
 

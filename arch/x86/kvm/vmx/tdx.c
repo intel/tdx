@@ -1714,6 +1714,27 @@ static void tdx_trace_tdvmcall_done(struct kvm_vcpu *vcpu)
 		kvm_r8_read(vcpu), kvm_r9_read(vcpu), kvm_rdx_read(vcpu));
 }
 
+static int tdx_map_gpa(struct kvm_vcpu *vcpu)
+{
+	struct kvm *kvm = vcpu->kvm;
+	gpa_t gpa = tdvmcall_a0_read(vcpu);
+	gpa_t size = tdvmcall_a1_read(vcpu);
+	gpa_t end = gpa + size;
+
+	tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
+	if (!IS_ALIGNED(gpa, 4096) || !IS_ALIGNED(size, 4096) ||
+		end < gpa ||
+		end > kvm_gfn_shared_mask(kvm) << (PAGE_SHIFT + 1) ||
+		kvm_is_private_gpa(kvm, gpa) != kvm_is_private_gpa(kvm, end))
+		return 1;
+
+	tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_SUCCESS);
+
+	kvm_mmu_map_gpa(vcpu, gpa, end);
+
+	return 1;
+}
+
 static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 {
 	int r;
@@ -1757,6 +1778,9 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 		break;
 	case TDG_VP_VMCALL_GET_QUOTE:
 		r = tdx_get_quote(vcpu);
+		break;
+	case TDG_VP_VMCALL_MAP_GPA:
+		r = tdx_map_gpa(vcpu);
 		break;
 	default:
 		tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);

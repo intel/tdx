@@ -1656,7 +1656,7 @@ static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 #define TDX_SEPT_VIOLATION_EXIT_QUAL	EPT_VIOLATION_ACC_WRITE
 		exit_qual = TDX_SEPT_VIOLATION_EXIT_QUAL;
 	} else {
-		exit_qual = tdexit_exit_qual(vcpu);;
+		exit_qual = tdexit_exit_qual(vcpu);
 		if (exit_qual & EPT_VIOLATION_ACC_INSTR) {
 			pr_warn("kvm: TDX instr fetch to shared GPA = 0x%lx @ RIP = 0x%lx\n",
 				tdexit_gpa(vcpu), kvm_rip_read(vcpu));
@@ -2272,6 +2272,7 @@ static int tdx_init_mem_region(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	struct kvm_tdx_init_mem_region region;
 	struct kvm_vcpu *vcpu;
 	struct page *page;
+	u64 error_code;
 	kvm_pfn_t pfn;
 	int idx, ret = 0;
 
@@ -2325,7 +2326,11 @@ static int tdx_init_mem_region(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 		kvm_tdx->source_pa = pfn_to_hpa(page_to_pfn(page)) |
 				     (cmd->flags & KVM_TDX_MEASURE_MEMORY_REGION);
 
-		pfn = kvm_mmu_map_tdp_page(vcpu, region.gpa, TDX_SEPT_PFERR,
+		/* TODO: large page support. */
+		error_code = TDX_SEPT_PFERR;
+		error_code |= (PG_LEVEL_4K << PFERR_LEVEL_START_BIT) &
+			PFERR_LEVEL_MASK;
+		pfn = kvm_mmu_map_tdp_page(vcpu, region.gpa, error_code,
 					   PG_LEVEL_4K);
 		if (is_error_noslot_pfn(pfn) || kvm->vm_bugged)
 			ret = -EFAULT;

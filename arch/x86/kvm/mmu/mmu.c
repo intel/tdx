@@ -867,9 +867,8 @@ static inline bool kvm_page_type_valid(const struct kvm_page_attr *attr)
  * priavte and shared smaller pages. Thus have to go to query next level.
  */
 
-static inline bool kvm_page_type_valid_on_level(gfn_t gfn,
-						struct kvm_memory_slot *slot,
-						int level)
+bool kvm_page_type_valid_on_level(gfn_t gfn, struct kvm_memory_slot *slot,
+				  int level)
 {
 	struct kvm_page_attr *page_attr;
 
@@ -881,13 +880,9 @@ static inline bool kvm_page_type_valid_on_level(gfn_t gfn,
 	return kvm_page_type_valid(page_attr);
 }
 
-static u8 max_level_of_valid_page_type(struct kvm_vcpu *vcpu, gfn_t gfn)
+static u8 max_level_of_valid_page_type(gfn_t gfn, struct kvm_memory_slot *slot)
 {
-	struct kvm_memory_slot *slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
-	u8 level = PG_LEVEL_1G;
-
-	if (WARN_ON(!slot))
-		return PG_LEVEL_4K;
+	enum pg_level level = KVM_MAX_HUGEPAGE_LEVEL;
 
 	for (; level > PG_LEVEL_NONE; level--) {
 		if (kvm_page_type_valid_on_level(gfn, slot, level))
@@ -3368,6 +3363,12 @@ void kvm_mmu_hugepage_adjust(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 	fault->req_level = kvm_mmu_max_mapping_level(vcpu->kvm, slot,
 						     fault->gfn, fault->pfn,
 						     fault->max_level);
+
+	if (kvm_gfn_shared_mask(vcpu->kvm)) {
+		fault->req_level = min(fault->req_level,
+				       max_level_of_valid_page_type(fault->gfn, slot));
+	}
+
 	if (fault->req_level == PG_LEVEL_4K || fault->huge_page_disallowed)
 		return;
 
@@ -3464,7 +3465,7 @@ static void __direct_populate_nonleaf(struct kvm_vcpu *vcpu,
 	if (kvm_gfn_shared_mask(vcpu->kvm))
 		fault->max_level = min(
 			fault->max_level,
-			max_level_of_valid_page_type(vcpu, fault->gfn));
+			max_level_of_valid_page_type(fault->gfn, fault->slot));
 	/*
 	 * Cannot map a private page to higher level if smaller level mapping
 	 * exists. It can be promoted to larger mapping later when all the

@@ -365,10 +365,10 @@ struct kvm_tdx_exit {
 #define KVM_EXIT_RISCV_CSR        36
 #define KVM_EXIT_NOTIFY           37
 #define KVM_EXIT_LOONGARCH_IOCSR  38
-#define KVM_EXIT_MEMORY_FAULT     39
 
 /* WORKAROUND to avoid conflict with upstream. */
 #define KVM_EXIT_TDX              50
+#define KVM_EXIT_MEMORY_FAULT     100
 
 /* For KVM_EXIT_INTERNAL_ERROR */
 /* Emulate instruction failed. */

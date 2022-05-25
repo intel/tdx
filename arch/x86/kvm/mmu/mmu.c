@@ -895,8 +895,8 @@ static u8 max_level_of_valid_page_type(gfn_t gfn, struct kvm_memory_slot *slot)
 	return level;
 }
 
-static void try_merge_page_type(struct kvm_vcpu *vcpu, gfn_t gfn,
-				  struct kvm_memory_slot *slot, int level)
+static void try_merge_page_type(gfn_t gfn, struct kvm_memory_slot *slot,
+				enum pg_level level)
 {
 	struct kvm_page_attr *page_attr;
 	enum kvm_page_type type;
@@ -925,11 +925,11 @@ static void try_merge_page_type(struct kvm_vcpu *vcpu, gfn_t gfn,
 	page_attr = page_attr_slot(base_gfn, slot, level + 1);
 	page_attr->type = type;
 
-	try_merge_page_type(vcpu, gfn, slot, level + 1);
+	try_merge_page_type(gfn, slot, level + 1);
 }
 
-static void split_page_type(struct kvm_vcpu *vcpu, gfn_t gfn,
-			      struct kvm_memory_slot *slot, int level)
+static void split_page_type(gfn_t gfn, struct kvm_memory_slot *slot,
+			    enum pg_level level)
 {
 	struct kvm_page_attr *page_attr = page_attr_slot(gfn, slot, level);
 	enum kvm_page_type type;
@@ -941,6 +941,7 @@ static void split_page_type(struct kvm_vcpu *vcpu, gfn_t gfn,
 
 	base_gfn = gfn & ~(KVM_PAGES_PER_HPAGE(level) - 1);
 	type = page_attr->type;
+
 	/*
 	 * Set the type to KVM_PAGE_TYPE_MIXED in advance since when a large
 	 * page needs to be split means one of the 4K page of it needs to be
@@ -980,10 +981,10 @@ void kvm_mmu_update_page_attr(struct kvm_vcpu *vcpu, gfn_t gfn, enum kvm_page_ty
 
 		if (level == PG_LEVEL_4K) {
 			page_attr->type = type;
-			try_merge_page_type(vcpu, gfn, slot, level);
+			try_merge_page_type(gfn, slot, level);
 			return;
 		}
-		split_page_type(vcpu, gfn, slot, level);
+		split_page_type(gfn, slot, level);
 	}
 }
 
@@ -1105,6 +1106,38 @@ static inline bool page_fault_page_type_conflict(struct kvm_page_fault *fault)
 	default:
 		return true;
 	}
+}
+
+static bool update_page_type(gfn_t gfn, struct kvm_memory_slot *slot,
+			     enum pg_level level, enum kvm_page_type type)
+{
+	struct kvm_page_attr *page_attr;
+	gfn_t base_gfn;
+	int i;
+
+	if (level < PG_LEVEL_4K) {
+		WARN_ON_ONCE(1);
+		return false;
+	}
+
+	page_attr = page_attr_on_level(gfn, slot, level);
+	if (WARN_ON_ONCE(page_attr->type == KVM_PAGE_TYPE_INVALID))
+		return false;
+
+	if (page_attr->type == type)
+		return false;
+
+	page_attr->type = type;
+
+	if (level == PG_LEVEL_4K)
+		return true;
+
+	base_gfn = gfn & ~(KVM_PAGES_PER_HPAGE(level) - 1);
+	for (i = 0; i < PT64_ENT_PER_PAGE; i++)
+		update_page_type(base_gfn + i * KVM_PAGES_PER_HPAGE(level - 1),
+				 slot, level - 1, type);
+
+	return true;
 }
 
 /*
@@ -7000,6 +7033,93 @@ void kvm_mmu_invalidate_mmio_sptes(struct kvm *kvm, u64 gen)
 		kvm_mmu_zap_all_fast(kvm);
 	}
 }
+
+/*
+ *  address of @gfn is size aligned at @target_level
+ */
+static void __kvm_mmu_map_gfn_in_slot(struct kvm *kvm,
+				      struct kvm_memory_slot *memslot,
+				      gfn_t gfn, enum pg_level target_level,
+				      bool is_private)
+{
+	struct kvm_page_attr *page_attr;
+	enum kvm_page_type page_type = is_private ? KVM_PAGE_TYPE_PRIVATE
+						  : KVM_PAGE_TYPE_SHARED;
+	enum pg_level level;
+
+	for (level = KVM_MAX_HUGEPAGE_LEVEL; level > target_level; level--) {
+		page_attr = page_attr_on_level(gfn, memslot, level);
+
+		if (!kvm_page_type_valid(page_attr))
+			continue;
+
+		if (page_attr->type == page_type)
+			return;
+
+		split_page_type(gfn, memslot, level);
+	}
+
+	/* Zap the gfn at @level when the page type changes */
+	if (update_page_type(gfn, memslot, level, page_type)) {
+		kvm_zap_gfn_range(kvm, gfn, gfn + KVM_PAGES_PER_HPAGE(level));
+		try_merge_page_type(gfn, memslot, level);
+	}
+}
+
+static void kvm_mmu_map_gfn_in_slot(struct kvm *kvm,
+				    struct kvm_memory_slot *memslot,
+				    gfn_t start_gfn, gfn_t end_gfn,
+				    bool is_private)
+{
+	enum pg_level level;
+
+	while (start_gfn < end_gfn) {
+		for (level = KVM_MAX_HUGEPAGE_LEVEL; level > PG_LEVEL_4K; level--) {
+			if (start_gfn & (KVM_PAGES_PER_HPAGE(level) - 1))
+				continue;
+
+			if (roundup(start_gfn + 1, KVM_PAGES_PER_HPAGE(level)) > end_gfn)
+				continue;
+
+			break;
+		}
+
+		__kvm_mmu_map_gfn_in_slot(kvm, memslot, start_gfn, level, is_private);
+		start_gfn += KVM_PAGES_PER_HPAGE(level);
+	}
+}
+
+int kvm_mmu_map_gpa(struct kvm_vcpu *vcpu, gpa_t start_gpa, gpa_t end_gpa)
+{
+	struct kvm_memory_slot *memslot;
+	struct kvm_memslot_iter iter;
+	struct kvm *kvm = vcpu->kvm;
+	struct kvm_memslots *slots;
+	gfn_t start, end;
+	bool is_private;
+
+	if (!kvm_gfn_shared_mask(kvm))
+		return -EOPNOTSUPP;
+
+	is_private = kvm_is_private_gpa(kvm, start_gpa);
+	start = gpa_to_gfn(start_gpa) & ~kvm_gfn_shared_mask(kvm);
+	end = gpa_to_gfn(end_gpa) & ~kvm_gfn_shared_mask(kvm);
+
+	slots = __kvm_memslots(kvm, 0 /* only normal ram. not SMM. */);
+	kvm_for_each_memslot_in_gfn_range(&iter, slots, start, end) {
+		memslot = iter.slot;
+		start = max(start, memslot->base_gfn);
+		end = min(end, memslot->base_gfn + memslot->npages);
+
+		if (WARN_ON_ONCE(start >= end))
+				continue;
+
+		kvm_mmu_map_gfn_in_slot(kvm, memslot, start, end, is_private);
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(kvm_mmu_map_gpa);
 
 static unsigned long
 mmu_shrink_scan(struct shrinker *shrink, struct shrink_control *sc)

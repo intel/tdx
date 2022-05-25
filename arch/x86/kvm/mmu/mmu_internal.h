@@ -434,6 +434,8 @@ void *mmu_memory_cache_alloc(struct kvm_mmu_memory_cache *mc);
 void track_possible_nx_huge_page(struct kvm *kvm, struct kvm_mmu_page *sp);
 void untrack_possible_nx_huge_page(struct kvm *kvm, struct kvm_mmu_page *sp);
 
+bool kvm_mem_attr_is_mixed(struct kvm_memory_slot *slot, gfn_t gfn, int level);
+
 #ifndef CONFIG_HAVE_KVM_RESTRICTED_MEM
 static inline int kvm_restricted_mem_get_pfn(struct kvm_memory_slot *slot,
 					gfn_t gfn, kvm_pfn_t *pfn, int *order)

@@ -853,7 +853,7 @@ static struct kvm_page_attr *page_attr_slot(gfn_t gfn,
 	return &slot->arch.page_attr[level - 1][idx];
 }
 
-static inline bool kvm_page_type_valid(struct kvm_page_attr *attr)
+static inline bool kvm_page_type_valid(const struct kvm_page_attr *attr)
 {
 	return attr->type == KVM_PAGE_TYPE_SHARED ||
 	       attr->type == KVM_PAGE_TYPE_PRIVATE;
@@ -1061,6 +1061,55 @@ gfn_to_memslot_dirty_bitmap(struct kvm_vcpu *vcpu, gfn_t gfn,
 		return NULL;
 
 	return slot;
+}
+
+/*
+ * Return the pointer to the kvm_page_attr information for a given @gfn
+ * at given @slot and @level.
+ */
+static struct kvm_page_attr *page_attr_on_level(gfn_t gfn,
+	struct kvm_memory_slot *slot, enum pg_level level)
+{
+	unsigned long idx;
+
+	idx = gfn_to_index(gfn, slot->base_gfn, level);
+	return &slot->arch.page_attr[level - 1][idx];
+}
+
+static enum kvm_page_type kvm_get_valid_page_type(gfn_t gfn, struct kvm_memory_slot *slot)
+{
+	enum pg_level level = KVM_MAX_HUGEPAGE_LEVEL;
+	struct kvm_page_attr *page_attr;
+
+	for (; level > PG_LEVEL_NONE; level--) {
+		page_attr = page_attr_on_level(gfn, slot, level);
+		if (kvm_page_type_valid(page_attr))
+			return page_attr->type;
+	}
+
+	WARN_ON_ONCE(1);
+	return KVM_PAGE_TYPE_INVALID;
+}
+
+static inline bool page_fault_page_type_conflict(struct kvm_page_fault *fault)
+{
+	enum kvm_page_type page_type;
+
+	if (!fault->slot)
+		return false;
+
+	page_type = kvm_get_valid_page_type(fault->gfn, fault->slot);
+	switch(page_type) {
+	case KVM_PAGE_TYPE_MIXED:
+	case KVM_PAGE_TYPE_INVALID:
+		return true;
+	case KVM_PAGE_TYPE_SHARED:
+		return fault->is_private;
+	case KVM_PAGE_TYPE_PRIVATE:
+		return !fault->is_private;
+	default:
+		return true;
+	}
 }
 
 /*
@@ -4723,6 +4772,10 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 
 	fault->gfn = gpa_to_gfn(fault->addr) & ~kvm_gfn_shared_mask(vcpu->kvm);
 	fault->slot = kvm_vcpu_gfn_to_memslot(vcpu, fault->gfn);
+
+	if (kvm_gfn_shared_mask(vcpu->kvm) &&
+	    page_fault_page_type_conflict(fault))
+		return RET_PF_RETRY;
 
 	if (page_fault_handle_page_track(vcpu, fault))
 		return RET_PF_EMULATE;

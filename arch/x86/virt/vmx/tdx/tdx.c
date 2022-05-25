@@ -45,6 +45,11 @@ static enum tdx_module_status_t tdx_module_status;
 /* Prevent concurrent attempts on TDX detection and initialization */
 static DEFINE_MUTEX(tdx_module_lock);
 
+/* Below two are used in TDH.SYS.INFO SEAMCALL ABI */
+static struct tdsysinfo_struct tdx_sysinfo;
+static struct cmr_info tdx_cmr_array[MAX_CMRS] __aligned(CMR_INFO_ARRAY_ALIGNMENT);
+static int tdx_cmr_num;
+
 /* Detect whether CPU supports SEAM */
 static int detect_seam(void)
 {
@@ -204,6 +209,135 @@ static int tdx_module_init_cpus(void)
 	return atomic_read(&sc.err);
 }
 
+static inline bool cmr_valid(struct cmr_info *cmr)
+{
+	return !!cmr->size;
+}
+
+static void print_cmrs(struct cmr_info *cmr_array, int cmr_num,
+		       const char *name)
+{
+	int i;
+
+	for (i = 0; i < cmr_num; i++) {
+		struct cmr_info *cmr = &cmr_array[i];
+
+		pr_info("%s : [0x%llx, 0x%llx)\n", name,
+				cmr->base, cmr->base + cmr->size);
+	}
+}
+
+/*
+ * Check the CMRs reported by TDH.SYS.INFO and update the actual number
+ * of CMRs.  The CMRs returned by the TDH.SYS.INFO may contain invalid
+ * CMRs after the last valid CMR, but there should be no invalid CMRs
+ * between two valid CMRs.  Check and update the actual number of CMRs
+ * number by dropping all tail empty CMRs.
+ */
+static int check_cmrs(struct cmr_info *cmr_array, int *actual_cmr_num)
+{
+	int cmr_num = *actual_cmr_num;
+	int i, j;
+
+	/*
+	 * Intel TDX module spec, 20.7.3 CMR_INFO:
+	 *
+	 *   TDH.SYS.INFO leaf function returns a MAX_CMRS (32) entry
+	 *   array of CMR_INFO entries. The CMRs are sorted from the
+	 *   lowest base address to the highest base address, and they
+	 *   are non-overlapping.
+	 *
+	 * This implies that BIOS may generate invalid empty entries
+	 * if total CMRs are less than 32.  Skip them manually.
+	 */
+	for (i = 0; i < cmr_num; i++) {
+		struct cmr_info *cmr = &cmr_array[i];
+		struct cmr_info *prev_cmr = NULL;
+
+		/* Skip further invalid CMRs */
+		if (!cmr_valid(cmr))
+			break;
+
+		if (i > 0)
+			prev_cmr = &cmr_array[i - 1];
+
+		/*
+		 * It is a TDX firmware bug if CMRs are not
+		 * in address ascending order.
+		 */
+		if (prev_cmr && ((prev_cmr->base + prev_cmr->size) >
+					cmr->base)) {
+			print_cmrs(cmr_array, cmr_num, "BIOS-CMR");
+			pr_err("Firmware bug: CMRs not in address ascending order.\n");
+			return -EINVAL;
+		}
+	}
+
+	/*
+	 * Also a sane BIOS should never generate invalid CMR(s) between
+	 * two valid CMRs.  Sanity check this and simply return error in
+	 * this case.
+	 *
+	 * By reaching here @i is the index of the first invalid CMR (or
+	 * cmr_num).  Starting with next entry of @i since it has already
+	 * been checked.
+	 */
+	for (j = i + 1; j < cmr_num; j++) {
+		if (cmr_valid(&cmr_array[j])) {
+			print_cmrs(cmr_array, cmr_num, "BIOS-CMR");
+			pr_err("Firmware bug: invalid CMR(s) before valid CMRs.\n");
+			return -EINVAL;
+		}
+	}
+
+	/*
+	 * Trim all tail invalid empty CMRs.  BIOS should generate at
+	 * least one valid CMR, otherwise it's a TDX firmware bug.
+	 */
+	if (i == 0) {
+		print_cmrs(cmr_array, cmr_num, "BIOS-CMR");
+		pr_err("Firmware bug: No valid CMR.\n");
+		return -EINVAL;
+	}
+
+	/* Update the actual number of CMRs */
+	*actual_cmr_num = i;
+
+	/* Print kernel checked CMRs */
+	print_cmrs(cmr_array, *actual_cmr_num, "Kernel-checked-CMR");
+
+	return 0;
+}
+
+static int tdx_get_sysinfo(struct tdsysinfo_struct *tdsysinfo,
+			   struct cmr_info *cmr_array,
+			   int *actual_cmr_num)
+{
+	struct tdx_module_output out;
+	u64 ret;
+
+	BUILD_BUG_ON(sizeof(struct tdsysinfo_struct) != TDSYSINFO_STRUCT_SIZE);
+
+	ret = seamcall(TDH_SYS_INFO, __pa(tdsysinfo), TDSYSINFO_STRUCT_SIZE,
+			__pa(cmr_array), MAX_CMRS, &out);
+	if (ret)
+		return -EFAULT;
+
+	/* R9 contains the actual entries written the CMR array. */
+	*actual_cmr_num = out.r9;
+
+	pr_info("TDX module: vendor_id 0x%x, major_version %u, minor_version %u, build_date %u, build_num %u",
+		tdsysinfo->vendor_id, tdsysinfo->major_version,
+		tdsysinfo->minor_version, tdsysinfo->build_date,
+		tdsysinfo->build_num);
+
+	/*
+	 * check_cmrs() updates the actual number of CMRs by dropping all
+	 * tail invalid CMRs.
+	 */
+	return check_cmrs(cmr_array, actual_cmr_num);
+}
+
 /*
  * Detect and initialize the TDX module.
  *
@@ -233,6 +367,9 @@ static int init_tdx_module(void)
 	if (ret)
 		goto out;
 
+	ret = tdx_get_sysinfo(&tdx_sysinfo, tdx_cmr_array, &tdx_cmr_num);
+	if (ret)
+		goto out;
 
 	/*
 	 * Return -EINVAL until all steps of TDX module initialization

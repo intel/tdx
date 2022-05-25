@@ -868,7 +868,7 @@ static inline bool kvm_page_type_valid(const struct kvm_page_attr *attr)
  */
 
 bool kvm_page_type_valid_on_level(gfn_t gfn, struct kvm_memory_slot *slot,
-				  int level)
+				  enum pg_level level)
 {
 	struct kvm_page_attr *page_attr;
 
@@ -882,9 +882,9 @@ bool kvm_page_type_valid_on_level(gfn_t gfn, struct kvm_memory_slot *slot,
 
 static u8 max_level_of_valid_page_type(gfn_t gfn, struct kvm_memory_slot *slot)
 {
-	enum pg_level level = KVM_MAX_HUGEPAGE_LEVEL;
+	enum pg_level level;
 
-	for (; level > PG_LEVEL_NONE; level--) {
+	for (level = KVM_MAX_HUGEPAGE_LEVEL; level > PG_LEVEL_NONE; level--) {
 		if (kvm_page_type_valid_on_level(gfn, slot, level))
 			break;
 	}

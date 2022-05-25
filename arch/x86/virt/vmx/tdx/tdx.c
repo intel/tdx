@@ -13,6 +13,7 @@
 #include <linux/errno.h>
 #include <linux/printk.h>
 #include <linux/mutex.h>
+#include <asm/pgtable_types.h>
 #include <asm/msr.h>
 #include <asm/tdx.h>
 #include "tdx.h"
@@ -107,9 +108,8 @@ bool platform_tdx_enabled(void)
  * leaf function return code and the additional output respectively if
  * not NULL.
  */
-static int __always_unused seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
-				    u64 *seamcall_ret,
-				    struct tdx_module_output *out)
+static int seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
+		    u64 *seamcall_ret, struct tdx_module_output *out)
 {
 	u64 sret;
 
@@ -150,12 +150,85 @@ static int __always_unused seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
 	}
 }
 
+static inline bool is_cmr_empty(struct cmr_info *cmr)
+{
+	return !cmr->size;
+}
+
+static void print_cmrs(struct cmr_info *cmr_array, int nr_cmrs)
+{
+	int i;
+
+	for (i = 0; i < nr_cmrs; i++) {
+		struct cmr_info *cmr = &cmr_array[i];
+
+		/*
+		 * The array of CMRs reported via TDH.SYS.INFO can
+		 * contain tail empty CMRs.  Don't print them.
+		 */
+		if (is_cmr_empty(cmr))
+			break;
+
+		pr_info("CMR: [0x%llx, 0x%llx)\n", cmr->base,
+				cmr->base + cmr->size);
+	}
+}
+
+/*
+ * Get the TDX module information (TDSYSINFO_STRUCT) and the array of
+ * CMRs, and save them to @sysinfo and @cmr_array, which come from the
+ * kernel stack.  @sysinfo must have been padded to have enough room
+ * to save the TDSYSINFO_STRUCT.
+ */
+static int tdx_get_sysinfo(struct tdsysinfo_struct *sysinfo,
+			   struct cmr_info *cmr_array)
+{
+	struct tdx_module_output out;
+	u64 sysinfo_pa, cmr_array_pa;
+	int ret;
+
+	/*
+	 * Cannot use __pa() directly as @sysinfo and @cmr_array
+	 * come from the kernel stack.
+	 */
+	sysinfo_pa = slow_virt_to_phys(sysinfo);
+	cmr_array_pa = slow_virt_to_phys(cmr_array);
+	ret = seamcall(TDH_SYS_INFO, sysinfo_pa, TDSYSINFO_STRUCT_SIZE,
+			cmr_array_pa, MAX_CMRS, NULL, &out);
+	if (ret)
+		return ret;
+
+	pr_info("TDX module: atributes 0x%x, vendor_id 0x%x, major_version %u, minor_version %u, build_date %u, build_num %u",
+		sysinfo->attributes,	sysinfo->vendor_id,
+		sysinfo->major_version, sysinfo->minor_version,
+		sysinfo->build_date,	sysinfo->build_num);
+
+	/* R9 contains the actual entries written to the CMR array. */
+	print_cmrs(cmr_array, out.r9);
+
+	return 0;
+}
+
 static int init_tdx_module(void)
 {
 	/*
+	 * @tdsysinfo and @cmr_array are used in TDH.SYS.INFO SEAMCALL ABI.
+	 * They are 1024 bytes and 512 bytes respectively but it's fine to
+	 * keep them in the stack as this function is only called once.
+	 */
+	DECLARE_PADDED_STRUCT(tdsysinfo_struct, tdsysinfo,
+			TDSYSINFO_STRUCT_SIZE, TDSYSINFO_STRUCT_ALIGNMENT);
+	struct cmr_info cmr_array[MAX_CMRS] __aligned(CMR_INFO_ARRAY_ALIGNMENT);
+	struct tdsysinfo_struct *sysinfo = &PADDED_STRUCT(tdsysinfo);
+	int ret;
+
+	ret = tdx_get_sysinfo(sysinfo, cmr_array);
+	if (ret)
+		goto out;
+
+	/*
 	 * TODO:
 	 *
-	 *  - Get TDX module information and TDX-capable memory regions.
 	 *  - Build the list of TDX-usable memory regions.
 	 *  - Construct a list of TDMRs to cover all TDX-usable memory
 	 *    regions.
@@ -166,7 +239,9 @@ static int init_tdx_module(void)
 	 *
 	 *  Return error before all steps are done.
 	 */
-	return -EINVAL;
+	ret = -EINVAL;
+out:
+	return ret;
 }
 
 static int __tdx_enable(void)

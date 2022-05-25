@@ -47,6 +47,11 @@
 
 
 /*
+ * TDX module SEAMCALL leaf functions
+ */
+#define TDH_SYS_LP_SHUTDOWN	44
+
+/*
  * Do not put any hardware-defined TDX structure representations below this
  * comment!
  */

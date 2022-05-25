@@ -13,6 +13,8 @@
 #include <linux/mutex.h>
 #include <linux/cpu.h>
 #include <linux/cpumask.h>
+#include <linux/smp.h>
+#include <linux/atomic.h>
 #include <asm/cpufeatures.h>
 #include <asm/cpufeature.h>
 #include <asm/msr-index.h>
@@ -124,6 +126,61 @@ static int __init tdx_early_detect(void)
 early_initcall(tdx_early_detect);
 
 /*
+ * Data structure to make SEAMCALL on multiple CPUs concurrently.
+ * @err is set to -EFAULT when SEAMCALL fails on any cpu.
+ */
+struct seamcall_ctx {
+	u64 fn;
+	u64 rcx;
+	u64 rdx;
+	u64 r8;
+	u64 r9;
+	atomic_t err;
+};
+
+/*
+ * Wrapper of __seamcall().  It additionally prints out the error
+ * informationi if __seamcall() fails normally.  It is useful during
+ * the module initialization by providing more information to the user.
+ */
+static u64 seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
+		    struct tdx_module_output *out)
+{
+	u64 ret;
+
+	ret = __seamcall(fn, rcx, rdx, r8, r9, out);
+	if (ret == TDX_SEAMCALL_VMFAILINVALID || !ret)
+		return ret;
+
+	pr_err("SEAMCALL failed: leaf: 0x%llx, error: 0x%llx\n", fn, ret);
+	if (out)
+		pr_err("SEAMCALL additional output: rcx 0x%llx, rdx 0x%llx, r8 0x%llx, r9 0x%llx, r10 0x%llx, r11 0x%llx.\n",
+			out->rcx, out->rdx, out->r8, out->r9, out->r10, out->r11);
+
+	return ret;
+}
+
+static void seamcall_smp_call_function(void *data)
+{
+	struct seamcall_ctx *sc = data;
+	struct tdx_module_output out;
+	u64 ret;
+
+	ret = seamcall(sc->fn, sc->rcx, sc->rdx, sc->r8, sc->r9, &out);
+	if (ret)
+		atomic_set(&sc->err, -EFAULT);
+}
+
+/*
+ * Call the SEAMCALL on all online CPUs concurrently.  Caller to check
+ * @sc->err to determine whether any SEAMCALL failed on any cpu.
+ */
+static void seamcall_on_each_cpu(struct seamcall_ctx *sc)
+{
+	on_each_cpu(seamcall_smp_call_function, sc, true);
+}
+
+/*
  * Detect and initialize the TDX module.
  *
  * Return -ENODEV when the TDX module is not loaded, 0 when it
@@ -138,7 +195,10 @@ static int init_tdx_module(void)
 
 static void shutdown_tdx_module(void)
 {
-	/* TODO: Shut down the TDX module */
+	struct seamcall_ctx sc = { .fn = TDH_SYS_LP_SHUTDOWN };
+
+	seamcall_on_each_cpu(&sc);
+
 	tdx_module_status = TDX_MODULE_SHUTDOWN;
 }
 
@@ -220,6 +280,9 @@ bool platform_tdx_enabled(void)
  * Caller to make sure all CPUs are online before calling this function.
  * CPU hotplug is temporarily disabled internally to prevent any cpu
  * from going offline.
+ *
+ * Caller also needs to guarantee all CPUs are in VMX operation during
+ * this function, otherwise Oops may be triggered.
  *
  * This function can be called in parallel by multiple callers.
  *

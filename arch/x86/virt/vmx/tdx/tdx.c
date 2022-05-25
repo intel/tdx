@@ -19,6 +19,7 @@
 #include <linux/mutex.h>
 #include <asm/msr-index.h>
 #include <asm/msr.h>
+#include <asm/page.h>
 #include <asm/tdx.h>
 #include "tdx.h"
 
@@ -140,12 +141,80 @@ int tdx_cpu_enable(void)
 }
 EXPORT_SYMBOL_GPL(tdx_cpu_enable);
 
+static void print_cmrs(struct cmr_info *cmr_array, int nr_cmrs)
+{
+	int i;
+
+	for (i = 0; i < nr_cmrs; i++) {
+		struct cmr_info *cmr = &cmr_array[i];
+
+		/*
+		 * The array of CMRs reported via TDH.SYS.INFO can
+		 * contain tail empty CMRs.  Don't print them.
+		 */
+		if (!cmr->size)
+			break;
+
+		pr_info("CMR: [0x%llx, 0x%llx)\n", cmr->base,
+				cmr->base + cmr->size);
+	}
+}
+
+static int tdx_get_sysinfo(struct tdsysinfo_struct *sysinfo,
+			   struct cmr_info *cmr_array)
+{
+	struct tdx_module_args args = {
+		.rcx = __pa(sysinfo),
+		.rdx = TDSYSINFO_STRUCT_SIZE,
+		.r8 = __pa(cmr_array),
+		.r9 = MAX_CMRS,
+	};
+	int ret;
+
+	ret = seamcall(TDH_SYS_INFO, &args);
+	if (ret)
+		return ret;
+
+	pr_info("TDX module: attributes 0x%x, vendor_id 0x%x, major_version %u, minor_version %u, build_date %u, build_num %u",
+		sysinfo->attributes,	sysinfo->vendor_id,
+		sysinfo->major_version, sysinfo->minor_version,
+		sysinfo->build_date,	sysinfo->build_num);
+
+	/* R9 contains the actual entries written to the CMR array. */
+	print_cmrs(cmr_array, args.r9);
+
+	return 0;
+}
+
 static int init_tdx_module(void)
 {
+	struct tdsysinfo_struct *sysinfo;
+	struct cmr_info *cmr_array;
+	int ret;
+
+	/*
+	 * Get the TDSYSINFO_STRUCT and CMRs from the TDX module.
+	 *
+	 * The buffers of the TDSYSINFO_STRUCT and the CMR array passed
+	 * to the TDX module must be 1024-bytes and 512-bytes aligned
+	 * respectively.  Allocate one page to accommodate them both and
+	 * also meet those alignment requirements.
+	 */
+	sysinfo = (struct tdsysinfo_struct *)__get_free_page(GFP_KERNEL);
+	if (!sysinfo)
+		return -ENOMEM;
+	cmr_array = (struct cmr_info *)((unsigned long)sysinfo + PAGE_SIZE / 2);
+
+	BUILD_BUG_ON(PAGE_SIZE / 2 < TDSYSINFO_STRUCT_SIZE);
+	BUILD_BUG_ON(PAGE_SIZE / 2 < sizeof(struct cmr_info) * MAX_CMRS);
+
+	ret = tdx_get_sysinfo(sysinfo, cmr_array);
+	if (ret)
+		goto out;
+
 	/*
 	 * TODO:
 	 *
-	 *  - Get TDX module information and TDX-capable memory regions.
 	 *  - Build the list of TDX-usable memory regions.
 	 *  - Construct a list of "TD Memory Regions" (TDMRs) to cover
 	 *    all TDX-usable memory regions.
@@ -155,7 +224,14 @@ static int init_tdx_module(void)
 	 *
 	 *  Return error before all steps are done.
 	 */
-	return -EINVAL;
+	ret = -EINVAL;
+out:
+	/*
+	 * For now both @sysinfo and @cmr_array are only used during
+	 * module initialization, so always free them.
+	 */
+	free_page((unsigned long)sysinfo);
+	return ret;
 }
 
 static int __tdx_enable(void)

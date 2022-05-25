@@ -4288,6 +4288,10 @@ static int kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 			return RET_PF_EMULATE;
 	}
 
+	if (kvm_gfn_shared_mask(vcpu->kvm) &&
+	    (kvm_mem_is_private(vcpu->kvm, fault->gfn) != fault->is_private))
+		return RET_PF_RETRY;
+
 	if (kvm_slot_can_be_private(slot) &&
 	    fault->is_private != kvm_mem_is_private(vcpu->kvm, fault->gfn)) {
 		vcpu->run->exit_reason = KVM_EXIT_MEMORY_FAULT;

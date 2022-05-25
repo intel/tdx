@@ -505,15 +505,8 @@ int tdx_vm_init(struct kvm *kvm)
 	 */
 	kvm_mmu_set_mmio_spte_mask(kvm, 0, VMX_EPT_RWX_MASK, 0);
 
-	/*
-	 * So far legacy MMU supports 4K and 2M pages, but TDP MMU doesn't
-	 * support large page at all.
-	 * TODO: 2MB support for TDP MMU.
-	 */
-	if (!kvm->arch.tdp_mmu_enabled)
-		kvm->arch.tdp_max_page_level = PG_LEVEL_2M;
-	else
-		kvm->arch.tdp_max_page_level = PG_LEVEL_4K;
+	/* TODO: test 1GB support and remove tdp_max_page_level */
+	kvm->arch.tdp_max_page_level = PG_LEVEL_2M;
 
 	/* vCPUs can't be created until after KVM_TDX_INIT_VM. */
 	kvm->max_vcpus = 0;
@@ -1857,6 +1850,13 @@ static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 
 	/* Build-time faults are induced and handled via TDH_MEM_PAGE_ADD. */
 	if (likely(is_td_finalized(kvm_tdx))) {
+		/*
+		 * For now only 4K and 2M pages are tested by KVM MMU.
+		 * TODO: support/test 1G large page.
+		 */
+		if (KVM_BUG_ON(level > PG_LEVEL_2M, kvm))
+			return;
+
 		err = tdh_mem_page_aug(kvm_tdx->tdr.pa, gpa, tdx_level, hpa, &out);
 		if (KVM_BUG_ON(err, kvm)) {
 			pr_tdx_error(TDH_MEM_PAGE_AUG, err, &out);
@@ -1864,6 +1864,10 @@ static void __tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 		}
 		return;
 	}
+
+	/* KVM_INIT_MEM_REGION, tdx_init_mem_region(), supports only 4K page. */
+	if (KVM_BUG_ON(level != PG_LEVEL_4K, kvm))
+		return;
 
 	/*
 	 * In case of TDP MMU, fault handler can run concurrently.  Note

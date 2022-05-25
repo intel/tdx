@@ -23,6 +23,7 @@
 #define TDH_SYS_INFO		32
 #define TDH_SYS_TDMR_INIT	36
 #define TDH_SYS_CONFIG		45
+#define TDH_SYS_INIT		33
 
 struct cmr_info {
 	u64	base;

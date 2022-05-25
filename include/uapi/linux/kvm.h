@@ -353,10 +353,10 @@ struct kvm_tdx_exit {
 #define KVM_EXIT_XEN              34
 #define KVM_EXIT_RISCV_SBI        35
 #define KVM_EXIT_NOTIFY           36
-#define KVM_EXIT_MEMORY_FAULT     37
 
 /* WORKAROUND to avoid conflict with upstream. */
 #define KVM_EXIT_TDX              50
+#define KVM_EXIT_MEMORY_FAULT     100
 
 /* For KVM_EXIT_INTERNAL_ERROR */
 /* Emulate instruction failed. */

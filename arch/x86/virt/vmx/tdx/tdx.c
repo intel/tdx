@@ -181,6 +181,21 @@ static void seamcall_on_each_cpu(struct seamcall_ctx *sc)
 }
 
 /*
+ * Do TDX module global initialization.  It also detects whether the
+ * module has been loaded or not.
+ */
+static int tdx_module_init_global(void)
+{
+	u64 ret;
+
+	ret = seamcall(TDH_SYS_INIT, 0, 0, 0, 0, NULL);
+	if (ret == TDX_SEAMCALL_VMFAILINVALID)
+		return -ENODEV;
+
+	return ret ? -EFAULT : 0;
+}
+
+/*
  * Detect and initialize the TDX module.
  *
  * Return -ENODEV when the TDX module is not loaded, 0 when it
@@ -189,8 +204,28 @@ static void seamcall_on_each_cpu(struct seamcall_ctx *sc)
  */
 static int init_tdx_module(void)
 {
-	/* The TDX module hasn't been detected */
-	return -ENODEV;
+	int ret;
+
+	/*
+	 * Whether the TDX module is loaded is still unknown.  SEAMCALL
+	 * instruction fails with VMfailInvalid if the target SEAM
+	 * software module is not loaded, so it can be used to detect the
+	 * module.
+	 *
+	 * The first step of initializing the TDX module is module global
+	 * initialization.  Just use it to detect the module.
+	 */
+	ret = tdx_module_init_global();
+	if (ret)
+		goto out;
+
+	/*
+	 * Return -EINVAL until all steps of TDX module initialization
+	 * process are done.
+	 */
+	ret = -EINVAL;
+out:
+	return ret;
 }
 
 static void shutdown_tdx_module(void)

@@ -2,7 +2,8 @@
 #ifndef __X86_KERNEL_FPU_INTERNAL_H
 #define __X86_KERNEL_FPU_INTERNAL_H
 
-extern struct fpstate init_fpstate;
+extern union fpstate_full init_fpstate_full;
+#define init_fpstate (init_fpstate_full.state)
 
 /* CPU feature check wrappers */
 static __always_inline __pure bool use_xsave(void)

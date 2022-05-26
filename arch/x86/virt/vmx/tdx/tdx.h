@@ -121,6 +121,7 @@ struct tdx_memblock {
 	struct list_head list;
 	unsigned long start_pfn;
 	unsigned long end_pfn;
+	int nid;
 };
 
 /* Warn if kernel has less than TDMR_NR_WARN TDMRs after allocation */

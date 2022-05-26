@@ -706,6 +706,10 @@ static int __init init_xstate_size(void)
 	if (!paranoid_xstate_size_valid(kernel_size))
 		return -EINVAL;
 
+	WARN(kernel_size > sizeof(init_fpstate_full),
+	     "Too small init_fpstate size:%zu expected:%d\n",
+	     sizeof(init_fpstate_full), kernel_size);
+
 	fpu_kernel_cfg.max_size = kernel_size;
 	fpu_user_cfg.max_size = user_size;
 

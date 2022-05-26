@@ -558,6 +558,196 @@ static int create_tdmrs(struct tdmr_info *tdmr_array, int *tdmr_num)
 	return 0;
 }
 
+/* Page sizes supported by TDX */
+enum tdx_page_sz {
+	TDX_PG_4K,
+	TDX_PG_2M,
+	TDX_PG_1G,
+	TDX_PG_MAX,
+};
+
+/*
+ * Calculate PAMT size given a TDMR and a page size.  The returned
+ * PAMT size is always aligned up to 4K page boundary.
+ */
+static unsigned long tdmr_get_pamt_sz(struct tdmr_info *tdmr,
+				      enum tdx_page_sz pgsz)
+{
+	unsigned long pamt_sz;
+	int pamt_entry_nr;
+
+	switch (pgsz) {
+	case TDX_PG_4K:
+		pamt_entry_nr = tdmr->size >> PAGE_SHIFT;
+		break;
+	case TDX_PG_2M:
+		pamt_entry_nr = tdmr->size >> PMD_SHIFT;
+		break;
+	case TDX_PG_1G:
+		pamt_entry_nr = tdmr->size >> PUD_SHIFT;
+		break;
+	default:
+		WARN_ON_ONCE(1);
+		return 0;
+	}
+
+	pamt_sz = pamt_entry_nr * tdx_sysinfo.pamt_entry_size;
+	/* TDX requires PAMT size must be 4K aligned */
+	pamt_sz = ALIGN(pamt_sz, PAGE_SIZE);
+
+	return pamt_sz;
+}
+
+/*
+ * Pick a NUMA node on which to allocate this TDMR's metadata.
+ *
+ * This is imprecise since TDMRs are 1G aligned and NUMA nodes might
+ * not be.  If the TDMR covers more than one node, just use the _first_
+ * one.  This can lead to small areas of off-node metadata for some
+ * memory.
+ */
+static int tdmr_get_nid(struct tdmr_info *tdmr)
+{
+	unsigned long start_pfn, end_pfn;
+	int i, nid;
+
+	/* Find the first memory region covered by the TDMR */
+	memblock_for_each_tdx_mem_pfn_range(i, &start_pfn, &end_pfn, &nid) {
+		if (end_pfn > (tdmr_start(tdmr) >> PAGE_SHIFT))
+			return nid;
+	}
+
+	/*
+	 * No memory region found for this TDMR.  It cannot happen since
+	 * when one TDMR is created, it must cover at least one (or
+	 * partial) memory region.
+	 */
+	WARN_ON_ONCE(1);
+	return 0;
+}
+
+static int tdmr_set_up_pamt(struct tdmr_info *tdmr)
+{
+	unsigned long pamt_base[TDX_PG_MAX];
+	unsigned long pamt_size[TDX_PG_MAX];
+	unsigned long tdmr_pamt_base;
+	unsigned long tdmr_pamt_size;
+	enum tdx_page_sz pgsz;
+	struct page *pamt;
+	int nid;
+
+	nid = tdmr_get_nid(tdmr);
+
+	/*
+	 * Calculate the PAMT size for each TDX supported page size
+	 * and the total PAMT size.
+	 */
+	tdmr_pamt_size = 0;
+	for (pgsz = TDX_PG_4K; pgsz < TDX_PG_MAX; pgsz++) {
+		pamt_size[pgsz] = tdmr_get_pamt_sz(tdmr, pgsz);
+		tdmr_pamt_size += pamt_size[pgsz];
+	}
+
+	/*
+	 * Allocate one chunk of physically contiguous memory for all
+	 * PAMTs.  This helps minimize the PAMT's use of reserved areas
+	 * in overlapped TDMRs.
+	 */
+	pamt = alloc_contig_pages(tdmr_pamt_size >> PAGE_SHIFT, GFP_KERNEL,
+			nid, &node_online_map);
+	if (!pamt)
+		return -ENOMEM;
+
+	/* Calculate PAMT base and size for all supported page sizes. */
+	tdmr_pamt_base = page_to_pfn(pamt) << PAGE_SHIFT;
+	for (pgsz = TDX_PG_4K; pgsz < TDX_PG_MAX; pgsz++) {
+		pamt_base[pgsz] = tdmr_pamt_base;
+		tdmr_pamt_base += pamt_size[pgsz];
+	}
+
+	tdmr->pamt_4k_base = pamt_base[TDX_PG_4K];
+	tdmr->pamt_4k_size = pamt_size[TDX_PG_4K];
+	tdmr->pamt_2m_base = pamt_base[TDX_PG_2M];
+	tdmr->pamt_2m_size = pamt_size[TDX_PG_2M];
+	tdmr->pamt_1g_base = pamt_base[TDX_PG_1G];
+	tdmr->pamt_1g_size = pamt_size[TDX_PG_1G];
+
+	return 0;
+}
+
+static void tdmr_get_pamt(struct tdmr_info *tdmr, unsigned long *pamt_pfn,
+			  unsigned long *pamt_npages)
+{
+	unsigned long pamt_base, pamt_sz;
+
+	/*
+	 * The PAMT was allocated in one contiguous unit.  The 4K PAMT
+	 * should always point to the beginning of that allocation.
+	 */
+	pamt_base = tdmr->pamt_4k_base;
+	pamt_sz = tdmr->pamt_4k_size + tdmr->pamt_2m_size + tdmr->pamt_1g_size;
+
+	*pamt_pfn = pamt_base >> PAGE_SHIFT;
+	*pamt_npages = pamt_sz >> PAGE_SHIFT;
+}
+
+static void tdmr_free_pamt(struct tdmr_info *tdmr)
+{
+	unsigned long pamt_pfn, pamt_npages;
+
+	tdmr_get_pamt(tdmr, &pamt_pfn, &pamt_npages);
+
+	/* Do nothing if PAMT hasn't been allocated for this TDMR */
+	if (!pamt_npages)
+		return;
+
+	if (WARN_ON_ONCE(!pamt_pfn))
+		return;
+
+	free_contig_range(pamt_pfn, pamt_npages);
+}
+
+static void tdmrs_free_pamt_all(struct tdmr_info *tdmr_array, int tdmr_num)
+{
+	int i;
+
+	for (i = 0; i < tdmr_num; i++)
+		tdmr_free_pamt(tdmr_array_entry(tdmr_array, i));
+}
+
+/* Allocate and set up PAMTs for all TDMRs */
+static int tdmrs_set_up_pamt_all(struct tdmr_info *tdmr_array, int tdmr_num)
+{
+	int i, ret = 0;
+
+	for (i = 0; i < tdmr_num; i++) {
+		ret = tdmr_set_up_pamt(tdmr_array_entry(tdmr_array, i));
+		if (ret)
+			goto err;
+	}
+
+	return 0;
+err:
+	tdmrs_free_pamt_all(tdmr_array, tdmr_num);
+	return ret;
+}
+
+static unsigned long tdmrs_get_pamt_pages(struct tdmr_info *tdmr_array,
+					  int tdmr_num)
+{
+	unsigned long pamt_npages = 0;
+	int i;
+
+	for (i = 0; i < tdmr_num; i++) {
+		unsigned long pfn, npages;
+
+		tdmr_get_pamt(tdmr_array_entry(tdmr_array, i), &pfn, &npages);
+		pamt_npages += npages;
+	}
+
+	return pamt_npages;
+}
+
 /*
  * Construct an array of TDMRs to cover all memory regions in memblock.
  * This makes sure all pages managed by the page allocator are TDX
@@ -572,8 +762,13 @@ static int construct_tdmrs_memeblock(struct tdmr_info *tdmr_array,
 	if (ret)
 		goto err;
 
+	ret = tdmrs_set_up_pamt_all(tdmr_array, *tdmr_num);
+	if (ret)
+		goto err;
+
 	/* Return -EINVAL until constructing TDMRs is done */
 	ret = -EINVAL;
+	tdmrs_free_pamt_all(tdmr_array, *tdmr_num);
 err:
 	return ret;
 }
@@ -644,6 +839,11 @@ static int init_tdx_module(void)
 	 * process are done.
 	 */
 	ret = -EINVAL;
+	if (ret)
+		tdmrs_free_pamt_all(tdmr_array, tdmr_num);
+	else
+		pr_info("%lu pages allocated for PAMT.\n",
+				tdmrs_get_pamt_pages(tdmr_array, tdmr_num));
 out_free_tdmrs:
 	/*
 	 * The array of TDMRs is freed no matter the initialization is

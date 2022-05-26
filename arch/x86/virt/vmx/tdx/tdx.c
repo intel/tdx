@@ -21,6 +21,7 @@
 #include <linux/memblock.h>
 #include <linux/minmax.h>
 #include <linux/sizes.h>
+#include <linux/sort.h>
 #include <asm/msr-index.h>
 #include <asm/msr.h>
 #include <asm/apic.h>
@@ -767,6 +768,187 @@ static unsigned long tdmrs_count_pamt_pages(struct tdmr_info *tdmr_array,
 	return pamt_npages;
 }
 
+static int tdmr_add_rsvd_area(struct tdmr_info *tdmr, int *p_idx,
+			      u64 addr, u64 size)
+{
+	struct tdmr_reserved_area *rsvd_areas = tdmr->reserved_areas;
+	int idx = *p_idx;
+
+	/* Reserved area must be 4K aligned in offset and size */
+	if (WARN_ON(addr & ~PAGE_MASK || size & ~PAGE_MASK))
+		return -EINVAL;
+
+	/* Cannot exceed maximum reserved areas supported by TDX */
+	if (idx >= tdx_sysinfo.max_reserved_per_tdmr)
+		return -E2BIG;
+
+	rsvd_areas[idx].offset = addr - tdmr->base;
+	rsvd_areas[idx].size = size;
+
+	*p_idx = idx + 1;
+
+	return 0;
+}
+
+static int tdmr_set_up_memory_hole_rsvd_areas(struct tdmr_info *tdmr,
+					      int *rsvd_idx)
+{
+	struct tdx_memblock *tmb;
+	u64 prev_end;
+	int ret;
+
+	/* Mark holes between memory regions as reserved */
+	prev_end = tdmr_start(tdmr);
+	list_for_each_entry(tmb, &tdx_memlist, list) {
+		u64 start, end;
+
+		start = tmb->start_pfn << PAGE_SHIFT;
+		end = tmb->end_pfn << PAGE_SHIFT;
+
+		/* Break if this region is after the TDMR */
+		if (start >= tdmr_end(tdmr))
+			break;
+
+		/* Exclude regions before this TDMR */
+		if (end < tdmr_start(tdmr))
+			continue;
+
+		/*
+		 * Skip if no hole exists before this region. "<=" is
+		 * used because one memory region might span two TDMRs
+		 * (when the previous TDMR covers part of this region).
+		 * In this case the start address of this region is
+		 * smaller than the start address of the second TDMR.
+		 *
+		 * Update the prev_end to the end of this region where
+		 * the possible memory hole starts.
+		 */
+		if (start <= prev_end) {
+			prev_end = end;
+			continue;
+		}
+
+		/* Add the hole before this region */
+		ret = tdmr_add_rsvd_area(tdmr, rsvd_idx, prev_end,
+				start - prev_end);
+		if (ret)
+			return ret;
+
+		prev_end = end;
+	}
+
+	/* Add the hole after the last region if it exists. */
+	if (prev_end < tdmr_end(tdmr)) {
+		ret = tdmr_add_rsvd_area(tdmr, rsvd_idx, prev_end,
+				tdmr_end(tdmr) - prev_end);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+static int tdmr_set_up_pamt_rsvd_areas(struct tdmr_info *tdmr, int *rsvd_idx,
+				       struct tdmr_info *tdmr_array,
+				       int tdmr_num)
+{
+	int i, ret;
+
+	/*
+	 * If any PAMT overlaps with this TDMR, the overlapping part
+	 * must also be put to the reserved area too.  Walk over all
+	 * TDMRs to find out those overlapping PAMTs and put them to
+	 * reserved areas.
+	 */
+	for (i = 0; i < tdmr_num; i++) {
+		struct tdmr_info *tmp = tdmr_array_entry(tdmr_array, i);
+		unsigned long pamt_start_pfn, pamt_npages;
+		u64 pamt_start, pamt_end;
+
+		tdmr_get_pamt(tmp, &pamt_start_pfn, &pamt_npages);
+		/* Each TDMR must already have PAMT allocated */
+		WARN_ON_ONCE(!pamt_npages || !pamt_start_pfn);
+
+		pamt_start = pamt_start_pfn << PAGE_SHIFT;
+		pamt_end = pamt_start + (pamt_npages << PAGE_SHIFT);
+
+		/* Skip PAMTs outside of the given TDMR */
+		if ((pamt_end <= tdmr_start(tdmr)) ||
+				(pamt_start >= tdmr_end(tdmr)))
+			continue;
+
+		/* Only mark the part within the TDMR as reserved */
+		if (pamt_start < tdmr_start(tdmr))
+			pamt_start = tdmr_start(tdmr);
+		if (pamt_end > tdmr_end(tdmr))
+			pamt_end = tdmr_end(tdmr);
+
+		ret = tdmr_add_rsvd_area(tdmr, rsvd_idx, pamt_start,
+				pamt_end - pamt_start);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+/* Compare function called by sort() for TDMR reserved areas */
+static int rsvd_area_cmp_func(const void *a, const void *b)
+{
+	struct tdmr_reserved_area *r1 = (struct tdmr_reserved_area *)a;
+	struct tdmr_reserved_area *r2 = (struct tdmr_reserved_area *)b;
+
+	if (r1->offset + r1->size <= r2->offset)
+		return -1;
+	if (r1->offset >= r2->offset + r2->size)
+		return 1;
+
+	/* Reserved areas cannot overlap.  The caller should guarantee. */
+	WARN_ON_ONCE(1);
+	return -1;
+}
+
+/* Set up reserved areas for a TDMR, including memory holes and PAMTs */
+static int tdmr_set_up_rsvd_areas(struct tdmr_info *tdmr,
+				  struct tdmr_info *tdmr_array,
+				  int tdmr_num)
+{
+	int ret, rsvd_idx = 0;
+
+	/* Put all memory holes within the TDMR into reserved areas */
+	ret = tdmr_set_up_memory_hole_rsvd_areas(tdmr, &rsvd_idx);
+	if (ret)
+		return ret;
+
+	/* Put all (overlapping) PAMTs within the TDMR into reserved areas */
+	ret = tdmr_set_up_pamt_rsvd_areas(tdmr, &rsvd_idx, tdmr_array, tdmr_num);
+	if (ret)
+		return ret;
+
+	/* TDX requires reserved areas listed in address ascending order */
+	sort(tdmr->reserved_areas, rsvd_idx, sizeof(struct tdmr_reserved_area),
+			rsvd_area_cmp_func, NULL);
+
+	return 0;
+}
+
+static int tdmrs_set_up_rsvd_areas_all(struct tdmr_info *tdmr_array,
+				       int tdmr_num)
+{
+	int i;
+
+	for (i = 0; i < tdmr_num; i++) {
+		int ret;
+
+		ret = tdmr_set_up_rsvd_areas(tdmr_array_entry(tdmr_array, i),
+				tdmr_array, tdmr_num);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
 /*
  * Construct an array of TDMRs to cover all TDX memory ranges.
  * The actual number of TDMRs is kept to @tdmr_num.
@@ -783,8 +965,12 @@ static int construct_tdmrs(struct tdmr_info *tdmr_array, int *tdmr_num)
 	if (ret)
 		goto err;
 
-	/* Return -EINVAL until constructing TDMRs is done */
-	ret = -EINVAL;
+	ret = tdmrs_set_up_rsvd_areas_all(tdmr_array, *tdmr_num);
+	if (ret)
+		goto err_free_pamts;
+
+	return 0;
+err_free_pamts:
 	tdmrs_free_pamt_all(tdmr_array, *tdmr_num);
 err:
 	return ret;

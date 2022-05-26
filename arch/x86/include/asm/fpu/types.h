@@ -387,6 +387,11 @@ struct fpstate {
 	/* @regs is dynamically sized! Don't add anything after @regs! */
 } __aligned(64);
 
+union fpstate_full {
+	struct fpstate state;
+	u8 space[PAGE_SIZE * 3];
+};
+
 #define FPU_GUEST_PERM_LOCKED		BIT_ULL(63)
 
 struct fpu_state_perm {

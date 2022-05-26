@@ -1952,6 +1952,7 @@ config INTEL_TDX_HOST
 	depends on CPU_SUP_INTEL
 	depends on X86_64
 	depends on KVM_INTEL
+	depends on CONTIG_ALLOC
 	select ARCH_HAS_CC_PLATFORM
 	select ARCH_KEEP_MEMBLOCK
 	help

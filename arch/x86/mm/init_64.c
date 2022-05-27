@@ -55,6 +55,7 @@
 #include <asm/uv/uv.h>
 #include <asm/setup.h>
 #include <asm/ftrace.h>
+#include <asm/tdx.h>
 
 #include "mm_internal.h"
 
@@ -970,6 +971,26 @@ int arch_add_memory(int nid, u64 start, u64 size,
 	init_memory_mapping(start, start + size, params->pgprot);
 
 	return add_pages(nid, start_pfn, nr_pages, params);
+}
+
+int arch_memory_add_precheck(int nid, u64 start, u64 size, mhp_t mhp_flags)
+{
+	if (!platform_tdx_enabled())
+		return 0;
+
+	/*
+	 * TDX needs to guarantee all pages managed by the page allocator
+	 * are TDX memory in order to not have to distinguish TDX and
+	 * non-TDX memory allocation.  The kernel needs to pass the
+	 * TDX-usable memory regions to the TDX module when it gets
+	 * initialized.  After that, the TDX-usable memory regions are
+	 * fixed.  This means any memory hot-add to the page allocator
+	 * will break above guarantee thus should be prevented.
+	 */
+	pr_err("Unable to add memory [0x%llx, 0x%llx) on TDX enabled platform.\n",
+			start, start + size);
+
+	return -EINVAL;
 }
 
 static void __meminit free_pagetable(struct page *page, int order)

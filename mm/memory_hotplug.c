@@ -1313,6 +1313,17 @@ bool mhp_supports_memmap_on_memory(unsigned long size)
 }
 
 /*
+ * Pre-check whether hot-add memory is allowed before arch_add_memory().
+ *
+ * Arch to provide replacement version if required.
+ */
+int __weak arch_memory_add_precheck(int nid, u64 start, u64 size,
+				    mhp_t mhp_flags)
+{
+	return 0;
+}
+
+/*
  * NOTE: The caller must call lock_device_hotplug() to serialize hotplug
  * and online/offline operations (triggered e.g. by sysfs).
  *
@@ -1332,6 +1343,10 @@ int __ref add_memory_resource(int nid, struct resource *res, mhp_t mhp_flags)
 	size = resource_size(res);
 
 	ret = check_hotplug_memory_range(start, size);
+	if (ret)
+		return ret;
+
+	ret = arch_memory_add_precheck(nid, start, size, mhp_flags);
 	if (ret)
 		return ret;
 

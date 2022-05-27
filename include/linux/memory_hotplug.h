@@ -327,6 +327,8 @@ extern int add_memory_resource(int nid, struct resource *resource,
 extern int add_memory_driver_managed(int nid, u64 start, u64 size,
 				     const char *resource_name,
 				     mhp_t mhp_flags);
+extern int arch_memory_add_precheck(int nid, u64 start, u64 size,
+				    mhp_t mhp_flags);
 extern void move_pfn_range_to_zone(struct zone *zone, unsigned long start_pfn,
 				   unsigned long nr_pages,
 				   struct vmem_altmap *altmap, int migratetype);

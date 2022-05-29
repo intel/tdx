@@ -15,6 +15,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/pci.h>
+#include <linux/cc_platform.h>
 
 #include <acpi/processor.h>
 
@@ -357,6 +358,17 @@ static int acpi_processor_add(struct acpi_device *device,
 	struct device *dev;
 	int result = 0;
 
+	/*
+	 * If the confidential computing platform doesn't support ACPI
+	 * memory hotplug, the BIOS should never deliver such event to
+	 * the kernel.  Report ACPI CPU hot-add as a BIOS bug and ignore
+	 * the new CPU.
+	 */
+	if (cc_platform_has(CC_ATTR_ACPI_CPU_HOTPLUG_DISABLED)) {
+		dev_err(&device->dev, "[BIOS bug]: Platform doesn't support ACPI CPU hotplug.  New CPU ignored.\n");
+		return -EINVAL;
+	}
+
 	pr = kzalloc(sizeof(struct acpi_processor), GFP_KERNEL);
 	if (!pr)
 		return -ENOMEM;
@@ -433,6 +445,17 @@ static void acpi_processor_remove(struct acpi_device *device)
 
 	if (!device || !acpi_driver_data(device))
 		return;
+
+	/*
+	 * The confidential computing platform is broken if ACPI memory
+	 * hot-removal isn't supported but it happened anyway.  Assume
+	 * it's not guaranteed that the kernel can continue to work
+	 * normally.  Just BUG().
+	 */
+	if (cc_platform_has(CC_ATTR_ACPI_CPU_HOTPLUG_DISABLED)) {
+		dev_err(&device->dev, "Platform doesn't support ACPI CPU hotplug. BUG().\n");
+		BUG();
+	}
 
 	pr = acpi_driver_data(device);
 	if (pr->id >= nr_cpu_ids)

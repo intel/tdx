@@ -65,32 +65,33 @@ extern int memfile_register_notifier(struct file *file, unsigned long flags,
 extern void memfile_unregister_notifier(struct memfile_notifier *notifier);
 
 #else /* !CONFIG_MEMFILE_NOTIFIER */
-static void memfile_register_backing_store(struct memfile_backing_store *bs)
+static inline void memfile_register_backing_store(struct memfile_backing_store *bs)
 {
 }
 
-static int memfile_node_set_flags(struct file *file, unsigned long flags)
-{
-	return -EOPNOTSUPP;
-}
-
-static void memfile_notifier_populate(struct memfile_node *node,
-				      pgoff_t start, pgoff_t end)
-{
-}
-
-static void memfile_notifier_invalidate(struct memfile_node *node,
-					pgoff_t start, pgoff_t end)
-{
-}
-
-static int memfile_register_notifier(struct file *file, flags,
-				     struct memfile_notifier *notifier)
+static inline int memfile_node_set_flags(struct file *file, unsigned long flags)
 {
 	return -EOPNOTSUPP;
 }
 
-static void memfile_unregister_notifier(struct memfile_notifier *notifier)
+static inline void memfile_notifier_populate(struct memfile_node *node,
+					     pgoff_t start, pgoff_t end)
+{
+}
+
+static inline void memfile_notifier_invalidate(struct memfile_node *node,
+					       pgoff_t start, pgoff_t end)
+{
+}
+
+static inline int memfile_register_notifier(struct file *file,
+					    unsigned long flags,
+					    struct memfile_notifier *notifier)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline void memfile_unregister_notifier(struct memfile_notifier *notifier)
 {
 }
 

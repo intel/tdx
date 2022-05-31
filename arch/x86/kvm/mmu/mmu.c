@@ -4540,7 +4540,7 @@ static int kvm_faultin_pfn_private_mapped(struct kvm_vcpu *vcpu,
 
 	/* TDX allows only RWX.  Read-only isn't supported. */
 	WARN_ON_ONCE(!fault->write);
-	if (get_user_page_fast_only(hva, FOLL_WRITE, page))
+	if (get_user_pages_fast(hva, 1, FOLL_WRITE, page) != 1)
 		return RET_PF_INVALID;
 
 	fault->map_writable = true;

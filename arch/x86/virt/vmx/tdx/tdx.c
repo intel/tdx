@@ -15,6 +15,7 @@
 #include <asm/msr-index.h>
 #include <asm/msr.h>
 #include <asm/tdx.h>
+#include <asm/coco.h>
 #include "tdx.h"
 
 static u32 tdx_keyid_start __ro_after_init;
@@ -91,6 +92,9 @@ static int __init tdx_early_detect(void)
 	ret = detect_tdx_keyids();
 	if (ret)
 		return ret;
+
+	/* Set TDX enabled platform as confidential computing platform */
+	cc_set_vendor(CC_VENDOR_INTEL);
 
 	pr_info("TDX enabled by BIOS.\n");
 	return 0;

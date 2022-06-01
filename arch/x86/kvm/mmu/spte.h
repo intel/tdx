@@ -14,11 +14,8 @@
  */
 #define SPTE_MMU_PRESENT_MASK		BIT_ULL(11)
 
-/* Masks that used to track for shared GPA **/
-#define SPTE_SHARED_MASK		BIT_ULL(62)
-
 /* Masks that used to track metadata for not-present SPTEs. */
-#define SPTE_PRIVATE_ZAPPED	BIT_ULL(61)
+#define SPTE_PRIVATE_ZAPPED	BIT_ULL(62)
 
 /*
  * TDP SPTES (more specifically, EPT SPTEs) may not have A/D bits, and may also
@@ -110,7 +107,7 @@ static_assert(!(EPT_SPTE_MMU_WRITABLE & SHADOW_ACC_TRACK_SAVED_MASK));
  * the memslots generation and is derived as follows:
  *
  * Bits 0-7 of the MMIO generation are propagated to spte bits 3-10
- * Bits 8-18 of the MMIO generation are propagated to spte bits 52-60
+ * Bits 8-18 of the MMIO generation are propagated to spte bits 52-61
  *
  * The KVM_MEMSLOT_GEN_UPDATE_IN_PROGRESS flag is intentionally not included in
  * the MMIO generation number, as doing so would require stealing a bit from
@@ -124,7 +121,7 @@ static_assert(!(EPT_SPTE_MMU_WRITABLE & SHADOW_ACC_TRACK_SAVED_MASK));
 #define MMIO_SPTE_GEN_LOW_END		10
 
 #define MMIO_SPTE_GEN_HIGH_START	52
-#define MMIO_SPTE_GEN_HIGH_END		60
+#define MMIO_SPTE_GEN_HIGH_END		61
 
 #define MMIO_SPTE_GEN_LOW_MASK		GENMASK_ULL(MMIO_SPTE_GEN_LOW_END, \
 						    MMIO_SPTE_GEN_LOW_START)
@@ -137,7 +134,7 @@ static_assert(!(SPTE_MMU_PRESENT_MASK &
 #define MMIO_SPTE_GEN_HIGH_BITS		(MMIO_SPTE_GEN_HIGH_END - MMIO_SPTE_GEN_HIGH_START + 1)
 
 /* remember to adjust the comment above as well if you change these */
-static_assert(MMIO_SPTE_GEN_LOW_BITS == 8 && MMIO_SPTE_GEN_HIGH_BITS == 9);
+static_assert(MMIO_SPTE_GEN_LOW_BITS == 8 && MMIO_SPTE_GEN_HIGH_BITS == 10);
 
 #define MMIO_SPTE_GEN_LOW_SHIFT		(MMIO_SPTE_GEN_LOW_START - 0)
 #define MMIO_SPTE_GEN_HIGH_SHIFT	(MMIO_SPTE_GEN_HIGH_START - MMIO_SPTE_GEN_LOW_BITS)
@@ -217,7 +214,6 @@ extern u64 __read_mostly shadow_nonpresent_or_rsvd_mask;
  */
 static_assert(!(__REMOVED_SPTE & SPTE_MMU_PRESENT_MASK));
 static_assert(!(__REMOVED_SPTE & SHADOW_NONPRESENT_VALUE));
-static_assert(!(__REMOVED_SPTE & SPTE_SHARED_MASK));
 static_assert(!(__REMOVED_SPTE & SPTE_PRIVATE_ZAPPED));
 
 /*
@@ -228,12 +224,7 @@ static_assert(!(__REMOVED_SPTE & SPTE_PRIVATE_ZAPPED));
 
 static inline bool is_removed_spte(u64 spte)
 {
-	return (spte & ~SPTE_SHARED_MASK) == REMOVED_SPTE;
-}
-
-static inline u64 spte_shared_mask(u64 spte)
-{
-	return spte & SPTE_SHARED_MASK;
+	return spte == REMOVED_SPTE;
 }
 
 /*

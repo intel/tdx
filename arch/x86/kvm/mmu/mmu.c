@@ -2656,8 +2656,7 @@ static int mmu_page_zap_pte(struct kvm *kvm, struct kvm_mmu_page *sp,
 				return kvm_mmu_prepare_zap_page(kvm, child,
 								invalid_list);
 		}
-	} else if (!(is_private_sp(sp) &&
-		     spte_shared_mask(pte)) && is_mmio_spte(kvm, pte)) {
+	} else if (!is_private_sp(sp) && is_mmio_spte(kvm, pte)) {
 		mmu_spte_clear_no_track(spte);
 	}
 	return 0;

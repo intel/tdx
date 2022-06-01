@@ -703,8 +703,7 @@ static void __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 		 * prohibiting.  Not directly was_present=1 -> zero EPT entry.
 		 */
 		WARN_ON(!shared && is_leaf &&
-			!is_private_zapped &&
-			!spte_shared_mask(new_spte));
+			!is_private_zapped);
 		static_call(kvm_x86_handle_changed_private_spte)(kvm, &change);
 	}
 }
@@ -786,20 +785,15 @@ static inline int tdp_mmu_set_spte_atomic(struct kvm *kvm,
 	return 0;
 }
 
-static u64 shadow_nonpresent_spte(u64 old_spte)
-{
-	return SHADOW_NONPRESENT_VALUE | spte_shared_mask(old_spte);
-}
-
 static u64 private_zapped_spte(struct kvm *kvm, const struct tdp_iter *iter)
 {
 	if (!kvm_gfn_shared_mask(kvm))
 		return SHADOW_NONPRESENT_VALUE;
 
 	if (!iter->is_private)
-		return shadow_nonpresent_spte(iter->old_spte);
+		return SHADOW_NONPRESENT_VALUE;
 
-	return shadow_nonpresent_spte(iter->old_spte) | SPTE_PRIVATE_ZAPPED |
+	return SHADOW_NONPRESENT_VALUE | SPTE_PRIVATE_ZAPPED |
 		(spte_to_pfn(iter->old_spte) << PAGE_SHIFT) |
 		(is_large_pte(iter->old_spte) ? PT_PAGE_SIZE_MASK : 0);
 }
@@ -1028,11 +1022,8 @@ retry:
 			continue;
 
 		if (!shared)
-			tdp_mmu_set_spte(kvm, &iter,
-					 shadow_nonpresent_spte(iter.old_spte));
-		else if (tdp_mmu_set_spte_atomic(
-				 kvm, &iter,
-				 shadow_nonpresent_spte(iter.old_spte)))
+			tdp_mmu_set_spte(kvm, &iter, SHADOW_NONPRESENT_VALUE);
+		else if (tdp_mmu_set_spte_atomic(kvm, &iter, SHADOW_NONPRESENT_VALUE))
 			goto retry;
 	}
 }
@@ -1089,8 +1080,7 @@ bool kvm_tdp_mmu_zap_sp(struct kvm *kvm, struct kvm_mmu_page *sp)
 		return false;
 
 	__tdp_mmu_set_spte(kvm, kvm_mmu_page_as_id(sp), sp->ptep, old_spte,
-			   shadow_nonpresent_spte(old_spte),
-			   sp->gfn, sp->role.level + 1,
+			   SHADOW_NONPRESENT_VALUE, sp->gfn, sp->role.level + 1,
 			   true, true, is_private_sp(sp));
 
 	return true;
@@ -1132,14 +1122,6 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 			continue;
 		}
 
-		/*
-		 * SPTE_SHARED_MASK is stored as 4K granularity.  The
-		 * information is lost if we delete upper level SPTE page.
-		 * TODO: support large page.
-		 */
-		if (kvm_gfn_shared_mask(kvm) && iter.level > PG_LEVEL_4K)
-			continue;
-
 		if (!is_shadow_present_pte(iter.old_spte) ||
 		    !is_last_spte(iter.old_spte, iter.level))
 			continue;
@@ -1157,7 +1139,7 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 
 		tdp_mmu_set_spte(kvm, &iter,
 				 drop_private ?
-				 shadow_nonpresent_spte(iter.old_spte) :
+				 SHADOW_NONPRESENT_VALUE :
 				 private_zapped_spte(kvm, &iter));
 		flush = true;
 	}
@@ -1278,54 +1260,17 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
 	WARN_ON(is_private_sptep(iter->sptep) != fault->is_private);
 	WARN_ON(iter->is_private != fault->is_private);
 
-	if (kvm_gfn_shared_mask(vcpu->kvm)) {
-		if (fault->is_private) {
-			/*
-			 * SPTE allows only RWX mapping. PFN can't be mapped it
-			 * as READONLY in GPA.
-			 */
-			if (fault->slot && !fault->map_writable)
-				return RET_PF_RETRY;
-			/*
-			 * This GPA is not allowed to map as private.  Let
-			 * vcpu loop in page fault until other vcpu change it
-			 * by MapGPA hypercall.
-			 */
-			if (fault->slot &&
-			    spte_shared_mask(iter->old_spte)) {
-				pr_err_ratelimited(
-					"%s:%d:%s retry inter->gfn 0x%llx private %d spte 0x%llx sptep 0x%p\n",
-					__FILE__, __LINE__, __func__, iter->gfn,
-					is_private_sp(sp), iter->old_spte,
-					iter->sptep);
-				return RET_PF_RETRY;
-			}
-		} else {
-			/* This GPA is not allowed to map as shared. */
-			if (fault->slot &&
-			    !spte_shared_mask(iter->old_spte)) {
-				pr_err_ratelimited(
-					"%s:%d:%s retry inter->gfn 0x%llx private %d spte 0x%llx sptep 0x%p\n",
-					__FILE__, __LINE__, __func__, iter->gfn,
-					is_private_sp(sp), iter->old_spte,
-					iter->sptep);
-				return RET_PF_RETRY;
-			}
-			/* TDX shared GPAs are no executable, enforce this. */
-			pte_access &= ~ACC_EXEC_MASK;
-		}
-	}
+	/* TDX shared GPAs are no executable, enforce this for the SDV. */
+	if (kvm_gfn_shared_mask(vcpu->kvm) && !fault->is_private)
+		pte_access &= ~ACC_EXEC_MASK;
 
 	if (unlikely(!fault->slot))
 		new_spte = make_mmio_spte(vcpu, gfn_unalias, pte_access);
-	else {
+	else
 		wrprot = make_spte(vcpu, sp, fault->slot, pte_access,
 				   gfn_unalias, fault->pfn, iter->old_spte,
 				   fault->prefetch, true, fault->map_writable,
 				   &new_spte);
-		if (spte_shared_mask(iter->old_spte))
-			new_spte |= SPTE_SHARED_MASK;
-	}
 
 	if (new_spte == iter->old_spte)
 		ret = RET_PF_SPURIOUS;

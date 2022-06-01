@@ -992,6 +992,10 @@ static void kvm_private_notifier_invalidate(struct inaccessible_notifier *notifi
 	gfn_t end_gfn = slot->base_gfn + slot->npages;
 
 
+	if (end < slot->base_gfn + base_pgoff ||
+	    start > slot->base_gfn + base_pgoff + slot->npages)
+		return;
+
 	if (start > base_pgoff)
 		start_gfn = slot->base_gfn + start - base_pgoff;
 

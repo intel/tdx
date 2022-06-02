@@ -258,6 +258,9 @@ static int tdx_reclaim_page(unsigned long va, hpa_t pa, enum pg_level level,
 		 */
 	} while (err == (TDX_OPERAND_BUSY | TDX_OPERAND_ID_RCX));
 	if (WARN_ON_ONCE(err)) {
+		pr_err("%s:%d:%s pa 0x%llx level %d hkid 0x%x do_wb %d\n",
+		       __FILE__, __LINE__, __func__,
+		       pa, level, hkid, do_wb);
 		pr_tdx_error(TDH_PHYMEM_PAGE_RECLAIM, err, &out);
 		return -EIO;
 	}
@@ -1819,8 +1822,11 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		 */
 		err = tdx_reclaim_page((unsigned long)__va(hpa), hpa, level,
 				       false, 0);
-		if (KVM_BUG_ON(err, kvm))
+		if (KVM_BUG_ON(err, kvm)) {
+			pr_err("%s:%d:%s gfn 0x%llx level 0x%x pfn 0x%llx\n",
+			       __FILE__, __LINE__, __func__, gfn, level, pfn);
 			return -EIO;
+		}
 		tdx_unpin(kvm, gfn, pfn, level);
 		return 0;
 	}

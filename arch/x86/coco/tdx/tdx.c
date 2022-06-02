@@ -29,6 +29,7 @@
 #define TDX_GET_VEINFO			3
 #define TDX_GET_REPORT			4
 #define TDX_ACCEPT_PAGE			6
+#define TDX_VERIFYREPORT		22
 
 /* TDX hypercall Leaf IDs */
 #define TDVMCALL_MAP_GPA		0x10001
@@ -881,6 +882,62 @@ out:
 	return ret;
 }
 
+static long tdx_verifyreport(void __user *argp)
+{
+	struct tdx_verifyreport_req req;
+	void *reportmac = NULL;
+	long ret;
+
+	/* Copy verifyrequest struct from the user buffer */
+	if (copy_from_user(&req, argp, sizeof(req)))
+		return -EFAULT;
+
+	/*
+	 * Per TDX Module 1.5 specification, section titled
+	 * "TDG.MR.VERIFYREPORT", REPORTMACSTRUCT length is
+	 * fixed as TDX_REPORTMACSTRUCT_LEN.
+	 */
+	if (req.rpm_len != TDX_REPORTMACSTRUCT_LEN)
+		return -EINVAL;
+
+	/* Allocate buffer space for REPORTMACSTRUCT */
+	reportmac = kmalloc(req.rpm_len, GFP_KERNEL);
+	if (!reportmac)
+		return -ENOMEM;
+
+	/* Copy REPORTDATA from the user buffer */
+	if (copy_from_user(reportmac, u64_to_user_ptr(req.reportmac),
+				req.rpm_len)) {
+		ret = -EFAULT;
+		goto out;
+	}
+
+	/*
+	 * Verify REPORTMACSTRUCT using "TDG.MR.VERIFYREPORT" TDCALL.
+	 *
+	 * Verify whether REPORTMACSTRUCT is created on current TEE on
+	 * the current platform. Refer to section titled
+	 * TDG.MR.VERIFYREPORT leaf in the TDX Module 1.5 Specification
+	 * for detailed information.
+	 */
+	ret = __tdx_module_call(TDX_VERIFYREPORT, virt_to_phys(reportmac),
+				0, 0, 0, NULL);
+	if (ret) {
+		pr_debug("VERIFYREPORT TDCALL failed, status:%lx\n", ret);
+		ret = -EIO;
+		goto out;
+	}
+
+	/* Copy TDREPORT back to the user buffer */
+	if (copy_to_user(u64_to_user_ptr(req.reportmac), reportmac,
+				req.rpm_len))
+		ret = -EFAULT;
+
+out:
+	kfree(reportmac);
+	return ret;
+}
+
 static long tdx_guest_ioctl(struct file *file, unsigned int cmd,
 			    unsigned long arg)
 {
@@ -893,6 +950,9 @@ static long tdx_guest_ioctl(struct file *file, unsigned int cmd,
 		break;
 	case TDX_CMD_GET_QUOTE:
 		ret = tdx_get_quote(argp);
+		break;
+	case TDX_CMD_VERIFYREPORT:
+		ret = tdx_verifyreport(argp);
 		break;
 	default:
 		pr_debug("cmd %d not supported\n", cmd);

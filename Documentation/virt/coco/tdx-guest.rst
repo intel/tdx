@@ -42,6 +42,18 @@ ABI. However, in the future, if the TDX Module supports more than one subtype,
 a new IOCTL CMD will be created to handle it. To keep the IOCTL naming
 consistent, a subtype index is added as part of the IOCTL CMD.
 
+2.2 TDX_CMD_VERIFY_REPORT
+-------------------------
+
+:Input parameters: struct tdx_verify_report_req
+:Output: Return 0 on success, -EIO on TDCALL failure or standard error number
+         on common failures. On TDCALL failure, error code is copied to
+         tdx_verify_report_req.err_code.
+
+The TDX_CMD_VERIFY_REPORT IOCTL can be used by userspace application to verify
+whether the given REPORTMACSTRUCT (part of TDREPORT struct) is generated in the
+current platform using TDG.MR.VERIFYREPORT TDCALL.
+
 Reference
 ---------
 

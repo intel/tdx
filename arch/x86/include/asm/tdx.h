@@ -69,6 +69,8 @@ bool tdx_early_handle_ve(struct pt_regs *regs);
 
 int tdx_mcall_get_report0(u8 *reportdata, u8 *tdreport);
 
+u64 tdx_mcall_verify_report(u8 *reportmac);
+
 #else
 
 static inline void tdx_early_init(void) { };

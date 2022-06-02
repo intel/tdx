@@ -66,6 +66,8 @@ int tdx_mcall_get_report0(u8 *reportdata, u8 *tdreport);
 
 u64 tdx_hcall_get_quote(u8 *buf, size_t size);
 
+u64 tdx_mcall_verify_report(u8 *reportmac);
+
 #else
 
 static inline void tdx_early_init(void) { };

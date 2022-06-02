@@ -108,6 +108,28 @@ int tdx_mcall_get_report0(u8 *reportdata, u8 *tdreport)
 EXPORT_SYMBOL_GPL(tdx_mcall_get_report0);
 
 /**
+ * tdx_mcall_verify_report() - Wrapper for TDG.MR.VERIFYREPORT TDCALL.
+ * @reportmac: Address of the input buffer which contains REPORTMACSTRUCT.
+ *
+ * Refer to section titled "TDG.MR.VERIFYREPORT leaf" in the TDX
+ * Module v1.0 specification for more information on TDG.MR.VERIFYREPORT
+ * TDCALL. It is used in the TDX guest driver module to verify the
+ * REPORTMACSTRUCT (part of TDREPORT struct which was generated via
+ * TDG.MR.TDREPORT TDCALL).
+ *
+ * Return 0 on success, or error code on other TDCALL failures.
+ */
+u64 tdx_mcall_verify_report(u8 *reportmac)
+{
+	struct tdx_module_args args = {
+		.rcx = virt_to_phys(reportmac),
+	};
+
+	return __tdcall(TDX_VERIFYREPORT, &args);
+}
+EXPORT_SYMBOL_GPL(tdx_mcall_verify_report);
+
+/**
  * tdx_hcall_get_quote() - Wrapper to request TD Quote using GetQuote
  *                         hypercall.
  * @buf: Address of the directly mapped shared kernel buffer which

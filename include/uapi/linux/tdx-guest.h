@@ -17,6 +17,9 @@
 /* Length of TDREPORT used in TDG.MR.REPORT TDCALL */
 #define TDX_REPORT_LEN                  1024
 
+/* Length of the REPORTMACSTRUCT */
+#define TDX_REPORTMACSTRUCT_LEN         256
+
 /**
  * struct tdx_report_req - Request struct for TDX_CMD_GET_REPORT0 IOCTL.
  *
@@ -30,6 +33,19 @@ struct tdx_report_req {
 	__u8 tdreport[TDX_REPORT_LEN];
 };
 
+/* struct tdx_verify_report_req: Request struct for TDX_CMD_VERIFY_REPORT IOCTL.
+ * @reportmac: User buffer with REPORTMACSTRUCT. REPORTMACSTRUCT data is part of
+ * TDREPORT output generated via TDCALL[TDG.MR.REPORT].
+ * @err_code: TDG.MR.VERIFYREPORT TDCALL return error code.
+ *
+ * It is used to verify whether the given REPORTMACSTRUCT was created on
+ * the current Trusted Execution Environment (TEE).
+ */
+struct tdx_verify_report_req {
+	__u8 reportmac[TDX_REPORTMACSTRUCT_LEN];
+	__u64 err_code;
+};
+
 /*
  * TDX_CMD_GET_REPORT0 - Get TDREPORT0 (a.k.a. TDREPORT subtype 0) using
  *                       TDCALL[TDG.MR.REPORT]
@@ -38,5 +54,13 @@ struct tdx_report_req {
  * standard errno on other general error cases.
  */
 #define TDX_CMD_GET_REPORT0              _IOWR('T', 1, struct tdx_report_req)
+
+/*
+ * TDX_CMD_VERIFY_REPORT - Verify REPORTMACSTRUCT using
+ *                         TDG.MR.VERIFYREPORT TDCALL.
+ *
+ * Returns 0 on success, and standard errono on other failures.
+ */
+#define TDX_CMD_VERIFY_REPORT		_IOWR('T', 2, struct tdx_verify_report_req)
 
 #endif /* _UAPI_LINUX_TDX_GUEST_H_ */

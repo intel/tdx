@@ -53,12 +53,42 @@ out:
 	return ret;
 }
 
+static long tdx_verify_report(struct tdx_verify_report_req __user *req)
+{
+	u8 *reportmac;
+	long ret = 0;
+	u64 err;
+
+	reportmac = kmalloc(sizeof(req->reportmac), GFP_KERNEL);
+	if (!reportmac)
+		return -ENOMEM;
+
+	if (copy_from_user(reportmac, req->reportmac, sizeof(req->reportmac))) {
+		ret = -EFAULT;
+		goto out;
+	}
+
+	/* Verify REPORTMACSTRUCT using "TDG.MR.VERIFYREPORT" TDCALL */
+	err = tdx_mcall_verify_report(reportmac);
+	if (err)
+		ret = -EIO;
+
+	if (copy_to_user(&req->err_code, &err, sizeof(u64)))
+		ret = -EFAULT;
+out:
+	kfree(reportmac);
+
+	return ret;
+}
+
 static long tdx_guest_ioctl(struct file *file, unsigned int cmd,
 			    unsigned long arg)
 {
 	switch (cmd) {
 	case TDX_CMD_GET_REPORT0:
 		return tdx_get_report0((struct tdx_report_req __user *)arg);
+	case TDX_CMD_VERIFY_REPORT:
+		return tdx_verify_report((struct tdx_verify_report_req __user *)arg);
 	default:
 		return -ENOTTY;
 	}

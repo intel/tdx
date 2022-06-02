@@ -19,6 +19,7 @@
 #define TDX_GET_VEINFO			3
 #define TDX_GET_REPORT			4
 #define TDX_ACCEPT_PAGE			6
+#define TDX_VERIFYREPORT		22
 
 /* TDX hypercall Leaf IDs */
 #define TDVMCALL_MAP_GPA		0x10001
@@ -139,6 +140,25 @@ int tdx_mcall_get_report0(u8 *reportdata, u8 *tdreport)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(tdx_mcall_get_report0);
+
+/**
+ * tdx_mcall_verify_report() - Wrapper for TDG.MR.VERIFYREPORT TDCALL.
+ * @reportmac: Address of the input buffer which contains REPORTMACSTRUCT.
+ *
+ * Refer to section titled "TDG.MR.VERIFYREPORT leaf" in the TDX
+ * Module v1.0 specification for more information on TDG.MR.VERIFYREPORT
+ * TDCALL. It is used in the TDX guest driver module to verify the
+ * REPORTMACSTRUCT (part of TDREPORT struct which was generated via
+ * TDG.MR.TDREPORT TDCALL).
+ *
+ * Return 0 on success, or error code on other TDCALL failures.
+ */
+u64 tdx_mcall_verify_report(u8 *reportmac)
+{
+	return __tdx_module_call(TDX_VERIFYREPORT, virt_to_phys(reportmac),
+				0, 0, 0, NULL);
+}
+EXPORT_SYMBOL_GPL(tdx_mcall_verify_report);
 
 static void tdx_parse_tdinfo(u64 *cc_mask)
 {

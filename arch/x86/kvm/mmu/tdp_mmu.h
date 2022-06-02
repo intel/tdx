@@ -15,6 +15,9 @@ __must_check static inline bool kvm_tdp_mmu_get_root(struct kvm_mmu_page *root)
 void kvm_tdp_mmu_put_root(struct kvm *kvm, struct kvm_mmu_page *root,
 			  bool shared);
 
+bool __kvm_tdp_mmu_zap_leafs(struct kvm *kvm, int as_id, gfn_t start,
+			     gfn_t end, bool can_yield, bool flush,
+			     bool drop_private, bool is_private);
 bool kvm_tdp_mmu_zap_leafs(struct kvm *kvm, int as_id, gfn_t start,
 				gfn_t end, bool can_yield, bool flush,
 				bool drop_private);

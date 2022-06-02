@@ -1178,6 +1178,22 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 	return flush;
 }
 
+bool __kvm_tdp_mmu_zap_leafs(struct kvm *kvm, int as_id, gfn_t start, gfn_t end,
+			     bool can_yield, bool flush, bool drop_private,
+			     bool is_private)
+{
+	struct kvm_mmu_page *root;
+
+	for_each_tdp_mmu_root_yield_safe(kvm, root, as_id) {
+		if (is_private != is_private_sp(root))
+			continue;
+		flush = tdp_mmu_zap_leafs(kvm, root, start, end, can_yield, flush,
+					  drop_private && is_private_sp(root));
+	}
+
+	return flush;
+}
+
 /*
  * Tears down the mappings for the range of gfns, [start, end), and frees the
  * non-root pages mapping GFNs strictly within that range. Returns true if

@@ -7034,6 +7034,35 @@ void kvm_mmu_invalidate_mmio_sptes(struct kvm *kvm, u64 gen)
 	}
 }
 
+/* Invalidate (zap) SPTEs from [gfn_start, gfn_end) of is_private. */
+static void __zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end,
+			    bool is_private)
+{
+	bool flush = false;
+	int i;
+
+	/* Legacy MMU isn't supported yet. */
+	if (WARN_ON_ONCE(!is_tdp_mmu_enabled(kvm)))
+		return;
+
+	if (WARN_ON_ONCE(gfn_end <= gfn_start))
+		return;
+
+	write_lock(&kvm->mmu_lock);
+	kvm_inc_notifier_count(kvm, gfn_start, gfn_end);
+
+	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++)
+		flush = __kvm_tdp_mmu_zap_leafs(kvm, i, gfn_start, gfn_end,
+						true, flush, true, is_private);
+
+	if (flush)
+		kvm_flush_remote_tlbs_with_address(kvm, gfn_start,
+						   gfn_end - gfn_start);
+
+	kvm_dec_notifier_count(kvm, gfn_start, gfn_end);
+	write_unlock(&kvm->mmu_lock);
+}
+
 /*
  *  address of @gfn is size aligned at @target_level
  */
@@ -7061,7 +7090,8 @@ static void __kvm_mmu_map_gfn_in_slot(struct kvm *kvm,
 
 	/* Zap the gfn at @level when the page type changes */
 	if (update_page_type(gfn, memslot, level, page_type)) {
-		kvm_zap_gfn_range(kvm, gfn, gfn + KVM_PAGES_PER_HPAGE(level));
+		__zap_gfn_range(kvm, gfn, gfn + KVM_PAGES_PER_HPAGE(level),
+				!is_private);
 		try_merge_page_type(gfn, memslot, level);
 	}
 }

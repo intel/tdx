@@ -250,6 +250,9 @@ static int tdx_reclaim_page(unsigned long va, hpa_t pa, enum pg_level level,
 
 	err = tdh_phymem_page_reclaim(pa, &out);
 	if (WARN_ON_ONCE(err)) {
+		pr_err("%s:%d:%s pa 0x%llx level %d hkid 0x%x do_wb %d\n",
+		       __FILE__, __LINE__, __func__,
+		       pa, level, hkid, do_wb);
 		pr_tdx_error(TDH_PHYMEM_PAGE_RECLAIM, err, &out);
 		return -EIO;
 	}
@@ -1826,6 +1829,9 @@ static void tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		spin_unlock(&kvm_tdx->seamcall_lock);
 		if (!err)
 			tdx_unpin(kvm, gfn, pfn, level);
+		else
+			pr_err("%s:%d:%s gfn 0x%llx level 0x%x pfn 0x%llx\n",
+			       __FILE__, __LINE__, __func__, gfn, level, pfn);
 	}
 }
 
@@ -2078,6 +2084,14 @@ static void tdx_handle_private_zapped_spte(struct kvm *kvm,
 			 * be triggered for private page.  kvm private memory
 			 * slot case should also prevent page migration.
 			 */
+			pr_err("gfn 0x%llx level %d "
+			       "old_pfn 0x%llx was_present %d was_last %d was_priavte_zapped %d "
+			       "new_pfn 0x%llx is_present %d is_last %d is_priavte_zapped %d\n",
+			       change->gfn, change->level,
+			       change->old.pfn, change->old.is_present,
+			       change->old.is_last, change->old.is_private_zapped,
+			       change->new.pfn, change->new.is_present,
+			       change->new.is_last, change->new.is_private_zapped);
 			WARN_ON(1);
 		}
 	} else {

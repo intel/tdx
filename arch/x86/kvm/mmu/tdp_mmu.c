@@ -714,7 +714,8 @@ static int __must_check __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t 
 	int level = role.level;
 	bool was_present = is_shadow_present_pte(old_spte);
 	bool is_present = is_shadow_present_pte(new_spte);
-	bool was_leaf = was_present && is_last_spte(old_spte, level);
+	bool was_last = is_last_spte(old_spte, level);
+	bool was_leaf = was_present && was_last;
 	bool is_leaf = is_present && is_last_spte(new_spte, level);
 	kvm_pfn_t old_pfn = spte_to_pfn(old_spte);
 	kvm_pfn_t new_pfn = spte_to_pfn(new_spte);
@@ -800,7 +801,7 @@ static int __must_check __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t 
 	 * SPTE being converted to a hugepage (leaf) or being zapped.  Shadow
 	 * pages are kernel allocations and should never be migrated.
 	 */
-	if (was_present && !was_leaf &&
+	if (was_present && !was_last &&
 	    (is_leaf || !is_present || WARN_ON_ONCE(pfn_changed))) {
 		KVM_BUG_ON(is_private != is_private_sptep(spte_to_child_pt(old_spte, level)),
 			   kvm);

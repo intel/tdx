@@ -1465,7 +1465,7 @@ static inline u16 kvm_lapic_irq_dest_mode(bool dest_mode_logical)
 struct kvm_spte {
 	kvm_pfn_t pfn;
 	bool is_present;
-	bool is_leaf;
+	bool is_last;
 	bool is_private_zapped;
 };
 

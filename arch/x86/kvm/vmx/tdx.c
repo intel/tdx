@@ -2232,6 +2232,8 @@ static void tdx_handle_private_zapped_spte(
 static void tdx_handle_changed_private_spte(
 	struct kvm *kvm, const struct kvm_spte_change *change)
 {
+	bool was_leaf = change->old.is_present && change->old.is_last;
+	bool is_leaf = change->new.is_present && change->new.is_last;
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	const gfn_t gfn = change->gfn;
 	const enum pg_level level = change->level;
@@ -2240,12 +2242,11 @@ static void tdx_handle_changed_private_spte(
 	lockdep_assert_held(&kvm->mmu_lock);
 
 	if (change->new.is_present) {
-		if (level > PG_LEVEL_4K && change->old.is_leaf &&
-		    !change->new.is_leaf) {
+		if (level > PG_LEVEL_4K && was_leaf && !is_leaf) {
 			tdx_sept_zap_private_spte(kvm, gfn, level);
 			tdx_sept_tlb_remote_flush(kvm);
 			tdx_sept_split_private_spte(kvm, gfn, level, change->sept_page);
-		} else if (change->new.is_leaf)
+		} else if (is_leaf)
 			tdx_sept_set_private_spte(
 				kvm, gfn, level, change->new.pfn);
 		else {
@@ -2255,7 +2256,7 @@ static void tdx_handle_changed_private_spte(
 				/* failed to update Secure-EPT.  */
 				WARN_ON(1);
 		}
-	} else if (change->old.is_leaf) {
+	} else if (was_leaf) {
 		/* non-present -> non-present doesn't make sense. */
 		WARN_ON(!change->old.is_present);
 

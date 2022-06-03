@@ -813,20 +813,41 @@ static struct kvm_lpage_info *lpage_info_slot(gfn_t gfn,
 	unsigned long idx;
 
 	idx = gfn_to_index(gfn, slot->base_gfn, level);
-	return &slot->arch.lpage_info[level - 2][idx];
+	return &slot->arch.lpage_info[level - PG_LEVEL_2M][idx];
+}
+
+static void __update_gfn_disallow_lpage_count(const struct kvm_memory_slot *slot,
+					    gfn_t gfn, int count, int level)
+{
+	struct kvm_lpage_info *linfo;
+
+	if (WARN_ON(level <= PG_LEVEL_4K))
+		return;
+
+	linfo = lpage_info_slot(gfn, slot, level);
+	linfo->disallow_lpage += count;
+	WARN_ON(linfo->disallow_lpage < 0);
+}
+
+void __kvm_mmu_gfn_disallow_lpage(const struct kvm_memory_slot *slot, gfn_t gfn,
+				  int level)
+{
+	__update_gfn_disallow_lpage_count(slot, gfn, 1, level);
+}
+
+void __kvm_mmu_gfn_allow_lpage(const struct kvm_memory_slot *slot, gfn_t gfn,
+			       int level)
+{
+	__update_gfn_disallow_lpage_count(slot, gfn, -1, level);
 }
 
 static void update_gfn_disallow_lpage_count(const struct kvm_memory_slot *slot,
 					    gfn_t gfn, int count)
 {
-	struct kvm_lpage_info *linfo;
 	int i;
 
-	for (i = PG_LEVEL_2M; i <= KVM_MAX_HUGEPAGE_LEVEL; ++i) {
-		linfo = lpage_info_slot(gfn, slot, i);
-		linfo->disallow_lpage += count;
-		WARN_ON(linfo->disallow_lpage < 0);
-	}
+	for (i = PG_LEVEL_2M; i <= KVM_MAX_HUGEPAGE_LEVEL; ++i)
+		__update_gfn_disallow_lpage_count(slot, gfn, count, i);
 }
 
 void kvm_mmu_gfn_disallow_lpage(const struct kvm_memory_slot *slot, gfn_t gfn)

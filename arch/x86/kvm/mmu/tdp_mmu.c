@@ -1433,8 +1433,12 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		WARN_ON(iter.is_private != is_private);
 		WARN_ON(is_private_sptep(iter.sptep) != is_private);
 
-		if (fault->nx_huge_page_workaround_enabled ||
-		    kvm_gfn_shared_mask(vcpu->kvm))
+		/*
+		 * In private GPA case, cannot map a private page to higher
+		 * level if smaller level mapping exists.  It can be promoted to
+		 * larger mapping later when all the smaller mapping are there.
+		 */
+		if (fault->nx_huge_page_workaround_enabled || is_private)
 			disallowed_hugepage_adjust(fault, iter.old_spte, iter.level);
 
 		if (iter.level == fault->goal_level)

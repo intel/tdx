@@ -1373,6 +1373,30 @@ static int tdp_mmu_populate_nonleaf(struct kvm_vcpu *vcpu, struct tdp_iter *iter
 }
 
 /*
+ * unzap large page spte: shortened version of tdp_mmu_map_handle_target_level()
+ */
+static int tdp_mmu_unzap_large_spte(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
+				    struct tdp_iter *iter)
+{
+	struct kvm_mmu_page *sp = sptep_to_sp(rcu_dereference(iter->sptep));
+	kvm_pfn_t mask = KVM_PAGES_PER_HPAGE(iter->level) - 1;
+	u64 new_spte;
+
+	KVM_BUG_ON((fault->pfn & mask) != spte_to_pfn(iter->old_spte), vcpu->kvm);
+	make_spte(vcpu, sp, fault->slot, ACC_ALL, fault->gfn, fault->pfn & mask,
+		  iter->old_spte, false, true, fault->map_writable, &new_spte);
+
+	if (new_spte == iter->old_spte)
+		return RET_PF_SPURIOUS;
+
+	if (!tdp_mmu_set_spte_atomic(vcpu->kvm, iter, new_spte))
+		return RET_PF_RETRY;
+	trace_kvm_mmu_set_spte(iter->level, iter->gfn,
+			       rcu_dereference(iter->sptep));
+	return RET_PF_CONTINUE;
+}
+
+/*
  * Handle a TDP page fault (NPT/EPT violation/misconfiguration) by installing
  * page tables and SPTEs to translate the faulting guest physical address.
  */
@@ -1410,6 +1434,13 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		if (iter.level == fault->goal_level)
 			break;
 
+		if (is_private_zapped_spte(iter.old_spte) &&
+		    is_large_pte(iter.old_spte)) {
+			if (tdp_mmu_unzap_large_spte(vcpu, fault, &iter) !=
+			    RET_PF_CONTINUE)
+				break;
+		}
+
 		/*
 		 * If there is an SPTE mapping a large page at a higher level
 		 * than the target, that SPTE must be cleared and replaced
@@ -1417,8 +1448,21 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		 */
 		if (is_shadow_present_pte(iter.old_spte) &&
 		    is_large_pte(iter.old_spte)) {
-			if (tdp_mmu_zap_spte_atomic(vcpu->kvm, &iter))
+			struct kvm *kvm = vcpu->kvm;
+
+			if (is_private) {
+				struct kvm_mmu_page *sp;
+
+				sp = tdp_mmu_alloc_sp_for_split(kvm, &iter, true);
+				if (!sp)
+					break;
+				tdp_mmu_split_huge_page(kvm, &iter, sp, false);
 				break;
+			} else {
+				if (tdp_mmu_zap_spte_atomic(kvm, &iter))
+					break;
+			}
+			KVM_BUG_ON(is_private_sptep(iter.sptep), vcpu->kvm);
 
 			/*
 			 * The iter must explicitly re-read the spte here
@@ -1430,15 +1474,7 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 
 		if (!is_shadow_present_pte(iter.old_spte)) {
 			bool account_nx = fault->huge_page_disallowed &&
-					  fault->req_level >= iter.level;
-
-			/*
-			 * TODO: large page support.
-			 * Not expecting blocked private SPTE points to a
-			 * large page now.
-			 */
-			KVM_BUG_ON(is_private_zapped_spte(iter.old_spte) &&
-				   is_large_pte(iter.old_spte), vcpu->kvm);
+				fault->req_level >= iter.level;
 
 			/*
 			 * If SPTE has been frozen by another thread, just

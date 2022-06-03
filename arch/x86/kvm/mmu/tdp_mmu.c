@@ -557,8 +557,10 @@ static void __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 {
 	bool was_present = is_shadow_present_pte(old_spte);
 	bool is_present = is_shadow_present_pte(new_spte);
-	bool was_leaf = was_present && is_last_spte(old_spte, level);
-	bool is_leaf = is_present && is_last_spte(new_spte, level);
+	bool was_last = is_last_spte(old_spte, level);
+	bool is_last = is_last_spte(new_spte, level);
+	bool was_leaf = was_present && was_last;
+	bool is_leaf = is_present && is_last;
 	kvm_pfn_t old_pfn = spte_to_pfn(old_spte);
 	kvm_pfn_t new_pfn = spte_to_pfn(new_spte);
 	bool pfn_changed = old_pfn != new_pfn;
@@ -570,13 +572,13 @@ static void __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 		.old = {
 			.pfn = old_pfn,
 			.is_present = was_present,
-			.is_leaf = was_leaf,
+			.is_last = was_last,
 			.is_private_zapped = was_private_zapped,
 		},
 		.new = {
 			.pfn = new_pfn,
 			.is_present = is_present,
-			.is_leaf = is_leaf,
+			.is_last = is_last,
 			.is_private_zapped = is_private_zapped,
 		},
 	};

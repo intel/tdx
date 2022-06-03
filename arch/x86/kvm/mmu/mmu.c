@@ -880,6 +880,29 @@ static inline bool kvm_page_type_valid(const struct kvm_page_attr *attr)
 	       attr->type == KVM_PAGE_TYPE_PRIVATE;
 }
 
+static void page_type_set(
+	struct kvm_page_attr *page_attr, enum kvm_page_type type,
+	gfn_t gfn, struct kvm_memory_slot *slot, enum pg_level level)
+{
+	if (page_attr->type == type)
+		return;
+
+	/* MIXED => SHARED or PRIVATE */
+	if (level > PG_LEVEL_4K && level < KVM_MAX_HUGEPAGE_LEVEL &&
+	    page_attr->type == KVM_PAGE_TYPE_MIXED &&
+	    (type == KVM_PAGE_TYPE_SHARED || type == KVM_PAGE_TYPE_PRIVATE))
+		__kvm_mmu_gfn_allow_lpage(slot, gfn, level + 1);
+
+	/* PRIVATE or SHARED => MIXED */
+	if (level > PG_LEVEL_4K && level < KVM_MAX_HUGEPAGE_LEVEL &&
+	    (page_attr->type == KVM_PAGE_TYPE_SHARED ||
+	     page_attr->type == KVM_PAGE_TYPE_PRIVATE) &&
+	    type == KVM_PAGE_TYPE_MIXED)
+	    __kvm_mmu_gfn_disallow_lpage(slot, gfn, level + 1);
+
+	page_attr->type = type;
+}
+
 /*
  * True means the (large) page at @level contains the given @gfn has consistent
  * page type, either private or shared.
@@ -944,8 +967,10 @@ static void try_merge_page_type(gfn_t gfn, struct kvm_memory_slot *slot,
 	}
 
 	page_attr = page_attr_slot(base_gfn, slot, level + 1);
-	page_attr->type = type;
+	if (page_attr->type == type)
+		return;
 
+	page_type_set(page_attr, type, base_gfn, slot, level + 1);
 	try_merge_page_type(gfn, slot, level + 1);
 }
 
@@ -955,7 +980,6 @@ static void split_page_type(gfn_t gfn, struct kvm_memory_slot *slot,
 	struct kvm_page_attr *page_attr = page_attr_slot(gfn, slot, level);
 	enum kvm_page_type type;
 	gfn_t base_gfn;
-	int i;
 
 	if (WARN_ON_ONCE(!kvm_page_type_valid(page_attr) || level <= PG_LEVEL_4K))
 		return;
@@ -968,45 +992,7 @@ static void split_page_type(gfn_t gfn, struct kvm_memory_slot *slot,
 	 * page needs to be split means one of the 4K page of it needs to be
 	 * changed to oppsite type
 	 */
-	page_attr->type = KVM_PAGE_TYPE_MIXED;
-
-	page_attr = page_attr_slot(base_gfn, slot, level - 1);
-	for (i = 0; i < PT64_ENT_PER_PAGE; i++)	{
-		page_attr->type = type;
-		page_attr++;
-	}
-}
-
-void kvm_mmu_update_page_attr(struct kvm_vcpu *vcpu, gfn_t gfn, enum kvm_page_type type);
-void kvm_mmu_update_page_attr(struct kvm_vcpu *vcpu, gfn_t gfn, enum kvm_page_type type)
-{
-	struct kvm_page_attr *page_attr;
-	struct kvm_memory_slot *slot;
-	int level;
-
-	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
-
-	if (WARN_ON(!slot))
-		return;
-
-	for (level = KVM_MAX_HUGEPAGE_LEVEL; level > PG_LEVEL_NONE; level--) {
-		page_attr = page_attr_slot(gfn, slot, level);
-
-		if (!kvm_page_type_valid(page_attr)) {
-			WARN_ON_ONCE(level == PG_LEVEL_4K);
-			continue;
-		}
-
-		if (page_attr->type == type)
-			return;
-
-		if (level == PG_LEVEL_4K) {
-			page_attr->type = type;
-			try_merge_page_type(gfn, slot, level);
-			return;
-		}
-		split_page_type(gfn, slot, level);
-	}
+	page_type_set(page_attr, KVM_PAGE_TYPE_MIXED, base_gfn, slot, level);
 }
 
 static void account_shadowed(struct kvm *kvm, struct kvm_mmu_page *sp)
@@ -1148,7 +1134,7 @@ static bool update_page_type(gfn_t gfn, struct kvm_memory_slot *slot,
 	if (page_attr->type == type)
 		return false;
 
-	page_attr->type = type;
+	page_type_set(page_attr, type, gfn, slot, level);
 
 	if (level == PG_LEVEL_4K)
 		return true;

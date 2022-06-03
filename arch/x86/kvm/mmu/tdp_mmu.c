@@ -654,7 +654,7 @@ static void __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 	 * SPTE being converted to a hugepage (leaf) or being zapped.  Shadow
 	 * pages are kernel allocations and should never be migrated.
 	 */
-	if (was_present && !was_leaf &&
+	if (was_present && !was_last &&
 	    (is_leaf || !is_present || WARN_ON_ONCE(pfn_changed))) {
 		WARN_ON(is_private !=
 			is_private_sptep(spte_to_child_pt(old_spte, level)));

@@ -1095,12 +1095,13 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 			      gfn_t start, gfn_t end, bool can_yield, bool flush,
 			      bool zap_private)
 {
+	bool is_private = is_private_sp(root);
 	struct tdp_iter iter;
 
 	end = min(end, tdp_mmu_max_gfn_exclusive());
 
 	lockdep_assert_held_write(&kvm->mmu_lock);
-	WARN_ON_ONCE(zap_private && !is_private_sp(root));
+	WARN_ON_ONCE(zap_private && !is_private);
 
 	/*
 	 * start and end doesn't have GFN shared bit.  This function zaps
@@ -1130,7 +1131,8 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 		    !is_private_zapped_spte(iter.old_spte))
 			continue;
 
-		if (kvm_gfn_shared_mask(kvm) && is_large_pte(iter.old_spte)) {
+		if (is_private && kvm_gfn_shared_mask(kvm) &&
+		    is_large_pte(iter.old_spte)) {
 			gfn_t gfn = iter.gfn & ~kvm_gfn_shared_mask(kvm);
 			gfn_t mask = KVM_PAGES_PER_HPAGE(iter.level) - 1;
 			struct kvm_memory_slot *slot;

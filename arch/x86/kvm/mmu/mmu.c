@@ -3356,12 +3356,11 @@ out:
 	return level;
 }
 
-int kvm_mmu_max_mapping_level(struct kvm *kvm,
-			      const struct kvm_memory_slot *slot, gfn_t gfn,
-			      kvm_pfn_t pfn, int max_level)
+static int __kvm_mmu_max_mapping_level(
+	struct kvm *kvm, const struct kvm_memory_slot *slot, gfn_t gfn,
+	kvm_pfn_t pfn, int max_level, int host_level)
 {
 	struct kvm_lpage_info *linfo;
-	int host_level;
 
 	max_level = min(max_level, max_huge_page_level);
 	for ( ; max_level > PG_LEVEL_4K; max_level--) {
@@ -3373,11 +3372,19 @@ int kvm_mmu_max_mapping_level(struct kvm *kvm,
 	if (max_level == PG_LEVEL_4K)
 		return PG_LEVEL_4K;
 
-	if (kvm_slot_is_private(slot))
-		return max_level;
-
-	host_level = host_pfn_mapping_level(kvm, gfn, pfn, slot);
+	if (!kvm_slot_is_private(slot)) {
+		WARN_ON_ONCE(host_level != PG_LEVEL_NONE);
+		host_level = host_pfn_mapping_level(kvm, gfn, pfn, slot);
+	}
 	return min(host_level, max_level);
+}
+
+int kvm_mmu_max_mapping_level(struct kvm *kvm,
+			      const struct kvm_memory_slot *slot, gfn_t gfn,
+			      kvm_pfn_t pfn, int max_level)
+{
+	return __kvm_mmu_max_mapping_level(kvm, slot, gfn, pfn, max_level,
+					   PG_LEVEL_NONE);
 }
 
 void kvm_mmu_hugepage_adjust(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
@@ -3400,9 +3407,10 @@ void kvm_mmu_hugepage_adjust(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 	 * Enforce the iTLB multihit workaround after capturing the requested
 	 * level, which will be used to do precise, accurate accounting.
 	 */
-	fault->req_level = kvm_mmu_max_mapping_level(vcpu->kvm, slot,
-						     fault->gfn, fault->pfn,
-						     fault->max_level);
+	fault->req_level = __kvm_mmu_max_mapping_level(vcpu->kvm, slot,
+						       fault->gfn, fault->pfn,
+						       fault->max_level,
+						       fault->host_level);
 
 	if (kvm_gfn_shared_mask(vcpu->kvm)) {
 		fault->req_level = min(fault->req_level,
@@ -4688,6 +4696,7 @@ static int kvm_faultin_pfn_private(struct kvm_vcpu *vcpu,
 	if (fault->is_private) {
 		fault->max_level = min(order_to_level(order), fault->max_level);
 		fault->map_writable = !(slot->flags & KVM_MEM_READONLY);
+		fault->host_level = order_to_level(order);
 		return RET_PF_FIXED;
 	}
 

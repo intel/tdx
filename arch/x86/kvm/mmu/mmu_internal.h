@@ -365,6 +365,7 @@ struct kvm_page_fault {
 	kvm_pfn_t pfn;
 	hva_t hva;
 	bool map_writable;
+	enum pg_level host_level; /* valid only for private memslot && private gfn */
 };
 
 int kvm_tdp_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault);
@@ -462,7 +463,17 @@ void *mmu_memory_cache_alloc(struct kvm_mmu_memory_cache *mc);
 void account_huge_nx_page(struct kvm *kvm, struct kvm_mmu_page *sp);
 void unaccount_huge_nx_page(struct kvm *kvm, struct kvm_mmu_page *sp);
 
-#ifndef CONFIG_HAVE_KVM_PRIVATE_MEM
+#ifdef CONFIG_HAVE_KVM_PRIVATE_MEM
+static inline bool kvm_is_faultin_private(const struct kvm_page_fault *fault)
+{
+	return fault->is_private && kvm_slot_can_be_private(fault->slot);
+}
+#else
+static inline bool kvm_is_faultin_private(const struct kvm_page_fault *fault)
+{
+	return false;
+}
+
 static inline int kvm_private_mem_get_pfn(struct kvm_memory_slot *slot,
 					  gfn_t gfn, kvm_pfn_t *pfn, int *order)
 {

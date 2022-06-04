@@ -1110,6 +1110,7 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 			      gfn_t start, gfn_t end, bool can_yield, bool flush,
 			      bool drop_private)
 {
+	bool is_private = is_private_sp(root);
 	struct kvm_memory_slot *slot;
 	struct tdp_iter iter;
 	struct kvm_mmu_page *sp;
@@ -1121,7 +1122,7 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 	 * Extend [start, end) to include GFN shared bit when TDX is enabled,
 	 * and for shared mapping range.
 	 */
-	WARN_ON_ONCE(!is_private_sp(root) && drop_private);
+	WARN_ON_ONCE(!is_private && drop_private);
 	start = kvm_gfn_for_root(kvm, root, start);
 	end = kvm_gfn_for_root(kvm, root, end);
 
@@ -1138,9 +1139,12 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 		    !is_last_spte(iter.old_spte, iter.level))
 			continue;
 
-		if (kvm_gfn_shared_mask(kvm) && is_large_pte(iter.old_spte)) {
-			slot = gfn_to_memslot(kvm, iter.gfn);
-			if (!kvm_page_type_valid_on_level(iter.gfn, slot, iter.level)) {
+		if (is_private && kvm_gfn_shared_mask(kvm) &&
+		    is_large_pte(iter.old_spte)) {
+			gfn_t gfn = iter.gfn & ~kvm_gfn_shared_mask(kvm);
+
+			slot = gfn_to_memslot(kvm, gfn);
+			if (!kvm_page_type_valid_on_level(gfn, slot, iter.level)) {
 				sp = tdp_mmu_alloc_sp_for_split(kvm, &iter, false);
 				if (!sp) {
 					WARN_ON(1);

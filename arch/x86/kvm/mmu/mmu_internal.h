@@ -363,6 +363,7 @@ struct kvm_page_fault {
 	kvm_pfn_t pfn;
 	hva_t hva;
 	bool map_writable;
+	enum pg_level host_level; /* valid only for private memslot && private gfn */
 };
 
 int kvm_tdp_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault);
@@ -470,5 +471,17 @@ static inline int kvm_restricted_mem_get_pfn(struct kvm_memory_slot *slot,
 	return -EOPNOTSUPP;
 }
 #endif /* CONFIG_HAVE_KVM_RESTRICTED_MEM */
+
+#ifdef CONFIG_KVM_GENERIC_PRIVATE_MEM
+static inline bool kvm_is_faultin_private(const struct kvm_page_fault *fault)
+{
+	return fault->is_private && kvm_slot_can_be_private(fault->slot);
+}
+#else
+static inline bool kvm_is_faultin_private(const struct kvm_page_fault *fault)
+{
+	return false;
+}
+#endif /* CONFIG_HAVE_KVM_PRIVATE_MEM */
 
 #endif /* __KVM_X86_MMU_INTERNAL_H */

@@ -1712,10 +1712,12 @@ static void tdx_trace_tdvmcall_done(struct kvm_vcpu *vcpu)
 
 static int tdx_map_gpa(struct kvm_vcpu *vcpu)
 {
+	struct kvm_memory_slot *slot;
 	struct kvm *kvm = vcpu->kvm;
 	gpa_t gpa = tdvmcall_a0_read(vcpu);
 	gpa_t size = tdvmcall_a1_read(vcpu);
 	gpa_t end = gpa + size;
+	int ret;
 
 	tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
 	if (!IS_ALIGNED(gpa, 4096) || !IS_ALIGNED(size, 4096) ||
@@ -1726,7 +1728,21 @@ static int tdx_map_gpa(struct kvm_vcpu *vcpu)
 
 	tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_SUCCESS);
 
-	kvm_mmu_map_gpa(vcpu, gpa, end);
+	/*
+	 * TODO: Add memfile notifier on changing private/shared.  Wire the
+	 *       callback to kvm_mmu_map_gpa().
+	 */
+	ret = kvm_mmu_map_gpa(vcpu, gpa, end);
+	if (ret) {
+		tdvmcall_set_return_code(vcpu,
+					 TDG_VP_VMCALL_INVALID_OPERAND);
+		return 1;
+	}
+
+	gpa = gpa & ~gfn_to_gpa(kvm_gfn_shared_mask(vcpu->kvm));
+	slot = kvm_vcpu_gfn_to_memslot(vcpu, gpa_to_gfn(gpa));
+	if (slot && kvm_slot_is_private(slot))
+		return tdx_vp_vmcall_to_user(vcpu);
 
 	return 1;
 }

@@ -1181,6 +1181,7 @@ static int tdx_map_gpa(struct kvm_vcpu *vcpu)
 	gfn_t e = gpa_to_gfn(end) & ~kvm_gfn_shared_mask(kvm);
 	bool map_private = kvm_is_private_gpa(kvm, gpa);
 	int ret;
+	int i;
 
 	if (!IS_ALIGNED(gpa, 4096) || !IS_ALIGNED(size, 4096) ||
 	    end < gpa ||
@@ -1188,6 +1189,36 @@ static int tdx_map_gpa(struct kvm_vcpu *vcpu)
 	    kvm_is_private_gpa(kvm, gpa) != kvm_is_private_gpa(kvm, end)) {
 		tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
 		return 1;
+	}
+
+	/*
+	 * Check how the requested region overlaps with the KVM memory slots.
+	 * For simplicity, require that it must be contained within a memslot or
+	 * it must not overlap with any memslots (MMIO).
+	 */
+	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++) {
+		struct kvm_memslots *slots = __kvm_memslots(kvm, i);
+		struct kvm_memslot_iter iter;
+
+		kvm_for_each_memslot_in_gfn_range(&iter, slots, s, e) {
+			struct kvm_memory_slot *slot = iter.slot;
+			gfn_t slot_s = slot->base_gfn;
+			gfn_t slot_e = slot->base_gfn + slot->npages;
+
+			/* no overlap */
+			if (e < slot_s || s >= slot_e)
+				continue;
+
+			/* contained in slot */
+			if (slot_s <= s && e <= slot_e) {
+				if (kvm_slot_can_be_private(slot))
+					return tdx_vp_vmcall_to_user(vcpu);
+				continue;
+			}
+
+			tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
+			return 1;
+		}
 	}
 
 	ret = kvm_mmu_map_gpa(vcpu, &s, e, map_private);

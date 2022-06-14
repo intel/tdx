@@ -1012,6 +1012,7 @@ static void accept_page(struct page *page, unsigned int order)
 
 	accept_memory(start, start + (PAGE_SIZE << order));
 	__ClearPageUnaccepted(page);
+	mod_node_page_state(page_pgdat(page), NR_UNACCEPTED, -(1 << order));
 
 	/* Assert that there is no PageUnaccepted() on tail pages */
 	if (IS_ENABLED(CONFIG_DEBUG_VM)) {
@@ -1063,6 +1064,7 @@ static inline void __free_one_page(struct page *page,
 	struct page *buddy;
 	bool to_tail;
 	bool page_needs_acceptance = false;
+	int nr_unaccepted = 0;
 
 	VM_BUG_ON(!zone_is_initialized(zone));
 	VM_BUG_ON_PAGE(page->flags & PAGE_FLAGS_CHECK_AT_PREP, page);
@@ -1076,6 +1078,7 @@ static inline void __free_one_page(struct page *page,
 
 	if (PageUnaccepted(page)) {
 		page_needs_acceptance = true;
+		nr_unaccepted += 1 << order;
 		__ClearPageUnaccepted(page);
 	}
 
@@ -1117,6 +1120,7 @@ static inline void __free_one_page(struct page *page,
 		/* Mark page unaccepted if any of merged pages were unaccepted */
 		if (PageUnaccepted(buddy)) {
 			page_needs_acceptance = true;
+			nr_unaccepted += 1 << order;
 			__ClearPageUnaccepted(buddy);
 		}
 
@@ -1143,8 +1147,11 @@ done_merging:
 	 */
 	if (!page_needs_acceptance && (fpi_flags & FPI_UNACCEPTED_SLOWPATH))
 		page_needs_acceptance = page_contains_unaccepted(page, order);
-	if (page_needs_acceptance)
+	if (page_needs_acceptance) {
 		__SetPageUnaccepted(page);
+		__mod_node_page_state(page_pgdat(page), NR_UNACCEPTED,
+				    (1 << order) - nr_unaccepted);
+	}
 
 	if (fpi_flags & FPI_TO_TAIL)
 		to_tail = true;

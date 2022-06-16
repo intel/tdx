@@ -1121,4 +1121,6 @@ __printf(3, 4) int dev_err_probe(const struct device *dev, int err, const char *
 #define MODULE_ALIAS_CHARDEV_MAJOR(major) \
 	MODULE_ALIAS("char-major-" __stringify(major) "-*")
 
+bool arch_dev_authorized(struct device *dev);
+
 #endif /* _DEVICE_H_ */

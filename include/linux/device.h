@@ -1289,4 +1289,6 @@ void device_link_wait_removal(void);
 #define MODULE_ALIAS_CHARDEV_MAJOR(major) \
 	MODULE_ALIAS("char-major-" __stringify(major) "-*")
 
+bool arch_dev_authorized(struct device *dev);
+
 #endif /* _DEVICE_H_ */

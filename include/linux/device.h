@@ -1280,4 +1280,6 @@ void device_links_supplier_sync_state_resume(void);
 #define MODULE_ALIAS_CHARDEV_MAJOR(major) \
 	MODULE_ALIAS("char-major-" __stringify(major) "-*")
 
+bool arch_dev_authorized(struct device *dev);
+
 #endif /* _DEVICE_H_ */

@@ -3162,6 +3162,12 @@ void device_initialize(struct device *dev)
 }
 EXPORT_SYMBOL_GPL(device_initialize);
 
+bool __weak arch_dev_authorized(struct device *dev)
+{
+	return dev->authorized;
+}
+EXPORT_SYMBOL_GPL(arch_dev_authorized);
+
 struct kobject *virtual_device_parent(struct device *dev)
 {
 	static struct kobject *virtual_dir = NULL;

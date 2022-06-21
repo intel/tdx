@@ -122,6 +122,12 @@ typedef int __bitwise fpi_t;
  */
 #define FPI_SKIP_KASAN_POISON	((__force fpi_t)BIT(2))
 
+/*
+ * Check if the page needs to be marked as PageUnaccepted().
+ * Used for the new pages added to the buddy allocator for the first time.
+ */
+#define FPI_UNACCEPTED_SLOWPATH	((__force fpi_t)BIT(3))
+
 /* prevent >1 _updater_ of zone percpu pageset ->high and ->batch fields */
 static DEFINE_MUTEX(pcp_batch_high_lock);
 #define MIN_PERCPU_PAGELIST_HIGH_FRACTION (8)
@@ -994,6 +1000,36 @@ buddy_merge_likely(unsigned long pfn, unsigned long buddy_pfn,
 }
 
 /*
+ * Page acceptance can be very slow. Do not call under critical locks.
+ */
+static void accept_page(struct page *page, unsigned int order)
+{
+	phys_addr_t start = page_to_phys(page);
+	int i;
+
+	if (!PageUnaccepted(page))
+		return;
+
+	accept_memory(start, start + (PAGE_SIZE << order));
+	__ClearPageUnaccepted(page);
+	mod_node_page_state(page_pgdat(page), NR_UNACCEPTED, -(1 << order));
+
+	/* Assert that there is no PageUnaccepted() on tail pages */
+	if (IS_ENABLED(CONFIG_DEBUG_VM)) {
+		for (i = 1; i < (1 << order); i++)
+			VM_BUG_ON_PAGE(PageUnaccepted(page + i), page + i);
+	}
+}
+
+static bool page_contains_unaccepted(struct page *page, unsigned int order)
+{
+	phys_addr_t start = page_to_phys(page);
+	phys_addr_t end = start + (PAGE_SIZE << order);
+
+	return range_contains_unaccepted_memory(start, end);
+}
+
+/*
  * Freeing function for a buddy system allocator.
  *
  * The concept of a buddy system is to maintain direct-mapped table
@@ -1027,6 +1063,8 @@ static inline void __free_one_page(struct page *page,
 	unsigned long combined_pfn;
 	struct page *buddy;
 	bool to_tail;
+	bool page_needs_acceptance = false;
+	int nr_unaccepted = 0;
 
 	VM_BUG_ON(!zone_is_initialized(zone));
 	VM_BUG_ON_PAGE(page->flags & PAGE_FLAGS_CHECK_AT_PREP, page);
@@ -1037,6 +1075,12 @@ static inline void __free_one_page(struct page *page,
 
 	VM_BUG_ON_PAGE(pfn & ((1 << order) - 1), page);
 	VM_BUG_ON_PAGE(bad_range(zone, page), page);
+
+	if (PageUnaccepted(page)) {
+		page_needs_acceptance = true;
+		nr_unaccepted += 1 << order;
+		__ClearPageUnaccepted(page);
+	}
 
 	while (order < MAX_ORDER - 1) {
 		if (compaction_capture(capc, page, order, migratetype)) {
@@ -1072,6 +1116,14 @@ static inline void __free_one_page(struct page *page,
 			clear_page_guard(zone, buddy, order, migratetype);
 		else
 			del_page_from_free_list(buddy, zone, order);
+
+		/* Mark page unaccepted if any of merged pages were unaccepted */
+		if (PageUnaccepted(buddy)) {
+			page_needs_acceptance = true;
+			nr_unaccepted += 1 << order;
+			__ClearPageUnaccepted(buddy);
+		}
+
 		combined_pfn = buddy_pfn & pfn;
 		page = page + (combined_pfn - pfn);
 		pfn = combined_pfn;
@@ -1080,6 +1132,26 @@ static inline void __free_one_page(struct page *page,
 
 done_merging:
 	set_buddy_order(page, order);
+
+	/*
+	 * The page gets marked as PageUnaccepted() if any of merged-in pages
+	 * is PageUnaccepted().
+	 *
+	 * New pages, just being added to buddy allocator, do not have
+	 * PageUnaccepted() set. FPI_UNACCEPTED_SLOWPATH indicates that the
+	 * page is new and page_contains_unaccepted() check is required to
+	 * determinate if acceptance is required.
+	 *
+	 * Avoid calling page_contains_unaccepted() if it is known that the page
+	 * needs acceptance. It can be costly.
+	 */
+	if (!page_needs_acceptance && (fpi_flags & FPI_UNACCEPTED_SLOWPATH))
+		page_needs_acceptance = page_contains_unaccepted(page, order);
+	if (page_needs_acceptance) {
+		__SetPageUnaccepted(page);
+		__mod_node_page_state(page_pgdat(page), NR_UNACCEPTED,
+				    (1 << order) - nr_unaccepted);
+	}
 
 	if (fpi_flags & FPI_TO_TAIL)
 		to_tail = true;
@@ -1164,7 +1236,13 @@ out:
 static inline bool page_expected_state(struct page *page,
 					unsigned long check_flags)
 {
-	if (unlikely(atomic_read(&page->_mapcount) != -1))
+	/*
+	 * The page must not be mapped to userspace and must not have
+	 * a PageType other than listed in PAGE_TYPES_EXPECTED.
+	 *
+	 * Note, bit cleared means the page type is set.
+	 */
+	if (unlikely((atomic_read(&page->_mapcount) | PAGE_TYPES_EXPECTED) != -1))
 		return false;
 
 	if (unlikely((unsigned long)page->mapping |
@@ -1669,7 +1747,9 @@ void __free_pages_core(struct page *page, unsigned int order)
 	 * Bypass PCP and place fresh pages right to the tail, primarily
 	 * relevant for memory onlining.
 	 */
-	__free_pages_ok(page, order, FPI_TO_TAIL | FPI_SKIP_KASAN_POISON);
+	__free_pages_ok(page, order,
+			FPI_TO_TAIL | FPI_SKIP_KASAN_POISON |
+			FPI_UNACCEPTED_SLOWPATH);
 }
 
 #ifdef CONFIG_NUMA
@@ -1821,6 +1901,9 @@ static void __init deferred_free_range(unsigned long pfn,
 		__free_pages_core(page, pageblock_order);
 		return;
 	}
+
+	/* Accept chunks smaller than page-block upfront */
+	accept_memory(PFN_PHYS(pfn), PFN_PHYS(pfn + nr_pages));
 
 	for (i = 0; i < nr_pages; i++, page++, pfn++) {
 		if ((pfn & (pageblock_nr_pages - 1)) == 0)
@@ -2281,6 +2364,13 @@ static inline void expand(struct zone *zone, struct page *page,
 		if (set_page_guard(zone, &page[size], high, migratetype))
 			continue;
 
+		/*
+		 * Transfer PageUnaccepted() to the newly split pages so
+		 * they can be accepted after dropping the zone lock.
+		 */
+		if (PageUnaccepted(page))
+			__SetPageUnaccepted(&page[size]);
+
 		add_to_free_list(&page[size], zone, high, migratetype);
 		set_buddy_order(&page[size], high);
 	}
@@ -2410,6 +2500,8 @@ inline void post_alloc_hook(struct page *page, unsigned int order,
 	 * allocations and the page unpoisoning code will complain.
 	 */
 	kernel_unpoison_pages(page, 1 << order);
+
+	accept_page(page, order);
 
 	/*
 	 * As memory initialization might be integrated into KASAN,

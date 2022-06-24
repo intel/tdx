@@ -1253,7 +1253,7 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 					split_sp = NULL;
 				} else {
 					WARN_ON(iter.yielded);
-					if (flush) {
+					if (flush && can_yield) {
 						kvm_flush_remote_tlbs(kvm);
 						flush = false;
 					}
@@ -1265,7 +1265,12 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 					}
 				}
 				KVM_BUG_ON(!sp, kvm);
-				tdp_mmu_split_huge_page(kvm, &iter, sp, false);
+
+				/*
+				 * Because iter.yielded = false && write lock
+				 * held, split shouldn't fail.
+				 */
+				KVM_BUG_ON(tdp_mmu_split_huge_page(kvm, &iter, sp, false), kvm);
 				flush = true;
 				continue;
 			}

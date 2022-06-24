@@ -1301,7 +1301,7 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 					split_sp = NULL;
 				} else {
 					WARN_ON(iter.yielded);
-					if (flush) {
+					if (flush && can_yield) {
 						kvm_flush_remote_tlbs(kvm);
 						flush = false;
 					}

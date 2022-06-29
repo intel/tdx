@@ -76,6 +76,10 @@ branches:
 Configurations:
 - CONFIG_INTEL_TDX_GUEST=y
 
+TDX SW upstream ingredients BKC reference
+-----------------------------------------
+Please refer to latest BKC reference info in https://wiki.ith.intel.com/display/CLKIR/Linux+Stacks+BKC+for+TDX
+
 Unit Testing
 ============
 selftests and kvm-unit-tests are available for TDX KVM.

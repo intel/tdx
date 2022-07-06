@@ -905,6 +905,17 @@ static struct folio *shmem_get_partial_folio(struct inode *inode, pgoff_t index)
 	return page ? page_folio(page) : NULL;
 }
 
+static void notify_invalidate(struct inode *inode, struct folio *folio,
+				   pgoff_t start, pgoff_t end)
+{
+	struct shmem_inode_info *info = SHMEM_I(inode);
+
+	start = max(start, folio->index);
+	end = min(end, folio->index + folio_nr_pages(folio));
+
+	memfile_notifier_invalidate(&info->memfile_node, start, end);
+}
+
 /*
  * Remove range of pages and swap entries from page cache, and free them.
  * If !unfalloc, truncate or punch hole; if unfalloc, undo failed fallocate.
@@ -947,6 +958,8 @@ static void shmem_undo_range(struct inode *inode, loff_t lstart, loff_t lend,
 				continue;
 			}
 			index += folio_nr_pages(folio) - 1;
+
+			notify_invalidate(inode, folio, start, end);
 
 			if (!unfalloc || !folio_test_uptodate(folio))
 				truncate_inode_folio(mapping, folio);
@@ -1021,6 +1034,9 @@ static void shmem_undo_range(struct inode *inode, loff_t lstart, loff_t lend,
 					index--;
 					break;
 				}
+
+				notify_invalidate(inode, folio, start, end);
+
 				VM_BUG_ON_FOLIO(folio_test_writeback(folio),
 						folio);
 				truncate_inode_folio(mapping, folio);
@@ -1091,6 +1107,13 @@ static int shmem_setattr(struct user_namespace *mnt_userns,
 		if ((newsize < oldsize && (info->seals & F_SEAL_SHRINK)) ||
 		    (newsize > oldsize && (info->seals & F_SEAL_GROW)))
 			return -EPERM;
+
+		if (info->memfile_node.flags & MEMFILE_F_USER_INACCESSIBLE) {
+			if (oldsize)
+				return -EPERM;
+			if (!PAGE_ALIGNED(newsize))
+				return -EINVAL;
+		}
 
 		if (newsize != oldsize) {
 			error = shmem_reacct_size(SHMEM_I(inode)->flags,
@@ -1335,6 +1358,8 @@ static int shmem_writepage(struct page *page, struct writeback_control *wbc)
 	if (info->flags & VM_LOCKED)
 		goto redirty;
 	if (!total_swap_pages)
+		goto redirty;
+	if (info->memfile_node.flags & MEMFILE_F_UNRECLAIMABLE)
 		goto redirty;
 
 	/*
@@ -2271,6 +2296,9 @@ static int shmem_mmap(struct file *file, struct vm_area_struct *vma)
 	if (ret)
 		return ret;
 
+	if (info->memfile_node.flags & MEMFILE_F_USER_INACCESSIBLE)
+		return -EPERM;
+
 	/* arm64 - allow memory tagging on RAM-based files */
 	vma->vm_flags |= VM_MTE_ALLOWED;
 
@@ -2306,6 +2334,7 @@ static struct inode *shmem_get_inode(struct super_block *sb, const struct inode 
 		info->i_crtime = inode->i_mtime;
 		INIT_LIST_HEAD(&info->shrinklist);
 		INIT_LIST_HEAD(&info->swaplist);
+		memfile_node_init(&info->memfile_node);
 		simple_xattrs_init(&info->xattrs);
 		cache_no_acl(inode);
 		mapping_set_large_folios(inode->i_mapping);
@@ -2477,6 +2506,8 @@ shmem_write_begin(struct file *file, struct address_space *mapping,
 		if ((info->seals & F_SEAL_GROW) && pos + len > inode->i_size)
 			return -EPERM;
 	}
+	if (unlikely(info->memfile_node.flags & MEMFILE_F_USER_INACCESSIBLE))
+		return -EPERM;
 
 	if (unlikely(info->seals & F_SEAL_AUTO_ALLOCATE))
 		sgp = SGP_NOALLOC;
@@ -2556,6 +2587,13 @@ static ssize_t shmem_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 		end_index = i_size >> PAGE_SHIFT;
 		if (index > end_index)
 			break;
+
+		if (SHMEM_I(inode)->memfile_node.flags &
+				MEMFILE_F_USER_INACCESSIBLE) {
+			error = -EPERM;
+			break;
+		}
+
 		if (index == end_index) {
 			nr = i_size & ~PAGE_MASK;
 			if (nr <= offset)
@@ -2694,6 +2732,12 @@ static long shmem_fallocate(struct file *file, int mode, loff_t offset,
 		/* protected by i_rwsem */
 		if (info->seals & (F_SEAL_WRITE | F_SEAL_FUTURE_WRITE)) {
 			error = -EPERM;
+			goto out;
+		}
+
+		if ((info->memfile_node.flags & MEMFILE_F_USER_INACCESSIBLE) &&
+		    (!PAGE_ALIGNED(offset) || !PAGE_ALIGNED(len))) {
+			error = -EINVAL;
 			goto out;
 		}
 
@@ -3803,6 +3847,20 @@ static int shmem_error_remove_page(struct address_space *mapping,
 	return 0;
 }
 
+#ifdef CONFIG_MIGRATION
+static int shmem_migrate_page(struct address_space *mapping,
+			      struct page *newpage, struct page *page,
+			      enum migrate_mode mode)
+{
+	struct inode *inode = mapping->host;
+	struct shmem_inode_info *info = SHMEM_I(inode);
+
+	if (info->memfile_node.flags & MEMFILE_F_UNMOVABLE)
+		return -EOPNOTSUPP;
+	return migrate_page(mapping, newpage, page, mode);
+}
+#endif
+
 const struct address_space_operations shmem_aops = {
 	.writepage	= shmem_writepage,
 	.dirty_folio	= noop_dirty_folio,
@@ -3811,7 +3869,7 @@ const struct address_space_operations shmem_aops = {
 	.write_end	= shmem_write_end,
 #endif
 #ifdef CONFIG_MIGRATION
-	.migratepage	= migrate_page,
+	.migratepage	= shmem_migrate_page,
 #endif
 	.error_remove_page = shmem_error_remove_page,
 };
@@ -3928,6 +3986,51 @@ static struct file_system_type shmem_fs_type = {
 	.fs_flags	= FS_USERNS_MOUNT,
 };
 
+#ifdef CONFIG_MEMFILE_NOTIFIER
+static struct memfile_node *shmem_lookup_memfile_node(struct file *file)
+{
+	struct inode *inode = file_inode(file);
+
+	if (!shmem_mapping(inode->i_mapping))
+		return NULL;
+
+	return  &SHMEM_I(inode)->memfile_node;
+}
+
+
+static int shmem_get_pfn(struct file *file, pgoff_t offset, pfn_t *pfn,
+			 int *order)
+{
+	struct page *page;
+	int ret;
+
+	ret = shmem_getpage(file_inode(file), offset, &page, SGP_WRITE);
+	if (ret)
+		return ret;
+
+	unlock_page(page);
+	*pfn = page_to_pfn_t(page);
+	*order = thp_order(compound_head(page));
+	return 0;
+}
+
+static void shmem_put_pfn(pfn_t pfn)
+{
+	struct page *page = pfn_t_to_page(pfn);
+
+	if (!page)
+		return;
+
+	put_page(page);
+}
+
+static struct memfile_backing_store shmem_backing_store = {
+	.lookup_memfile_node = shmem_lookup_memfile_node,
+	.get_pfn = shmem_get_pfn,
+	.put_pfn = shmem_put_pfn,
+};
+#endif /* CONFIG_MEMFILE_NOTIFIER */
+
 void __init shmem_init(void)
 {
 	int error;
@@ -3952,6 +4055,10 @@ void __init shmem_init(void)
 		SHMEM_SB(shm_mnt->mnt_sb)->huge = shmem_huge;
 	else
 		shmem_huge = SHMEM_HUGE_NEVER; /* just in case it was patched */
+#endif
+
+#ifdef CONFIG_MEMFILE_NOTIFIER
+	memfile_register_backing_store(&shmem_backing_store);
 #endif
 	return;
 

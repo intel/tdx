@@ -4378,9 +4378,6 @@ static int kvm_faultin_pfn_private(struct kvm_vcpu *vcpu,
 	int max_order, r;
 	u8 max_level;
 
-	if (!kvm_slot_can_be_private(fault->slot))
-		return kvm_do_memory_fault_exit(vcpu, fault);
-
 	r = kvm_gmem_get_pfn(vcpu->kvm, fault->slot, fault->gfn, &fault->pfn,
 			     &max_order);
 	if (r)
@@ -4443,8 +4440,11 @@ static int __kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 			return kvm_do_memory_fault_exit(vcpu, fault);
 	}
 
-	if (fault->is_private)
+	if (fault->is_private && kvm_slot_can_be_private(slot))
 		return kvm_faultin_pfn_private(vcpu, fault);
+
+	if (fault->is_private && !kvm_slot_can_be_private(fault->slot))
+		return kvm_do_memory_fault_exit(vcpu, fault);
 
 	async = false;
 	fault->pfn = __gfn_to_pfn_memslot(slot, fault->gfn, false, false, &async,

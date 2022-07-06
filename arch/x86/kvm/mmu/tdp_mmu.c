@@ -2094,7 +2094,7 @@ int kvm_tdp_mmu_map_gpa(struct kvm *kvm,
 	KVM_BUG_ON(start & kvm_gfn_shared_mask(kvm), kvm);
 	KVM_BUG_ON(end & kvm_gfn_shared_mask(kvm), kvm);
 
-	kvm_inc_notifier_count(kvm, start, end);
+	kvm_mmu_invalidate_begin(kvm, start, end);
 	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++) {
 		for_each_tdp_mmu_root_yield_safe(kvm, root, i) {
 			if (is_private_sp(root) == map_private)
@@ -2112,7 +2112,7 @@ int kvm_tdp_mmu_map_gpa(struct kvm *kvm,
 	}
 	if (flush)
 		kvm_flush_remote_tlbs_with_address(kvm, start, end - start);
-	kvm_dec_notifier_count(kvm, start, end);
+	kvm_mmu_invalidate_end(kvm, start, end);
 
 	return 0;
 }

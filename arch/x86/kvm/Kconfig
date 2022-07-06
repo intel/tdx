@@ -50,7 +50,8 @@ config KVM
 	select HAVE_KVM_PM_NOTIFIER if PM
 	select HAVE_KVM_PRIVATE_MEM if X86_64
 	select MEMFILE_NOTIFIER if HAVE_KVM_PRIVATE_MEM
-	select HAVE_KVM_PRIVATE_MEM_ATTR if KVM_MMU_PRIVATE
+	select HAVE_KVM_PRIVATE_MEM_ATTR if KVM_MMU_PRIVATE || HAVE_KVM_PRIVATE_MEM
+	select XARRAY_MULTI if HAVE_KVM_PRIVATE_MEM
 	help
 	  Support hosting fully virtualized guest machines using hardware
 	  virtualization extensions.  You will need a fairly recent

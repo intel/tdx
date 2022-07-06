@@ -4262,7 +4262,7 @@ static int kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		return RET_PF_USER;
 	}
 
-	if (fault->is_private)
+	if (fault->is_private && kvm_slot_can_be_private(slot))
 		return kvm_faultin_pfn_private(fault);
 
 	async = false;
@@ -4374,7 +4374,7 @@ out_unlock:
 	else
 		write_unlock(&vcpu->kvm->mmu_lock);
 
-	if (fault->is_private)
+	if (fault->is_private && kvm_slot_can_be_private(fault->slot))
 		kvm_private_mem_put_pfn(fault->slot, fault->pfn);
 	else
 		kvm_release_pfn_clean(fault->pfn);

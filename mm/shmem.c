@@ -2060,6 +2060,8 @@ static vm_fault_t shmem_fault(struct vm_fault *vmf)
 	struct vm_area_struct *vma = vmf->vma;
 	struct inode *inode = file_inode(vma->vm_file);
 	gfp_t gfp = mapping_gfp_mask(inode->i_mapping);
+	struct shmem_inode_info *info = SHMEM_I(inode);
+	enum sgp_type sgp;
 	int err;
 	vm_fault_t ret = VM_FAULT_LOCKED;
 
@@ -2122,7 +2124,12 @@ static vm_fault_t shmem_fault(struct vm_fault *vmf)
 		spin_unlock(&inode->i_lock);
 	}
 
-	err = shmem_getpage_gfp(inode, vmf->pgoff, &vmf->page, SGP_CACHE,
+	if (unlikely(info->seals & F_SEAL_AUTO_ALLOCATE))
+		sgp = SGP_NOALLOC;
+	else
+		sgp = SGP_CACHE;
+
+	err = shmem_getpage_gfp(inode, vmf->pgoff, &vmf->page, sgp,
 				  gfp, vma, vmf, &ret);
 	if (err)
 		return vmf_error(err);
@@ -2482,6 +2489,7 @@ shmem_write_begin(struct file *file, struct address_space *mapping,
 	struct inode *inode = mapping->host;
 	struct shmem_inode_info *info = SHMEM_I(inode);
 	pgoff_t index = pos >> PAGE_SHIFT;
+	enum sgp_type sgp;
 	int ret = 0;
 
 	/* i_rwsem is held by caller */
@@ -2493,7 +2501,11 @@ shmem_write_begin(struct file *file, struct address_space *mapping,
 			return -EPERM;
 	}
 
-	ret = shmem_getpage(inode, index, pagep, SGP_WRITE);
+	if (unlikely(info->seals & F_SEAL_AUTO_ALLOCATE))
+		sgp = SGP_NOALLOC;
+	else
+		sgp = SGP_WRITE;
+	ret = shmem_getpage(inode, index, pagep, sgp);
 
 	if (ret)
 		return ret;

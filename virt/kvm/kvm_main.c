@@ -964,6 +964,33 @@ int kvm_vm_set_mem_attr(struct kvm *kvm, int attr, gfn_t start, gfn_t end)
 EXPORT_SYMBOL_GPL(kvm_vm_set_mem_attr);
 #endif /* CONFIG_HAVE_KVM_PRIVATE_MEM_ATTR */
 
+#ifdef CONFIG_HAVE_KVM_PRIVATE_MEM
+static int kvm_vm_ioctl_set_encrypted_region(struct kvm *kvm, unsigned int ioctl,
+					     struct kvm_enc_region *region)
+{
+	unsigned long start, end;
+	int attr;
+	int r;
+
+	if (region->size == 0 || region->addr + region->size < region->addr)
+		return -EINVAL;
+	if (region->addr & (PAGE_SIZE - 1) || region->size & (PAGE_SIZE - 1))
+		return -EINVAL;
+
+	start = region->addr >> PAGE_SHIFT;
+	end = (region->addr + region->size) >> PAGE_SHIFT;
+	attr = ioctl == KVM_MEMORY_ENCRYPT_REG_REGION ?
+		KVM_MEM_ATTR_PRIVATE : KVM_MEM_ATTR_SHARED;
+
+	r = kvm_vm_reserve_mem_attr(kvm, start, end);
+	if (r)
+		return r;
+
+	kvm_zap_gfn_range(kvm, start, end);
+	return kvm_vm_set_mem_attr(kvm, attr, start, end);
+}
+#endif /* CONFIG_HAVE_KVM_PRIVATE_MEM */
+
 #ifdef CONFIG_HAVE_KVM_PM_NOTIFIER
 static int kvm_pm_notifier_call(struct notifier_block *bl,
 				unsigned long state,
@@ -1567,6 +1594,11 @@ static void kvm_replace_memslot(struct kvm *kvm,
 bool __weak kvm_arch_dirty_log_supported(struct kvm *kvm)
 {
 	return true;
+}
+
+bool __weak kvm_arch_private_mem_supported(struct kvm *kvm)
+{
+	return false;
 }
 
 static int check_memory_region_flags(struct kvm *kvm,
@@ -4755,6 +4787,22 @@ static long kvm_vm_ioctl(struct file *filp,
 		r = kvm_vm_ioctl_set_memory_region(kvm, &mem);
 		break;
 	}
+#ifdef CONFIG_HAVE_KVM_PRIVATE_MEM
+	case KVM_MEMORY_ENCRYPT_REG_REGION:
+	case KVM_MEMORY_ENCRYPT_UNREG_REGION: {
+		struct kvm_enc_region region;
+
+		if (!kvm_arch_private_mem_supported(kvm))
+			goto arch_vm_ioctl;
+
+		r = -EFAULT;
+		if (copy_from_user(&region, argp, sizeof(region)))
+			goto out;
+
+		r = kvm_vm_ioctl_set_encrypted_region(kvm, ioctl, &region);
+		break;
+	}
+#endif
 	case KVM_GET_DIRTY_LOG: {
 		struct kvm_dirty_log log;
 
@@ -4908,6 +4956,7 @@ static long kvm_vm_ioctl(struct file *filp,
 		r = kvm_vm_ioctl_get_stats_fd(kvm);
 		break;
 	default:
+arch_vm_ioctl:
 		r = kvm_arch_vm_ioctl(filp, ioctl, arg);
 	}
 out:

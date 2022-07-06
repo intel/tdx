@@ -75,3 +75,6 @@ config HAVE_KVM_PM_NOTIFIER
 
 config HAVE_KVM_PRIVATE_MEM_ATTR
        bool
+
+config HAVE_KVM_PRIVATE_MEM
+       bool

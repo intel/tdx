@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <linux/memfd.h>
 #include <sched.h>
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
@@ -228,6 +229,31 @@ static void mfd_fail_open(int fd, int flags, mode_t mode)
 	r = open(buf, flags, mode);
 	if (r >= 0) {
 		printf("open(%s) didn't fail as expected\n", buf);
+		abort();
+	}
+}
+
+static void mfd_assert_fallocate(int fd)
+{
+	int r;
+
+	r = fallocate(fd, 0, 0, mfd_def_size);
+	if (r < 0) {
+		printf("fallocate(ALLOC) failed: %m\n");
+		abort();
+	}
+}
+
+static void mfd_assert_punch_hole(int fd)
+{
+	int r;
+
+	r = fallocate(fd,
+		      FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
+		      0,
+		      mfd_def_size);
+	if (r < 0) {
+		printf("fallocate(PUNCH_HOLE) failed: %m\n");
 		abort();
 	}
 }
@@ -594,6 +620,94 @@ static void mfd_fail_grow_write(int fd)
 	}
 }
 
+static void mfd_assert_hole_write(int fd)
+{
+	ssize_t l;
+	void *p;
+	char *p1;
+
+	/*
+	 * huegtlbfs does not support write, but we want to
+	 * verify everything else here.
+	 */
+	if (!hugetlbfs_test) {
+		/* verify direct write() succeeds */
+		l = write(fd, "\0\0\0\0", 4);
+		if (l != 4) {
+			printf("write() failed: %m\n");
+			abort();
+		}
+	}
+
+	/* verify mmaped write succeeds */
+	p = mmap(NULL,
+		 mfd_def_size,
+		 PROT_READ | PROT_WRITE,
+		 MAP_SHARED,
+		 fd,
+		 0);
+	if (p == MAP_FAILED) {
+		printf("mmap() failed: %m\n");
+		abort();
+	}
+	p1 = (char *)p + mfd_def_size - 1;
+	*p1 = 'H';
+	if (*p1 != 'H') {
+		printf("mmaped write failed: %m\n");
+		abort();
+
+	}
+	munmap(p, mfd_def_size);
+}
+
+sigjmp_buf jbuf, *sigbuf;
+static void sig_handler(int sig, siginfo_t *siginfo, void *ptr)
+{
+	if (sig == SIGBUS) {
+		if (sigbuf)
+			siglongjmp(*sigbuf, 1);
+		abort();
+	}
+}
+
+static void mfd_fail_hole_write(int fd)
+{
+	ssize_t l;
+	void *p;
+	char *p1;
+
+	/* verify direct write() fails */
+	l = write(fd, "data", 4);
+	if (l > 0) {
+		printf("expected failure on write(), but got %d: %m\n", (int)l);
+		abort();
+	}
+
+	/* verify mmaped write fails */
+	p = mmap(NULL,
+		 mfd_def_size,
+		 PROT_READ | PROT_WRITE,
+		 MAP_SHARED,
+		 fd,
+		 0);
+	if (p == MAP_FAILED) {
+		printf("mmap() failed: %m\n");
+		abort();
+	}
+
+	sigbuf = &jbuf;
+	if (sigsetjmp(*sigbuf, 1))
+		goto out;
+
+	/* Below write should trigger SIGBUS signal */
+	p1 = (char *)p + mfd_def_size - 1;
+	*p1 = 'H';
+	printf("failed to receive SIGBUS for mmaped write: %m\n");
+	abort();
+out:
+	munmap(p, mfd_def_size);
+}
+
 static int idle_thread_fn(void *arg)
 {
 	sigset_t set;
@@ -881,6 +995,57 @@ static void test_seal_resize(void)
 }
 
 /*
+ * Test F_SEAL_AUTO_ALLOCATE
+ * Test whether F_SEAL_AUTO_ALLOCATE actually prevents allocation.
+ */
+static void test_seal_auto_allocate(void)
+{
+	struct sigaction act;
+	int fd;
+
+	printf("%s SEAL-AUTO-ALLOCATE\n", memfd_str);
+
+	memset(&act, 0, sizeof(act));
+	act.sa_sigaction = sig_handler;
+	act.sa_flags = SA_SIGINFO;
+	if (sigaction(SIGBUS, &act, 0)) {
+		printf("sigaction() failed: %m\n");
+		abort();
+	}
+
+	fd = mfd_assert_new("kern_memfd_seal_auto_allocate",
+			    mfd_def_size,
+			    MFD_CLOEXEC | MFD_ALLOW_SEALING);
+
+	/* read/write should pass if F_SEAL_AUTO_ALLOCATE not set */
+	mfd_assert_read(fd);
+	mfd_assert_hole_write(fd);
+
+	mfd_assert_has_seals(fd, 0);
+	mfd_assert_add_seals(fd, F_SEAL_AUTO_ALLOCATE);
+	mfd_assert_has_seals(fd, F_SEAL_AUTO_ALLOCATE);
+
+	/* read/write should pass for pre-allocated area */
+	mfd_assert_read(fd);
+	mfd_assert_hole_write(fd);
+
+	mfd_assert_punch_hole(fd);
+
+	/* read should pass, write should fail in hole */
+	mfd_assert_read(fd);
+	mfd_fail_hole_write(fd);
+
+	mfd_assert_fallocate(fd);
+
+	/* read/write should pass after fallocate */
+	mfd_assert_read(fd);
+	mfd_assert_hole_write(fd);
+
+	close(fd);
+}
+
+
+/*
  * Test sharing via dup()
  * Test that seals are shared between dupped FDs and they're all equal.
  */
@@ -1059,6 +1224,7 @@ int main(int argc, char **argv)
 	test_seal_shrink();
 	test_seal_grow();
 	test_seal_resize();
+	test_seal_auto_allocate();
 
 	test_share_dup("SHARE-DUP", "");
 	test_share_mmap("SHARE-MMAP", "");

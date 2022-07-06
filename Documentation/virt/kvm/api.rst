@@ -4743,10 +4743,19 @@ Documentation/virt/kvm/intel-tdx.rst.
 This ioctl can be used to register a guest memory region which may
 contain encrypted data (e.g. guest RAM, SMRAM etc).
 
-It is used in the SEV-enabled guest. When encryption is enabled, a guest
-memory region may contain encrypted data. The SEV memory encryption
-engine uses a tweak such that two identical plaintext pages, each at
-different locations will have differing ciphertexts. So swapping or
+Currently this ioctl supports registering memory regions for two usages:
+private memory and SEV-encrypted memory.
+
+When private memory is enabled, this ioctl is used to register guest private
+memory region and the addr/size of kvm_enc_region represents guest physical
+address (GPA). In this usage, this ioctl zaps the existing guest memory
+mappings in KVM that fallen into the region.
+
+When SEV-encrypted memory is enabled, this ioctl is used to register guest
+memory region which may contain encrypted data for a SEV-enabled guest. The
+addr/size of kvm_enc_region represents userspace address (HVA). The SEV
+memory encryption engine uses a tweak such that two identical plaintext pages,
+each at different locations will have differing ciphertexts. So swapping or
 moving ciphertext of those pages will not result in plaintext being
 swapped. So relocating (or migrating) physical backing pages for the SEV
 guest will require some additional steps.

@@ -43,6 +43,7 @@
 #define F_SEAL_GROW	0x0004	/* prevent file from growing */
 #define F_SEAL_WRITE	0x0008	/* prevent writes */
 #define F_SEAL_FUTURE_WRITE	0x0010  /* prevent future writes while mapped */
+#define F_SEAL_AUTO_ALLOCATE	0x0020  /* prevent allocation for writes */
 /* (1U << 31) is reserved for signed error codes */
 
 /*

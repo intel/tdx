@@ -767,8 +767,8 @@ struct kvm {
 	struct mmu_notifier mmu_notifier;
 	unsigned long mmu_notifier_seq;
 	long mmu_notifier_count;
-	unsigned long mmu_notifier_range_start;
-	unsigned long mmu_notifier_range_end;
+	gfn_t mmu_notifier_range_start;
+	gfn_t mmu_notifier_range_end;
 #endif
 	struct list_head devices;
 	u64 manual_dirty_log_protect;
@@ -1386,10 +1386,8 @@ void kvm_mmu_free_memory_cache(struct kvm_mmu_memory_cache *mc);
 void *kvm_mmu_memory_cache_alloc(struct kvm_mmu_memory_cache *mc);
 #endif
 
-void kvm_inc_notifier_count(struct kvm *kvm, unsigned long start,
-				   unsigned long end);
-void kvm_dec_notifier_count(struct kvm *kvm, unsigned long start,
-				   unsigned long end);
+void kvm_inc_notifier_count(struct kvm *kvm, gfn_t start, gfn_t end);
+void kvm_dec_notifier_count(struct kvm *kvm, gfn_t start, gfn_t end);
 
 long kvm_arch_dev_ioctl(struct file *filp,
 			unsigned int ioctl, unsigned long arg);
@@ -1958,9 +1956,9 @@ static inline int mmu_notifier_retry(struct kvm *kvm, unsigned long mmu_seq)
 	return 0;
 }
 
-static inline int mmu_notifier_retry_hva(struct kvm *kvm,
+static inline int mmu_notifier_retry_gfn(struct kvm *kvm,
 					 unsigned long mmu_seq,
-					 unsigned long hva)
+					 gfn_t gfn)
 {
 	lockdep_assert_held(&kvm->mmu_lock);
 	/*
@@ -1970,8 +1968,8 @@ static inline int mmu_notifier_retry_hva(struct kvm *kvm,
 	 * positives, due to shortcuts when handing concurrent invalidations.
 	 */
 	if (unlikely(kvm->mmu_notifier_count) &&
-	    hva >= kvm->mmu_notifier_range_start &&
-	    hva < kvm->mmu_notifier_range_end)
+	    gfn >= kvm->mmu_notifier_range_start &&
+	    gfn < kvm->mmu_notifier_range_end)
 		return 1;
 	if (kvm->mmu_notifier_seq != mmu_seq)
 		return 1;

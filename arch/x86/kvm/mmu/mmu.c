@@ -4334,7 +4334,7 @@ static int kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	if (fault->is_private != kvm_mem_is_private(vcpu->kvm, fault->gfn))
 		return kvm_do_memory_fault_exit(vcpu, fault);
 
-	if (fault->is_private)
+	if (fault->is_private && kvm_slot_can_be_private(slot))
 		return kvm_faultin_pfn_private(vcpu, fault);
 
 	async = false;

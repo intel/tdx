@@ -48,6 +48,8 @@ config KVM
 	select SRCU
 	select INTERVAL_TREE
 	select HAVE_KVM_PM_NOTIFIER if PM
+	select HAVE_KVM_PRIVATE_MEM if X86_64
+	select MEMFILE_NOTIFIER if HAVE_KVM_PRIVATE_MEM
 	select HAVE_KVM_PRIVATE_MEM_ATTR if KVM_MMU_PRIVATE
 	help
 	  Support hosting fully virtualized guest machines using hardware

@@ -521,6 +521,21 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
 	call_rcu(&sp->rcu_head, tdp_mmu_free_sp_rcu_callback);
 }
 
+static void *tdx_get_private_spt(const struct kvm_spte_change *change)
+{
+	if (change->new.is_present && !change->new.is_last) {
+		struct kvm_mmu_page *sp = to_shadow_page(pfn_to_hpa(change->new.pfn));
+		void *private_spt = kvm_mmu_private_spt(sp);
+
+		WARN_ON_ONCE(!private_spt);
+		WARN_ON_ONCE(sp->role.level + 1 != change->level);
+		WARN_ON_ONCE(sp->gfn != change->gfn);
+		return private_spt;
+	}
+
+	return NULL;
+}
+
 /**
  * __handle_changed_spte - handle bookkeeping associated with an SPTE change
  * @kvm: kvm instance
@@ -608,6 +623,7 @@ static void __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 		check_spte_writable_invariants(new_spte);
 
 	if (was_private_zapped) {
+		change.private_spt = tdx_get_private_spt(&change);
 		KVM_BUG_ON(is_private_zapped, kvm);
 		static_call(kvm_x86_handle_private_zapped_spte)(kvm, &change);
 		/* Temporarily blocked private SPTE can only be leaf. */
@@ -673,18 +689,7 @@ static void __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 	    /* Ignore change of software only bits. e.g. host_writable */
 	    (was_leaf != is_leaf || was_present != is_present || pfn_changed ||
 	     was_private_zapped != is_private_zapped)) {
-		void *private_spt = NULL;
-
-		if (is_present && !is_leaf) {
-			struct kvm_mmu_page *sp = to_shadow_page(pfn_to_hpa(new_pfn));
-
-			private_spt = kvm_mmu_private_spt(sp);
-			KVM_BUG_ON(!private_spt, kvm);
-			KVM_BUG_ON(sp->role.level + 1 != level, kvm);
-			KVM_BUG_ON(sp->gfn != gfn, kvm);
-		}
-		change.private_spt = private_spt;
-
+		change.private_spt = tdx_get_private_spt(&change);
 		KVM_BUG_ON(was_private_zapped && is_private_zapped, kvm);
 		/*
 		 * When write lock is held, leaf pte should be zapping or

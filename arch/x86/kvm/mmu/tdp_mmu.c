@@ -586,6 +586,8 @@ static int __must_check handle_private_zapped_spte(struct kvm *kvm, gfn_t gfn,
 	bool is_private_zapped = is_private_zapped_spte(new_spte);
 	bool was_present = is_shadow_present_pte(old_spte);
 	bool is_present = is_shadow_present_pte(new_spte);
+	bool was_last = is_last_spte(old_spte, level);
+	bool is_last = is_last_spte(new_spte, level);
 	kvm_pfn_t old_pfn = spte_to_pfn(old_spte);
 	kvm_pfn_t new_pfn = spte_to_pfn(new_spte);
 	int ret = 0;
@@ -607,10 +609,19 @@ static int __must_check handle_private_zapped_spte(struct kvm *kvm, gfn_t gfn,
 	 * because blocked private SPTE is also non-present.
 	 */
 	if (is_present) {
-		lockdep_assert_held_read(&kvm->mmu_lock);
+		/* map_gpa holds write lock. */
+		lockdep_assert_held(&kvm->mmu_lock);
 
 		if (old_pfn == new_pfn) {
 			ret = static_call(kvm_x86_unzap_private_spte)(kvm, gfn, level);
+		} else if (level > PG_LEVEL_4K && was_last && !is_last) {
+			/*
+			 * Splitting private_zapped large page doesn't happen.
+			 * Unzap and then split.
+			 */
+			pr_err("gfn 0x%llx old_spte 0x%llx new_spte 0x%llx level %d\n",
+			       gfn, old_spte, new_spte, level);
+			WARN_ON(1);
 		} else {
 			/*
 			 * Because page is pined (refer to

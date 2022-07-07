@@ -40,6 +40,8 @@ static const char *tdx_seamcall_name(u64 op)
 		BUILD_NAME(TDH_MNG_CREATE),
 		BUILD_NAME(TDH_VP_CREATE),
 		BUILD_NAME(TDH_MNG_RD),
+		BUILD_NAME(TDH_MEM_RD),
+		BUILD_NAME(TDH_MEM_WR),
 		BUILD_NAME(TDH_MEM_PAGE_DEMOTE),
 		BUILD_NAME(TDH_MR_EXTEND),
 		BUILD_NAME(TDH_MR_FINALIZE),
@@ -49,6 +51,7 @@ static const char *tdx_seamcall_name(u64 op)
 		BUILD_NAME(TDH_MNG_INIT),
 		BUILD_NAME(TDH_VP_INIT),
 		BUILD_NAME(TDH_MEM_PAGE_PROMOTE),
+		BUILD_NAME(TDH_MEM_SEPT_RD),
 		BUILD_NAME(TDH_VP_RD),
 		BUILD_NAME(TDH_MNG_KEY_RECLAIMID),
 		BUILD_NAME(TDH_PHYMEM_PAGE_RECLAIM),
@@ -162,6 +165,7 @@ static const char *tdx_error_name(u64 error_code)
 		BUILD_NAME(TDX_EPT_INVALID_PROMOTE_CONDITIONS),
 		BUILD_NAME(TDX_PAGE_ALREADY_ACCEPTED),
 		BUILD_NAME(TDX_PAGE_SIZE_MISMATCH),
+		BUILD_NAME(TDX_EPT_ENTRY_STATE_INCORRECT),
 	};
 
 	return tdx_find_name(error_code & TDX_SEAMCALL_STATUS_MASK,
@@ -287,7 +291,8 @@ void pr_tdx_error(u64 op, u64 error_code, const struct tdx_module_args *out)
 
 	ex.regs = *out;
 	switch (error_code & TDX_SEAMCALL_STATUS_MASK) {
-	case TDX_EPT_WALK_FAILED: {
+	case TDX_EPT_WALK_FAILED:
+	case TDX_EPT_ENTRY_STATE_INCORRECT: {
 #define MSG_EPT_WALK_FAILED						\
 	"SEAMCALL[%s(%lld)] %s(0x%llx) Secure EPT walk error: SEPTE 0x%llx level %d %s\n"
 		pr_err(MSG_EPT_WALK_FAILED,

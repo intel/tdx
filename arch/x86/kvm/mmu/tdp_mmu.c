@@ -541,6 +541,8 @@ static void handle_private_zapped_spte(struct kvm *kvm, gfn_t gfn, u64 old_spte,
 {
 	bool was_present = is_shadow_present_pte(old_spte);
 	bool is_present = is_shadow_present_pte(new_spte);
+	bool was_last = is_last_spte(old_spte, level);
+	bool is_last = is_last_spte(new_spte, level);
 	bool was_private_zapped = is_private_zapped_spte(old_spte);
 	bool is_private_zapped = is_private_zapped_spte(new_spte);
 	kvm_pfn_t old_pfn = spte_to_pfn(old_spte);
@@ -562,10 +564,21 @@ static void handle_private_zapped_spte(struct kvm *kvm, gfn_t gfn, u64 old_spte,
 	 * because blocked private SPTE is also non-present.
 	 */
 	if (is_present) {
-		lockdep_assert_held_read(&kvm->mmu_lock);
+		/* map_gpa holds write lock. */
+		lockdep_assert_held(&kvm->mmu_lock);
 
 		if (old_pfn == new_pfn) {
 			static_call(kvm_x86_unzap_private_spte)(kvm, gfn, level);
+		} else if (level > PG_LEVEL_4K && was_last && !is_last) {
+			void *private_spt = get_private_spt(gfn, new_spte, level);
+			int i;
+
+			/* This large SPTE is blocked already. */
+			static_call(kvm_x86_split_private_spt)(kvm, gfn, level, private_spt);
+			/* Block on newly splited SPTEs as parent SPTE as blocked. */
+			for (i = 0; i < SPTE_ENT_PER_PAGE; i++)
+				static_call(kvm_x86_zap_private_spte)(kvm, gfn + i, level - 1);
+			kvm_flush_remote_tlbs(kvm);
 		} else {
 			/*
 			 * Because page is pined (refer to
@@ -656,7 +669,8 @@ static void __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 	int level = role.level;
 	bool was_present = is_shadow_present_pte(old_spte);
 	bool is_present = is_shadow_present_pte(new_spte);
-	bool was_leaf = was_present && is_last_spte(old_spte, level);
+	bool was_last = is_last_spte(old_spte, level);
+	bool was_leaf = was_present && was_last;
 	bool is_leaf = is_present && is_last_spte(new_spte, level);
 	kvm_pfn_t old_pfn = spte_to_pfn(old_spte);
 	kvm_pfn_t new_pfn = spte_to_pfn(new_spte);

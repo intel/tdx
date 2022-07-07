@@ -16,6 +16,7 @@
 #include "vmx.h"
 #include "x86.h"
 #include "mmu.h"
+#include "../mmu/spte.h"	/* for SPTE_ENT_PER_PAGE */
 
 #include <trace/events/kvm.h>
 #include "trace.h"
@@ -2069,10 +2070,21 @@ static void tdx_handle_private_zapped_spte(
 	 * because blocked private SPTE is also non-present.
 	 */
 	if (change->new.is_present) {
-		lockdep_assert_held_read(&kvm->mmu_lock);
+		/* map_gpa holds write lock. */
+		lockdep_assert_held(&kvm->mmu_lock);
 
 		if (change->old.pfn == change->new.pfn) {
 			tdx_sept_unzap_private_spte(kvm, change->gfn, change->level);
+		} else if (change->level > PG_LEVEL_4K &&
+			   change->old.is_last && !change->new.is_last) {
+			int i;
+
+			/* This large SPTE is blocked already. */
+			tdx_sept_split_private_spte(kvm, change->gfn, change->level, change->private_spt);
+			/* Block on newly splited SPTEs as parent SPTE as blocked. */
+			for (i = 0; i < SPTE_ENT_PER_PAGE; i++)
+				tdx_sept_zap_private_spte(kvm, change->gfn + i, change->level - 1);
+			tdx_sept_tlb_remote_flush(kvm);
 		} else {
 			/*
 			 * Because page is pined (refer to

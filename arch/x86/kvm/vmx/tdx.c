@@ -307,11 +307,18 @@ static void tdx_reclaim_td_page(struct tdx_td_page *page)
 	free_page(page->va);
 }
 
-static void tdx_flush_vp(void *arg)
+struct tdx_flush_vp_arg {
+	struct kvm_vcpu *vcpu;
+	u64 err;
+};
+
+static void tdx_flush_vp(void *arg_)
 {
-	struct kvm_vcpu *vcpu = arg;
+	struct tdx_flush_vp_arg *arg = arg_;
+	struct kvm_vcpu *vcpu = arg->vcpu;
 	u64 err;
 
+	arg->err = 0;
 	lockdep_assert_irqs_disabled();
 
 	/* Task migration can race with CPU offlining. */
@@ -326,8 +333,13 @@ static void tdx_flush_vp(void *arg)
 	if (is_td_vcpu_created(to_tdx(vcpu))) {
 		err = tdh_vp_flush(to_tdx(vcpu)->tdvpr.pa);
 		if (unlikely(err && err != TDX_VCPU_NOT_ASSOCIATED)) {
-			if (WARN_ON_ONCE(err))
-				pr_tdx_error(TDH_VP_FLUSH, err, NULL);
+			/*
+			 * This function is called in IPI context. Do not use
+			 * printk to avoid console semaphore.
+			 * The caller prints out the error message, instead.
+			 */
+			if (err)
+				arg->err = err;
 		}
 	}
 
@@ -336,10 +348,18 @@ static void tdx_flush_vp(void *arg)
 
 static void tdx_flush_vp_on_cpu(struct kvm_vcpu *vcpu)
 {
+	struct tdx_flush_vp_arg arg = {
+		.vcpu = vcpu,
+	};
+
 	if (unlikely(vcpu->cpu == -1))
 		return;
 
-	smp_call_function_single(vcpu->cpu, tdx_flush_vp, vcpu, 1);
+	smp_call_function_single(vcpu->cpu, tdx_flush_vp, &arg, 1);
+	if (WARN_ON_ONCE(arg.err)) {
+		pr_err("cpu: %d ", vcpu->cpu);
+		pr_tdx_error(TDH_VP_FLUSH, arg.err, NULL);
+	}
 }
 
 static int tdx_do_tdh_phymem_cache_wb(void *param)

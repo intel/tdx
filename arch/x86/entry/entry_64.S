@@ -1423,6 +1423,19 @@ repeat_nmi:
 	subq	$(5*8), %rsp
 end_repeat_nmi:
 	ANNOTATE_NOENDBR // this code
+	#ifdef CONFIG_INTEL_TDX_MODULE_LOADER_OLD
+		cmpq	$0, np_seamldr_saved_gs_base(%rip)
+		jz      .Lnmi_skip_npseamldr_gsbase_fixup
+
+		/* CR4.FSGSBASE is cleared after return from NP-SEAMLDR */
+		movq    %cr4, %rax
+		orq     $X86_CR4_FSGSBASE, %rax
+		movq    %rax, %cr4
+
+		movq	np_seamldr_saved_gs_base(%rip), %rax
+		wrgsbase %rax
+	.Lnmi_skip_npseamldr_gsbase_fixup:
+	#endif
 
 	/*
 	 * Everything below this point can be preempted by a nested NMI.

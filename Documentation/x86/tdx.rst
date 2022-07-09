@@ -41,11 +41,11 @@ TDX boot-time detection
 -----------------------
 
 Kernel detects TDX and the TDX private KeyIDs during kernel boot.  User
-can see below dmesg if TDX is enabled by BIOS:
+can see below dmesg if TDX is enabled by BIOS::
 
-|  [..] tdx: SEAMRR enabled.
-|  [..] tdx: TDX private KeyID range: [16, 64).
-|  [..] tdx: TDX enabled by BIOS.
+   [..] tdx: SEAMRR enabled.
+   [..] tdx: TDX private KeyID range: [16, 64).
+   [..] tdx: TDX enabled by BIOS.
 
 TDX module detection and initialization
 ---------------------------------------
@@ -79,20 +79,20 @@ caller.
 User can consult dmesg to see the presence of the TDX module, and whether
 it has been initialized.
 
-If the TDX module is not loaded, dmesg shows below:
+If the TDX module is not loaded, dmesg shows below::
 
-|  [..] tdx: TDX module is not loaded.
+   [..] tdx: TDX module is not loaded.
 
 If the TDX module is initialized successfully, dmesg shows something
-like below:
+like below::
 
-|  [..] tdx: TDX module: vendor_id 0x8086, major_version 1, minor_version 0, build_date 20211209, build_num 160
-|  [..] tdx: 65667 pages allocated for PAMT.
-|  [..] tdx: TDX module initialized.
+   [..] tdx: TDX module: vendor_id 0x8086, major_version 1, minor_version 0, build_date 20211209, build_num 160
+   [..] tdx: 65667 pages allocated for PAMT.
+   [..] tdx: TDX module initialized.
 
-If the TDX module failed to initialize, dmesg shows below:
+If the TDX module failed to initialize, dmesg shows below::
 
-|  [..] tdx: Failed to initialize TDX module.  Shut it down.
+   [..] tdx: Failed to initialize TDX module.  Shut it down.
 
 TDX Interaction to Other Kernel Components
 ------------------------------------------
@@ -143,10 +143,10 @@ There are basically two memory hot-add cases that need to be prevented:
 ACPI memory hot-add and driver managed memory hot-add.  The kernel
 rejectes the driver managed memory hot-add too when TDX is enabled by
 BIOS.  For instance, dmesg shows below error when using kmem driver to
-add a legacy PMEM as system RAM:
+add a legacy PMEM as system RAM::
 
-|  [..] tdx: Unable to add memory [0x580000000, 0x600000000) on TDX enabled platform.
-|  [..] kmem dax0.0: mapping0: 0x580000000-0x5ffffffff memory add failed
+   [..] tdx: Unable to add memory [0x580000000, 0x600000000) on TDX enabled platform.
+   [..] kmem dax0.0: mapping0: 0x580000000-0x5ffffffff memory add failed
 
 However, adding new memory to ZONE_DEVICE should not be prevented as
 those pages are not managed by the page allocator.  Therefore,

@@ -62,7 +62,7 @@ use it as 'metadata' for the TDX memory.  It also takes additional CPU
 time to initialize those metadata along with the TDX module itself.  Both
 are not trivial.  Current kernel doesn't choose to always initialize the
 TDX module during kernel boot, but provides a function tdx_init() to
-allow the caller to initialize TDX when it truly wants to use TDX:
+allow the caller to initialize TDX when it truly wants to use TDX::
 
         ret = tdx_init();
         if (ret)

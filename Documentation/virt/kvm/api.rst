@@ -1328,7 +1328,7 @@ yet and must be cleared on entry.
 	__u64 userspace_addr; /* start of the userspace allocated memory */
   };
 
-  /* for kvm_userspace_memory_region::flags */
+  /\* for kvm_userspace_memory_region::flags \*/
   #define KVM_MEM_LOG_DIRTY_PAGES	(1UL << 0)
   #define KVM_MEM_READONLY	(1UL << 1)
 
@@ -6820,7 +6820,7 @@ spec refer, https://github.com/riscv/riscv-sbi-doc.
 
 ::
 
-		/* KVM_EXIT_MEMORY_FAULT */
+		/\* KVM_EXIT_MEMORY_FAULT \*/
 		struct {
   #define KVM_MEMORY_EXIT_FLAG_PRIVATE	(1ULL << 3)
 			__u64 flags;
@@ -6891,7 +6891,6 @@ for general purpose registers)
 Please note that the kernel is allowed to use the kvm_run structure as the
 primary storage for certain register types. Therefore, the kernel may use the
 values in kvm_run even if the corresponding bit in kvm_dirty_regs is not set.
-
 
 6. Capabilities that can be enabled on vCPUs
 ============================================

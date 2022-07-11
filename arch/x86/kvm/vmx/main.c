@@ -179,6 +179,8 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 
 	.flush_tlb_all = vmx_flush_tlb_all,
 	.flush_tlb_current = vmx_flush_tlb_current,
+	.tlb_remote_flush = vmx_tlb_remote_flush,
+	.tlb_remote_flush_with_range = vmx_tlb_remote_flush_with_range,
 	.flush_tlb_gva = vmx_flush_tlb_gva,
 	.flush_tlb_guest = vmx_flush_tlb_guest,
 

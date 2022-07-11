@@ -3208,6 +3208,33 @@ void vmx_flush_tlb_current(struct kvm_vcpu *vcpu)
 		vpid_sync_context(vmx_get_current_vpid(vcpu));
 }
 
+int vmx_tlb_remote_flush(struct kvm *kvm)
+{
+#if IS_ENABLED(CONFIG_HYPERV)
+	if (hv_use_remote_flush_tlb)
+		return hv_remote_flush_tlb(kvm);
+#endif
+	/*
+	 * fallback to KVM_REQ_TLB_FLUSH.
+	 * See kvm_arch_flush_remote_tlb() and kvm_flush_remote_tlbs().
+	 */
+	return -EOPNOTSUPP;
+}
+
+int vmx_tlb_remote_flush_with_range(struct kvm *kvm,
+				    struct kvm_tlb_range *range)
+{
+#if IS_ENABLED(CONFIG_HYPERV)
+	if (hv_use_remote_flush_tlb)
+		return hv_remote_flush_tlb_with_range(kvm, range);
+#endif
+	/*
+	 * fallback to tlb_remote_flush. See
+	 * kvm_flush_remote_tlbs_with_range()
+	 */
+	return -EOPNOTSUPP;
+}
+
 void vmx_flush_tlb_gva(struct kvm_vcpu *vcpu, gva_t addr)
 {
 	/*
@@ -8358,11 +8385,8 @@ __init int vmx_hardware_setup(void)
 
 #if IS_ENABLED(CONFIG_HYPERV)
 	if (ms_hyperv.nested_features & HV_X64_NESTED_GUEST_MAPPING_FLUSH
-	    && enable_ept) {
-		vt_x86_ops.tlb_remote_flush = hv_remote_flush_tlb;
-		vt_x86_ops.tlb_remote_flush_with_range =
-				hv_remote_flush_tlb_with_range;
-	}
+	    && enable_ept)
+		hv_use_remote_flush_tlb = true;
 #endif
 
 	if (!cpu_has_vmx_ple()) {

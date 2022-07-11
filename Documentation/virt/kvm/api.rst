@@ -1330,7 +1330,7 @@ yet and must be cleared on entry.
 	__u64 userspace_addr; /* start of the userspace allocated memory */
   };
 
-  /* for kvm_userspace_memory_region::flags */
+  /\* for kvm_userspace_memory_region::flags \*/
   #define KVM_MEM_LOG_DIRTY_PAGES	(1UL << 0)
   #define KVM_MEM_READONLY	(1UL << 1)
 
@@ -5856,7 +5856,7 @@ as the descriptors in Descriptors block.
 :Returns: 0 on success, -1 on error
 
 4.135 KVM_MEMORY_ENCRYPT_READ_MEMORY / KVM_MEMORY_ENCRYPT_WRITE_MEMORY
-------------------------------------
+----------------------------------------------------------------------
 :Capability: KVM_CAP_ENCRYPT_MEMORY_DEBUG
 :Architectures: x86
 :Type: vm ioctl
@@ -5864,26 +5864,30 @@ as the descriptors in Descriptors block.
 :Returns: 0 on success, < 0 on error
 
 ::
+
   struct kvm_rw_memory
   {
 	__u64 addr;
+
 The guest address which userspace want to read from/write to, it can
 be GPA or HVA, depends on the implementation in KVM.
 
 ::
 	__u64 len;
+
 The length in byte userspace want to read from/write to, it will be
 updated to operation completed byte size when the ioctl return
 
 ::
 	__u64 ubuf;
+
 The userspace buffer to receive the data for reading/send the data for
 writing.
 
   };
 
 ::
-Example:
+  Example:
   struct kvm_rw_memory rw_memory;
 
   rw_memory.addr = gpa_addr_for_read_OR_write
@@ -6662,7 +6666,7 @@ spec refer, https://github.com/riscv/riscv-sbi-doc.
 
 ::
 
-		/* KVM_EXIT_MEMORY_FAULT */
+		/\* KVM_EXIT_MEMORY_FAULT \*/
 		struct {
   #define KVM_MEMORY_EXIT_FLAG_PRIVATE	(1ULL << 3)
 			__u64 flags;
@@ -6733,7 +6737,6 @@ for general purpose registers)
 Please note that the kernel is allowed to use the kvm_run structure as the
 primary storage for certain register types. Therefore, the kernel may use the
 values in kvm_run even if the corresponding bit in kvm_dirty_regs is not set.
-
 
 6. Capabilities that can be enabled on vCPUs
 ============================================

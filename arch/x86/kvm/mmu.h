@@ -322,4 +322,37 @@ static inline gpa_t kvm_translate_gpa(struct kvm_vcpu *vcpu,
 		return gpa;
 	return translate_nested_gpa(vcpu, gpa, access, exception);
 }
+
+/*
+ *			default or SEV-SNP	TDX: where S = (47 or 51) - 12
+ * gfn_shared_mask	0			S bit
+ * is_private_gpa()	always false		if GPA has S bit set
+ * gfn_to_shared()	nop			set S bit
+ * gfn_to_private()	nop			clear S bit
+ *
+ * fault.is_private means that host page should be gotten from guest_memfd
+ * is_private_gpa() means that KVM MMU should invoke private MMU hooks.
+ */
+static inline gfn_t kvm_gfn_shared_mask(const struct kvm *kvm)
+{
+	return kvm->arch.gfn_shared_mask;
+}
+
+static inline gfn_t kvm_gfn_to_shared(const struct kvm *kvm, gfn_t gfn)
+{
+	return gfn | kvm_gfn_shared_mask(kvm);
+}
+
+static inline gfn_t kvm_gfn_to_private(const struct kvm *kvm, gfn_t gfn)
+{
+	return gfn & ~kvm_gfn_shared_mask(kvm);
+}
+
+static inline bool kvm_is_private_gpa(const struct kvm *kvm, gpa_t gpa)
+{
+	gfn_t mask = kvm_gfn_shared_mask(kvm);
+
+	return mask && !(gpa_to_gfn(gpa) & mask);
+}
+
 #endif

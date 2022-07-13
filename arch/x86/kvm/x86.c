@@ -4447,7 +4447,10 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		r = 0;
 		break;
 	case KVM_CAP_MCE:
-		r = KVM_MAX_MCE_BANKS;
+		if (kvm && kvm->arch.vm_type == KVM_X86_TDX_VM)
+			r = 0;
+		else
+			r = KVM_MAX_MCE_BANKS;
 		break;
 	case KVM_CAP_XCRS:
 		r = boot_cpu_has(X86_FEATURE_XSAVE);

@@ -139,6 +139,17 @@
 #define HV_X64_NESTED_MSR_BITMAP			BIT(19)
 
 /*
+ * Nested quirks. These are HYPERV_CPUID_NESTED_FEATURES.EBX bits.
+ *
+ * Note: HV_X64_NESTED_EVMCS1_2022_UPDATE is not currently documented in any
+ * published TLFS version. When the bit is set, nested hypervisor can use
+ * 'updated' eVMCSv1 specification (perf_global_ctrl, s_cet, ssp, lbr_ctl,
+ * encls_exiting_bitmap, tsc_multiplier fields which were missing in 2016
+ * specification).
+ */
+#define HV_X64_NESTED_EVMCS1_2022_UPDATE		BIT(0)
+
+/*
  * This is specific to AMD and specifies that enlightened TLB flush is
  * supported. If guest opts in to this feature, ASID invalidations only
  * flushes gva -> hpa mapping entries. To flush the TLB entries derived
@@ -559,9 +570,20 @@ struct hv_enlightened_vmcs {
 	u64 partition_assist_page;
 	u64 padding64_4[4];
 	u64 guest_bndcfgs;
-	u64 padding64_5[7];
+	u64 guest_ia32_perf_global_ctrl;
+	u64 guest_ia32_s_cet;
+	u64 guest_ssp;
+	u64 guest_ia32_int_ssp_table_addr;
+	u64 guest_ia32_lbr_ctl;
+	u64 padding64_5[2];
 	u64 xss_exit_bitmap;
-	u64 padding64_6[7];
+	u64 encls_exiting_bitmap;
+	u64 host_ia32_perf_global_ctrl;
+	u64 tsc_multiplier;
+	u64 host_ia32_s_cet;
+	u64 host_ssp;
+	u64 host_ia32_int_ssp_table_addr;
+	u64 padding64_6;
 } __packed;
 
 #define HV_VMX_ENLIGHTENED_CLEAN_FIELD_NONE			0

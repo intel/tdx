@@ -70,6 +70,8 @@
 #define HV_MSR_GUEST_IDLE_AVAILABLE		BIT(10)
 /* Partition local APIC and TSC frequency registers available */
 #define HV_ACCESS_FREQUENCY_MSRS		BIT(11)
+/* Debug MSRs available */
+#define HV_ACCESS_DEBUG_MSRS			BIT(12)
 /* AccessReenlightenmentControls privilege */
 #define HV_ACCESS_REENLIGHTENMENT		BIT(13)
 /* AccessTscInvariantControls privilege */

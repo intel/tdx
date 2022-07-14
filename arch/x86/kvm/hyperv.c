@@ -1281,8 +1281,8 @@ static bool hv_check_msr_access(struct kvm_vcpu_hv *hv_vcpu, u32 msr)
 			HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE;
 	case HV_X64_MSR_SYNDBG_OPTIONS:
 	case HV_X64_MSR_SYNDBG_CONTROL ... HV_X64_MSR_SYNDBG_PENDING_BUFFER:
-		return hv_vcpu->cpuid_cache.features_edx &
-			HV_FEATURE_DEBUG_MSRS_AVAILABLE;
+		return hv_vcpu->cpuid_cache.features_eax &
+			HV_ACCESS_DEBUG_MSRS;
 	default:
 		break;
 	}
@@ -2496,6 +2496,7 @@ int kvm_get_hv_cpuid(struct kvm_vcpu *vcpu, struct kvm_cpuid2 *cpuid,
 			ent->eax |= HV_MSR_RESET_AVAILABLE;
 			ent->eax |= HV_MSR_REFERENCE_TSC_AVAILABLE;
 			ent->eax |= HV_ACCESS_FREQUENCY_MSRS;
+			ent->eax |= HV_ACCESS_DEBUG_MSRS;
 			ent->eax |= HV_ACCESS_REENLIGHTENMENT;
 
 			ent->ebx |= HV_POST_MESSAGES;

@@ -415,6 +415,7 @@ static void guest_test_msrs_access(void)
 			msr->available = 0;
 			break;
 		case 42:
+			feat->eax |= HV_ACCESS_DEBUG_MSRS;
 			feat->edx |= HV_FEATURE_DEBUG_MSRS_AVAILABLE;
 			dbg->eax |= HV_X64_SYNDBG_CAP_ALLOW_KERNEL_DEBUGGING;
 			msr->idx = HV_X64_MSR_SYNDBG_STATUS;

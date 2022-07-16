@@ -3,6 +3,6 @@ CFLAGS_REMOVE_core.o	= -pg
 KASAN_SANITIZE_core.o	:= n
 CFLAGS_core.o		+= -fno-stack-protector
 
-obj-y += core.o
+obj-y += core.o mem.o
 
 obj-$(CONFIG_INTEL_TDX_GUEST)	+= tdx/

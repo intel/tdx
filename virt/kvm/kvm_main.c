@@ -947,6 +947,7 @@ EXPORT_SYMBOL_GPL(kvm_vm_reserve_mem_attr);
 int kvm_vm_set_mem_attr(struct kvm *kvm, int attr, gfn_t start, gfn_t end)
 {
 	void *entry;
+	int r;
 
 	/* By default, the entry is private. */
 	switch (attr) {
@@ -962,8 +963,12 @@ int kvm_vm_set_mem_attr(struct kvm *kvm, int attr, gfn_t start, gfn_t end)
 	}
 
 	WARN_ON(start >= end);
-	return xa_err(xa_store_range(&kvm->mem_attr_array, start, end - 1,
-				     entry, GFP_KERNEL_ACCOUNT));
+	r = xa_err(xa_store_range(&kvm->mem_attr_array, start, end - 1,
+				  entry, GFP_KERNEL_ACCOUNT));
+	if (r)
+		return r;
+	kvm_arch_update_mem_attr(kvm, attr, start, end);
+	return 0;
 }
 EXPORT_SYMBOL_GPL(kvm_vm_set_mem_attr);
 #endif /* CONFIG_HAVE_KVM_PRIVATE_MEM_ATTR */

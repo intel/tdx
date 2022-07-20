@@ -818,11 +818,16 @@ static void update_gfn_disallow_lpage_count(const struct kvm_memory_slot *slot,
 {
 	struct kvm_lpage_info *linfo;
 	int i;
+	int disallow_count;
 
 	for (i = PG_LEVEL_2M; i <= KVM_MAX_HUGEPAGE_LEVEL; ++i) {
 		linfo = lpage_info_slot(gfn, slot, i);
+
+		disallow_count = linfo->disallow_lpage & KVM_LPAGE_COUNT_MAX;
+		WARN_ON(disallow_count + count < 0 ||
+			disallow_count > KVM_LPAGE_COUNT_MAX - count);
+
 		linfo->disallow_lpage += count;
-		WARN_ON(linfo->disallow_lpage < 0);
 	}
 }
 
@@ -7237,3 +7242,150 @@ void kvm_mmu_pre_destroy_vm(struct kvm *kvm)
 	if (kvm->arch.nx_lpage_recovery_thread)
 		kthread_stop(kvm->arch.nx_lpage_recovery_thread);
 }
+
+bool kvm_mem_attr_is_mixed(struct kvm_memory_slot *slot, gfn_t gfn, int level)
+{
+	gfn_t pages = KVM_PAGES_PER_HPAGE(level);
+	gfn_t mask = ~(pages - 1);
+	struct kvm_lpage_info *linfo = lpage_info_slot(gfn & mask, slot, level);
+
+	WARN_ON(level == PG_LEVEL_4K);
+	return linfo->disallow_lpage & KVM_LPAGE_PRIVATE_SHARED_MIXED;
+}
+
+#ifdef CONFIG_HAVE_KVM_PRIVATE_MEM_ATTR
+static void update_mixed(struct kvm_lpage_info *linfo, bool mixed)
+{
+	if (mixed)
+		linfo->disallow_lpage |= KVM_LPAGE_PRIVATE_SHARED_MIXED;
+	else
+		linfo->disallow_lpage &= ~KVM_LPAGE_PRIVATE_SHARED_MIXED;
+}
+
+static bool __mem_attr_is_mixed(struct kvm *kvm, gfn_t start, gfn_t end)
+{
+	XA_STATE(xas, &kvm->mem_attr_array, start);
+	bool mixed = false;
+	gfn_t gfn = start;
+	void *s_entry;
+	void *entry;
+
+	rcu_read_lock();
+	s_entry = xas_load(&xas);
+	while (gfn < end) {
+		if (xas_retry(&xas, entry))
+			continue;
+
+		KVM_BUG_ON(gfn != xas.xa_index, kvm);
+
+		entry = xas_next(&xas);
+		if (entry != s_entry) {
+			mixed = true;
+			break;
+		}
+		gfn++;
+	}
+	rcu_read_unlock();
+	return mixed;
+}
+
+static bool mem_attr_is_mixed(struct kvm *kvm,
+			      struct kvm_memory_slot *slot, int level,
+			      gfn_t start, gfn_t end)
+{
+	struct kvm_lpage_info *child_linfo;
+	unsigned long child_pages;
+	bool mixed = false;
+	unsigned long gfn;
+	void *entry;
+
+	if (WARN_ON(level == PG_LEVEL_4K))
+		return false;
+
+	if (level == PG_LEVEL_2M)
+		return __mem_attr_is_mixed(kvm, start, end);
+
+	/* This assumes that level - 1 is already updated. */
+	rcu_read_lock();
+	child_pages = KVM_PAGES_PER_HPAGE(level - 1);
+	entry = xa_load(&kvm->mem_attr_array, start);
+	for (gfn = start; gfn < end; gfn += child_pages) {
+		child_linfo = lpage_info_slot(gfn, slot, level - 1);
+		if (child_linfo->disallow_lpage & KVM_LPAGE_PRIVATE_SHARED_MIXED) {
+			mixed = true;
+			break;
+		}
+		if (xa_load(&kvm->mem_attr_array, gfn) != entry) {
+			mixed = true;
+			break;
+		}
+	}
+	rcu_read_unlock();
+	return mixed;
+}
+
+static void update_mem_lpage_info(struct kvm *kvm,
+				  struct kvm_memory_slot *slot,
+				  unsigned int attr,
+				  gfn_t start, gfn_t end)
+{
+	unsigned long lpage_start, lpage_end;
+	unsigned long gfn, pages, mask;
+	int level;
+
+	for (level = PG_LEVEL_2M; level <= KVM_MAX_HUGEPAGE_LEVEL; level++) {
+		pages = KVM_PAGES_PER_HPAGE(level);
+		mask = ~(pages - 1);
+		lpage_start = start & mask;
+		lpage_end = (end - 1) & mask;
+
+		/*
+		 * We only need to scan the head and tail page, for middle pages
+		 * we know they are not mixed.
+		 */
+		update_mixed(lpage_info_slot(lpage_start, slot, level),
+			     mem_attr_is_mixed(kvm, slot, level,
+					       lpage_start, lpage_start + pages));
+
+		if (lpage_start == lpage_end)
+			return;
+
+		for (gfn = lpage_start + pages; gfn < lpage_end; gfn += pages) {
+			update_mixed(lpage_info_slot(gfn, slot, level), false);
+		}
+
+		update_mixed(lpage_info_slot(lpage_end, slot, level),
+			     mem_attr_is_mixed(kvm, slot, level,
+					       lpage_end, lpage_end + pages));
+	}
+}
+
+void kvm_arch_update_mem_attr(struct kvm *kvm, unsigned int attr,
+			      gfn_t start, gfn_t end)
+{
+	struct kvm_memory_slot *slot;
+	struct kvm_memslots *slots;
+	struct kvm_memslot_iter iter;
+	int idx;
+	int i;
+
+	WARN_ONCE(!(attr & (KVM_MEM_ATTR_PRIVATE | KVM_MEM_ATTR_SHARED)),
+		  "Unsupported mem attribute.\n");
+
+	idx = srcu_read_lock(&kvm->srcu);
+	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++) {
+		slots = __kvm_memslots(kvm, i);
+
+		kvm_for_each_memslot_in_gfn_range(&iter, slots, start, end) {
+			slot = iter.slot;
+			start = max(start, slot->base_gfn);
+			end = min(end, slot->base_gfn + slot->npages);
+			if (WARN_ON_ONCE(start >= end))
+				continue;
+
+			update_mem_lpage_info(kvm, slot, attr, start, end);
+		}
+	}
+	srcu_read_unlock(&kvm->srcu, idx);
+}
+#endif

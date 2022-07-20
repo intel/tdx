@@ -2310,6 +2310,16 @@ static inline void kvm_handle_signal_exit(struct kvm_vcpu *vcpu)
 /* Max number of entries allowed for each kvm dirty ring */
 #define  KVM_DIRTY_RING_MAX_ENTRIES  65536
 
+#ifdef __KVM_HAVE_ARCH_UPDATE_MEM_ATTR
+void kvm_arch_update_mem_attr(struct kvm *kvm, unsigned int attr,
+			      gfn_t start, gfn_t end);
+#else
+static inline void kvm_arch_update_mem_attr(struct kvm *kvm, unsigned int attr,
+					    gfn_t start, gfn_t end)
+{
+}
+#endif /* __KVM_HAVE_ARCH_UPDATE_MEM_ATTR */
+
 #ifdef CONFIG_HAVE_KVM_PRIVATE_MEM
 static inline int kvm_private_mem_get_pfn(struct kvm_memory_slot *slot,
 					  gfn_t gfn, kvm_pfn_t *pfn, int *order)

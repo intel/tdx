@@ -37,6 +37,7 @@
 #include <asm/hyperv-tlfs.h>
 
 #define __KVM_HAVE_ARCH_VCPU_DEBUGFS
+#define __KVM_HAVE_ARCH_UPDATE_MEM_ATTR
 #define __KVM_HAVE_ZAP_GFN_RANGE
 
 #define KVM_MAX_VCPUS 1024
@@ -986,6 +987,13 @@ struct kvm_vcpu_arch {
 	hpa_t hv_root_tdp;
 #endif
 };
+
+/*
+ * Use a bit in disallow_lpage to indicate private/shared pages mixed at the
+ * level. The remaining bits will be used as a reference count for other users.
+ */
+#define KVM_LPAGE_PRIVATE_SHARED_MIXED		(1U << 31)
+#define KVM_LPAGE_COUNT_MAX 			((1U << 31) - 1)
 
 struct kvm_lpage_info {
 	int disallow_lpage;

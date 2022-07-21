@@ -157,6 +157,11 @@ static inline int kvm_mmu_page_as_id(struct kvm_mmu_page *sp)
 	return kvm_mmu_role_as_id(sp->role);
 }
 
+static inline bool is_mirror_sp(const struct kvm_mmu_page *sp)
+{
+	return kvm_mmu_page_role_is_mirror(sp->role);
+}
+
 static inline void *kvm_mmu_mirrored_spt(struct kvm_mmu_page *sp)
 {
 	return sp->mirrored_spt;

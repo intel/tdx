@@ -12,14 +12,11 @@
 
 #include <asm/coco.h>
 #include <asm/processor.h>
-#include <asm/cpufeature.h>
-#include <asm/tdx.h>
 
 static enum cc_vendor vendor __ro_after_init;
 static u64 cc_mask __ro_after_init;
 
-#ifdef CONFIG_INTEL_TDX_GUEST
-static bool intel_tdx_guest_has(enum cc_attr attr)
+static bool intel_cc_platform_has(enum cc_attr attr)
 {
 	switch (attr) {
 	case CC_ATTR_GUEST_UNROLL_STRING_IO:
@@ -30,33 +27,6 @@ static bool intel_tdx_guest_has(enum cc_attr attr)
 	default:
 		return false;
 	}
-}
-#endif
-
-#ifdef CONFIG_INTEL_TDX_HOST
-static bool intel_tdx_host_has(enum cc_attr attr)
-{
-	switch (attr) {
-	case CC_ATTR_ACPI_CPU_HOTPLUG_DISABLED:
-	case CC_ATTR_ACPI_MEMORY_HOTPLUG_DISABLED:
-		return true;
-	default:
-		return false;
-	}
-}
-#endif
-
-static bool intel_cc_platform_has(enum cc_attr attr)
-{
-#ifdef CONFIG_INTEL_TDX_GUEST
-	if (boot_cpu_has(X86_FEATURE_TDX_GUEST))
-		return intel_tdx_guest_has(attr);
-#endif
-#ifdef CONFIG_INTEL_TDX_HOST
-	if (platform_tdx_enabled())
-		return intel_tdx_host_has(attr);
-#endif
-	return false;
 }
 
 /*

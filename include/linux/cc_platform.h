@@ -82,25 +82,14 @@ enum cc_attr {
 	CC_ATTR_GUEST_SEV_SNP,
 
 	/**
-	 * @CC_ATTR_CPU_HOTPLUG_DISABLED: CPU hotplug is not supported or
-	 *				  disabled.
+	 * @CC_ATTR_HOTPLUG_DISABLED: Hotplug is not supported or disabled.
 	 *
 	 * The platform/OS is running as a guest/virtual machine does not
 	 * support CPU hotplug feature.
 	 *
 	 * Examples include TDX Guest.
 	 */
-	CC_ATTR_CPU_HOTPLUG_DISABLED,
-
-	/**
-	 * @CC_ATTR_ACPI_CPU_HOTPLUG_DISABLED: ACPI CPU hotplug is not
-	 *				       supported.
-	 *
-	 * The platform/OS does not support ACPI CPU hotplug.
-	 *
-	 * Examples include TDX platform.
-	 */
-	CC_ATTR_ACPI_CPU_HOTPLUG_DISABLED,
+	CC_ATTR_HOTPLUG_DISABLED,
 };
 
 #ifdef CONFIG_ARCH_HAS_CC_PLATFORM

@@ -27,7 +27,6 @@
 #include <asm/msr.h>
 #include <asm/smp.h>
 #include <asm/tdx.h>
-#include <asm/coco.h>
 #include "tdx.h"
 
 /*
@@ -130,9 +129,6 @@ static int __init tdx_early_detect(void)
 	ret = detect_tdx_keyids();
 	if (ret)
 		return ret;
-
-	/* Set TDX enabled platform as confidential computing platform */
-	cc_set_vendor(CC_VENDOR_INTEL);
 
 	pr_info("TDX enabled by BIOS.\n");
 	return 0;

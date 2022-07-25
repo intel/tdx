@@ -101,16 +101,6 @@ enum cc_attr {
 	 * Examples include TDX platform.
 	 */
 	CC_ATTR_ACPI_CPU_HOTPLUG_DISABLED,
-
-	/**
-	 * @CC_ATTR_ACPI_MEMORY_HOTPLUG_DISABLED: ACPI memory hotplug is
-	 *					  not supported.
-	 *
-	 * The platform/os does not support ACPI memory hotplug.
-	 *
-	 * Examples include TDX platform.
-	 */
-	CC_ATTR_ACPI_MEMORY_HOTPLUG_DISABLED,
 };
 
 #ifdef CONFIG_ARCH_HAS_CC_PLATFORM

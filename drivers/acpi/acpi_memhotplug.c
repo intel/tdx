@@ -15,7 +15,6 @@
 #include <linux/acpi.h>
 #include <linux/memory.h>
 #include <linux/memory_hotplug.h>
-#include <linux/cc_platform.h>
 
 #include "internal.h"
 
@@ -292,17 +291,6 @@ static int acpi_memory_device_add(struct acpi_device *device,
 	if (!device)
 		return -EINVAL;
 
-	/*
-	 * If the confidential computing platform doesn't support ACPI
-	 * memory hotplug, the BIOS should never deliver such event to
-	 * the kernel.  Report ACPI CPU hot-add as a BIOS bug and ignore
-	 * the memory device.
-	 */
-	if (cc_platform_has(CC_ATTR_ACPI_MEMORY_HOTPLUG_DISABLED)) {
-		dev_err(&device->dev, "[BIOS bug]: Platform doesn't support ACPI memory hotplug. New memory device ignored.\n");
-		return -EINVAL;
-	}
-
 	mem_device = kzalloc(sizeof(struct acpi_memory_device), GFP_KERNEL);
 	if (!mem_device)
 		return -ENOMEM;
@@ -345,17 +333,6 @@ static void acpi_memory_device_remove(struct acpi_device *device)
 
 	if (!device || !acpi_driver_data(device))
 		return;
-
-	/*
-	 * The confidential computing platform is broken if ACPI memory
-	 * hot-removal isn't supported but it happened anyway.  Assume
-	 * it is not guaranteed that the kernel can continue to work
-	 * normally.  Just BUG().
-	 */
-	if (cc_platform_has(CC_ATTR_ACPI_CPU_HOTPLUG_DISABLED)) {
-		dev_err(&device->dev, "Platform doesn't support ACPI memory hotplug. BUG().\n");
-		BUG();
-	}
 
 	mem_device = acpi_driver_data(device);
 	acpi_memory_remove_memory(mem_device);

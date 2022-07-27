@@ -18,6 +18,8 @@
 
 void pr_tdx_error(u64 op, u64 error_code, const struct tdx_module_output *out);
 
+#define TDX_ERROR_SEPT_BUSY	(TDX_OPERAND_BUSY | TDX_OPERAND_ID_SEPT)
+
 static inline u64 tdh_mng_addcx(hpa_t tdr, hpa_t addr)
 {
 	clflush_cache_range(__va(addr), PAGE_SIZE);

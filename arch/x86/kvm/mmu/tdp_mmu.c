@@ -566,6 +566,10 @@ static void handle_changed_private_spte(struct kvm *kvm, gfn_t gfn,
 	} else if (was_leaf) {
 		/* non-present -> non-present doesn't make sense. */
 		KVM_BUG_ON(!was_present, kvm);
+		/*
+		 * Zap private leaf SPTE.  Zapping private table is done
+		 * below in handle_removed_tdp_mmu_page().
+		 */
 		static_call(kvm_x86_zap_private_spte)(kvm, gfn, level);
 		static_call(kvm_x86_remove_private_spte)(kvm, gfn, level, old_pfn);
 	}

@@ -2294,9 +2294,20 @@ static inline void kvm_handle_signal_exit(struct kvm_vcpu *vcpu)
 #define KVM_MEM_ATTR_PRIVATE	0x0002
 
 #ifdef __KVM_HAVE_ARCH_UPDATE_MEM_ATTR
+/* memory attr on [start, end) */
+int kvm_vm_reserve_mem_attr(struct kvm *kvm, gfn_t start, gfn_t end);
+int kvm_vm_set_mem_attr(struct kvm *kvm, int attr, gfn_t start, gfn_t end);
 void kvm_arch_update_mem_attr(struct kvm *kvm, unsigned int attr,
 			      gfn_t start, gfn_t end);
 #else
+static inline int kvm_vm_reserve_mem_attr(struct kvm *kvm, gfn_t start, gfn_t end)
+{
+	return -EOPNOTSUPP;
+}
+static inline int kvm_vm_set_mem_attr(struct kvm *kvm, int attr, gfn_t start, gfn_t end)
+{
+	return -EOPNOTSUPP;
+}
 static inline void kvm_arch_update_mem_attr(struct kvm *kvm, unsigned int attr,
 					    gfn_t start, gfn_t end)
 {
@@ -2326,7 +2337,11 @@ static inline bool kvm_mem_is_private(struct kvm *kvm, gfn_t gfn)
 {
 	return !xa_load(&kvm->mem_attr_array, gfn);
 }
-
+#else
+static inline bool kvm_mem_is_private(struct kvm *kvm, gfn_t gfn)
+{
+	return false;
+}
 #endif /* CONFIG_HAVE_KVM_PRIVATE_MEM */
 
 #endif

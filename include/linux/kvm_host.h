@@ -2317,12 +2317,23 @@ void kvm_arch_set_memory_attributes(struct kvm *kvm,
 				    struct kvm_memory_slot *slot,
 				    unsigned long attrs,
 				    gfn_t start, gfn_t end);
+/* memory attr on [start, end) */
+int kvm_vm_reserve_mem_attr_array(struct kvm *kvm, gfn_t start, gfn_t end);
+int kvm_vm_set_memory_attributes(struct kvm *kvm, u64 attributes, gfn_t start, gfn_t end);
 #else
 static inline void kvm_arch_set_memory_attributes(struct kvm *kvm,
 						  struct kvm_memory_slot *slot,
 						  unsigned long attrs,
 						  gfn_t start, gfn_t end)
 {
+}
+static inline int kvm_vm_reserve_mem_attr_array(struct kvm *kvm, gfn_t start, gfn_t end)
+{
+	return -EOPNOTSUPP;
+}
+static inline int kvm_vm_set_memory_attributes(struct kvm *kvm, u64 attributes, gfn_t start, gfn_t end)
+{
+	return -EOPNOTSUPP;
 }
 #endif /* __KVM_HAVE_ARCH_SET_MEMORY_ATTRIBUTES */
 

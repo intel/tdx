@@ -4541,6 +4541,19 @@ static inline u8 order_to_level(int order)
 	return level;
 }
 
+static void kvm_exit_memory_fault(struct kvm_vcpu *vcpu,
+				  struct kvm_page_fault *fault)
+{
+	vcpu->run->exit_reason = KVM_EXIT_MEMORY_FAULT;
+	if (fault->is_private)
+		vcpu->run->memory.flags = KVM_MEMORY_EXIT_FLAG_PRIVATE;
+	else
+		vcpu->run->memory.flags = 0;
+	vcpu->run->memory.padding = 0;
+	vcpu->run->memory.gpa = fault->gfn << PAGE_SHIFT;
+	vcpu->run->memory.size = PAGE_SIZE;
+}
+
 static int kvm_faultin_pfn_private(struct kvm_vcpu *vcpu,
 				   struct kvm_page_fault *fault)
 {
@@ -4549,14 +4562,7 @@ static int kvm_faultin_pfn_private(struct kvm_vcpu *vcpu,
 	bool private_exist = kvm_mem_is_private(vcpu->kvm, fault->gfn);
 
 	if (fault->is_private != private_exist) {
-		vcpu->run->exit_reason = KVM_EXIT_MEMORY_FAULT;
-		if (fault->is_private)
-			vcpu->run->memory.flags = KVM_MEMORY_EXIT_FLAG_PRIVATE;
-		else
-			vcpu->run->memory.flags = 0;
-		vcpu->run->memory.padding = 0;
-		vcpu->run->memory.gpa = fault->gfn << PAGE_SHIFT;
-		vcpu->run->memory.size = PAGE_SIZE;
+		kvm_exit_memory_fault(vcpu, fault);
 		return RET_PF_USER;
 	}
 
@@ -4613,8 +4619,10 @@ static int kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	}
 
 	if (kvm_gfn_shared_mask(vcpu->kvm) &&
-	    (kvm_mem_is_private(vcpu->kvm, fault->gfn) != fault->is_private))
-		return RET_PF_RETRY;
+	    (kvm_mem_is_private(vcpu->kvm, fault->gfn) != fault->is_private)) {
+		kvm_exit_memory_fault(vcpu, fault);
+		return RET_PF_USER;
+	}
 
 	async = false;
 	fault->pfn = __gfn_to_pfn_memslot(slot, fault->gfn, false, &async,

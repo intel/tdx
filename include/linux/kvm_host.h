@@ -2309,9 +2309,20 @@ static inline void kvm_account_pgtable_pages(void *virt, int nr)
 #define KVM_MEM_ATTR_PRIVATE	0x0002
 
 #ifdef __KVM_HAVE_ARCH_UPDATE_MEM_ATTR
+/* memory attr on [start, end) */
+int kvm_vm_reserve_mem_attr(struct kvm *kvm, gfn_t start, gfn_t end);
+int kvm_vm_set_mem_attr(struct kvm *kvm, int attr, gfn_t start, gfn_t end);
 void kvm_arch_update_mem_attr(struct kvm *kvm, struct kvm_memory_slot *slot,
 			      unsigned int attr, gfn_t start, gfn_t end);
 #else
+static inline int kvm_vm_reserve_mem_attr(struct kvm *kvm, gfn_t start, gfn_t end)
+{
+	return -EOPNOTSUPP;
+}
+static inline int kvm_vm_set_mem_attr(struct kvm *kvm, int attr, gfn_t start, gfn_t end)
+{
+	return -EOPNOTSUPP;
+}
 static inline void kvm_arch_update_mem_attr(struct kvm *kvm,
 					    struct kvm_memory_slot *slot,
 					    unsigned int attr,

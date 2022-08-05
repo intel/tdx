@@ -1032,6 +1032,70 @@ static inline void kvm_restrictedmem_unregister(struct kvm_memory_slot *slot)
 					  &slot->notifier);
 }
 
+/*
+ * Reserve memory for [start, end) so that the next set oepration won't fail
+ * with -ENOMEM.
+ */
+int kvm_vm_reserve_mem_attr_array(struct kvm *kvm, gfn_t start, gfn_t end)
+{
+	int r = 0;
+	gfn_t gfn;
+
+	xa_lock(&kvm->mem_attr_array);
+	for (gfn = start; gfn < end; gfn++) {
+		r = __xa_insert(&kvm->mem_attr_array, gfn, NULL, GFP_KERNEL_ACCOUNT);
+		if (r == -EBUSY)
+			r = 0;
+		if (r)
+			break;
+	}
+	xa_unlock(&kvm->mem_attr_array);
+
+	return r;
+}
+EXPORT_SYMBOL_GPL(kvm_vm_reserve_mem_attr_array);
+
+/* Set memory attr for [start, end) */
+int kvm_vm_set_memory_attributes(struct kvm *kvm, u64 attributes, gfn_t start, gfn_t end)
+{
+	void *entry;
+	gfn_t gfn;
+	int r;
+	int i;
+
+	/* By default, the entry is private. */
+	entry = attributes ? xa_mk_value(attributes) : NULL;
+
+	WARN_ON_ONCE(start >= end);
+	for (gfn = start; gfn < end; gfn++) {
+		r = xa_err(xa_store(&kvm->mem_attr_array, gfn, entry,
+				    GFP_KERNEL_ACCOUNT));
+		if (r)
+			break;
+	}
+	if (start >= gfn)
+		return r;
+
+	end = gfn;
+	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++) {
+		struct kvm_memslot_iter iter;
+		struct kvm_memslots *slots;
+
+		slots = __kvm_memslots(kvm, i);
+		kvm_for_each_memslot_in_gfn_range(&iter, slots, start, end) {
+			struct kvm_memory_slot *slot = iter.slot;
+			gfn_t s = max(start, slot->base_gfn);
+			gfn_t e = min(end, slot->base_gfn + slot->npages);
+
+			WARN_ON_ONCE(s >= e);
+			kvm_arch_set_memory_attributes(kvm, slot, attributes, s, e);
+		}
+	}
+
+	return r;
+}
+EXPORT_SYMBOL_GPL(kvm_vm_set_memory_attributes);
+
 #else /* !CONFIG_HAVE_KVM_RESTRICTED_MEM */
 
 static inline void kvm_restrictedmem_register(struct kvm_memory_slot *slot)

@@ -7117,6 +7117,26 @@ void kvm_mmu_invalidate_mmio_sptes(struct kvm *kvm, u64 gen)
 	}
 }
 
+static int mmu_map_private(struct kvm *kvm, gfn_t gfn, bool map_private)
+{
+	bool flush;
+
+	lockdep_assert_held_write(&kvm->mmu_lock);
+	KVM_BUG_ON(!kvm->mmu_invalidate_in_progress, kvm);
+
+	/* zap opposite gfn */
+	if (map_private)
+		gfn = kvm_gfn_shared(kvm, gfn);
+	else
+		gfn = kvm_gfn_private(kvm, gfn);
+
+	flush = kvm_rmap_zap_gfn_range(kvm, gfn, gfn + 1);
+	if (flush)
+		kvm_flush_remote_tlbs_with_address(kvm, gfn, 1);
+
+	return 0;
+}
+
 static int __kvm_mmu_map_private(struct kvm *kvm, gfn_t *startp, gfn_t end,
 				 bool map_private)
 {
@@ -7156,7 +7176,26 @@ static int __kvm_mmu_map_private(struct kvm *kvm, gfn_t *startp, gfn_t end,
 			start = s;
 		}
 	} else {
-		ret = -EOPNOTSUPP;
+		gfn_t gfn;
+
+		for (gfn = start; gfn < end; gfn++) {
+			/* mmu_map_private() handles only 1 gfn. */
+			ret = mmu_map_private(kvm, gfn, map_private);
+			if (ret) {
+				if (gfn > start) {
+					ret = -EAGAIN;
+					start = gfn;
+				}
+				break;
+			}
+
+			KVM_BUG_ON(kvm_vm_set_memory_attributes(kvm, attrs, gfn, gfn + 1), kvm);
+			if (need_resched()) {
+				ret = -EAGAIN;
+				start = gfn + 1;
+				break;
+			}
+		}
 	}
 
 	kvm_mmu_invalidate_end(kvm);

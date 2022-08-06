@@ -405,8 +405,7 @@ procedure can be optimized later.
 
 Co-existing with unmapping guest private memory
 ===============================================
-TODO.  This needs to be addressed.
-
+Starting to integrat unmapping guest private memory.
 
 Restrictions or future work
 ===========================

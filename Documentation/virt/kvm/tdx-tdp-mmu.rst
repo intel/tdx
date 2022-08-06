@@ -444,4 +444,5 @@ Restrictions or future work
 The following features aren't supported yet at the moment.
 
 * optimizing non-concurrent zap
+* Large page: The start of patches of large page support for legacy MMU
 * Page migration

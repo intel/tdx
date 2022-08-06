@@ -1194,14 +1194,24 @@ static void drop_spte(struct kvm *kvm, u64 *sptep)
 		rmap_remove(kvm, sptep, old_spte);
 }
 
+static bool kvm_mmu_zap_private_spte(struct kvm *kvm, u64 *sptep);
+static void split_private_spt(struct kvm *kvm, u64 *sptep, u64 old_spte);
+
 static void drop_large_spte(struct kvm *kvm, u64 *sptep, bool flush)
 {
 	struct kvm_mmu_page *sp;
+	u64 old_spte;
 
 	sp = sptep_to_sp(sptep);
 	WARN_ON(sp->role.level == PG_LEVEL_4K);
 
-	drop_spte(kvm, sptep);
+	if (is_private_sptep(sptep)) {
+		old_spte = *sptep;
+		kvm_mmu_zap_private_spte(kvm, sptep);
+		split_private_spt(kvm, sptep, old_spte);
+		flush = true;
+	} else
+		drop_spte(kvm, sptep);
 
 	if (flush)
 		kvm_flush_remote_tlbs_with_address(kvm, sp->gfn,
@@ -3389,6 +3399,64 @@ void disallowed_hugepage_adjust(struct kvm_page_fault *fault, u64 spte, int cur_
 	}
 }
 
+static void split_private_spt(struct kvm *kvm, u64 *sptep, u64 old_spte)
+{
+	struct kvm_mmu_page *sp = sptep_to_sp(sptep);
+	struct shadow_page_caches caches = {};
+	union kvm_mmu_page_role child_role;
+	u64 huge_spte = READ_ONCE(*sptep);
+	struct kvm_rmap_head *rmap_head;
+	struct kvm_mmu_page *child_sp;
+	struct kvm_memory_slot *slot;
+	u64 *child_sptep;
+	u64 child_spte;
+	gfn_t gfn;
+	void *p;
+	int i;
+
+	if (!is_private_zapped_spte(*sptep))
+		return;
+
+	if (WARN_ON_ONCE(sp->role.level < PG_LEVEL_2M || !is_private_sptep(sptep)))
+		return;
+
+	gfn = kvm_mmu_page_get_gfn(sp, sptep - sp->spt);
+	slot = gfn_to_memslot(kvm, gfn);
+	rmap_head = gfn_to_rmap(gfn, sp->role.level, slot);
+	pte_list_remove(sptep, rmap_head);
+
+	/* Direct SPs do not require a shadowed_info_cache. */
+	caches = (struct shadow_page_caches) {
+		.page_header_cache = &kvm->arch.split_page_header_cache,
+		.shadow_page_cache = &kvm->arch.split_shadow_page_cache,
+		.private_spt_cache = &kvm->arch.split_private_spt_cache,
+	};
+
+	child_role = kvm_mmu_child_role(sptep, true, ACC_ALL);
+	child_sp = __kvm_mmu_get_shadow_page(kvm, NULL, &caches, gfn, child_role);
+
+	__link_shadow_page(kvm, &kvm->arch.split_desc_cache, sptep, child_sp, true);
+	kvm_update_page_stats(kvm, PG_LEVEL_4K, -1);
+
+	for (i = 0; i < SPTE_ENT_PER_PAGE; i++) {
+		child_sptep = &sp->spt[i];
+		gfn = kvm_mmu_page_get_gfn(sp, i);
+		child_spte = make_huge_page_split_spte(kvm, huge_spte,
+						       child_sp->role, i);
+		mmu_spte_set(child_sptep, child_spte);
+		__rmap_add(kvm, &kvm->arch.split_desc_cache, slot,
+			   child_sptep, gfn, sp->role.access);
+	}
+	if (child_role.level > PG_LEVEL_4K)
+		kvm_update_page_stats(kvm, child_role.level, 1);
+
+	p = kvm_mmu_memory_cache_alloc(&kvm->arch.split_private_spt_cache);
+	if (!static_call(kvm_x86_split_private_spt)(kvm, sp->gfn, sp->role.level, p))
+		kvm_mmu_init_private_spt(sp, p);
+	else
+		free_page((unsigned long)p);
+}
+
 static void direct_populate_nonleaf(struct kvm_vcpu *vcpu,
 				struct kvm_page_fault *fault,
 				struct kvm_shadow_walk_iterator *itp,
@@ -3465,6 +3533,13 @@ static int __direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	}
 
 	direct_populate_nonleaf(vcpu, fault, &it, &base_gfn);
+	/*
+	 * For private page, if spte is already present. It must be one large
+	 * page split into smaller page. In this case, split_private_spt() in
+	 * drop_large_spte() already set up the private spte and AUG'ED page.
+	 */
+	if (is_private && is_shadow_present_pte(*it.sptep))
+		return  RET_PF_FIXED;
 	if (WARN_ON_ONCE(it.level != fault->goal_level))
 		return -EFAULT;
 
@@ -6773,11 +6848,13 @@ static void shadow_mmu_split_huge_page(struct kvm *kvm,
 {
 	struct kvm_mmu_memory_cache *cache = &kvm->arch.split_desc_cache;
 	u64 huge_spte = READ_ONCE(*huge_sptep);
+	struct kvm_mmu_page *huge_sp;
 	struct kvm_mmu_page *sp;
 	bool flush = false;
 	u64 *sptep, spte;
 	gfn_t gfn;
 	int index;
+	void *p;
 
 	sp = shadow_mmu_get_sp_for_split(kvm, huge_sptep);
 
@@ -6810,6 +6887,16 @@ static void shadow_mmu_split_huge_page(struct kvm *kvm,
 	}
 
 	__link_shadow_page(kvm, cache, huge_sptep, sp, flush);
+
+	p = kvm_mmu_memory_cache_alloc(&kvm->arch.split_private_spt_cache);
+	huge_sp = sptep_to_sp(huge_sptep);
+	if (!static_call(kvm_x86_split_private_spt)(kvm, huge_sp->gfn,
+						    huge_sp->role.level, p))
+		kvm_mmu_init_private_spt(huge_sp, p);
+	else {
+		WARN_ON(1);
+		free_page((unsigned long)p);
+	}
 }
 
 static int shadow_mmu_try_split_huge_page(struct kvm *kvm,

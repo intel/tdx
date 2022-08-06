@@ -403,10 +403,6 @@ For simplicity, the procedure of concurrent populating is utilized.  The
 procedure can be optimized later.
 
 
-Co-existing with unmapping guest private memory
-===============================================
-Starting to integrat unmapping guest private memory.
-
 Restrictions or future work
 ===========================
 The following features aren't supported yet at the moment.

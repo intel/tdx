@@ -7098,6 +7098,49 @@ void kvm_mmu_invalidate_mmio_sptes(struct kvm *kvm, u64 gen)
 	}
 }
 
+static int mmu_map_gpa(struct kvm_vcpu *vcpu, gfn_t gfn, bool map_private)
+{
+	struct kvm_mmu *mmu = vcpu->arch.mmu;
+	struct kvm_shadow_walk_iterator it;
+	struct kvm *kvm = vcpu->kvm;
+	u64 addr;
+
+	lockdep_assert_held_write(&kvm->mmu_lock);
+
+	if (!VALID_PAGE(mmu->root.hpa) || !VALID_PAGE(mmu->private_root_hpa))
+		return -EINVAL;
+
+	/* zap opposite gfn */
+	if (map_private)
+		addr = gfn_to_gpa(kvm_gfn_shared(kvm, gfn));
+	else
+		addr = gfn_to_gpa(kvm_gfn_private(kvm, gfn));
+
+	for_each_shadow_entry(vcpu, addr, it) {
+		u64 *sptep = it.sptep;
+		u64 old_spte = *sptep;
+
+		/* no need to zap. */
+		if (is_shadow_present_pte(old_spte))
+			break;
+
+		if (is_large_pte(old_spte)) {
+			/* large private page isn't supported yet. */
+			if (WARN_ON(is_private_sptep(sptep)))
+				return -EOPNOTSUPP;
+
+			drop_large_spte(kvm, sptep, true);
+			break;
+		}
+
+		WARN_ON(it.level != PG_LEVEL_4K);
+		drop_spte(kvm, sptep);
+		kvm_flush_remote_tlbs_with_address(kvm, gfn, 1);
+	}
+
+	return 0;
+}
+
 int kvm_mmu_map_gpa(struct kvm_vcpu *vcpu, gfn_t *startp, gfn_t end,
 		    bool map_private)
 {
@@ -7134,7 +7177,26 @@ int kvm_mmu_map_gpa(struct kvm_vcpu *vcpu, gfn_t *startp, gfn_t end,
 			start = s;
 		}
 	} else {
-		ret = -EOPNOTSUPP;
+		gfn_t gfn;
+
+		for (gfn = start; gfn < end; gfn++) {
+			/* mmu_map_gpa() handles only 1 gfn. */
+			ret = mmu_map_gpa(vcpu, gfn, map_private);
+			if (ret) {
+				if (gfn > start) {
+					ret = -EAGAIN;
+					start = gfn;
+				}
+				break;
+			}
+
+			WARN_ON(kvm_vm_set_mem_attr(kvm, attr, gfn, gfn + 1));
+			if (need_resched()) {
+				ret = -EAGAIN;
+				start = gfn + 1;
+				break;
+			}
+		}
 	}
 	write_unlock(&kvm->mmu_lock);
 

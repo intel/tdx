@@ -3987,6 +3987,7 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 		boot_cpu_data.x86_phys_bits);
 
 	x86_ops->free_private_spt = tdx_sept_free_private_spt;
+	x86_ops->split_private_spte = tdx_sept_split_private_spte;
 	x86_ops->handle_private_zapped_spte = tdx_handle_private_zapped_spte;
 	x86_ops->handle_changed_private_spte = tdx_handle_changed_private_spte;
 	x86_ops->set_private_spte = tdx_sept_set_private_spte;

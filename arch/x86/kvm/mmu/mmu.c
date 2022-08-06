@@ -3476,7 +3476,8 @@ static void direct_populate_nonleaf(struct kvm_vcpu *vcpu,
 		 * We cannot overwrite existing page tables with an NX
 		 * large page, as the leaf could be executable.
 		 */
-		if (fault->nx_huge_page_workaround_enabled)
+		if (fault->nx_huge_page_workaround_enabled ||
+		    kvm_gfn_shared_mask(vcpu->kvm))
 			disallowed_hugepage_adjust(fault, *it.sptep, it.level);
 
 		base_gfn = gfn_round_for_level(gpa_to_gfn(fault->addr), it.level);

@@ -60,9 +60,18 @@ int tdx_vm_enable_cap(struct kvm *kvm, struct kvm_enable_cap *cap)
 	return r;
 }
 
+enum tdx_module_version {
+	TDX_MODULE_VERSION_1_0,
+	TDX_MODULE_VERSION_1_5,
+	TDX_MODULE_VERSION_2_0,
+
+	TDX_MODULE_VERSION_UNKNOWN,
+};
+
 struct tdx_info {
 	u8 nr_tdcs_pages;
 	u8 nr_tdvpx_pages;
+	enum tdx_module_version tdx_version;
 };
 
 /* Info about the TDX module. */
@@ -3828,6 +3837,22 @@ static void tdx_guest_pmi_handler(void)
 	kvm_make_request(KVM_REQ_PMI, vcpu);
 }
 
+static enum tdx_module_version tdx_get_module_version(u16 major_version,
+						      u16 minor_version)
+{
+	switch (major_version) {
+	case 1:
+		if (minor_version >= 5)
+			return TDX_MODULE_VERSION_1_5;
+
+		return TDX_MODULE_VERSION_1_0;
+	case 2:
+		return TDX_MODULE_VERSION_2_0;
+	default:
+		return TDX_MODULE_VERSION_UNKNOWN;
+	}
+}
+
 static int __init tdx_module_setup(void)
 {
 	const struct tdsysinfo_struct *tdsysinfo;
@@ -3851,7 +3876,15 @@ static int __init tdx_module_setup(void)
 		 * -1 for TDVPR.
 		 */
 		.nr_tdvpx_pages = tdsysinfo->tdvps_base_size / PAGE_SIZE - 1,
+		/*
+		 * TDX module 1.0/2.0 have supported major and minor version,
+		 * but seems TDX module 1.5 can't support minior version until
+		 * now.
+		 */
+		.tdx_version = tdx_get_module_version(tdsysinfo->major_version,
+						      tdsysinfo->minor_version),
 	};
+
 
 	pr_info("TDX is supported.\n");
 	return 0;
@@ -4206,6 +4239,30 @@ static int tdx_write_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memo
 
 	rw_memory->len = complete_len;
 	return ret;
+}
+
+u64 tdx_non_arch_field_switch(u64 field)
+{
+	switch (tdx_info.tdx_version) {
+	case TDX_MODULE_VERSION_1_0:
+		if (field == TDX_MD_FID_NOARCH_TDVPS_DETAILS_1_0)
+			return TDX_MD_FID_NOARCH_TDVPS_DETAILS_1_0;
+		pr_err("%s: field %llx not supported\n", __func__, field);
+		return field;
+	case TDX_MODULE_VERSION_1_5:
+		if (field == TDX_MD_FID_NOARCH_TDVPS_DETAILS_1_0)
+			return TDX_MD_FID_NOARCH_TDVPS_DETAILS_1_5;
+		pr_err("%s: field %llx not supported\n", __func__, field);
+		return field;
+	case TDX_MODULE_VERSION_2_0:
+		if (field == TDX_MD_FID_NOARCH_TDVPS_DETAILS_1_0)
+			return TDX_MD_FID_NOARCH_TDVPS_DETAILS_2_0;
+		pr_err("%s: field %llx not supported\n", __func__, field);
+		return field;
+	default:
+		pr_err("%s:unsupport TDX module version and  field %llx\n", __func__, field);
+		return field;
+	}
 }
 
 int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)

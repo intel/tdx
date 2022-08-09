@@ -90,6 +90,14 @@ enum cc_attr {
 	 * Examples include TDX Guest.
 	 */
 	CC_ATTR_HOTPLUG_DISABLED,
+
+	/**
+	 * @CC_ATTR_GUEST_HARDENED: Filter out unnecessary and not-hardened
+	 * device drivers.
+	 *
+	 * Examples include TDX guest.
+	 */
+	CC_ATTR_GUEST_HARDENED,
 };
 
 #ifdef CONFIG_ARCH_HAS_CC_PLATFORM

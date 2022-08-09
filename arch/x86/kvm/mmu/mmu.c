@@ -4578,7 +4578,11 @@ static int kvm_faultin_pfn_private(struct kvm_vcpu *vcpu,
 	struct kvm_memory_slot *slot = fault->slot;
 	bool private_exist = kvm_mem_is_private(vcpu->kvm, fault->gfn);
 
-	if (fault->is_private != private_exist) {
+	/*
+	 * !fault->slot means MMIO.  Don't require explicit GPA conversion for
+	 * MMIO because MMIO is assigned at the boot time.
+	 */
+	if (fault->slot && fault->is_private != private_exist) {
 		kvm_exit_memory_fault(vcpu, fault);
 		return RET_PF_USER;
 	}
@@ -4633,12 +4637,6 @@ static int kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		r = kvm_faultin_pfn_private(vcpu, fault);
 		if (r != RET_PF_CONTINUE)
 			return r == RET_PF_FIXED ? RET_PF_CONTINUE : r;
-	}
-
-	if (kvm_gfn_shared_mask(vcpu->kvm) &&
-	    (kvm_mem_is_private(vcpu->kvm, fault->gfn) != fault->is_private)) {
-		kvm_exit_memory_fault(vcpu, fault);
-		return RET_PF_USER;
 	}
 
 	async = false;
@@ -4720,6 +4718,19 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 	r = kvm_faultin_pfn(vcpu, fault);
 	if (r != RET_PF_CONTINUE)
 		return r;
+
+	if (kvm_gfn_shared_mask(vcpu->kvm) &&
+	    /*
+	     * Don't require explicit GPA conversion for MMIO because MMIO is
+	     * assigned as shared at the boot time.
+	     */
+	    (fault->slot && !kvm_is_mmio_pfn(fault->pfn)) &&
+	    /* private slot case is handled by kvm_faultin_pfn_private() */
+	    !kvm_slot_can_be_private(fault->slot) &&
+	    (kvm_mem_is_private(vcpu->kvm, fault->gfn) != fault->is_private)) {
+		kvm_exit_memory_fault(vcpu, fault);
+		return RET_PF_USER;
+	}
 
 	r = handle_abnormal_pfn(vcpu, fault, ACC_ALL);
 	if (r != RET_PF_CONTINUE)

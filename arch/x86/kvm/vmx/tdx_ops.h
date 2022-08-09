@@ -196,7 +196,18 @@ static inline u64 tdh_vp_init(hpa_t tdvpr, u64 rcx)
 static inline u64 tdh_vp_rd(hpa_t tdvpr, u64 field,
 			    struct tdx_module_output *out)
 {
-	return __seamcall(TDH_VP_RD, tdvpr, field, 0, 0, out);
+	u64 actual_field = field;
+
+	/*
+	 * The non-architectural fields have different field ids in different
+	 * TDX module versions. Callers use the field id based on the first
+	 * version of TDX module. Do a switch of the field id based on the TDX
+	 * module version here.
+	 */
+	if (field & TDX_NON_ARCH)
+		actual_field = tdx_non_arch_field_switch(field);
+
+	return __seamcall(TDH_VP_RD, tdvpr, actual_field, 0, 0, out);
 }
 
 static inline u64 tdh_mng_key_reclaimid(hpa_t tdr)

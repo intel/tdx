@@ -98,6 +98,14 @@ enum cc_attr {
 	 * enabled to run SEV-SNP guests.
 	 */
 	CC_ATTR_HOST_SEV_SNP,
+
+	/**
+	 * @CC_ATTR_GUEST_HARDENED: Filter out unnecessary and not-hardened
+	 * device drivers.
+	 *
+	 * Examples include TDX guest.
+	 */
+	CC_ATTR_GUEST_HARDENED,
 };
 
 #ifdef CONFIG_ARCH_HAS_CC_PLATFORM

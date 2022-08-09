@@ -1,0 +1,19 @@
+What:		/sys/devices/.../authorized
+Date:		Aug 2022
+Contact:	Kuppuswamy Sathyanarayanan <sathyanarayanan.kuppuswamy@linux.intel.com>
+Description:
+		Used to update and check the authorization status of the given
+		device. Only authorized device is allowed to bind the driver.
+		If authorization status is updated, it will attempt to bind or
+		unbind the driver based on the authorization status. This is only
+		enabled for bus devices which are marked authorizable. Acceptable
+		values are,
+
+		===========  ===================================================
+		"on" or 1    device is authorized and allowed to bind the driver.
+		"off" or 0   device is not authorized and cannot bind driver.
+		===========  ===================================================
+
+		Currently this is supported on all devices expect for bus or
+		subsystem devices which opt out of it by marking it non
+		authorizable.

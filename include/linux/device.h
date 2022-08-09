@@ -675,7 +675,9 @@ struct device_physical_location {
  * @removable:  Whether the device can be removed from the system. This
  *              should be set by the subsystem / bus driver that discovered
  *              the device.
- *
+ * @authorized: Whether the device is authorized to bind to a driver.
+ * @authorizable: Whether the device uses authorization support from the
+ *                driver core.
  * @offline_disabled: If set, the device is permanently online.
  * @offline:	Set after successful invocation of bus type's .offline().
  * @of_node_reused: Set if the device-tree node is shared with an ancestor
@@ -792,6 +794,8 @@ struct device {
 
 	enum device_removable	removable;
 
+	bool			authorized:1;
+	bool			authorizable:1;
 	bool			offline_disabled:1;
 	bool			offline:1;
 	bool			of_node_reused:1;
@@ -1028,6 +1032,26 @@ static inline bool dev_has_sync_state(struct device *dev)
 	if (dev->bus && dev->bus->sync_state)
 		return true;
 	return false;
+}
+
+static inline void dev_set_authorizable(struct device *dev, bool status)
+{
+	dev->authorizable = status;
+}
+
+static inline bool dev_is_authorizable(struct device *dev)
+{
+	return dev->authorizable;
+}
+
+static inline void dev_set_authorized(struct device *dev, bool status)
+{
+	dev->authorized = status;
+}
+
+static inline bool dev_is_authorized(struct device *dev)
+{
+	return dev->authorized;
 }
 
 static inline void dev_set_removable(struct device *dev,

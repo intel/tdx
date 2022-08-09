@@ -207,4 +207,11 @@ enum tdx_ext_exit_qualification_type {
 	NUM_EXT_EXIT_QUAL,
 };
 
+/* The field id used to access the metadata is non-architectural. */
+#define TDX_MD_FID_NOARCH_TDVPS_DETAILS_1_0	0x9100000000000100
+#define TDX_MD_FID_NOARCH_TDVPS_DETAILS_1_5	0x9120000300000021
+#define TDX_MD_FID_NOARCH_TDVPS_DETAILS_2_0	0x9120000300000021
+
+u64 tdx_non_arch_field_switch(u64 field);
+
 #endif /* __KVM_X86_TDX_ARCH_H */

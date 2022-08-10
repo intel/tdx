@@ -12912,6 +12912,36 @@ void kvm_arch_commit_memory_region(struct kvm *kvm,
 	/* Free the arrays associated with the old memslot. */
 	if (change == KVM_MR_MOVE)
 		kvm_arch_free_memslot(kvm, old);
+
+	/*
+	 * [REVERTME] Avoid coredump of protected pages.  This is a hack.  KVM
+	 * doesn't have any knowledge about backing store and VMAs.  e.g. This
+	 * doesn't prevent user space VMM from madvise(MADV_DODUMP) or other vma
+	 * related operations.
+	 * Don't split partially overlapping VMA for simplicity.  On slot
+	 * deletion, we leave DONTDUMP flag untouched.
+	 */
+	if (kvm->arch.vm_type == KVM_X86_SW_PROTECTED_VM &&
+	    !kvm_slot_can_be_private(new) &&
+	    (change == KVM_MR_CREATE || change == KVM_MR_MOVE)) {
+		unsigned long start = new->userspace_addr;
+		unsigned long end = start + (new->npages << PAGE_SHIFT);
+		unsigned long addr = start;
+		struct vm_area_struct *vma;
+
+		mmap_read_lock(current->mm);
+		while (addr < end) {
+			vma = find_vma(current->mm, addr);
+			if (!vma)
+				break;
+			if (end <= vma->vm_start)
+				break;
+
+			vm_flags_set(vma, VM_DONTDUMP);
+			addr = vma->vm_end;
+		}
+		mmap_read_unlock(current->mm);
+	}
 }
 
 void kvm_arch_flush_shadow_all(struct kvm *kvm)

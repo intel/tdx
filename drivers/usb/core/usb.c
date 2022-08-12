@@ -533,6 +533,14 @@ static unsigned usb_bus_is_wusb(struct usb_bus *bus)
 	return hcd->wireless;
 }
 
+/*
+ * usb_dev_authorized() - Used to initialize the "authorized" status of
+ *                        the USB device.
+ * (user space) policy determines if we authorize this device to be
+ * used or not. By default, wired USB devices are authorized.
+ * WUSB devices are not, until we authorize them from user space.
+ * FIXME -- complete doc
+ */
 static bool usb_dev_authorized(struct usb_device *dev, struct usb_hcd *hcd)
 {
 	struct usb_hub *hub;
@@ -596,6 +604,7 @@ struct usb_device *usb_alloc_dev(struct usb_device *parent,
 	}
 
 	device_initialize(&dev->dev);
+	dev_set_authorizable(&dev->dev, false);
 	dev->dev.bus = &usb_bus_type;
 	dev->dev.type = &usb_device_type;
 	dev->dev.groups = usb_device_groups;
@@ -671,7 +680,7 @@ struct usb_device *usb_alloc_dev(struct usb_device *parent,
 	dev->active_duration = -jiffies;
 #endif
 
-	dev->authorized = usb_dev_authorized(dev, usb_hcd);
+	dev_set_authorized(&dev->dev, usb_dev_authorized(dev, usb_hcd));
 	if (!root_hub)
 		dev->wusb = usb_bus_is_wusb(bus) ? 1 : 0;
 

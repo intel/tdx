@@ -195,8 +195,6 @@ usb_find_last_int_out_endpoint(struct usb_host_interface *alt,
  *	has been deferred.
  * @needs_binding: flag set when the driver should be re-probed or unbound
  *	following a reset or suspend operation it doesn't support.
- * @authorized: This allows to (de)authorize individual interfaces instead
- *	a whole device in contrast to the device authorization.
  * @dev: driver model's view of this device
  * @usb_dev: if an interface is bound to the USB major, this will point
  *	to the sysfs representation for that device.
@@ -252,7 +250,6 @@ struct usb_interface {
 	unsigned needs_altsetting0:1;	/* switch to altsetting 0 is pending */
 	unsigned needs_binding:1;	/* needs delayed unbind/rebind */
 	unsigned resetting_device:1;	/* true: bandwidth alloc after reset */
-	unsigned authorized:1;		/* used for interface authorization */
 
 	struct device dev;		/* interface specific device info */
 	struct device *usb_dev;
@@ -589,11 +586,6 @@ struct usb3_lpm_parameters {
  * @persist_enabled:  USB_PERSIST enabled for this device
  * @reset_in_progress: the device is being reset
  * @have_langid: whether string_langid is valid
- * @authorized: policy has said we can use it;
- *	(user space) policy determines if we authorize this device to be
- *	used or not. By default, wired USB devices are authorized.
- *	WUSB devices are not, until we authorize them from user space.
- *	FIXME -- complete doc
  * @authenticated: Crypto authentication passed
  * @wusb: device is Wireless USB
  * @lpm_capable: device supports LPM
@@ -677,7 +669,6 @@ struct usb_device {
 	unsigned persist_enabled:1;
 	unsigned reset_in_progress:1;
 	unsigned have_langid:1;
-	unsigned authorized:1;
 	unsigned authenticated:1;
 	unsigned wusb:1;
 	unsigned lpm_capable:1;

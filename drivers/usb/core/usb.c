@@ -664,6 +664,7 @@ struct usb_device *usb_alloc_dev(struct usb_device *parent,
 	}
 
 	device_initialize(&dev->dev);
+	dev_set_authorizable(&dev->dev, false);
 	dev->dev.bus = &usb_bus_type;
 	dev->dev.type = &usb_device_type;
 	dev->dev.groups = usb_device_groups;
@@ -738,7 +739,8 @@ struct usb_device *usb_alloc_dev(struct usb_device *parent,
 	dev->active_duration = -jiffies;
 #endif
 
-	dev->authorized = usb_dev_authorized(dev, usb_hcd);
+	dev_set_authorized(&dev->dev, usb_dev_authorized(dev, usb_hcd));
+
 	return dev;
 }
 EXPORT_SYMBOL_GPL(usb_alloc_dev);

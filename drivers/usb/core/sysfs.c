@@ -727,8 +727,7 @@ usb_descriptor_attr(bMaxPacketSize0, "%d\n");
 static ssize_t authorized_show(struct device *dev,
 			       struct device_attribute *attr, char *buf)
 {
-	struct usb_device *usb_dev = to_usb_device(dev);
-	return sysfs_emit(buf, "%u\n", usb_dev->authorized);
+	return sysfs_emit(buf, "%u\n", dev->authorized);
 }
 
 /*
@@ -1160,7 +1159,7 @@ static ssize_t interface_authorized_show(struct device *dev,
 {
 	struct usb_interface *intf = to_usb_interface(dev);
 
-	return sysfs_emit(buf, "%u\n", intf->authorized);
+	return sysfs_emit(buf, "%u\n", intf->dev.authorized);
 }
 
 /*

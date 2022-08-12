@@ -371,6 +371,7 @@ static int tb_retimer_add(struct tb_port *port, u8 index, u32 auth_status)
 	rt->dev.type = &tb_retimer_type;
 	dev_set_name(&rt->dev, "%s:%u.%u", dev_name(&port->sw->dev),
 		     port->port, index);
+	dev_set_authorizable(&rt->dev, false);
 
 	ret = device_register(&rt->dev);
 	if (ret) {

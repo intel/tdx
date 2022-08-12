@@ -1885,6 +1885,7 @@ struct tb_xdomain *tb_xdomain_alloc(struct tb *tb, struct device *parent,
 	}
 
 	device_initialize(&xd->dev);
+	dev_set_authorizable(&xd->dev, false);
 	xd->dev.parent = get_device(parent);
 	xd->dev.bus = &tb_bus_type;
 	xd->dev.type = &tb_xdomain_type;

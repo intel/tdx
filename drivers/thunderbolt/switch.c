@@ -2415,6 +2415,7 @@ struct tb_switch *tb_switch_alloc(struct tb *tb, struct device *parent,
 		sw->authorized = true;
 
 	device_initialize(&sw->dev);
+	dev_set_authorizable(&sw->dev, false);
 	sw->dev.parent = parent;
 	sw->dev.bus = &tb_bus_type;
 	sw->dev.type = &tb_switch_type;
@@ -2460,6 +2461,7 @@ tb_switch_alloc_safe_mode(struct tb *tb, struct device *parent, u64 route)
 	sw->safe_mode = true;
 
 	device_initialize(&sw->dev);
+	dev_set_authorizable(&sw->dev, false);
 	sw->dev.parent = parent;
 	sw->dev.bus = &tb_bus_type;
 	sw->dev.type = &tb_switch_type;

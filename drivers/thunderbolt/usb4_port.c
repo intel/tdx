@@ -269,6 +269,7 @@ struct usb4_port *usb4_port_device_add(struct tb_port *port)
 	usb4->dev.type = &usb4_port_device_type;
 	usb4->dev.parent = &port->sw->dev;
 	dev_set_name(&usb4->dev, "usb4_port%d", port->port);
+	dev_set_authorizable(&usb4->dev, false);
 
 	ret = device_register(&usb4->dev);
 	if (ret) {

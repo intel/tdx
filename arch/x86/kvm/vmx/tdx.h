@@ -109,6 +109,10 @@ struct vcpu_tdx {
 		u64 rcx;
 	} tdvmcall;
 	union tdx_exit_reason exit_reason;
+	u64 exit_qualification;
+	u64 ext_exit_qualification;
+	u64 exit_gpa;
+	u32 exit_intr_info;
 
 	bool initialized;
 

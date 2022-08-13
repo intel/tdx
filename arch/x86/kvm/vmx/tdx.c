@@ -120,22 +120,22 @@ static __always_inline hpa_t set_hkid_to_hpa(hpa_t pa, u16 hkid)
 
 static __always_inline unsigned long tdexit_exit_qual(struct kvm_vcpu *vcpu)
 {
-	return kvm_rcx_read(vcpu);
+	return to_tdx(vcpu)->exit_qualification;
 }
 
 static __always_inline unsigned long tdexit_ext_exit_qual(struct kvm_vcpu *vcpu)
 {
-	return kvm_rdx_read(vcpu);
+	return to_tdx(vcpu)->ext_exit_qualification;
 }
 
 static __always_inline unsigned long tdexit_gpa(struct kvm_vcpu *vcpu)
 {
-	return kvm_r8_read(vcpu);
+	return to_tdx(vcpu)->exit_gpa;
 }
 
 static __always_inline unsigned long tdexit_intr_info(struct kvm_vcpu *vcpu)
 {
-	return kvm_r9_read(vcpu);
+	return to_tdx(vcpu)->exit_intr_info;
 }
 
 #define BUILD_TDVMCALL_ACCESSORS(param, gpr)				\
@@ -1070,19 +1070,23 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	 */
 	intel_pmu_restore();
 
-	if (is_debug_td(vcpu))
-		tdx_reset_regs_cache(vcpu);
+	tdx->exit_qualification = kvm_rcx_read(vcpu);
+	tdx->ext_exit_qualification = kvm_rdx_read(vcpu);
+	tdx->exit_gpa = kvm_r8_read(vcpu);
+	tdx->exit_intr_info = kvm_r9_read(vcpu);
+	if (tdx->exit_reason.basic == EXIT_REASON_TDCALL)
+		tdx->tdvmcall.rcx = kvm_rcx_read(vcpu);
 	else
-		vcpu->arch.regs_avail &= ~VMX_REGS_LAZY_LOAD_SET;
+		tdx->tdvmcall.rcx = 0;
 
 	trace_kvm_exit(vcpu, KVM_ISA_VMX);
 
 	tdx_complete_interrupts(vcpu);
 
-	if (tdx->exit_reason.basic == EXIT_REASON_TDCALL)
-		tdx->tdvmcall.rcx = vcpu->arch.regs[VCPU_REGS_RCX];
+	if (is_debug_td(vcpu))
+		tdx_reset_regs_cache(vcpu);
 	else
-		tdx->tdvmcall.rcx = 0;
+		vcpu->arch.regs_avail &= ~VMX_REGS_LAZY_LOAD_SET;
 
 	return EXIT_FASTPATH_NONE;
 }

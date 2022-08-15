@@ -1249,6 +1249,8 @@ int __must_check devm_device_add_groups(struct device *dev,
 int __must_check devm_device_add_group(struct device *dev,
 				       const struct attribute_group *grp);
 
+extern bool dev_authorized_init(void);
+
 /*
  * get_device - atomically increment the reference count for the device.
  *

@@ -49,6 +49,14 @@ static int __init sysfs_deprecated_setup(char *arg)
 early_param("sysfs.deprecated", sysfs_deprecated_setup);
 #endif
 
+static bool dev_default_authorized = true;
+
+static int __init dev_authorized_setup(char *arg)
+{
+	return kstrtobool(arg, &dev_default_authorized);
+}
+early_param("dev.authorize.all", dev_authorized_setup);
+
 /* Device links support. */
 static LIST_HEAD(deferred_sync);
 static unsigned int defer_sync_state_count = 1;
@@ -3104,7 +3112,7 @@ void device_initialize(struct device *dev)
 	dev->dma_io_tlb_mem = &io_tlb_default_mem;
 #endif
 	dev_set_authorizable(dev, true);
-	dev_set_authorized(dev, true);
+	dev_set_authorized(dev, dev_default_authorized);
 }
 EXPORT_SYMBOL_GPL(device_initialize);
 

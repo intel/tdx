@@ -3106,6 +3106,16 @@ static void klist_children_put(struct klist_node *n)
 	put_device(dev);
 }
 
+/*
+ * Initialize authorized status of all devices. By default, it is
+ * set as "allow all". Used __weak attribute allow ARCH code override
+ * the default status.
+ */
+bool __weak dev_authorized_init(void)
+{
+	return true;
+}
+
 /**
  * device_initialize - init device structure.
  * @dev: device.
@@ -3148,7 +3158,7 @@ void device_initialize(struct device *dev)
 #endif
 	swiotlb_dev_init(dev);
 	dev_set_authorizable(dev, true);
-	dev_set_authorized(dev, true);
+	dev->authorized = dev_authorized_init();
 }
 EXPORT_SYMBOL_GPL(device_initialize);
 

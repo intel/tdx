@@ -1241,6 +1241,7 @@ extern int (*platform_notify)(struct device *dev);
 
 extern int (*platform_notify_remove)(struct device *dev);
 
+extern bool dev_authorized_init(void);
 
 /*
  * get_device - atomically increment the reference count for the device.

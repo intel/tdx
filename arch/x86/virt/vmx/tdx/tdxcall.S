@@ -46,6 +46,11 @@
 
 	.if \host
 	seamcall
+
+	jnz .Lno_vmfailvalid
+	mov $TDX_SEAMCALL_VMFAILVALID, %rax
+.Lno_vmfailvalid:
+
 	/*
 	 * SEAMCALL instruction is essentially a VMExit from VMX root
 	 * mode to SEAM VMX root mode.  VMfailInvalid (CF=1) indicates

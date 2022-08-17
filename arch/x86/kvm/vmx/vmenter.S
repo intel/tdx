@@ -429,6 +429,11 @@ SYM_FUNC_START(__tdx_vcpu_run)
 	jmp 5f
 3:
 
+	jnz .Lno_vmfailvalid
+	mov $TDX_SEAMCALL_VMFAILVALID, %rax
+	jmp 5f
+.Lno_vmfailvalid:
+
 	/* Skip to the exit path if TDH_VP_ENTER failed. */
 	bt $TDX_ERROR_BIT, %rax
 	jc 5f

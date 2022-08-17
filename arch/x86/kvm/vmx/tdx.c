@@ -3582,6 +3582,42 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 	return 0;
 }
 
+static int tdx_mem_map_region(struct kvm *kvm, struct kvm_enc_region *argp,
+			      bool map_private)
+{
+	gfn_t gfn = gpa_to_gfn(argp->addr);
+	gfn_t s;
+	gfn_t e;
+	int ret;
+
+	s = gfn & ~kvm_gfn_shared_mask(kvm);
+	e = gpa_to_gfn(argp->addr + argp->size) & ~kvm_gfn_shared_mask(kvm);
+	while (true) {
+		ret = __kvm_mmu_map_gpa(kvm, &s, e, map_private);
+		if (ret == -EAGAIN) {
+			if (need_resched())
+				cond_resched();
+			continue;
+		}
+		break;
+	}
+
+	return ret;
+}
+
+
+int tdx_mem_enc_register_region(struct kvm *kvm,
+				struct kvm_enc_region *argp)
+{
+	return tdx_mem_map_region(kvm, argp, true);
+}
+
+int tdx_mem_enc_unregister_region(struct kvm *kvm,
+				  struct kvm_enc_region *argp)
+{
+	return tdx_mem_map_region(kvm, argp, false);
+}
+
 static void tdx_guest_pmi_handler(void)
 {
 	struct kvm_vcpu *vcpu;

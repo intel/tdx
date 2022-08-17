@@ -2363,6 +2363,16 @@ static int __tdx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t fastpath)
 		if (exit_reason.basic == EXIT_REASON_TRIPLE_FAULT)
 			return tdx_handle_triple_fault(vcpu);
 
+		if (exit_reason.full == TDX_SEAMCALL_VMFAILINVALID ||
+		    exit_reason.full == TDX_SEAMCALL_VMFAILVALID) {
+			vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+
+			vcpu->run->internal.suberror = KVM_INTERNAL_ERROR_TDX_MODULE;
+			vcpu->run->internal.ndata = 1;
+			vcpu->run->internal.data[0] = exit_reason.full;
+			return 0;
+		}
+
 		kvm_pr_unimpl("TD exit 0x%llx, %d hkid 0x%x hkid pa 0x%llx\n",
 			      exit_reason.full, exit_reason.basic,
 			      to_kvm_tdx(vcpu->kvm)->hkid,

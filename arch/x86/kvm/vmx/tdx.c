@@ -1720,7 +1720,6 @@ static void tdx_measure_page(struct kvm_tdx *kvm_tdx, hpa_t gpa, int size)
 static void tdx_unpin(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
 		      enum pg_level level)
 {
-	struct kvm_memory_slot *slot = gfn_to_memslot(kvm, gfn);
 	int i;
 
 	for (i = 0; i < KVM_PAGES_PER_HPAGE(level); i++) {
@@ -1728,10 +1727,6 @@ static void tdx_unpin(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
 
 		put_page(page);
 		KVM_BUG_ON(!page_count(page) && to_kvm_tdx(kvm)->hkid > 0, kvm);
-	}
-	if (kvm_slot_can_be_private(slot)) {
-		/* Private slot case */
-		return;
 	}
 }
 

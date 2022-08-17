@@ -6657,7 +6657,7 @@ void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end)
 	if (is_tdp_mmu_enabled(kvm)) {
 		for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++)
 			/*
-			 * zap_private = false. Zap only shared pages.
+			 * zap_private = true. Zap both private/shared pages.
 			 *
 			 * kvm_zap_gfn_range() is used when PAT memory type was
 			 * changed.  Later on the next kvm page fault, populate
@@ -6667,7 +6667,7 @@ void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end)
 			 */
 			flush = kvm_tdp_mmu_zap_leafs(kvm, i, gfn_start,
 						      gfn_end, true, flush,
-						      false);
+						      true);
 	}
 
 	if (flush)

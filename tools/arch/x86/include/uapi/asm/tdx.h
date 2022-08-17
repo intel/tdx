@@ -98,4 +98,33 @@ struct tdx_quote_req {
  */
 #define TDX_CMD_GET_QUOTE		_IOR('T', 0x02, __u64)
 
+/* Length of the REPORTMACSTRUCT */
+#define TDX_REPORTMACSTRUCT_LEN		256
+
+/* struct tdx_verifyreport_req: Request to verify REPORTMACSTRUCT to
+ *                              determine that it was created on the
+ *                              current Trusted Execution Environment
+ *                              (TEE) on the current platform
+ *
+ * @reportmac      : REPORTMACSTRUCT from TDREPORT output of
+ *                   TDCALL[TDG.MR.REPORT]. It is the first field in the
+ *                   TDREPORT struct, which contains hash of TEE TCB
+ *                   information and hash of the TDINFO_STRUCT and MAC ID.
+ * @rpm_len        : Length of the REPORTMACSTRUCT (fixed as 256 bytes
+ *                   by the TDX Module specification, but parameter is
+ *                   added to handle future extension).
+ */
+struct tdx_verifyreport_req {
+	__u64 reportmac;
+	__u32 rpm_len;
+};
+
+/*
+ * TDX_CMD_VERIFYREPORT - Verify REPORTMACSTRUCT using TDG.MR.VERIFYREPORT
+ *                        TDCALL.
+ *
+ * Returns 0 on success, and standard errono on other failures.
+ */
+#define TDX_CMD_VERIFYREPORT		_IOR('T', 0x03, __u64)
+
 #endif /* _UAPI_ASM_X86_TDX_H */

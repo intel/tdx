@@ -209,4 +209,29 @@ TEST(verify_quote)
 	free(quote_buf);
 }
 
+TEST(verify_reportmac)
+{
+	__u8 reportdata[TDX_REPORTDATA_LEN];
+	struct tdx_verifyreport_req req;
+	struct tdreport tdreport;
+	int devfd;
+
+	devfd = open(TDX_GUEST_DEVNAME, O_RDWR | O_SYNC);
+
+	ASSERT_LT(0, devfd);
+
+	/* Get TDREPORT */
+	ASSERT_EQ(0, get_tdreport(devfd, reportdata, &tdreport));
+
+	/* Fill VERIFYREPORT request */
+	req.reportmac	  = (__u64)&tdreport.reportmac;
+	req.rpm_len	  = sizeof(tdreport.reportmac);
+
+	/* Verify reportmac and make sure it is valid */
+	ASSERT_EQ(0, ioctl(devfd, TDX_CMD_VERIFYREPORT, &req));
+
+	ASSERT_EQ(0, close(devfd));
+}
+
+
 TEST_HARNESS_MAIN

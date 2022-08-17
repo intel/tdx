@@ -926,6 +926,24 @@ static int vt_vcpu_mem_enc_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 	return tdx_vcpu_ioctl(vcpu, argp);
 }
 
+static int vt_mem_enc_register_region(struct kvm *kvm,
+				      struct kvm_enc_region *argp)
+{
+	if (!is_td(kvm))
+		return -EOPNOTSUPP;
+
+	return tdx_mem_enc_register_region(kvm, argp);
+}
+
+static int vt_mem_enc_unregister_region(struct kvm *kvm,
+					struct kvm_enc_region *argp)
+{
+	if (!is_td(kvm))
+		return -EOPNOTSUPP;
+
+	return tdx_mem_enc_unregister_region(kvm, argp);
+}
+
 static int vt_skip_emulated_instruction(struct kvm_vcpu *vcpu)
 {
 	if (is_td_vcpu(vcpu))
@@ -1093,6 +1111,9 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.dev_mem_enc_ioctl = tdx_dev_ioctl,
 	.mem_enc_ioctl = vt_mem_enc_ioctl,
 	.vcpu_mem_enc_ioctl = vt_vcpu_mem_enc_ioctl,
+
+	.mem_enc_register_region = vt_mem_enc_register_region,
+	.mem_enc_unregister_region = vt_mem_enc_unregister_region,
 };
 
 struct kvm_x86_init_ops vt_init_ops __initdata = {

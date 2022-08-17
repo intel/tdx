@@ -189,6 +189,8 @@ void tdx_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask);
 
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp);
 int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp);
+int tdx_mem_enc_register_region(struct kvm *kvm, struct kvm_enc_region *argp);
+int tdx_mem_enc_unregister_region(struct kvm *kvm, struct kvm_enc_region *argp);
 
 void tdx_flush_tlb(struct kvm_vcpu *vcpu);
 int tdx_sept_tlb_remote_flush(struct kvm *kvm);
@@ -262,6 +264,14 @@ static inline void tdx_set_interrupt_shadow(struct kvm_vcpu *vcpu, int mask) {}
 
 static inline int tdx_vm_ioctl(struct kvm *kvm, void __user *argp) { return -EOPNOTSUPP; }
 static inline int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp) { return -EOPNOTSUPP; }
+static inline int tdx_mem_enc_register_region(struct kvm *kvm, struct kvm_enc_region *argp)
+{
+	return -EOPNOTSUPP;
+}
+static inline int tdx_mem_enc_unregister_region(struct kvm *kvm, struct kvm_enc_region *argp)
+{
+	return -EOPNOTSUPP;
+}
 
 static inline void tdx_flush_tlb(struct kvm_vcpu *vcpu) {}
 static inline int tdx_sept_tlb_remote_flush(struct kvm *kvm) { return 0; }

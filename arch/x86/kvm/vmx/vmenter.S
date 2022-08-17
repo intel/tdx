@@ -8,6 +8,7 @@
 #include <asm/nospec-branch.h>
 #include <asm/percpu.h>
 #include <asm/segment.h>
+#include <asm/tdx.h>
 #include "run_flags.h"
 
 #define WORD_SIZE (BITS_PER_LONG / 8)
@@ -430,6 +431,17 @@ SYM_FUNC_START(__tdx_vcpu_run)
 
 	/* Skip to the exit path if TDENTER failed. */
 7:	nop
+
+	jnz .Lno_vmfailvalid
+	mov $TDX_SEAMCALL_VMFAILVALID, %rax
+	jmp 4f
+.Lno_vmfailvalid:
+
+	jnc .Lno_vmfailinvalid
+	mov $TDX_SEAMCALL_VMFAILINVALID, %rax
+	jmp 4f
+.Lno_vmfailinvalid:
+
 8:	bt $TDENTER_ERROR_BIT, %rax
 	jc 4f
 

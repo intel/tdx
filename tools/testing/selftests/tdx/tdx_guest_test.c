@@ -128,21 +128,29 @@ static void print_array_hex(const char *title, const char *prefix_str,
 	printf("\n");
 }
 
+/* Helper function to get TDREPORT */
+long get_tdreport0(int devfd, struct tdx_report_req *req)
+{
+	int i;
+
+	/* Generate sample report data */
+	for (i = 0; i < TDX_REPORTDATA_LEN; i++)
+		req->reportdata[i] = i;
+
+	return ioctl(devfd, TDX_CMD_GET_REPORT0, req);
+}
+
 TEST(verify_report)
 {
 	struct tdx_report_req req;
 	struct tdreport *tdreport;
-	int devfd, i;
+	int devfd;
 
 	devfd = open(TDX_GUEST_DEVNAME, O_RDWR | O_SYNC);
 	ASSERT_LT(0, devfd);
 
-	/* Generate sample report data */
-	for (i = 0; i < TDX_REPORTDATA_LEN; i++)
-		req.reportdata[i] = i;
-
 	/* Get TDREPORT */
-	ASSERT_EQ(0, ioctl(devfd, TDX_CMD_GET_REPORT0, &req));
+	ASSERT_EQ(0, get_tdreport0(devfd, &req));
 
 	if (DEBUG) {
 		print_array_hex("\n\t\tTDX report data\n", "",
@@ -156,6 +164,34 @@ TEST(verify_report)
 	tdreport = (struct tdreport *)req.tdreport;
 	ASSERT_EQ(0, memcmp(&tdreport->reportmac.reportdata[0],
 			    req.reportdata, sizeof(req.reportdata)));
+
+	ASSERT_EQ(0, close(devfd));
+}
+
+TEST(verify_reportmac)
+{
+	struct tdx_verify_report_req req = { };
+	struct tdx_report_req rep_req;
+	struct tdreport *tdreport;
+	int devfd, ret;
+
+	devfd = open(TDX_GUEST_DEVNAME, O_RDWR | O_SYNC);
+
+	ASSERT_LT(0, devfd);
+
+	/* Get TDREPORT */
+	ASSERT_EQ(0, get_tdreport0(devfd, &rep_req));
+
+	/* Fill VERIFYREPORT request */
+	tdreport = (struct tdreport *)rep_req.tdreport;
+	memcpy(req.reportmac, &tdreport->reportmac, sizeof(req.reportmac));
+
+	/* Verify reportmac and make sure it is valid */
+	ret = ioctl(devfd, TDX_CMD_VERIFY_REPORT, &req);
+	if (DEBUG && ret)
+		printf("verify_report TDCALL failed, err:%llx\n", req.err_code);
+
+	ASSERT_EQ(0, ret);
 
 	ASSERT_EQ(0, close(devfd));
 }

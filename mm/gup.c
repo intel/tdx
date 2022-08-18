@@ -1869,7 +1869,7 @@ struct page *get_dump_page(unsigned long addr)
 	if (mmap_read_lock_killable(mm))
 		return NULL;
 	ret = __get_user_pages_locked(mm, addr, 1, &page, NULL, &locked,
-				      FOLL_FORCE | FOLL_DUMP | FOLL_GET);
+				      FOLL_FORCE | FOLL_DUMP | FOLL_GET | FOLL_HWPOISON);
 	if (locked)
 		mmap_read_unlock(mm);
 	return (ret == 1) ? page : NULL;

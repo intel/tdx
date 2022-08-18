@@ -1896,7 +1896,7 @@ struct page *get_dump_page(unsigned long addr)
 
 	ret = __get_user_pages_locked(current->mm, addr, 1, &page, NULL,
 				      &locked,
-				      FOLL_FORCE | FOLL_DUMP | FOLL_GET);
+				      FOLL_FORCE | FOLL_DUMP | FOLL_GET | FOLL_HWPOISON);
 	return (ret == 1) ? page : NULL;
 }
 #endif /* CONFIG_ELF_CORE */

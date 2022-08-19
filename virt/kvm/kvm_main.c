@@ -1101,34 +1101,20 @@ out_err:
  * Called after the VM is otherwise initialized, but just before adding it to
  * the vm_list.
  */
-int __weak kvm_arch_post_init_vm(struct kvm *kvm)
-{
-	return 0;
-}
-
-/*
- * Called after the VM is otherwise initialized, but just before adding it to
- * the vm_list.
- */
 int __weak kvm_arch_add_vm(struct kvm *kvm, int usage_count)
 {
 	atomic_t failed = ATOMIC_INIT(0);
 	int r = 0;
 
 	if (usage_count != 1)
-		return kvm_arch_post_init_vm(kvm);
+		return 0;
 
 	on_each_cpu(hardware_enable, &failed, 1);
 
 	if (atomic_read(&failed)) {
 		r = -EBUSY;
-		goto err;
-	}
-
-	r = kvm_arch_post_init_vm(kvm);
-err:
-	if (r)
 		on_each_cpu(hardware_disable, NULL, 1);
+	}
 	return r;
 }
 

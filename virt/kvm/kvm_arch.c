@@ -13,7 +13,6 @@
 #include <linux/kvm_host.h>
 
 static cpumask_t cpus_hardware_enabled = CPU_MASK_NONE;
-static atomic_t hardware_enable_failed;
 
 /*
  * Called after the VM is otherwise initialized, but just before adding it to
@@ -24,7 +23,7 @@ int __weak kvm_arch_post_init_vm(struct kvm *kvm)
 	return 0;
 }
 
-static void hardware_enable(void *junk)
+static int __hardware_enable(void)
 {
 	int cpu = raw_smp_processor_id();
 	int r;
@@ -32,18 +31,22 @@ static void hardware_enable(void *junk)
 	WARN_ON_ONCE(preemptible());
 
 	if (cpumask_test_cpu(cpu, &cpus_hardware_enabled))
-		return;
-
-	cpumask_set_cpu(cpu, &cpus_hardware_enabled);
-
+		return 0;
 	r = kvm_arch_hardware_enable();
-
-	if (r) {
-		cpumask_clear_cpu(cpu, &cpus_hardware_enabled);
-		atomic_inc(&hardware_enable_failed);
+	if (r)
 		pr_warn("kvm: enabling virtualization on CPU%d failed during %pSb\n",
 			cpu, __builtin_return_address(0));
-	}
+	else
+		cpumask_set_cpu(cpu, &cpus_hardware_enabled);
+	return r;
+}
+
+static void hardware_enable(void *arg)
+{
+	atomic_t *failed = arg;
+
+	if (__hardware_enable())
+		atomic_inc(failed);
 }
 
 static void hardware_disable(void *junk)
@@ -64,15 +67,15 @@ static void hardware_disable(void *junk)
  */
 int __weak kvm_arch_add_vm(struct kvm *kvm, int usage_count)
 {
+	atomic_t failed = ATOMIC_INIT(0);
 	int r = 0;
 
 	if (usage_count != 1)
 		return kvm_arch_post_init_vm(kvm);
 
-	atomic_set(&hardware_enable_failed, 0);
-	on_each_cpu(hardware_enable, NULL, 1);
+	on_each_cpu(hardware_enable, &failed, 1);
 
-	if (atomic_read(&hardware_enable_failed)) {
+	if (atomic_read(&failed)) {
 		r = -EBUSY;
 		goto err;
 	}
@@ -95,33 +98,29 @@ int __weak kvm_arch_del_vm(int usage_count)
 
 int __weak kvm_arch_online_cpu(unsigned int cpu, int usage_count)
 {
-	int ret = 0;
+	int ret;
 
 	ret = kvm_arch_check_processor_compat();
 	if (ret)
 		return ret;
 
+	if (!usage_count)
+		return 0;
+
+	/*
+	 * arch callback kvm_arch_hardware_enable() assumes that
+	 * preemption is disabled for historical reason.  Disable
+	 * preemption until all arch callbacks are fixed.
+	 */
+	preempt_disable();
 	/*
 	 * Abort the CPU online process if hardware virtualization cannot
 	 * be enabled. Otherwise running VMs would encounter unrecoverable
 	 * errors when scheduled to this CPU.
 	 */
-	if (usage_count) {
-		WARN_ON_ONCE(atomic_read(&hardware_enable_failed));
+	ret = __hardware_enable();
+	preempt_enable();
 
-		/*
-		 * arch callback kvm_arch_hardware_eanble() assumes that
-		 * preemption is disabled for historical reason.  Disable
-		 * preemption until all arch callbacks are fixed.
-		 */
-		preempt_disable();
-		hardware_enable(NULL);
-		preempt_enable();
-		if (atomic_read(&hardware_enable_failed)) {
-			atomic_set(&hardware_enable_failed, 0);
-			ret = -EIO;
-		}
-	}
 	return ret;
 }
 
@@ -160,5 +159,5 @@ int __weak kvm_arch_suspend(int usage_count)
 void __weak kvm_arch_resume(int usage_count)
 {
 	if (usage_count)
-		hardware_enable(NULL);
+		(void)__hardware_enable();
 }

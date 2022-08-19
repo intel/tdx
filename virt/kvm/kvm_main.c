@@ -102,7 +102,6 @@ EXPORT_SYMBOL_GPL(halt_poll_ns_shrink);
 DEFINE_MUTEX(kvm_lock);
 LIST_HEAD(vm_list);
 
-static cpumask_t cpus_hardware_enabled = CPU_MASK_NONE;
 static int kvm_usage_count;
 
 static struct kmem_cache *kvm_vcpu_cache;
@@ -5131,18 +5130,14 @@ void __weak kvm_arch_hardware_disable(void)
 
 static int __hardware_enable(void)
 {
-	int cpu = raw_smp_processor_id();
 	int r;
 
 	WARN_ON_ONCE(preemptible());
 
-	if (cpumask_test_cpu(cpu, &cpus_hardware_enabled))
-		return 0;
 	r = kvm_arch_hardware_enable();
 	if (r)
-		pr_info("kvm: enabling virtualization on CPU%d failed\n", cpu);
-	else
-		cpumask_set_cpu(cpu, &cpus_hardware_enabled);
+		pr_info("kvm: enabling virtualization on CPU%d failed\n",
+			raw_smp_processor_id());
 	return r;
 }
 
@@ -5166,13 +5161,8 @@ static int kvm_online_cpu(unsigned int cpu)
 
 static void hardware_disable(void *junk)
 {
-	int cpu = raw_smp_processor_id();
-
 	WARN_ON_ONCE(preemptible());
 
-	if (!cpumask_test_cpu(cpu, &cpus_hardware_enabled))
-		return;
-	cpumask_clear_cpu(cpu, &cpus_hardware_enabled);
 	kvm_arch_hardware_disable();
 }
 

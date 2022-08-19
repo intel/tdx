@@ -1440,8 +1440,11 @@ int kvm_arch_reboot(int val);
 int kvm_arch_suspend(int usage_count);
 void kvm_arch_resume(int usage_count);
 
+#ifndef CONFIG_HAVE_KVM_OVERRIDE_HARDWARE_ENABLE
 int kvm_arch_hardware_enable(void);
 void kvm_arch_hardware_disable(void);
+#endif
+
 int kvm_arch_hardware_setup(void *opaque);
 void kvm_arch_hardware_unsetup(void);
 int kvm_arch_check_processor_compat(void);

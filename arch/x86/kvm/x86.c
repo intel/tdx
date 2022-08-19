@@ -11860,7 +11860,7 @@ void kvm_vcpu_deliver_sipi_vector(struct kvm_vcpu *vcpu, u8 vector)
 }
 EXPORT_SYMBOL_GPL(kvm_vcpu_deliver_sipi_vector);
 
-int kvm_arch_hardware_enable(void)
+static int kvm_arch_hardware_enable(void)
 {
 	return static_call(kvm_x86_hardware_enable)();
 }
@@ -11957,7 +11957,7 @@ void kvm_arch_resume(int usage_count)
 	}
 }
 
-void kvm_arch_hardware_disable(void)
+static void kvm_arch_hardware_disable(void)
 {
 	static_call(kvm_x86_hardware_disable)();
 	drop_user_return_notifiers();

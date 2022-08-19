@@ -142,8 +142,8 @@ static int kvm_no_compat_open(struct inode *inode, struct file *file)
 #define KVM_COMPAT(c)	.compat_ioctl	= kvm_no_compat_ioctl,	\
 			.open		= kvm_no_compat_open
 #endif
-static void hardware_enable_nolock(void *junk);
-static void hardware_disable_nolock(void *junk);
+static void hardware_enable(void *junk);
+static void hardware_disable(void *junk);
 
 static void kvm_io_bus_destroy(struct kvm_io_bus *bus);
 
@@ -1118,7 +1118,7 @@ int __weak kvm_arch_add_vm(struct kvm *kvm, int usage_count)
 		return kvm_arch_post_init_vm(kvm);
 
 	atomic_set(&hardware_enable_failed, 0);
-	on_each_cpu(hardware_enable_nolock, NULL, 1);
+	on_each_cpu(hardware_enable, NULL, 1);
 
 	if (atomic_read(&hardware_enable_failed)) {
 		r = -EBUSY;
@@ -1128,7 +1128,7 @@ int __weak kvm_arch_add_vm(struct kvm *kvm, int usage_count)
 	r = kvm_arch_post_init_vm(kvm);
 err:
 	if (r)
-		on_each_cpu(hardware_disable_nolock, NULL, 1);
+		on_each_cpu(hardware_disable, NULL, 1);
 	return r;
 }
 
@@ -1146,7 +1146,7 @@ int __weak kvm_arch_drop_vm(int usage_count)
 	if (usage_count)
 		return 0;
 
-	on_each_cpu(hardware_disable_nolock, NULL, 1);
+	on_each_cpu(hardware_disable, NULL, 1);
 	return 0;
 }
 
@@ -1172,7 +1172,7 @@ int __weak kvm_arch_online_cpu(unsigned int cpu, int usage_count)
 		 * preemption until all arch callbacks are fixed.
 		 */
 		preempt_disable();
-		hardware_enable_nolock(NULL);
+		hardware_enable(NULL);
 		preempt_enable();
 		if (atomic_read(&hardware_enable_failed)) {
 			atomic_set(&hardware_enable_failed, 0);
@@ -1191,7 +1191,7 @@ int __weak kvm_arch_offline_cpu(unsigned int cpu, int usage_count)
 		 * preemption until all arch callbacks are fixed.
 		 */
 		preempt_disable();
-		hardware_disable_nolock(NULL);
+		hardware_disable(NULL);
 		preempt_enable();
 	}
 	return 0;
@@ -1199,7 +1199,7 @@ int __weak kvm_arch_offline_cpu(unsigned int cpu, int usage_count)
 
 int __weak kvm_arch_reboot(int val)
 {
-	on_each_cpu(hardware_disable_nolock, NULL, 1);
+	on_each_cpu(hardware_disable, NULL, 1);
 	return NOTIFY_OK;
 }
 
@@ -1210,14 +1210,14 @@ int __weak kvm_arch_suspend(int usage_count)
 		 * Because kvm_suspend() is called with interrupt disabled,  no
 		 * need to disable preemption.
 		 */
-		hardware_disable_nolock(NULL);
+		hardware_disable(NULL);
 	return 0;
 }
 
 void __weak kvm_arch_resume(int usage_count)
 {
 	if (usage_count)
-		hardware_enable_nolock(NULL);
+		hardware_enable(NULL);
 }
 
 static int kvm_add_vm(struct kvm *kvm)
@@ -5142,7 +5142,7 @@ static struct miscdevice kvm_dev = {
 	&kvm_chardev_ops,
 };
 
-static void hardware_enable_nolock(void *junk)
+static void hardware_enable(void *junk)
 {
 	int cpu = raw_smp_processor_id();
 	int r;
@@ -5173,7 +5173,7 @@ static int kvm_online_cpu(unsigned int cpu)
 	return ret;
 }
 
-static void hardware_disable_nolock(void *junk)
+static void hardware_disable(void *junk)
 {
 	int cpu = raw_smp_processor_id();
 

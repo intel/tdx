@@ -11965,11 +11965,6 @@ void kvm_arch_hardware_disable(void)
 
 static cpumask_t cpus_hardware_enabled = CPU_MASK_NONE;
 
-int kvm_arch_post_init_vm(struct kvm *kvm)
-{
-	return kvm_mmu_post_init_vm(kvm);
-}
-
 static int __hardware_enable(void)
 {
 	int cpu = raw_smp_processor_id();
@@ -12018,7 +12013,7 @@ int kvm_arch_add_vm(struct kvm *kvm, int usage_count)
 	int r = 0;
 
 	if (usage_count != 1)
-		return kvm_arch_post_init_vm(kvm);
+		return kvm_mmu_post_init_vm(kvm);
 
 	on_each_cpu(hardware_enable, &failed, 1);
 
@@ -12027,7 +12022,7 @@ int kvm_arch_add_vm(struct kvm *kvm, int usage_count)
 		goto err;
 	}
 
-	r = kvm_arch_post_init_vm(kvm);
+	r = kvm_mmu_post_init_vm(kvm);
 err:
 	if (r)
 		on_each_cpu(hardware_disable, NULL, 1);

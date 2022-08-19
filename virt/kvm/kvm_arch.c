@@ -14,15 +14,6 @@
 
 static cpumask_t cpus_hardware_enabled = CPU_MASK_NONE;
 
-/*
- * Called after the VM is otherwise initialized, but just before adding it to
- * the vm_list.
- */
-int __weak kvm_arch_post_init_vm(struct kvm *kvm)
-{
-	return 0;
-}
-
 static int __hardware_enable(void)
 {
 	int cpu = raw_smp_processor_id();
@@ -71,19 +62,14 @@ int __weak kvm_arch_add_vm(struct kvm *kvm, int usage_count)
 	int r = 0;
 
 	if (usage_count != 1)
-		return kvm_arch_post_init_vm(kvm);
+		return 0;
 
 	on_each_cpu(hardware_enable, &failed, 1);
 
 	if (atomic_read(&failed)) {
 		r = -EBUSY;
-		goto err;
-	}
-
-	r = kvm_arch_post_init_vm(kvm);
-err:
-	if (r)
 		on_each_cpu(hardware_disable, NULL, 1);
+	}
 	return r;
 }
 

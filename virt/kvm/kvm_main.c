@@ -5124,6 +5124,15 @@ static struct miscdevice kvm_dev = {
 	&kvm_chardev_ops,
 };
 
+int __weak kvm_arch_hardware_enable(void)
+{
+	return 0;
+}
+
+void __weak kvm_arch_hardware_disable(void)
+{
+}
+
 static int __hardware_enable(void)
 {
 	int cpu = raw_smp_processor_id();

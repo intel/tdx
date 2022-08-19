@@ -142,8 +142,9 @@ static int kvm_no_compat_open(struct inode *inode, struct file *file)
 #define KVM_COMPAT(c)	.compat_ioctl	= kvm_no_compat_ioctl,	\
 			.open		= kvm_no_compat_open
 #endif
-static int hardware_enable_all(void);
-static void hardware_disable_all(void);
+static void hardware_enable_nolock(void *junk);
+static void hardware_disable_nolock(void *junk);
+static void kvm_del_vm(void);
 
 static void kvm_io_bus_destroy(struct kvm_io_bus *bus);
 
@@ -1107,6 +1108,41 @@ int __weak kvm_arch_post_init_vm(struct kvm *kvm)
 }
 
 /*
+ * Called after the VM is otherwise initialized, but just before adding it to
+ * the vm_list.
+ */
+int __weak kvm_arch_add_vm(struct kvm *kvm, int usage_count)
+{
+	int r = 0;
+
+	if (usage_count != 1)
+		return kvm_arch_post_init_vm(kvm);
+
+	atomic_set(&hardware_enable_failed, 0);
+	on_each_cpu(hardware_enable_nolock, NULL, 1);
+
+	if (atomic_read(&hardware_enable_failed)) {
+		r = -EBUSY;
+		goto err;
+	}
+
+	r = kvm_arch_post_init_vm(kvm);
+err:
+	if (r)
+		on_each_cpu(hardware_disable_nolock, NULL, 1);
+	return r;
+}
+
+int __weak kvm_arch_del_vm(int usage_count)
+{
+	if (usage_count)
+		return 0;
+
+	on_each_cpu(hardware_disable_nolock, NULL, 1);
+	return 0;
+}
+
+/*
  * Called just after removing the VM from the vm_list, but before doing any
  * other destruction.
  */
@@ -1203,10 +1239,6 @@ static struct kvm *kvm_create_vm(unsigned long type, const char *fdname)
 	if (r)
 		goto out_err_no_arch_destroy_vm;
 
-	r = hardware_enable_all();
-	if (r)
-		goto out_err_no_disable;
-
 #ifdef CONFIG_HAVE_KVM_IRQFD
 	INIT_HLIST_HEAD(&kvm->irq_ack_notifier_list);
 #endif
@@ -1223,13 +1255,28 @@ static struct kvm *kvm_create_vm(unsigned long type, const char *fdname)
 	if (r)
 		goto out_err_no_debugfs;
 
-	r = kvm_arch_post_init_vm(kvm);
-	if (r)
-		goto out_err;
-
+	/*
+	 * During onlining a CPU, cpu_online_mask is set before kvm_online_cpu()
+	 * is called. on_each_cpu() between them includes the CPU. As a result,
+	 * hardware_enable_nolock() may get invoked before kvm_online_cpu().
+	 * This would enable hardware virtualization on that cpu without
+	 * compatibility checks, which can potentially crash system or break
+	 * running VMs.
+	 *
+	 * Disable CPU hotplug to prevent this case from happening.
+	 */
+	cpus_read_lock();
 	mutex_lock(&kvm_lock);
+	kvm_usage_count++;
+	r = kvm_arch_add_vm(kvm, kvm_usage_count);
+	if (r) {
+		/* the following kvm_del_vm() decrements kvm_usage_count. */
+		mutex_unlock(&kvm_lock);
+		goto out_err;
+	}
 	list_add(&kvm->vm_list, &vm_list);
 	mutex_unlock(&kvm_lock);
+	cpus_read_unlock();
 
 	preempt_notifier_inc();
 	kvm_init_pm_notifier(kvm);
@@ -1246,8 +1293,7 @@ out_no_coalesced_mmio:
 		mmu_notifier_unregister(&kvm->mmu_notifier, current->mm);
 #endif
 out_err_no_mmu_notifier:
-	hardware_disable_all();
-out_err_no_disable:
+	kvm_del_vm();
 	kvm_arch_destroy_vm(kvm);
 out_err_no_arch_destroy_vm:
 	WARN_ON_ONCE(!refcount_dec_and_test(&kvm->users_count));
@@ -1326,7 +1372,7 @@ static void kvm_destroy_vm(struct kvm *kvm)
 	cleanup_srcu_struct(&kvm->srcu);
 	kvm_arch_free_vm(kvm);
 	preempt_notifier_dec();
-	hardware_disable_all();
+	kvm_del_vm();
 	mmdrop(mm);
 	module_put(kvm_chardev_ops.owner);
 }
@@ -5075,56 +5121,15 @@ static int kvm_offline_cpu(unsigned int cpu)
 	return 0;
 }
 
-static void hardware_disable_all_nolock(void)
+static void kvm_del_vm(void)
 {
-	BUG_ON(!kvm_usage_count);
-
+	cpus_read_lock();
+	mutex_lock(&kvm_lock);
+	WARN_ON_ONCE(!kvm_usage_count);
 	kvm_usage_count--;
-	if (!kvm_usage_count)
-		on_each_cpu(hardware_disable_nolock, NULL, 1);
-}
-
-static void hardware_disable_all(void)
-{
-	cpus_read_lock();
-	mutex_lock(&kvm_lock);
-	hardware_disable_all_nolock();
+	kvm_arch_del_vm(kvm_usage_count);
 	mutex_unlock(&kvm_lock);
 	cpus_read_unlock();
-}
-
-static int hardware_enable_all(void)
-{
-	int r = 0;
-
-	/*
-	 * During onlining a CPU, cpu_online_mask is set before kvm_online_cpu()
-	 * is called. on_each_cpu() between them includes the CPU. As a result,
-	 * hardware_enable_nolock() may get invoked before kvm_online_cpu().
-	 * This would enable hardware virtualization on that cpu without
-	 * compatibility checks, which can potentially crash system or break
-	 * running VMs.
-	 *
-	 * Disable CPU hotplug to prevent this case from happening.
-	 */
-	cpus_read_lock();
-	mutex_lock(&kvm_lock);
-
-	kvm_usage_count++;
-	if (kvm_usage_count == 1) {
-		atomic_set(&hardware_enable_failed, 0);
-		on_each_cpu(hardware_enable_nolock, NULL, 1);
-
-		if (atomic_read(&hardware_enable_failed)) {
-			hardware_disable_all_nolock();
-			r = -EBUSY;
-		}
-	}
-
-	mutex_unlock(&kvm_lock);
-	cpus_read_unlock();
-
-	return r;
 }
 
 static int kvm_reboot(struct notifier_block *notifier, unsigned long val,

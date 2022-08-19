@@ -12131,17 +12131,25 @@ EXPORT_SYMBOL_GPL(kvm_vcpu_deliver_sipi_vector);
 
 int kvm_arch_hardware_enable(void)
 {
+	return static_call(kvm_x86_hardware_enable)();
+}
+
+static int __hardware_enable(void);
+
+void kvm_arch_resume(int usage_count)
+{
 	struct kvm *kvm;
 	struct kvm_vcpu *vcpu;
 	unsigned long i;
-	int ret;
 	u64 local_tsc;
 	u64 max_tsc = 0;
 	bool stable, backwards_tsc = false;
 
-	ret = static_call(kvm_x86_hardware_enable)();
-	if (ret != 0)
-		return ret;
+	if (!usage_count)
+		return;
+
+	if (__hardware_enable())
+		return;
 
 	local_tsc = rdtsc();
 	stable = !kvm_check_tsc_unstable();
@@ -12216,7 +12224,6 @@ int kvm_arch_hardware_enable(void)
 		}
 
 	}
-	return 0;
 }
 
 void kvm_arch_hardware_disable(void)
@@ -12386,12 +12393,6 @@ int kvm_arch_suspend(int usage_count)
 		 */
 		hardware_disable(NULL);
 	return 0;
-}
-
-void kvm_arch_resume(int usage_count)
-{
-	if (usage_count)
-		(void)__hardware_enable();
 }
 
 static inline void kvm_ops_update(struct kvm_x86_init_ops *ops)

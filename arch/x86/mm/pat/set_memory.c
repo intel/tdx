@@ -1816,6 +1816,7 @@ int __set_memory_prot(unsigned long addr, int numpages, pgprot_t prot)
 					__pgprot(~pgprot_val(prot)), 0, 0,
 					NULL);
 }
+EXPORT_SYMBOL_GPL(__set_memory_prot);
 
 int _set_memory_uc(unsigned long addr, int numpages)
 {
@@ -1989,6 +1990,7 @@ int set_memory_np(unsigned long addr, int numpages)
 {
 	return change_page_attr_clear(&addr, numpages, __pgprot(_PAGE_PRESENT), 0);
 }
+EXPORT_SYMBOL_GPL(set_memory_np);
 
 int set_memory_np_noalias(unsigned long addr, int numpages)
 {

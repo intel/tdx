@@ -8,6 +8,7 @@
 
 #include <asm/pgtable_types.h>
 #include <asm/cacheflush.h>
+#include <asm/set_memory.h>
 #include <asm/asm.h>
 #include <asm/kvm_host.h>
 #include <asm/tdx.h>
@@ -27,6 +28,20 @@ static inline enum pg_level tdx_sept_level_to_pg_level(int tdx_level)
 static inline void tdx_clflush_page(hpa_t addr, enum pg_level level)
 {
 	clflush_cache_range(__va(addr), KVM_HPAGE_SIZE(level));
+}
+
+static inline void tdx_set_page_np(unsigned long vaddr)
+{
+	if (IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT)) {
+		clflush_cache_range((void *)vaddr, PAGE_SIZE);
+		set_memory_np(vaddr, 1);
+	}
+}
+
+static inline void tdx_set_page_present(unsigned long vaddr)
+{
+	if (IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
+		__set_memory_prot(vaddr, 1, __pgprot(_PAGE_PRESENT | _PAGE_RW));
 }
 
 /*
@@ -51,7 +66,8 @@ static inline u64 seamcall_sept_retry(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
 
 static inline u64 tdh_mng_addcx(hpa_t tdr, hpa_t addr)
 {
-	tdx_clflush_page(addr, PG_LEVEL_4K);
+	if (!IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
+		tdx_clflush_page(addr, PG_LEVEL_4K);
 	return __seamcall(TDH_MNG_ADDCX, addr, tdr, 0, 0, NULL);
 }
 
@@ -79,7 +95,8 @@ static inline u64 tdh_mem_sept_remove(hpa_t tdr, gpa_t gpa, int level,
 
 static inline u64 tdh_vp_addcx(hpa_t tdvpr, hpa_t addr)
 {
-	tdx_clflush_page(addr, PG_LEVEL_4K);
+	if (!IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
+		tdx_clflush_page(addr, PG_LEVEL_4K);
 	return __seamcall(TDH_VP_ADDCX, addr, tdvpr, 0, 0, NULL);
 }
 
@@ -112,13 +129,15 @@ static inline u64 tdh_mng_key_config(hpa_t tdr)
 
 static inline u64 tdh_mng_create(hpa_t tdr, int hkid)
 {
-	tdx_clflush_page(tdr, PG_LEVEL_4K);
+	if (!IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
+		tdx_clflush_page(tdr, PG_LEVEL_4K);
 	return __seamcall(TDH_MNG_CREATE, tdr, hkid, 0, 0, NULL);
 }
 
 static inline u64 tdh_vp_create(hpa_t tdr, hpa_t tdvpr)
 {
-	tdx_clflush_page(tdvpr, PG_LEVEL_4K);
+	if (!IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
+		tdx_clflush_page(tdvpr, PG_LEVEL_4K);
 	return __seamcall(TDH_VP_CREATE, tdvpr, tdr, 0, 0, NULL);
 }
 

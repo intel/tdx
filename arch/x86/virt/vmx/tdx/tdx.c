@@ -28,6 +28,7 @@
 #include <asm/cpu.h>
 #include <asm/smp.h>
 #include <asm/tdx.h>
+#include <asm/set_memory.h>
 #include "tdx.h"
 
 /*
@@ -818,6 +819,9 @@ static int tdmr_set_up_pamt(struct tdmr_info *tdmr)
 			nid, &node_online_map);
 	if (!pamt)
 		return -ENOMEM;
+	if (IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
+		set_memory_np((unsigned long)page_to_virt(pamt),
+			      tdmr_pamt_size >> PAGE_SHIFT);
 
 	/* Calculate PAMT base and size for all supported page sizes. */
 	tdmr_pamt_base = page_to_pfn(pamt) << PAGE_SHIFT;
@@ -865,6 +869,9 @@ static void tdmr_free_pamt(struct tdmr_info *tdmr)
 	if (WARN_ON_ONCE(!pamt_pfn))
 		return;
 
+	if (IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
+		__set_memory_prot((unsigned long)pfn_to_kaddr(pamt_pfn), pamt_npages,
+				  __pgprot(_PAGE_PRESENT | _PAGE_RW));
 	free_contig_range(pamt_pfn, pamt_npages);
 }
 

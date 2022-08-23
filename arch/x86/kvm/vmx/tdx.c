@@ -289,6 +289,7 @@ static int tdx_reclaim_page(unsigned long va, hpa_t pa, enum pg_level level,
 		}
 	}
 
+	tdx_set_page_present((unsigned long)__va(pa));
 	tdx_clear_page(va, KVM_HPAGE_SIZE(level));
 	return 0;
 }
@@ -299,6 +300,7 @@ static int tdx_alloc_td_page(struct tdx_td_page *page)
 	if (!page->va)
 		return -ENOMEM;
 
+	tdx_set_page_np(page->va);
 	page->pa = __pa(page->va);
 	return 0;
 }
@@ -324,6 +326,7 @@ static void tdx_reclaim_td_page(struct tdx_td_page *page)
 		page->added = false;
 	}
 	if (page->va) {
+		tdx_set_page_present(page->va);
 		free_page(page->va);
 		page->va = 0;
 	}
@@ -3181,12 +3184,14 @@ free_tdcs:
 	for (i = 0; i < tdx_caps.tdcs_nr_pages; i++) {
 		if (!kvm_tdx->tdcs[i].va)
 			continue;
+		tdx_set_page_present(kvm_tdx->tdcs[i].va);
 		free_page(kvm_tdx->tdcs[i].va);
 	}
 	kfree(kvm_tdx->tdcs);
 	kvm_tdx->tdcs = NULL;
 free_tdr:
 	if (kvm_tdx->tdr.va) {
+		tdx_set_page_present(kvm_tdx->tdr.va);
 		free_page(kvm_tdx->tdr.va);
 		kvm_tdx->tdr.added = false;
 		kvm_tdx->tdr.va = 0;

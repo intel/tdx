@@ -256,13 +256,18 @@ static void tdx_clear_page(unsigned long page, int size)
 	__mb();
 }
 
-static int tdx_reclaim_page(unsigned long va, hpa_t pa, enum pg_level level,
-			    bool do_wb, u16 hkid)
+static int tdx_reclaim_page(struct kvm *kvm, unsigned long va, hpa_t pa,
+			    enum pg_level level, bool do_wb, u16 hkid, bool do_lock)
 {
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	struct tdx_module_output out;
 	u64 err;
 
+	if (do_lock)
+		spin_lock(&kvm_tdx->seamcall_lock);
 	err = tdh_phymem_page_reclaim(pa, &out);
+	if (do_lock)
+		spin_unlock(&kvm_tdx->seamcall_lock);
 	if (WARN_ON_ONCE(err)) {
 		pr_err("%s:%d:%s pa 0x%llx level %d hkid 0x%x do_wb %d\n",
 		       __FILE__, __LINE__, __func__,
@@ -302,7 +307,7 @@ static inline void tdx_mark_td_page_added(struct tdx_td_page *page)
 	page->added = true;
 }
 
-static void tdx_reclaim_td_page(struct tdx_td_page *page)
+static void tdx_reclaim_td_page(struct kvm *kvm, struct tdx_td_page *page)
 {
 	if (page->added) {
 		/*
@@ -311,7 +316,7 @@ static void tdx_reclaim_td_page(struct tdx_td_page *page)
 		 * was already flushed by TDH.PHYMEM.CACHE.WB before here, So
 		 * cache doesn't need to be flushed again.
 		 */
-		if (tdx_reclaim_page(page->va, page->pa, PG_LEVEL_4K, false, 0))
+		if (tdx_reclaim_page(kvm, page->va, page->pa, PG_LEVEL_4K, false, 0, false))
 			return;
 
 		page->added = false;
@@ -474,7 +479,7 @@ void tdx_vm_free(struct kvm *kvm)
 
 	if (kvm_tdx->tdcs) {
 		for (i = 0; i < tdx_caps.tdcs_nr_pages; i++)
-			tdx_reclaim_td_page(&kvm_tdx->tdcs[i]);
+			tdx_reclaim_td_page(kvm, &kvm_tdx->tdcs[i]);
 		kfree(kvm_tdx->tdcs);
 	}
 
@@ -484,8 +489,8 @@ void tdx_vm_free(struct kvm *kvm)
 	 * TDX global HKID is needed.
 	 */
 	if (kvm_tdx->tdr.added &&
-		tdx_reclaim_page(kvm_tdx->tdr.va, kvm_tdx->tdr.pa, PG_LEVEL_4K,
-				 true, tdx_global_keyid))
+	    tdx_reclaim_page(kvm, kvm_tdx->tdr.va, kvm_tdx->tdr.pa, PG_LEVEL_4K,
+			     true, tdx_global_keyid, false))
 		return;
 
 	free_page(kvm_tdx->tdr.va);
@@ -682,19 +687,20 @@ void tdx_vcpu_put(struct kvm_vcpu *vcpu)
 void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	struct kvm *kvm = vcpu->kvm;
 	int i;
 
 	/* Can't reclaim or free pages if teardown failed. */
-	if (is_hkid_assigned(to_kvm_tdx(vcpu->kvm)))
+	if (is_hkid_assigned(to_kvm_tdx(kvm)))
 		return;
 
 	if (tdx->tdvpx) {
 		for (i = 0; i < tdx_caps.tdvpx_nr_pages; i++)
-			tdx_reclaim_td_page(&tdx->tdvpx[i]);
+			tdx_reclaim_td_page(kvm, &tdx->tdvpx[i]);
 		kfree(tdx->tdvpx);
 		tdx->tdvpx = NULL;
 	}
-	tdx_reclaim_td_page(&tdx->tdvpr);
+	tdx_reclaim_td_page(kvm, &tdx->tdvpr);
 
 	/*
 	 * kvm_free_vcpus()
@@ -1849,10 +1855,8 @@ static void tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		 * The HKID assigned to this TD was already freed and cache
 		 * was already flushed. We don't have to flush again.
 		 */
-		spin_lock(&kvm_tdx->seamcall_lock);
-		err = tdx_reclaim_page((unsigned long)__va(hpa), hpa, level,
-				       false, 0);
-		spin_unlock(&kvm_tdx->seamcall_lock);
+		err = tdx_reclaim_page(kvm, (unsigned long)__va(hpa), hpa, level,
+				       false, 0, true);
 		if (!err)
 			tdx_unpin(kvm, gfn, pfn, level);
 		else
@@ -2045,10 +2049,8 @@ static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 	 * The HKID assigned to this TD was already freed and cache was
 	 * already flushed. We don't have to flush again.
 	 */
-	spin_lock(&kvm_tdx->seamcall_lock);
-	ret = tdx_reclaim_page((unsigned long)private_spt, __pa(private_spt),
-			       PG_LEVEL_4K, false, 0);
-	spin_unlock(&kvm_tdx->seamcall_lock);
+	ret = tdx_reclaim_page(kvm, (unsigned long)private_spt, __pa(private_spt),
+			       PG_LEVEL_4K, false, 0, true);
 
 	return ret;
 }

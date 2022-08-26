@@ -3916,6 +3916,63 @@ static void tdx_guest_pmi_handler(void)
 	kvm_make_request(KVM_REQ_PMI, vcpu);
 }
 
+/* Clear poisoned bit to avoid further #MC */
+static int tdx_mce_notifier(struct notifier_block *nb, unsigned long val,
+			    void *data)
+{
+	const void *zero_page = (const void *) __va(page_to_phys(ZERO_PAGE(0)));
+	struct mce *m = (struct mce *)data;
+	unsigned long kaddr;
+	unsigned long addr;
+	struct page *page;
+	u16 hkid;
+
+	/* Direct write is needed to clear poison bit. */
+	if (!boot_cpu_has(X86_FEATURE_MOVDIR64B))
+		return NOTIFY_DONE;
+
+	/* Handle memory failure only. */
+	if (!m)
+		return NOTIFY_DONE;
+	if (!mce_is_memory_error(m))
+		return NOTIFY_DONE;
+
+	addr = m->addr & ((1ULL << boot_cpu_data.x86_phys_bits) - 1);
+	hkid = m->addr >> boot_cpu_data.x86_phys_bits;
+
+	/* Is hkid used for TDX? */
+	if (hkid < tdx_global_keyid)
+		return NOTIFY_DONE;
+
+	/*
+	 * MCE handler may make the page non-present in direct map. Map the page
+	 * to access.  Use VM_FLUSH_RESET_PERMS flag to tlb flush at vunmap()
+	 * and reset direct mapping region.
+	 */
+	page = pfn_to_page(addr >> PAGE_SHIFT);
+	kaddr = (unsigned long)vmap(&page, 1, VM_FLUSH_RESET_PERMS, PAGE_KERNEL);
+	if (!kaddr)
+		return NOTIFY_DONE;
+
+	/* Adjust page offset. */
+	kaddr |= addr & ~PAGE_MASK;
+	/* Align to cache line. */
+	kaddr = ALIGN_DOWN(kaddr, 64);
+	/* Direct write to clear poison bit. */
+	movdir64b((void *)kaddr, zero_page);
+	__mb();
+
+	vunmap((void *)(kaddr & PAGE_MASK));
+
+	pr_err("cleared poisoned cache hkid 0x%x pa 0x%lx\n", hkid, addr);
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block tdx_mce_nb = {
+	.notifier_call = tdx_mce_notifier,
+	.priority = MCE_PRIO_CEC,
+};
+
 static int __init tdx_module_setup(void)
 {
 	const struct tdsysinfo_struct *tdsysinfo;
@@ -4436,6 +4493,7 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	x86_ops->mem_enc_write_memory = tdx_write_guest_memory;
 
 	kvm_set_tdx_guest_pmi_handler(tdx_guest_pmi_handler);
+	mce_register_decode_chain(&tdx_mce_nb);
 	intel_reserve_lbr_buffers();
 	return 0;
 
@@ -4450,6 +4508,7 @@ out:
 void tdx_hardware_unsetup(void)
 {
 	intel_release_lbr_buffers();
+	mce_unregister_decode_chain(&tdx_mce_nb);
 	/* kfree accepts NULL. */
 	kfree(tdx_mng_key_config_lock);
 	misc_cg_set_capacity(MISC_CG_RES_TDX, 0);

@@ -56,6 +56,7 @@
 
 #define TDX_GET_TD_VM_CALL_INFO 0x10000
 #define TDX_REPORT_FATAL_ERROR 0x10003
+#define TDX_INSTRUCTION_HLT 12
 #define TDX_INSTRUCTION_IO 30
 #define TDX_INSTRUCTION_RDMSR 31
 #define TDX_INSTRUCTION_WRMSR 32
@@ -288,6 +289,21 @@ static inline uint64_t tdvmcall_wrmsr(uint64_t index, uint64_t value)
 	regs.r12 = index;
 	regs.r13 = value;
 	regs.rcx = 0x3C00;
+	tdcall(&regs);
+	return regs.r10;
+}
+
+/*
+ * Execute HLT instruction.
+ */
+static inline uint64_t tdvmcall_hlt(uint64_t interrupt_blocked_flag)
+{
+	struct kvm_regs regs;
+
+	memset(&regs, 0, sizeof(regs));
+	regs.r11 = TDX_INSTRUCTION_HLT;
+	regs.r12 = interrupt_blocked_flag;
+	regs.rcx = 0x1C00;
 	tdcall(&regs);
 	return regs.r10;
 }

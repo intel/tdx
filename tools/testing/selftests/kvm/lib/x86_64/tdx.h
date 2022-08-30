@@ -11,6 +11,11 @@
 #define TDX_GUEST_MAX_NR_PAGES 10000
 
 /*
+ * Max number of vCPUs for the guest VM
+ */
+ #define TDX_GUEST_MAX_NUM_VCPUS 3
+
+/*
  * Page Table Address used when paging is enabled.
  */
 #define TDX_GUEST_PT_FIXED_ADDR (0xFFFFFFFF -\
@@ -71,6 +76,11 @@
 #define TDX_MMIO_READ 0
 #define TDX_MMIO_WRITE 1
 
+#define TDX_TDCALL_INFO   1
+
+#define TDX_TDPARAM_ATTR_SEPT_VE_DISABLE_BIT	(1UL << 28)
+#define TDX_TDPARAM_ATTR_PKS_BIT		(1UL << 30)
+
 #define GDT_ENTRY(flags, base, limit)				\
 		((((base)  & 0xff000000ULL) << (56-24)) |	\
 		 (((flags) & 0x0000f0ffULL) << 40) |		\
@@ -98,6 +108,7 @@ void add_td_memory(struct kvm_vm *vm, void *source_page,
 		   uint64_t gpa, int size);
 void finalize_td_memory(struct kvm_vm *vm);
 void initialize_td(struct kvm_vm *vm);
+void initialize_td_with_attributes(struct kvm_vm *vm, uint64_t attributes);
 void initialize_td_vcpu(struct kvm_vcpu *vcpu);
 void prepare_source_image(struct kvm_vm *vm, void *guest_code,
 			  size_t guest_code_size,
@@ -116,40 +127,41 @@ void prepare_source_image(struct kvm_vm *vm, void *guest_code,
 static inline void tdcall(struct kvm_regs *regs)
 {
 	asm volatile (
-			"mov %13, %%rax;\n\t"
-			"mov %14, %%rbx;\n\t"
-			"mov %15, %%rcx;\n\t"
-			"mov %16, %%rdx;\n\t"
-			"mov %17, %%r8;\n\t"
-			"mov %18, %%r9;\n\t"
-			"mov %19, %%r10;\n\t"
-			"mov %20, %%r11;\n\t"
-			"mov %21, %%r12;\n\t"
-			"mov %22, %%r13;\n\t"
-			"mov %23, %%r14;\n\t"
-			"mov %24, %%r15;\n\t"
-			"mov %25, %%rbp;\n\t"
-			"mov %26, %%rsi;\n\t"
-			"mov %27, %%rdi;\n\t"
+			"mov %14, %%rax;\n\t"
+			"mov %15, %%rbx;\n\t"
+			"mov %16, %%rcx;\n\t"
+			"mov %17, %%rdx;\n\t"
+			"mov %18, %%r8;\n\t"
+			"mov %19, %%r9;\n\t"
+			"mov %20, %%r10;\n\t"
+			"mov %21, %%r11;\n\t"
+			"mov %22, %%r12;\n\t"
+			"mov %23, %%r13;\n\t"
+			"mov %24, %%r14;\n\t"
+			"mov %25, %%r15;\n\t"
+			"mov %26, %%rbp;\n\t"
+			"mov %27, %%rsi;\n\t"
+			"mov %28, %%rdi;\n\t"
 			".byte 0x66, 0x0F, 0x01, 0xCC;\n\t"
 			"mov %%rax, %0;\n\t"
 			"mov %%rbx, %1;\n\t"
-			"mov %%rdx, %2;\n\t"
-			"mov %%r8, %3;\n\t"
-			"mov %%r9, %4;\n\t"
-			"mov %%r10, %5;\n\t"
-			"mov %%r11, %6;\n\t"
-			"mov %%r12, %7;\n\t"
-			"mov %%r13, %8;\n\t"
-			"mov %%r14, %9;\n\t"
-			"mov %%r15, %10;\n\t"
-			"mov %%rsi, %11;\n\t"
-			"mov %%rdi, %12;\n\t"
-			: "=m" (regs->rax), "=m" (regs->rbx), "=m" (regs->rdx),
-			"=m" (regs->r8), "=m" (regs->r9), "=m" (regs->r10),
-			"=m" (regs->r11), "=m" (regs->r12), "=m" (regs->r13),
-			"=m" (regs->r14), "=m" (regs->r15), "=m" (regs->rsi),
-			"=m" (regs->rdi)
+			"mov %%rcx, %2;\n\t"
+			"mov %%rdx, %3;\n\t"
+			"mov %%r8, %4;\n\t"
+			"mov %%r9, %5;\n\t"
+			"mov %%r10, %6;\n\t"
+			"mov %%r11, %7;\n\t"
+			"mov %%r12, %8;\n\t"
+			"mov %%r13, %9;\n\t"
+			"mov %%r14, %10;\n\t"
+			"mov %%r15, %11;\n\t"
+			"mov %%rsi, %12;\n\t"
+			"mov %%rdi, %13;\n\t"
+			: "=m" (regs->rax), "=m" (regs->rbx), "=m" (regs->rcx),
+			"=m" (regs->rdx), "=m" (regs->r8), "=m" (regs->r9),
+			"=m" (regs->r10), "=m" (regs->r11), "=m" (regs->r12),
+			"=m" (regs->r13), "=m" (regs->r14), "=m" (regs->r15),
+			"=m" (regs->rsi), "=m" (regs->rdi)
 			: "m" (regs->rax), "m" (regs->rbx), "m" (regs->rcx),
 			"m" (regs->rdx), "m" (regs->r8), "m" (regs->r9),
 			"m" (regs->r10), "m" (regs->r11), "m" (regs->r12),
@@ -368,6 +380,35 @@ static inline uint64_t tdvmcall_cpuid(uint32_t eax, uint32_t ecx,
 	*ret_ecx = regs.r14;
 	*ret_edx = regs.r15;
 	return regs.r10;
+}
+
+/*
+ * Execute TDG.VP.INFO instruction.
+ */
+static inline uint64_t tdcall_vp_info(uint64_t *rcx, uint64_t *rdx,
+				      uint64_t *r8, uint64_t *r9,
+				      uint64_t *r10, uint64_t *r11)
+{
+	struct kvm_regs regs;
+
+	memset(&regs, 0, sizeof(regs));
+	regs.rax = TDX_TDCALL_INFO;
+	tdcall(&regs);
+
+	if (rcx)
+		*rcx = regs.rcx;
+	if (rdx)
+		*rdx = regs.rdx;
+	if (r8)
+		*r8 = regs.r8;
+	if (r9)
+		*r9 = regs.r9;
+	if (r10)
+		*r10 = regs.r10;
+	if (r11)
+		*r11 = regs.r11;
+
+	return regs.rax;
 }
 
 /*

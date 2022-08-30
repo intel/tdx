@@ -51,6 +51,7 @@
 #define _PAGE_RW            (1UL<<1)       /* writeable */
 #define _PAGE_PS            (1UL<<7)       /* page size bit*/
 
+#define TDX_REPORT_FATAL_ERROR 0x10003
 #define TDX_INSTRUCTION_IO 30
 
 #define TDX_SUCCESS_PORT 0x30
@@ -212,6 +213,22 @@ static inline void tdvmcall_success(void)
 	tdvmcall_io(TDX_SUCCESS_PORT, /*size=*/4, TDX_IO_WRITE, &code);
 }
 
+/*
+ * Report an error to user space.
+ * data_gpa may point to an optional shared guest memory holding the error string.
+ * Return value from tdvmcall is ignored since execution is not expected to
+ * continue beyond this point.
+ */
+static inline void tdvmcall_fatal(uint64_t error_code)
+{
+	struct kvm_regs regs;
+
+	memset(&regs, 0, sizeof(regs));
+	regs.r11 = TDX_REPORT_FATAL_ERROR;
+	regs.r12 = error_code;
+	regs.rcx = 0x1C00;
+	tdcall(&regs);
+}
 
 #define TDX_FUNCTION_SIZE(name) ((uint64_t)&__stop_sec_ ## name -\
 			   (uint64_t)&__start_sec_ ## name) \

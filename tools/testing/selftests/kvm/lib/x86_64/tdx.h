@@ -51,6 +51,9 @@
 #define _PAGE_RW            (1UL<<1)       /* writeable */
 #define _PAGE_PS            (1UL<<7)       /* page size bit*/
 
+#define TDX_VMCALL_SUCCESS 0x0000000000000000
+#define TDX_VMCALL_INVALID_OPERAND 0x8000000000000000
+
 #define TDX_GET_TD_VM_CALL_INFO 0x10000
 #define TDX_REPORT_FATAL_ERROR 0x10003
 #define TDX_INSTRUCTION_IO 30

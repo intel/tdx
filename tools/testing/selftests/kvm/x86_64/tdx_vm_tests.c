@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 #include "asm/kvm.h"
+#include "linux/kernel.h"
 #include <bits/stdint-uintn.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -47,6 +48,24 @@
 			    (VCPU)->run->io.direction);					\
 	} while (0)
 
+#define CHECK_MMIO(VCPU, ADDR, SIZE, DIR)						\
+	do {										\
+		TEST_ASSERT((VCPU)->run->exit_reason == KVM_EXIT_MMIO,			\
+			    "Got exit_reason other than KVM_EXIT_MMIO: %u (%s)\n",	\
+			    (VCPU)->run->exit_reason,					\
+			    exit_reason_str((VCPU)->run->exit_reason));			\
+											\
+		TEST_ASSERT(((VCPU)->run->exit_reason == KVM_EXIT_MMIO) &&		\
+			    ((VCPU)->run->mmio.phys_addr == (ADDR)) &&			\
+			    ((VCPU)->run->mmio.len == (SIZE)) &&			\
+			    ((VCPU)->run->mmio.is_write == (DIR)),			\
+			    "Got an unexpected MMIO exit values: %u (%s) %llu %d %d\n",	\
+			    (VCPU)->run->exit_reason,					\
+			    exit_reason_str((VCPU)->run->exit_reason),			\
+			    (VCPU)->run->mmio.phys_addr, (VCPU)->run->mmio.len,		\
+			    (VCPU)->run->mmio.is_write);				\
+	} while (0)
+
 #define CHECK_GUEST_FAILURE(VCPU)							\
 	do {										\
 		if ((VCPU)->run->exit_reason == KVM_EXIT_SYSTEM_EVENT)			\
@@ -88,6 +107,8 @@ struct kvm_msr_filter test_filter = {
 		},
 	},
 };
+
+#define MMIO_VALID_ADDRESS (TDX_GUEST_MAX_NR_PAGES * PAGE_SIZE + 1)
 
 static uint64_t read_64bit_from_guest(struct kvm_vcpu *vcpu, uint64_t port)
 {
@@ -970,6 +991,97 @@ void verify_guest_hlt(void)
 	_verify_guest_hlt(0);
 }
 
+TDX_GUEST_FUNCTION(guest_mmio_reads)
+{
+	uint64_t data;
+	uint64_t ret;
+
+	ret = tdvmcall_mmio_read(MMIO_VALID_ADDRESS, 1, &data);
+	if (ret)
+		tdvmcall_fatal(ret);
+	if (data != 0x12)
+		tdvmcall_fatal(1);
+
+	ret = tdvmcall_mmio_read(MMIO_VALID_ADDRESS, 2, &data);
+	if (ret)
+		tdvmcall_fatal(ret);
+	if (data != 0x1234)
+		tdvmcall_fatal(2);
+
+	ret = tdvmcall_mmio_read(MMIO_VALID_ADDRESS, 4, &data);
+	if (ret)
+		tdvmcall_fatal(ret);
+	if (data != 0x12345678)
+		tdvmcall_fatal(4);
+
+	ret = tdvmcall_mmio_read(MMIO_VALID_ADDRESS, 8, &data);
+	if (ret)
+		tdvmcall_fatal(ret);
+	if (data != 0x1234567890ABCDEF)
+		tdvmcall_fatal(8);
+
+	// Read an invalid number of bytes.
+	ret = tdvmcall_mmio_read(MMIO_VALID_ADDRESS, 10, &data);
+	if (ret)
+		tdvmcall_fatal(ret);
+
+	tdvmcall_success();
+}
+
+/*
+ * Varifies guest MMIO reads.
+ */
+void verify_mmio_reads(void)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+
+	printf("Verifying TD MMIO reads:\n");
+	/* Create a TD VM with no memory.*/
+	vm = vm_create_tdx();
+
+	/* Allocate TD guest memory and initialize the TD.*/
+	initialize_td(vm);
+
+	/* Initialize the TD vcpu and copy the test code to the guest memory.*/
+	vcpu = vm_vcpu_add_tdx(vm, 0);
+
+	/* Setup and initialize VM memory */
+	prepare_source_image(vm, guest_mmio_reads,
+			     TDX_FUNCTION_SIZE(guest_mmio_reads), 0);
+	finalize_td_memory(vm);
+
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	CHECK_MMIO(vcpu, MMIO_VALID_ADDRESS, 1, TDX_MMIO_READ);
+	*(uint8_t *)vcpu->run->mmio.data = 0x12;
+
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	CHECK_MMIO(vcpu, MMIO_VALID_ADDRESS, 2, TDX_MMIO_READ);
+	*(uint16_t *)vcpu->run->mmio.data = 0x1234;
+
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	CHECK_MMIO(vcpu, MMIO_VALID_ADDRESS, 4, TDX_MMIO_READ);
+	*(uint32_t *)vcpu->run->mmio.data = 0x12345678;
+
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	CHECK_MMIO(vcpu, MMIO_VALID_ADDRESS, 8, TDX_MMIO_READ);
+	*(uint64_t *)vcpu->run->mmio.data = 0x1234567890ABCDEF;
+
+	vcpu_run(vcpu);
+	ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_SYSTEM_EVENT);
+	ASSERT_EQ(vcpu->run->system_event.data[1], TDX_VMCALL_INVALID_OPERAND);
+
+	vcpu_run(vcpu);
+	CHECK_GUEST_COMPLETION(vcpu);
+
+	kvm_vm_free(vm);
+	printf("\t ... PASSED\n");
+}
+
 int main(int argc, char **argv)
 {
 	if (!is_tdx_enabled()) {
@@ -987,6 +1099,7 @@ int main(int argc, char **argv)
 	run_in_new_process(&verify_guest_msr_reads);
 	run_in_new_process(&verify_guest_msr_writes);
 	run_in_new_process(&verify_guest_hlt);
+	run_in_new_process(&verify_mmio_reads);
 
 	return 0;
 }

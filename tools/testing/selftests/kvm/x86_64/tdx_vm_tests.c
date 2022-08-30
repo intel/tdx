@@ -1082,6 +1082,97 @@ void verify_mmio_reads(void)
 	printf("\t ... PASSED\n");
 }
 
+TDX_GUEST_FUNCTION(guest_mmio_writes)
+{
+	uint64_t ret;
+
+	ret = tdvmcall_mmio_write(MMIO_VALID_ADDRESS, 1, 0x12);
+	if (ret)
+		tdvmcall_fatal(ret);
+
+	ret = tdvmcall_mmio_write(MMIO_VALID_ADDRESS, 2, 0x1234);
+	if (ret)
+		tdvmcall_fatal(ret);
+
+	ret = tdvmcall_mmio_write(MMIO_VALID_ADDRESS, 4, 0x12345678);
+	if (ret)
+		tdvmcall_fatal(ret);
+
+	ret = tdvmcall_mmio_write(MMIO_VALID_ADDRESS, 8, 0x1234567890ABCDEF);
+	if (ret)
+		tdvmcall_fatal(ret);
+
+	// Write across page boundary.
+	ret = tdvmcall_mmio_write(PAGE_SIZE - 1, 8, 0);
+	if (ret)
+		tdvmcall_fatal(ret);
+
+	tdvmcall_success();
+}
+
+/*
+ * Varifies guest MMIO writes.
+ */
+void verify_mmio_writes(void)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	uint8_t byte_1;
+	uint16_t byte_2;
+	uint32_t byte_4;
+	uint64_t byte_8;
+
+	printf("Verifying TD MMIO writes:\n");
+	/* Create a TD VM with no memory.*/
+	vm = vm_create_tdx();
+
+	/* Allocate TD guest memory and initialize the TD.*/
+	initialize_td(vm);
+
+	/* Initialize the TD vcpu and copy the test code to the guest memory.*/
+	vcpu = vm_vcpu_add_tdx(vm, 0);
+
+	/* Setup and initialize VM memory */
+	prepare_source_image(vm, guest_mmio_writes,
+			     TDX_FUNCTION_SIZE(guest_mmio_writes), 0);
+	finalize_td_memory(vm);
+
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	CHECK_MMIO(vcpu, MMIO_VALID_ADDRESS, 1, TDX_MMIO_WRITE);
+	byte_1 = *(uint8_t *)(vcpu->run->mmio.data);
+
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	CHECK_MMIO(vcpu, MMIO_VALID_ADDRESS, 2, TDX_MMIO_WRITE);
+	byte_2 = *(uint16_t *)(vcpu->run->mmio.data);
+
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	CHECK_MMIO(vcpu, MMIO_VALID_ADDRESS, 4, TDX_MMIO_WRITE);
+	byte_4 = *(uint32_t *)(vcpu->run->mmio.data);
+
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	CHECK_MMIO(vcpu, MMIO_VALID_ADDRESS, 8, TDX_MMIO_WRITE);
+	byte_8 = *(uint64_t *)(vcpu->run->mmio.data);
+
+	ASSERT_EQ(byte_1, 0x12);
+	ASSERT_EQ(byte_2, 0x1234);
+	ASSERT_EQ(byte_4, 0x12345678);
+	ASSERT_EQ(byte_8, 0x1234567890ABCDEF);
+
+	vcpu_run(vcpu);
+	ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_SYSTEM_EVENT);
+	ASSERT_EQ(vcpu->run->system_event.data[1], TDX_VMCALL_INVALID_OPERAND);
+
+	vcpu_run(vcpu);
+	CHECK_GUEST_COMPLETION(vcpu);
+
+	kvm_vm_free(vm);
+	printf("\t ... PASSED\n");
+}
+
 int main(int argc, char **argv)
 {
 	if (!is_tdx_enabled()) {
@@ -1100,6 +1191,7 @@ int main(int argc, char **argv)
 	run_in_new_process(&verify_guest_msr_writes);
 	run_in_new_process(&verify_guest_hlt);
 	run_in_new_process(&verify_mmio_reads);
+	run_in_new_process(&verify_mmio_writes);
 
 	return 0;
 }

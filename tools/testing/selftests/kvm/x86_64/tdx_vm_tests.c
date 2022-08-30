@@ -2,6 +2,7 @@
 
 #include "asm/kvm.h"
 #include "linux/kernel.h"
+#include <assert.h>
 #include <bits/stdint-uintn.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -1366,6 +1367,154 @@ void verify_host_reading_private_mem(void)
 	printf("\t ... PASSED\n");
 }
 
+/*
+ * Do a TDG.VP.INFO call from the guest
+ */
+TDX_GUEST_FUNCTION(guest_tdcall_vp_info)
+{
+	uint64_t err;
+	uint64_t rcx, rdx, r8, r9, r10, r11;
+
+	err = tdcall_vp_info(&rcx, &rdx, &r8, &r9, &r10, &r11);
+	if (err)
+		tdvmcall_fatal(err);
+
+	/* return values to user space host */
+	err = tdvm_report_64bit_to_user_space(rcx);
+	if (err)
+		tdvmcall_fatal(err);
+
+	err = tdvm_report_64bit_to_user_space(rdx);
+	if (err)
+		tdvmcall_fatal(err);
+
+	err = tdvm_report_64bit_to_user_space(r8);
+	if (err)
+		tdvmcall_fatal(err);
+
+	err = tdvm_report_64bit_to_user_space(r9);
+	if (err)
+		tdvmcall_fatal(err);
+
+	err = tdvm_report_64bit_to_user_space(r10);
+	if (err)
+		tdvmcall_fatal(err);
+
+	err = tdvm_report_64bit_to_user_space(r11);
+	if (err)
+		tdvmcall_fatal(err);
+
+	tdvmcall_success();
+}
+
+/*
+ * TDG.VP.INFO call from the guest. Verify the right values are returned
+ */
+void verify_tdcall_vp_info(void)
+{
+	const int num_vcpus = 2;
+	struct kvm_vcpu *vcpus[num_vcpus];
+	struct kvm_vm *vm;
+	uint64_t rcx, rdx, r8, r9, r10, r11;
+	uint32_t ret_num_vcpus, ret_max_vcpus;
+	uint64_t attributes;
+	uint32_t i;
+	struct kvm_cpuid_entry2 *cpuid_entry;
+	struct tdx_cpuid_data cpuid_data;
+	int max_pa = -1;
+	int ret;
+
+	printf("Verifying TDG.VP.INFO call:\n");
+	/* Create a TD VM with no memory.*/
+	vm = vm_create_tdx();
+
+	/* Setting attributes parameter used by TDH.MNG.INIT to 0x50000000 */
+	attributes = TDX_TDPARAM_ATTR_SEPT_VE_DISABLE_BIT |
+		     TDX_TDPARAM_ATTR_PKS_BIT;
+
+	/* Allocate TD guest memory and initialize the TD.*/
+	initialize_td_with_attributes(vm, attributes);
+
+	/* Create vCPUs*/
+	for (i = 0; i < num_vcpus; i++)
+		vcpus[i] = vm_vcpu_add_tdx(vm, i);
+
+	/* Setup and initialize VM memory */
+	prepare_source_image(vm, guest_tdcall_vp_info,
+			     TDX_FUNCTION_SIZE(guest_tdcall_vp_info), 0);
+	finalize_td_memory(vm);
+
+	/* Get KVM CPUIDs for reference */
+	memset(&cpuid_data, 0, sizeof(cpuid_data));
+	cpuid_data.cpuid.nent = KVM_MAX_CPUID_ENTRIES;
+	ret = ioctl(vm->kvm_fd, KVM_GET_SUPPORTED_CPUID, &cpuid_data);
+	TEST_ASSERT(!ret, "KVM_GET_SUPPORTED_CPUID failed\n");
+	cpuid_entry = find_cpuid_entry(cpuid_data, 0x80000008, 0);
+	TEST_ASSERT(cpuid_entry, "CPUID entry missing\n");
+	max_pa = cpuid_entry->eax & 0xff;
+
+	for (i = 0; i < num_vcpus; i++) {
+		struct kvm_vcpu *vcpu = vcpus[i];
+
+		/* Wait for guest to report rcx value */
+		vcpu_run(vcpu);
+		CHECK_GUEST_FAILURE(vcpu);
+		rcx = read_64bit_from_guest(vcpu, TDX_DATA_REPORT_PORT);
+
+		/* Wait for guest to report rdx value */
+		vcpu_run(vcpu);
+		CHECK_GUEST_FAILURE(vcpu);
+		rdx = read_64bit_from_guest(vcpu, TDX_DATA_REPORT_PORT);
+
+		/* Wait for guest to report r8 value */
+		vcpu_run(vcpu);
+		CHECK_GUEST_FAILURE(vcpu);
+		r8 = read_64bit_from_guest(vcpu, TDX_DATA_REPORT_PORT);
+
+		/* Wait for guest to report r9 value */
+		vcpu_run(vcpu);
+		CHECK_GUEST_FAILURE(vcpu);
+		r9 = read_64bit_from_guest(vcpu, TDX_DATA_REPORT_PORT);
+
+		/* Wait for guest to report r10 value */
+		vcpu_run(vcpu);
+		CHECK_GUEST_FAILURE(vcpu);
+		r10 = read_64bit_from_guest(vcpu, TDX_DATA_REPORT_PORT);
+
+		/* Wait for guest to report r11 value */
+		vcpu_run(vcpu);
+		CHECK_GUEST_FAILURE(vcpu);
+		r11 = read_64bit_from_guest(vcpu, TDX_DATA_REPORT_PORT);
+
+		ret_num_vcpus = r8 & 0xFFFFFFFF;
+		ret_max_vcpus = (r8 >> 32) & 0xFFFFFFFF;
+
+		/* first bits 5:0 of rcx represent the GPAW */
+		ASSERT_EQ(rcx & 0x3F, max_pa);
+		/* next 63:6 bits of rcx is reserved and must be 0 */
+		ASSERT_EQ(rcx >> 6, 0);
+		ASSERT_EQ(rdx, attributes);
+		ASSERT_EQ(ret_num_vcpus, num_vcpus);
+		ASSERT_EQ(ret_max_vcpus, TDX_GUEST_MAX_NUM_VCPUS);
+		/* VCPU_INDEX = i */
+		ASSERT_EQ(r9, i);
+		/* verify reserved registers are 0 */
+		ASSERT_EQ(r10, 0);
+		ASSERT_EQ(r11, 0);
+
+		/* Wait for guest to complete execution */
+		vcpu_run(vcpu);
+
+		CHECK_GUEST_FAILURE(vcpu);
+		CHECK_GUEST_COMPLETION(vcpu);
+
+		printf("\t ... Guest completed run on VCPU=%u\n", i);
+	}
+
+	kvm_vm_free(vm);
+	printf("\t ... PASSED\n");
+}
+
 int main(int argc, char **argv)
 {
 	if (!is_tdx_enabled()) {
@@ -1387,6 +1536,7 @@ int main(int argc, char **argv)
 	run_in_new_process(&verify_mmio_reads);
 	run_in_new_process(&verify_mmio_writes);
 	run_in_new_process(&verify_host_reading_private_mem);
+	run_in_new_process(&verify_tdcall_vp_info);
 
 	return 0;
 }

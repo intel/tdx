@@ -204,7 +204,7 @@ __weak void vm_vaddr_populate_bitmap(struct kvm_vm *vm)
 		(1ULL << (vm->va_bits - 1)) >> vm->page_shift);
 }
 
-struct kvm_vm *____vm_create(enum vm_guest_mode mode)
+struct kvm_vm *____vm_create(enum vm_guest_mode mode, int type)
 {
 	struct kvm_vm *vm;
 
@@ -217,7 +217,7 @@ struct kvm_vm *____vm_create(enum vm_guest_mode mode)
 	hash_init(vm->regions.slot_hash);
 
 	vm->mode = mode;
-	vm->type = 0;
+	vm->type = type;
 
 	vm->pa_bits = vm_guest_mode_params[mode].pa_bits;
 	vm->va_bits = vm_guest_mode_params[mode].va_bits;
@@ -350,7 +350,7 @@ struct kvm_vm *__vm_create(enum vm_guest_mode mode, uint32_t nr_runnable_vcpus,
 	pr_debug("%s: mode='%s' pages='%ld'\n", __func__,
 		 vm_guest_mode_string(mode), nr_pages);
 
-	vm = ____vm_create(mode);
+	vm = ____vm_create(mode, KVM_VM_TYPE_DEFAULT);
 
 	vm_userspace_mem_region_add(vm, VM_MEM_SRC_ANONYMOUS, 0, 0, nr_pages, 0);
 	for (i = 0; i < NR_MEM_REGIONS; i++)

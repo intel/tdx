@@ -183,29 +183,56 @@ void build_gdtr_table(void *gdtr_target, void *gdt_target)
  * which will be used by the TDX guest when paging is enabled.
  * TODO: use virt_pg_map() functions to dynamically allocate the page tables.
  */
-void build_page_tables(void *pt_target, uint64_t  pml4_base_address)
+void build_page_tables(void *pt_target, uint64_t  pml4_base_address,
+		       uint64_t gpa_shared_bit)
 {
 	uint64_t i;
+	uint64_t shared_pdpt_index;
+	uint64_t gpa_shared_mask;
+	uint64_t *pde;
 	struct page_table *pt;
 
 	pt = malloc(sizeof(struct page_table));
 	TEST_ASSERT(pt != NULL, "Could not allocate memory for page tables!\n");
 	memset((void *) &(pt->pml4[0]), 0, sizeof(pt->pml4));
 	memset((void *) &(pt->pdpt[0]), 0, sizeof(pt->pdpt));
-	for (i = 0; i < 4; i++)
+	for (i = 0; i < 8; i++)
 		memset((void *) &(pt->pd[i][0]), 0, sizeof(pt->pd[i]));
 
+	/* Populate pml4 entry. */
 	pt->pml4[0] = (pml4_base_address + PAGE_SIZE) |
 		      _PAGE_PRESENT | _PAGE_RW;
+
+	/* Populate pdpt entries for private memory region. */
 	for (i = 0; i < 4; i++)
 		pt->pdpt[i] = (pml4_base_address + (i + 2) * PAGE_SIZE) |
-				_PAGE_PRESENT | _PAGE_RW;
+			      _PAGE_PRESENT | _PAGE_RW;
 
-	uint64_t *pde = &(pt->pd[0][0]);
+	/* Index used in pdpt #0 to map to pd with guest virt shared bit set. */
+	static_assert(TDX_GUEST_VIRT_SHARED_BIT >= 32 &&
+		      TDX_GUEST_VIRT_SHARED_BIT <= 38,
+		      "Guest virtual shared bit must be in the range [32 - 38].\n");
+	shared_pdpt_index = 1 << (TDX_GUEST_VIRT_SHARED_BIT - 30);
 
-	for (i = 0; i < sizeof(pt->pd) / sizeof(pt->pd[0][0]); i++, pde++)
+	/* Populate pdpt entries for shared memory region. */
+	for (i = 0; i < 4; i++)
+		pt->pdpt[shared_pdpt_index + i] = (pml4_base_address + (i + 6) *
+						  PAGE_SIZE) | _PAGE_PRESENT |
+						  _PAGE_RW;
+
+	/* Populate pd entries for private memory region. */
+	pde = &(pt->pd[0][0]);
+	for (i = 0; i < (sizeof(pt->pd) / sizeof(pt->pd[0][0])) / 2; i++, pde++)
 		*pde = (i << 21) | _PAGE_PRESENT | _PAGE_RW | _PAGE_PS;
-	memcpy(pt_target, pt, 6 * PAGE_SIZE);
+
+	/* Populate pd entries for shared memory region; set shared bit. */
+	pde = &(pt->pd[4][0]);
+	gpa_shared_mask = BIT_ULL(gpa_shared_bit);
+	for (i = 0; i < (sizeof(pt->pd) / sizeof(pt->pd[0][0])) / 2; i++, pde++)
+		*pde = gpa_shared_mask | (i << 21) | _PAGE_PRESENT | _PAGE_RW |
+		       _PAGE_PS;
+
+	memcpy(pt_target, pt, 10 * PAGE_SIZE);
 }
 
 static void
@@ -318,7 +345,7 @@ void prepare_source_image(struct kvm_vm *vm, void *guest_code,
 	guest_code_base =  gdt_address + (TDX_GUEST_STACK_NR_PAGES *
 					  PAGE_SIZE);
 
-	build_page_tables(pt_address, TDX_GUEST_PT_FIXED_ADDR);
+	build_page_tables(pt_address, TDX_GUEST_PT_FIXED_ADDR, vm->pa_bits - 1);
 	build_gdtr_table(gdtr_address, gdt_address);
 
 	/* reset vector code should end with int3 instructions.

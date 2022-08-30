@@ -2226,6 +2226,20 @@ static int snp_launch_start(struct kvm *kvm, struct kvm_sev_cmd *argp)
 
 	start.gctx_paddr = __psp_pa(sev->snp_context);
 	start.policy = params.policy;
+
+	if (snp_secure_tsc_enabled(kvm)) {
+		u32 user_tsc_khz = params.desired_tsc_khz;
+
+		/* Use tsc_khz if the VMM has not provided the TSC frequency */
+		if (!user_tsc_khz)
+			user_tsc_khz = tsc_khz;
+
+		start.desired_tsc_khz = user_tsc_khz;
+
+		/* Set the arch default TSC for the VM */
+		kvm->arch.default_tsc_khz = user_tsc_khz;
+	}
+
 	memcpy(start.gosvw, params.gosvw, sizeof(params.gosvw));
 	rc = __sev_issue_cmd(argp->sev_fd, SEV_CMD_SNP_LAUNCH_START, &start, &argp->error);
 	if (rc) {
@@ -2467,6 +2481,9 @@ static int snp_launch_update_vmsa(struct kvm *kvm, struct kvm_sev_cmd *argp)
 		}
 
 		svm->vcpu.arch.guest_state_protected = true;
+		if (snp_secure_tsc_enabled(kvm))
+			svm->vcpu.arch.guest_tsc_protected = true;
+
 		/*
 		 * SEV-ES (and thus SNP) guest mandates LBR Virtualization to
 		 * be _always_ ON. Enable it only after setting
@@ -2947,6 +2964,8 @@ void __init sev_set_cpu_caps(void)
 	if (sev_snp_enabled) {
 		kvm_cpu_cap_set(X86_FEATURE_SEV_SNP);
 		kvm_caps.supported_vm_types |= BIT(KVM_X86_SNP_VM);
+
+		kvm_cpu_cap_check_and_set(X86_FEATURE_SNP_SECURE_TSC);
 	}
 }
 
@@ -3079,6 +3098,9 @@ out:
 	sev_supported_vmsa_features = 0;
 	if (sev_es_debug_swap_enabled)
 		sev_supported_vmsa_features |= SVM_SEV_FEAT_DEBUG_SWAP;
+
+	if (sev_snp_enabled && cpu_feature_enabled(X86_FEATURE_SNP_SECURE_TSC))
+		sev_supported_vmsa_features |= SVM_SEV_FEAT_SECURE_TSC;
 }
 
 void sev_hardware_unsetup(void)

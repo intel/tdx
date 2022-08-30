@@ -8,6 +8,7 @@
 #include "test_util.h"
 #include "kvm_util.h"
 #include "processor.h"
+#include "tdx.h"
 
 #ifndef NUM_INTERRUPTS
 #define NUM_INTERRUPTS 256
@@ -579,6 +580,32 @@ struct kvm_vcpu *vm_arch_vcpu_add(struct kvm_vm *vm, uint32_t vcpu_id,
 	regs.rsp = stack_vaddr + (DEFAULT_STACK_PGS * getpagesize());
 	regs.rip = (unsigned long) guest_code;
 	vcpu_regs_set(vcpu, &regs);
+
+	/* Setup the MP state */
+	mp_state.mp_state = 0;
+	vcpu_mp_state_set(vcpu, &mp_state);
+
+	return vcpu;
+}
+
+/*
+ * Adds a vCPU to a TD (Trusted Domain) with minimum  defaults. It will not set
+ * up any general purpose registers as they will be initialized by the TDX. In
+ * TDX, vCPUs RIP is set to 0xFFFFFFF0. See Intel TDX EAS Section "Initial State
+ * of Guest GPRs" for more information on vCPUs initial register values when
+ * entering the TD first time.
+ *
+ * Input Args:
+ *   vm - Virtual Machine
+ *   vcpuid - The id of the VCPU to add to the VM.
+ */
+struct kvm_vcpu *vm_vcpu_add_tdx(struct kvm_vm *vm, uint32_t vcpu_id)
+{
+	struct kvm_mp_state mp_state;
+	struct kvm_vcpu *vcpu;
+
+	vcpu = __vm_vcpu_add(vm, vcpu_id);
+	initialize_td_vcpu(vcpu);
 
 	/* Setup the MP state */
 	mp_state.mp_state = 0;

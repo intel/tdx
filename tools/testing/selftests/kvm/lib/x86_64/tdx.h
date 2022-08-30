@@ -57,6 +57,8 @@
 #define TDX_GET_TD_VM_CALL_INFO 0x10000
 #define TDX_REPORT_FATAL_ERROR 0x10003
 #define TDX_INSTRUCTION_IO 30
+#define TDX_INSTRUCTION_RDMSR 31
+#define TDX_INSTRUCTION_WRMSR 32
 
 #define TDX_SUCCESS_PORT 0x30
 #define TDX_TEST_PORT 0x31
@@ -255,6 +257,38 @@ static inline uint64_t tdvmcall_get_td_vmcall_info(uint64_t *r11, uint64_t *r12,
 	*r12 = regs.r12;
 	*r13 = regs.r13;
 	*r14 = regs.r14;
+	return regs.r10;
+}
+
+/*
+ * Read MSR register.
+ */
+static inline uint64_t tdvmcall_rdmsr(uint64_t index, uint64_t *ret_value)
+{
+	struct kvm_regs regs;
+
+	memset(&regs, 0, sizeof(regs));
+	regs.r11 = TDX_INSTRUCTION_RDMSR;
+	regs.r12 = index;
+	regs.rcx = 0x1C00;
+	tdcall(&regs);
+	*ret_value = regs.r11;
+	return regs.r10;
+}
+
+/*
+ * Write MSR register.
+ */
+static inline uint64_t tdvmcall_wrmsr(uint64_t index, uint64_t value)
+{
+	struct kvm_regs regs;
+
+	memset(&regs, 0, sizeof(regs));
+	regs.r11 = TDX_INSTRUCTION_WRMSR;
+	regs.r12 = index;
+	regs.r13 = value;
+	regs.rcx = 0x3C00;
+	tdcall(&regs);
 	return regs.r10;
 }
 

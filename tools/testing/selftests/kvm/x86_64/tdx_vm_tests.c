@@ -55,6 +55,40 @@
 				  (VCPU)->run->system_event.data[1]);			\
 	} while (0)
 
+
+/*
+ * Define a filter which denies all MSR access except the following:
+ * MTTR_BASE_0: Allow read/write access
+ * MTTR_BASE_1: Allow read access
+ * MTTR_BASE_2: Allow write access
+ */
+static u64 allow_bits = 0xFFFFFFFFFFFFFFFF;
+#define MTTR_BASE_0 (0x200)
+#define MTTR_BASE_1 (0x202)
+#define MTTR_BASE_2 (0x204)
+struct kvm_msr_filter test_filter = {
+	.flags = KVM_MSR_FILTER_DEFAULT_DENY,
+	.ranges = {
+		{
+			.flags = KVM_MSR_FILTER_READ |
+				 KVM_MSR_FILTER_WRITE,
+			.nmsrs = 1,
+			.base = MTTR_BASE_0,
+			.bitmap = (uint8_t *)&allow_bits,
+		}, {
+			.flags = KVM_MSR_FILTER_READ,
+			.nmsrs = 1,
+			.base = MTTR_BASE_1,
+			.bitmap = (uint8_t *)&allow_bits,
+		}, {
+			.flags = KVM_MSR_FILTER_WRITE,
+			.nmsrs = 1,
+			.base = MTTR_BASE_2,
+			.bitmap = (uint8_t *)&allow_bits,
+		},
+	},
+};
+
 static uint64_t read_64bit_from_guest(struct kvm_vcpu *vcpu, uint64_t port)
 {
 	uint32_t lo, hi;
@@ -656,6 +690,199 @@ void verify_guest_reads(void)
 	printf("\t ... PASSED\n");
 }
 
+/*
+ * Verifies MSR read functionality.
+ */
+TDX_GUEST_FUNCTION(guest_msr_read)
+{
+	uint64_t data;
+	uint64_t ret;
+
+	ret = tdvmcall_rdmsr(MTTR_BASE_0, &data);
+	if (ret)
+		tdvmcall_fatal(ret);
+
+	ret = tdvm_report_64bit_to_user_space(data);
+	if (ret)
+		tdvmcall_fatal(ret);
+
+	ret = tdvmcall_rdmsr(MTTR_BASE_1, &data);
+	if (ret)
+		tdvmcall_fatal(ret);
+
+	ret = tdvm_report_64bit_to_user_space(data);
+	if (ret)
+		tdvmcall_fatal(ret);
+
+	/* We expect this call to fail since MTTR_BASE_2 is write only */
+	ret = tdvmcall_rdmsr(MTTR_BASE_2, &data);
+	if (ret) {
+		ret = tdvm_report_64bit_to_user_space(ret);
+		if (ret)
+			tdvmcall_fatal(ret);
+	} else {
+		tdvmcall_fatal(-99);
+	}
+
+	tdvmcall_success();
+}
+
+void verify_guest_msr_reads(void)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	uint64_t data;
+	int ret;
+
+	printf("Verifying guest msr reads:\n");
+
+	/* Create a TD VM with no memory.*/
+	vm = vm_create_tdx();
+
+	/* Set explicit MSR filter map to control access to the MSR registers
+	 * used in the test.
+	 */
+	printf("\t ... Setting test MSR filter\n");
+	ret = kvm_check_cap(KVM_CAP_X86_USER_SPACE_MSR);
+	TEST_ASSERT(ret, "KVM_CAP_X86_USER_SPACE_MSR is unavailable");
+	vm_enable_cap(vm, KVM_CAP_X86_USER_SPACE_MSR, KVM_MSR_EXIT_REASON_FILTER);
+
+	ret = kvm_check_cap(KVM_CAP_X86_MSR_FILTER);
+	TEST_ASSERT(ret, "KVM_CAP_X86_MSR_FILTER is unavailable");
+
+	ret = ioctl(vm->fd, KVM_X86_SET_MSR_FILTER, &test_filter);
+	TEST_ASSERT(ret == 0,
+		    "KVM_X86_SET_MSR_FILTER failed, ret: %i errno: %i (%s)",
+		    ret, errno, strerror(errno));
+
+	/* Allocate TD guest memory and initialize the TD.*/
+	initialize_td(vm);
+
+	/* Initialize the TD vcpu and copy the test code to the guest memory.*/
+	vcpu = vm_vcpu_add_tdx(vm, 0);
+
+	/* Setup and initialize VM memory */
+	prepare_source_image(vm, guest_msr_read,
+			     TDX_FUNCTION_SIZE(guest_msr_read), 0);
+	finalize_td_memory(vm);
+
+	printf("\t ... Setting test MTTR values\n");
+	/* valid values for mttr type are 0, 1, 4, 5, 6 */
+	vcpu_set_msr(vcpu, MTTR_BASE_0, 4);
+	vcpu_set_msr(vcpu, MTTR_BASE_1, 5);
+	vcpu_set_msr(vcpu, MTTR_BASE_2, 6);
+
+	printf("\t ... Running guest\n");
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	data = read_64bit_from_guest(vcpu, TDX_DATA_REPORT_PORT);
+	ASSERT_EQ(data, 4);
+
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	data = read_64bit_from_guest(vcpu, TDX_DATA_REPORT_PORT);
+	ASSERT_EQ(data, 5);
+
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	data = read_64bit_from_guest(vcpu, TDX_DATA_REPORT_PORT);
+	ASSERT_EQ(data, TDX_VMCALL_INVALID_OPERAND);
+
+	vcpu_run(vcpu);
+	CHECK_GUEST_COMPLETION(vcpu);
+
+	kvm_vm_free(vm);
+	printf("\t ... PASSED\n");
+}
+
+/*
+ * Verifies MSR write functionality.
+ */
+TDX_GUEST_FUNCTION(guest_msr_write)
+{
+	uint64_t ret;
+
+	ret = tdvmcall_wrmsr(MTTR_BASE_0, 4);
+	if (ret)
+		tdvmcall_fatal(ret);
+
+	/* We expect this call to fail since MTTR_BASE_1 is read only */
+	ret = tdvmcall_wrmsr(MTTR_BASE_1, 5);
+	if (ret) {
+		ret = tdvm_report_64bit_to_user_space(ret);
+		if (ret)
+			tdvmcall_fatal(ret);
+	} else {
+		tdvmcall_fatal(-99);
+	}
+
+
+	ret = tdvmcall_wrmsr(MTTR_BASE_2, 6);
+	if (ret)
+		tdvmcall_fatal(ret);
+
+	tdvmcall_success();
+}
+
+void verify_guest_msr_writes(void)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	uint64_t data;
+	int ret;
+
+	printf("Verifying guest msr writes:\n");
+
+	/* Create a TD VM with no memory.*/
+	vm = vm_create_tdx();
+
+	/* Set explicit MSR filter map to control access to the MSR registers
+	 * used in the test.
+	 */
+	printf("\t ... Setting test MSR filter\n");
+	ret = kvm_check_cap(KVM_CAP_X86_USER_SPACE_MSR);
+	TEST_ASSERT(ret, "KVM_CAP_X86_USER_SPACE_MSR is unavailable");
+	vm_enable_cap(vm, KVM_CAP_X86_USER_SPACE_MSR, KVM_MSR_EXIT_REASON_FILTER);
+
+	ret = kvm_check_cap(KVM_CAP_X86_MSR_FILTER);
+	TEST_ASSERT(ret, "KVM_CAP_X86_MSR_FILTER is unavailable");
+
+	ret = ioctl(vm->fd, KVM_X86_SET_MSR_FILTER, &test_filter);
+	TEST_ASSERT(ret == 0,
+		    "KVM_X86_SET_MSR_FILTER failed, ret: %i errno: %i (%s)",
+		    ret, errno, strerror(errno));
+
+	/* Allocate TD guest memory and initialize the TD.*/
+	initialize_td(vm);
+
+	/* Initialize the TD vcpu and copy the test code to the guest memory.*/
+	vcpu = vm_vcpu_add_tdx(vm, 0);
+
+	/* Setup and initialize VM memory */
+	prepare_source_image(vm, guest_msr_write,
+			     TDX_FUNCTION_SIZE(guest_msr_write), 0);
+	finalize_td_memory(vm);
+
+	printf("\t ... Running guest\n");
+	/* Only the write to MTTR_BASE_1 should trigger an exit */
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	data = read_64bit_from_guest(vcpu, TDX_DATA_REPORT_PORT);
+	ASSERT_EQ(data, TDX_VMCALL_INVALID_OPERAND);
+
+	vcpu_run(vcpu);
+	CHECK_GUEST_COMPLETION(vcpu);
+
+	printf("\t ... Verifying MTTR values writen by guest\n");
+
+	ASSERT_EQ(vcpu_get_msr(vcpu, MTTR_BASE_0), 4);
+	ASSERT_EQ(vcpu_get_msr(vcpu, MTTR_BASE_1), 0);
+	ASSERT_EQ(vcpu_get_msr(vcpu, MTTR_BASE_2), 6);
+
+	kvm_vm_free(vm);
+	printf("\t ... PASSED\n");
+}
+
 int main(int argc, char **argv)
 {
 	if (!is_tdx_enabled()) {
@@ -670,6 +897,8 @@ int main(int argc, char **argv)
 	run_in_new_process(&verify_get_td_vmcall_info);
 	run_in_new_process(&verify_guest_writes);
 	run_in_new_process(&verify_guest_reads);
+	run_in_new_process(&verify_guest_msr_reads);
+	run_in_new_process(&verify_guest_msr_writes);
 
 	return 0;
 }

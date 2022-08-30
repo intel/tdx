@@ -56,6 +56,7 @@
 
 #define TDX_GET_TD_VM_CALL_INFO 0x10000
 #define TDX_REPORT_FATAL_ERROR 0x10003
+#define TDX_INSTRUCTION_CPUID 10
 #define TDX_INSTRUCTION_HLT 12
 #define TDX_INSTRUCTION_IO 30
 #define TDX_INSTRUCTION_RDMSR 31
@@ -344,6 +345,28 @@ static inline uint64_t tdvmcall_mmio_write(uint64_t address, uint64_t size, uint
 	regs.r15 = data_in;
 	regs.rcx = 0xFC00;
 	tdcall(&regs);
+	return regs.r10;
+}
+
+/*
+ * Execute CPUID instruction.
+ */
+static inline uint64_t tdvmcall_cpuid(uint32_t eax, uint32_t ecx,
+				      uint32_t *ret_eax, uint32_t *ret_ebx,
+				      uint32_t *ret_ecx, uint32_t *ret_edx)
+{
+	struct kvm_regs regs;
+
+	memset(&regs, 0, sizeof(regs));
+	regs.r11 = TDX_INSTRUCTION_CPUID;
+	regs.r12 = eax;
+	regs.r13 = ecx;
+	regs.rcx = 0xFC00;
+	tdcall(&regs);
+	*ret_eax = regs.r12;
+	*ret_ebx = regs.r13;
+	*ret_ecx = regs.r14;
+	*ret_edx = regs.r15;
 	return regs.r10;
 }
 

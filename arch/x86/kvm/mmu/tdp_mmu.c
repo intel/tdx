@@ -1769,8 +1769,10 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 				sp = tdp_mmu_alloc_sp_for_split(kvm, &iter, true);
 				if (!sp)
 					break;
-				tdp_mmu_split_huge_page(kvm, &iter, sp, false);
-				break;
+				if (tdp_mmu_split_huge_page(kvm, &iter, sp, false)) {
+					tdp_mmu_free_sp(sp);
+					break;
+				}
 			} else {
 				if (tdp_mmu_zap_spte_atomic(kvm, &iter))
 					break;

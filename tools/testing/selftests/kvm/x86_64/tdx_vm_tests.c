@@ -27,6 +27,32 @@
 		(VCPU)->run->exit_reason, exit_reason_str((VCPU)->run->exit_reason),		\
 		(VCPU)->run->io.port, (VCPU)->run->io.size, (VCPU)->run->io.direction))
 
+#define CHECK_IO(VCPU, PORT, SIZE, DIR)							\
+	do {										\
+		TEST_ASSERT((VCPU)->run->exit_reason == KVM_EXIT_IO,			\
+			    "Got exit_reason other than KVM_EXIT_IO: %u (%s)\n",	\
+			    (VCPU)->run->exit_reason,					\
+			    exit_reason_str((VCPU)->run->exit_reason));			\
+											\
+		TEST_ASSERT(((VCPU)->run->exit_reason == KVM_EXIT_IO) &&		\
+			    ((VCPU)->run->io.port == (PORT)) &&				\
+			    ((VCPU)->run->io.size == (SIZE)) &&				\
+			    ((VCPU)->run->io.direction == (DIR)),			\
+			    "Got an unexpected IO exit values: %u (%s) %d %d %d\n",	\
+			    (VCPU)->run->exit_reason,					\
+			    exit_reason_str((VCPU)->run->exit_reason),			\
+			    (VCPU)->run->io.port, (VCPU)->run->io.size,			\
+			    (VCPU)->run->io.direction);					\
+	} while (0)
+
+#define CHECK_GUEST_FAILURE(VCPU)							\
+	do {										\
+		if ((VCPU)->run->exit_reason == KVM_EXIT_SYSTEM_EVENT)			\
+			TEST_FAIL("Guest reported error. error code: %lld (0x%llx)\n",	\
+				  (VCPU)->run->system_event.data[1],			\
+				  (VCPU)->run->system_event.data[1]);			\
+	} while (0)
+
 /*
  * There might be multiple tests we are running and if one test fails, it will
  * prevent the subsequent tests to run due to how tests are failing with
@@ -145,6 +171,87 @@ void verify_report_fatal_error(void)
 	printf("\t ... PASSED\n");
 }
 
+/*
+ * Verifies IO functionality by writing a |value| to a predefined port.
+ * Verifies that the read value is |value| + 1 from the same port.
+ * If all the tests are passed then write a value to port TDX_TEST_PORT
+ */
+TDX_GUEST_FUNCTION(guest_io_exit)
+{
+	uint64_t data_out, data_in, delta;
+	uint64_t ret;
+
+	data_out = 0xAB;
+
+	ret = tdvmcall_io(TDX_TEST_PORT, 1, TDX_IO_WRITE, &data_out);
+	if (ret)
+		tdvmcall_fatal(ret);
+
+	ret = tdvmcall_io(TDX_TEST_PORT, 1, TDX_IO_READ, &data_in);
+	if (ret)
+		tdvmcall_fatal(ret);
+
+	delta = data_in - data_out;
+	if (delta != 1)
+		tdvmcall_fatal(ret);
+
+	tdvmcall_success();
+}
+
+void verify_td_ioexit(void)
+{
+	struct kvm_vcpu *vcpu;
+	uint32_t port_data;
+	struct kvm_vm *vm;
+
+	printf("Verifying TD IO Exit:\n");
+	/* Create a TD VM with no memory.*/
+	vm = vm_create_tdx();
+
+	/* Allocate TD guest memory and initialize the TD.*/
+	initialize_td(vm);
+
+	/* Initialize the TD vcpu and copy the test code to the guest memory.*/
+	vcpu = vm_vcpu_add_tdx(vm, 0);
+
+	/* Setup and initialize VM memory */
+	prepare_source_image(vm, guest_io_exit,
+			     TDX_FUNCTION_SIZE(guest_io_exit), 0);
+	finalize_td_memory(vm);
+
+	/* Wait for guest to do a IO write */
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	CHECK_IO(vcpu, TDX_TEST_PORT, 1, TDX_IO_WRITE);
+	port_data = *(uint8_t *)((void *)vcpu->run + vcpu->run->io.data_offset);
+
+	printf("\t ... IO WRITE: OK\n");
+
+	/*
+	 * Wait for the guest to do a IO read. Provide the previos written data
+	 * + 1 back to the guest
+	 */
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	CHECK_IO(vcpu, TDX_TEST_PORT, 1, TDX_IO_READ);
+	*(uint8_t *)((void *)vcpu->run + vcpu->run->io.data_offset) = port_data + 1;
+
+	printf("\t ... IO READ: OK\n");
+
+	/*
+	 * Wait for the guest to complete execution successfully. The read
+	 * value is checked within the guest.
+	 */
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	CHECK_GUEST_COMPLETION(vcpu);
+
+	printf("\t ... IO verify read/write values: OK\n");
+	kvm_vm_free(vm);
+	printf("\t ... PASSED\n");
+}
+
+
 int main(int argc, char **argv)
 {
 	if (!is_tdx_enabled()) {
@@ -154,6 +261,7 @@ int main(int argc, char **argv)
 
 	run_in_new_process(&verify_td_lifecycle);
 	run_in_new_process(&verify_report_fatal_error);
+	run_in_new_process(&verify_td_ioexit);
 
 	return 0;
 }

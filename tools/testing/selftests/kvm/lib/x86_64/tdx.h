@@ -51,6 +51,7 @@
 #define _PAGE_RW            (1UL<<1)       /* writeable */
 #define _PAGE_PS            (1UL<<7)       /* page size bit*/
 
+#define TDX_GET_TD_VM_CALL_INFO 0x10000
 #define TDX_REPORT_FATAL_ERROR 0x10003
 #define TDX_INSTRUCTION_IO 30
 
@@ -233,6 +234,28 @@ static inline void tdvmcall_fatal(uint64_t error_code)
 }
 
 /*
+ * Get td vmcall info.
+ * Used to help request the host VMM enumerate which TDG.VP.VMCALLs are supported.
+ * Returns return in r10 code and leaf-specific output in r11-r14.
+ */
+static inline uint64_t tdvmcall_get_td_vmcall_info(uint64_t *r11, uint64_t *r12,
+						   uint64_t *r13, uint64_t *r14)
+{
+	struct kvm_regs regs;
+
+	memset(&regs, 0, sizeof(regs));
+	regs.r11 = TDX_GET_TD_VM_CALL_INFO;
+	regs.r12 = 0;
+	regs.rcx = 0x1C00;
+	tdcall(&regs);
+	*r11 = regs.r11;
+	*r12 = regs.r12;
+	*r13 = regs.r13;
+	*r14 = regs.r14;
+	return regs.r10;
+}
+
+/*
  * Reports a 32 bit value from the guest to user space using a TDVM IO call.
  * Data is reported on port TDX_DATA_REPORT_PORT.
  */
@@ -242,6 +265,26 @@ static inline uint64_t tdvm_report_to_user_space(uint32_t data)
 	uint64_t data_64 = data;
 
 	return tdvmcall_io(TDX_DATA_REPORT_PORT, /*size=*/4, TDX_IO_WRITE, &data_64);
+}
+
+/*
+ * Reports a 64 bit value from the guest to user space using a TDVM IO call.
+ * Data is reported on port TDX_DATA_REPORT_PORT.
+ * Data is sent to host in 2 calls. LSB is sent (and needs to be read) first.
+ */
+static inline uint64_t tdvm_report_64bit_to_user_space(uint64_t data)
+{
+	uint64_t err;
+	uint64_t data_lo = data & 0xFFFFFFFF;
+	uint64_t data_hi = (data >> 32) & 0xFFFFFFFF;
+
+	err = tdvmcall_io(TDX_DATA_REPORT_PORT, /*size=*/4, TDX_IO_WRITE,
+			  &data_lo);
+	if (err)
+		return err;
+
+	return tdvmcall_io(TDX_DATA_REPORT_PORT, /*size=*/4, TDX_IO_WRITE,
+			   &data_hi);
 }
 
 #define TDX_FUNCTION_SIZE(name) ((uint64_t)&__stop_sec_ ## name -\

@@ -1515,6 +1515,129 @@ void verify_tdcall_vp_info(void)
 	printf("\t ... PASSED\n");
 }
 
+TDX_GUEST_FUNCTION(guest_shared_mem)
+{
+	uint64_t gpa_shared_mask;
+	uint64_t gva_shared_mask;
+	uint64_t shared_gpa;
+	uint64_t shared_gva;
+	uint64_t gpa_width;
+	uint64_t failed_gpa;
+	uint64_t ret;
+	uint64_t err;
+
+	gva_shared_mask = BIT_ULL(TDX_GUEST_VIRT_SHARED_BIT);
+	shared_gpa = 0x80000000;
+	shared_gva = gva_shared_mask | shared_gpa;
+
+	/* Read highest order physical bit to calculate shared mask. */
+	err = tdcall_vp_info(&gpa_width, 0, 0, 0, 0, 0);
+	if (err)
+		tdvmcall_fatal(err);
+
+	/* Map gpa as shared. */
+	gpa_shared_mask = BIT_ULL(gpa_width - 1);
+	ret = tdvmcall_map_gpa(shared_gpa | gpa_shared_mask, PAGE_SIZE,
+			       &failed_gpa);
+	if (ret)
+		tdvmcall_fatal(ret);
+
+	/* Write to shared memory. */
+	*(uint16_t *)shared_gva = 0x1234;
+	tdvmcall_success();
+
+	/* Read from shared memory; report to host. */
+	ret = tdvmcall_io(TDX_TEST_PORT, 2, TDX_IO_WRITE,
+			  (uint64_t *)shared_gva);
+	if (ret)
+		tdvmcall_fatal(ret);
+
+	tdvmcall_success();
+}
+
+void verify_shared_mem(void)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	struct userspace_mem_region *region;
+	uint16_t guest_read_val;
+	uint64_t shared_gpa;
+	uint64_t shared_hva;
+	uint64_t shared_pages_num;
+	int ctr;
+
+	printf("Verifying shared memory\n");
+
+	/* Create a TD VM with no memory. */
+	vm = vm_create_tdx();
+
+	/* Allocate TD guest memory and initialize the TD. */
+	initialize_td(vm);
+
+	/* Initialize the TD vcpu and copy the test code to the guest memory. */
+	vcpu = vm_vcpu_add_tdx(vm, 0);
+
+	/* Allocate shared memory. */
+	shared_gpa = 0x80000000;
+	shared_pages_num = 1;
+	vm_userspace_mem_region_add(vm, VM_MEM_SRC_ANONYMOUS,
+				    shared_gpa, 1,
+				    shared_pages_num, 0);
+
+	/* Setup and initialize VM memory. */
+	prepare_source_image(vm, guest_shared_mem,
+			     TDX_FUNCTION_SIZE(guest_shared_mem), 0);
+	finalize_td_memory(vm);
+
+	/* Begin guest execution; guest writes to shared memory. */
+	printf("\t ... Starting guest execution\n");
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+
+	/* Get the host's shared memory address. */
+	shared_hva = 0;
+	hash_for_each(vm->regions.slot_hash, ctr, region, slot_node) {
+		uint64_t region_guest_addr;
+
+		region_guest_addr = (uint64_t)region->region.guest_phys_addr;
+		if (region_guest_addr == (shared_gpa)) {
+			shared_hva = (uint64_t)region->host_mem;
+			break;
+		}
+	}
+	TEST_ASSERT(shared_hva != 0,
+		    "Guest address not found in guest memory regions\n");
+
+	/* Verify guest write -> host read succeeds. */
+	printf("\t ... Guest wrote 0x1234 to shared memory\n");
+	if (*(uint16_t *)shared_hva != 0x1234) {
+		printf("\t ... FAILED: Host read 0x%x instead of 0x1234\n",
+		       *(uint16_t *)shared_hva);
+	}
+	printf("\t ... Host read 0x%x from shared memory\n",
+	       *(uint16_t *)shared_hva);
+
+	/* Verify host write -> guest read succeeds. */
+	*((uint16_t *)shared_hva) = 0xABCD;
+	printf("\t ... Host wrote 0xabcd to shared memory\n");
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	CHECK_IO(vcpu, TDX_TEST_PORT, 2, TDX_IO_WRITE);
+	guest_read_val = *(uint16_t *)((void *)vcpu->run + vcpu->run->io.data_offset);
+
+	if (guest_read_val != 0xABCD) {
+		printf("\t ... FAILED: Guest read 0x%x instead of 0xABCD\n",
+		       guest_read_val);
+		kvm_vm_free(vm);
+		return;
+	}
+	printf("\t ... Guest read 0x%x from shared memory\n",
+	       guest_read_val);
+
+	kvm_vm_free(vm);
+	printf("\t ... PASSED\n");
+}
+
 int main(int argc, char **argv)
 {
 	if (!is_tdx_enabled()) {
@@ -1537,6 +1660,7 @@ int main(int argc, char **argv)
 	run_in_new_process(&verify_mmio_writes);
 	run_in_new_process(&verify_host_reading_private_mem);
 	run_in_new_process(&verify_tdcall_vp_info);
+	run_in_new_process(&verify_shared_mem);
 
 	return 0;
 }

@@ -1274,6 +1274,98 @@ void verify_mmio_writes(void)
 	printf("\t ... PASSED\n");
 }
 
+TDX_GUEST_FUNCTION(guest_host_read_priv_mem)
+{
+	uint64_t guest_var = 0xABCD;
+	uint64_t ret;
+
+	/* Sends address to host. */
+	ret = tdvm_report_64bit_to_user_space((uint64_t)&guest_var);
+	if (ret)
+		tdvmcall_fatal(ret);
+
+	/* Update guest_var's value and have host reread it. */
+	guest_var = 0xFEDC;
+
+	tdvmcall_success();
+}
+
+void verify_host_reading_private_mem(void)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	struct userspace_mem_region *region;
+	uint64_t guest_var_addr;
+	uint64_t host_virt;
+	uint64_t first_host_read;
+	uint64_t second_host_read;
+	int ctr;
+
+	printf("Verifying host's behavior when reading TD private memory:\n");
+	/* Create a TD VM with no memory. */
+	vm = vm_create_tdx();
+
+	/* Allocate TD guest memory and initialize the TD. */
+	initialize_td(vm);
+
+	/* Initialize the TD vcpu and copy the test code to the guest memory. */
+	vcpu = vm_vcpu_add_tdx(vm, 0);
+
+	/* Setup and initialize VM memory. */
+	prepare_source_image(vm, guest_host_read_priv_mem,
+			     TDX_FUNCTION_SIZE(guest_host_read_priv_mem), 0);
+	finalize_td_memory(vm);
+
+	/* Get the address of the guest's variable. */
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	printf("\t ... Guest's variable contains 0xABCD\n");
+
+	/* Guest virtual and guest physical addresses have 1:1 mapping. */
+	guest_var_addr = read_64bit_from_guest(vcpu, TDX_DATA_REPORT_PORT);
+
+	/* Search for the guest's address in guest's memory regions. */
+	host_virt = 0;
+	hash_for_each(vm->regions.slot_hash, ctr, region, slot_node) {
+		uint64_t offset;
+		uint64_t host_virt_base;
+		uint64_t guest_base;
+
+		guest_base = (uint64_t)region->region.guest_phys_addr;
+		offset = guest_var_addr - guest_base;
+
+		if (guest_base <= guest_var_addr &&
+		    offset <= region->region.memory_size) {
+			host_virt_base = (uint64_t)region->host_mem;
+			host_virt = host_virt_base + offset;
+			break;
+		}
+	}
+	TEST_ASSERT(host_virt != 0,
+		    "Guest address not found in guest memory regions\n");
+
+	/* Host reads guest's variable. */
+	first_host_read = *(uint64_t *)host_virt;
+	printf("\t ... Host's read attempt value: %lu\n", first_host_read);
+
+	/* Guest updates variable and host rereads it. */
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	printf("\t ... Guest's variable updated to 0xFEDC\n");
+
+	second_host_read = *(uint64_t *)host_virt;
+	printf("\t ... Host's second read attempt value: %lu\n",
+	       second_host_read);
+
+	TEST_ASSERT(first_host_read == second_host_read,
+		    "Host did not read a fixed pattern\n");
+
+	printf("\t ... Fixed pattern was returned to the host\n");
+
+	kvm_vm_free(vm);
+	printf("\t ... PASSED\n");
+}
+
 int main(int argc, char **argv)
 {
 	if (!is_tdx_enabled()) {
@@ -1294,6 +1386,7 @@ int main(int argc, char **argv)
 	run_in_new_process(&verify_guest_hlt);
 	run_in_new_process(&verify_mmio_reads);
 	run_in_new_process(&verify_mmio_writes);
+	run_in_new_process(&verify_host_reading_private_mem);
 
 	return 0;
 }

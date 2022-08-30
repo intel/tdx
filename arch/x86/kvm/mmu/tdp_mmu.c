@@ -1702,7 +1702,7 @@ static int tdp_mmu_unzap_large_spte(struct kvm_vcpu *vcpu, struct kvm_page_fault
 	if (new_spte == iter->old_spte)
 		return RET_PF_SPURIOUS;
 
-	if (!tdp_mmu_set_spte_atomic(vcpu->kvm, iter, new_spte))
+	if (tdp_mmu_set_spte_atomic(vcpu->kvm, iter, new_spte))
 		return RET_PF_RETRY;
 	trace_kvm_mmu_set_spte(iter->level, iter->gfn,
 			       rcu_dereference(iter->sptep));
@@ -1747,11 +1747,16 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		if (iter.level == fault->goal_level)
 			break;
 
+		/*
+		 * Check zapped large page firstly, this allows us continue to
+		 * split the large private page after unzap the pte back.
+		 */
 		if (is_private_zapped_spte(iter.old_spte) &&
 		    is_large_pte(iter.old_spte)) {
 			if (tdp_mmu_unzap_large_spte(vcpu, fault, &iter) !=
 			    RET_PF_CONTINUE)
 				break;
+			iter.old_spte = kvm_tdp_mmu_read_spte(iter.sptep);
 		}
 
 		/*

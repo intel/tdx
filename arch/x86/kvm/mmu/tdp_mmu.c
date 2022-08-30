@@ -19,6 +19,14 @@ int kvm_mmu_init_tdp_mmu(struct kvm *kvm)
 {
 	struct workqueue_struct *wq;
 
+	/*
+	 * TDs require mmio_caching to clear suppress_ve bit of SPTE for GPA
+	 * of MMIO so that TD can convert #VE triggered by MMIO into
+	 * TDG.VP.VMCALL<MMIO>.
+	 */
+	if (kvm->arch.vm_type == KVM_X86_TDX_VM && !enable_mmio_caching)
+		return -EOPNOTSUPP;
+
 	if (!tdp_enabled || !READ_ONCE(tdp_mmu_enabled))
 		return 0;
 
@@ -587,8 +595,8 @@ static void __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 		 * impact the guest since both the former and current SPTEs
 		 * are nonpresent.
 		 */
-		if (WARN_ON(!is_mmio_spte(old_spte) &&
-			    !is_mmio_spte(new_spte) &&
+		if (WARN_ON(!is_mmio_spte(kvm, old_spte) &&
+			    !is_mmio_spte(kvm, new_spte) &&
 			    !is_removed_spte(new_spte)))
 			pr_err("Unexpected SPTE change! Nonpresent SPTEs\n"
 			       "should not be replaced with another,\n"
@@ -1114,7 +1122,7 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
 	}
 
 	/* If a MMIO SPTE is installed, the MMIO will need to be emulated. */
-	if (unlikely(is_mmio_spte(new_spte))) {
+	if (unlikely(is_mmio_spte(vcpu->kvm, new_spte))) {
 		vcpu->stat.pf_mmio_spte_created++;
 		trace_mark_mmio_spte(rcu_dereference(iter->sptep), iter->gfn,
 				     new_spte);

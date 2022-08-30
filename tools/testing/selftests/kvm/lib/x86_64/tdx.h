@@ -55,6 +55,7 @@
 #define TDX_INSTRUCTION_IO 30
 
 #define TDX_SUCCESS_PORT 0x30
+#define TDX_TEST_PORT 0x31
 #define TDX_IO_READ 0
 #define TDX_IO_WRITE 1
 

@@ -60,12 +60,15 @@
 #define TDX_INSTRUCTION_IO 30
 #define TDX_INSTRUCTION_RDMSR 31
 #define TDX_INSTRUCTION_WRMSR 32
+#define TDX_INSTRUCTION_VE_REQUEST_MMIO 48
 
 #define TDX_SUCCESS_PORT 0x30
 #define TDX_TEST_PORT 0x31
 #define TDX_DATA_REPORT_PORT 0x32
 #define TDX_IO_READ 0
 #define TDX_IO_WRITE 1
+#define TDX_MMIO_READ 0
+#define TDX_MMIO_WRITE 1
 
 #define GDT_ENTRY(flags, base, limit)				\
 		((((base)  & 0xff000000ULL) << (56-24)) |	\
@@ -305,6 +308,24 @@ static inline uint64_t tdvmcall_hlt(uint64_t interrupt_blocked_flag)
 	regs.r12 = interrupt_blocked_flag;
 	regs.rcx = 0x1C00;
 	tdcall(&regs);
+	return regs.r10;
+}
+
+/*
+ * Execute MMIO request instruction for read.
+ */
+static inline uint64_t tdvmcall_mmio_read(uint64_t address, uint64_t size, uint64_t *data_out)
+{
+	struct kvm_regs regs;
+
+	memset(&regs, 0, sizeof(regs));
+	regs.r11 = TDX_INSTRUCTION_VE_REQUEST_MMIO;
+	regs.r12 = size;
+	regs.r13 = TDX_MMIO_READ;
+	regs.r14 = address;
+	regs.rcx = 0x7C00;
+	tdcall(&regs);
+	*data_out = regs.r11;
 	return regs.r10;
 }
 

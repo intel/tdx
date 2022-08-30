@@ -1405,6 +1405,29 @@ static int tdp_mmu_unzap_large_spte(
 	return RET_PF_CONTINUE;
 }
 
+static int tdp_mmu_split_pivate_huge_page(struct kvm_vcpu *vcpu,
+					  struct tdp_iter *iter,
+					  struct kvm_page_fault *fault,
+					  bool shared)
+{
+	struct kvm_mmu_page *sp;
+	int ret = -EBUSY;
+
+	sp = tdp_mmu_alloc_sp(vcpu, tdp_iter_child_role(iter));
+	while (ret == -EBUSY) {
+		iter->old_spte = kvm_tdp_mmu_read_spte(iter->sptep);
+		if (!is_shadow_present_pte(iter->old_spte))
+			break;
+		if (!is_large_pte(iter->old_spte))
+			break;
+		ret = tdp_mmu_split_huge_page(vcpu->kvm, iter, sp, shared);
+	}
+
+	if (ret)
+		tdp_mmu_free_sp(sp);
+	return ret;
+}
+
 /*
  * Handle a TDP page fault (NPT/EPT violation/misconfiguration) by installing
  * page tables and SPTEs to translate the faulting guest physical address.
@@ -1457,18 +1480,13 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		 */
 		if (is_shadow_present_pte(iter.old_spte) &&
 		    is_large_pte(iter.old_spte)) {
-			struct kvm *kvm = vcpu->kvm;
 
 			if (is_private) {
-				struct kvm_mmu_page *sp;
-
-				sp = tdp_mmu_alloc_sp_for_split(kvm, &iter, true);
-				if (!sp)
-					break;
-				tdp_mmu_split_huge_page(kvm, &iter, sp, false);
+				tdp_mmu_split_pivate_huge_page(vcpu, &iter,
+							       fault, true);
 				break;
 			} else {
-				if (tdp_mmu_zap_spte_atomic(kvm, &iter))
+				if (tdp_mmu_zap_spte_atomic(vcpu->kvm, &iter))
 					break;
 			}
 			WARN_ON(is_private_sptep(iter.sptep));

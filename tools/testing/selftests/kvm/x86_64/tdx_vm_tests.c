@@ -53,6 +53,25 @@
 				  (VCPU)->run->system_event.data[1]);			\
 	} while (0)
 
+static uint64_t read_64bit_from_guest(struct kvm_vcpu *vcpu, uint64_t port)
+{
+	uint32_t lo, hi;
+	uint64_t res;
+
+	CHECK_IO(vcpu, port, 4, TDX_IO_WRITE);
+	lo = *(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset);
+
+	vcpu_run(vcpu);
+
+	CHECK_IO(vcpu, port, 4, TDX_IO_WRITE);
+	hi = *(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset);
+
+	res = hi;
+	res = (res << 32) | lo;
+	return res;
+}
+
+
 /*
  * There might be multiple tests we are running and if one test fails, it will
  * prevent the subsequent tests to run due to how tests are failing with
@@ -383,6 +402,93 @@ void verify_td_cpuid(void)
 	printf("\t ... PASSED\n");
 }
 
+/*
+ * Verifies get_td_vmcall_info functionality.
+ */
+TDX_GUEST_FUNCTION(guest_code_get_td_vmcall_info)
+{
+	uint64_t err;
+	uint64_t r11, r12, r13, r14;
+
+	err = tdvmcall_get_td_vmcall_info(&r11, &r12, &r13, &r14);
+	if (err)
+		tdvmcall_fatal(err);
+
+	err = tdvm_report_64bit_to_user_space(r11);
+	if (err)
+		tdvmcall_fatal(err);
+
+	err = tdvm_report_64bit_to_user_space(r12);
+	if (err)
+		tdvmcall_fatal(err);
+
+	err = tdvm_report_64bit_to_user_space(r13);
+	if (err)
+		tdvmcall_fatal(err);
+
+	err = tdvm_report_64bit_to_user_space(r14);
+	if (err)
+		tdvmcall_fatal(err);
+
+	tdvmcall_success();
+}
+
+void verify_get_td_vmcall_info(void)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	uint64_t r11, r12, r13, r14;
+
+	printf("Verifying TD get vmcall info:\n");
+	/* Create a TD VM with no memory.*/
+	vm = vm_create_tdx();
+
+	/* Allocate TD guest memory and initialize the TD.*/
+	initialize_td(vm);
+
+	/* Initialize the TD vcpu and copy the test code to the guest memory.*/
+	vcpu = vm_vcpu_add_tdx(vm, 0);
+
+	/* Setup and initialize VM memory */
+	prepare_source_image(vm, guest_code_get_td_vmcall_info,
+			     TDX_FUNCTION_SIZE(guest_code_get_td_vmcall_info),
+			     0);
+	finalize_td_memory(vm);
+
+	/* Wait for guest to report r11 value */
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	r11 = read_64bit_from_guest(vcpu, TDX_DATA_REPORT_PORT);
+
+	/* Wait for guest to report r12 value */
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	r12 = read_64bit_from_guest(vcpu, TDX_DATA_REPORT_PORT);
+
+	/* Wait for guest to report r13 value */
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	r13 = read_64bit_from_guest(vcpu, TDX_DATA_REPORT_PORT);
+
+	/* Wait for guest to report r14 value */
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	r14 = read_64bit_from_guest(vcpu, TDX_DATA_REPORT_PORT);
+
+	ASSERT_EQ(r11, 0);
+	ASSERT_EQ(r12, 0);
+	ASSERT_EQ(r13, 0);
+	ASSERT_EQ(r14, 0);
+
+	/* Wait for guest to complete execution */
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	CHECK_GUEST_COMPLETION(vcpu);
+
+	kvm_vm_free(vm);
+	printf("\t ... PASSED\n");
+}
+
 int main(int argc, char **argv)
 {
 	if (!is_tdx_enabled()) {
@@ -394,6 +500,7 @@ int main(int argc, char **argv)
 	run_in_new_process(&verify_report_fatal_error);
 	run_in_new_process(&verify_td_ioexit);
 	run_in_new_process(&verify_td_cpuid);
+	run_in_new_process(&verify_get_td_vmcall_info);
 
 	return 0;
 }

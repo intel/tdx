@@ -330,6 +330,24 @@ static inline uint64_t tdvmcall_mmio_read(uint64_t address, uint64_t size, uint6
 }
 
 /*
+ * Execute MMIO request instruction for write.
+ */
+static inline uint64_t tdvmcall_mmio_write(uint64_t address, uint64_t size, uint64_t data_in)
+{
+	struct kvm_regs regs;
+
+	memset(&regs, 0, sizeof(regs));
+	regs.r11 = TDX_INSTRUCTION_VE_REQUEST_MMIO;
+	regs.r12 = size;
+	regs.r13 = TDX_MMIO_WRITE;
+	regs.r14 = address;
+	regs.r15 = data_in;
+	regs.rcx = 0xFC00;
+	tdcall(&regs);
+	return regs.r10;
+}
+
+/*
  * Reports a 32 bit value from the guest to user space using a TDVM IO call.
  * Data is reported on port TDX_DATA_REPORT_PORT.
  */

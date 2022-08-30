@@ -244,7 +244,7 @@ extern u64 __read_mostly shadow_nonpresent_or_rsvd_lower_gfn_mask;
 static inline bool is_mmio_spte(struct kvm *kvm, u64 spte)
 {
 	return (spte & shadow_mmio_mask) == kvm->arch.shadow_mmio_value &&
-	       likely(enable_mmio_caching);
+	       likely(enable_mmio_caching || kvm_gfn_shared_mask(kvm));
 }
 
 static inline bool is_shadow_present_pte(u64 pte)

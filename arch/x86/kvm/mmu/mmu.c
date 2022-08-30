@@ -3271,7 +3271,8 @@ static int kvm_handle_noslot_fault(struct kvm_vcpu *vcpu,
 	 * touching the shadow page tables as attempting to install an
 	 * MMIO SPTE will just be an expensive nop.
 	 */
-	if (unlikely(!enable_mmio_caching))
+	if (unlikely(!enable_mmio_caching &&
+		     !kvm_gfn_shared_mask(vcpu->kvm)))
 		return RET_PF_EMULATE;
 
 	/*

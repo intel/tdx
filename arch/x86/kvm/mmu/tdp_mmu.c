@@ -1674,7 +1674,7 @@ static int tdp_mmu_unzap_large_spte(struct kvm_vcpu *vcpu, struct kvm_page_fault
 	if (new_spte == iter->old_spte)
 		return RET_PF_SPURIOUS;
 
-	if (!tdp_mmu_set_spte_atomic(vcpu->kvm, iter, new_spte))
+	if (tdp_mmu_set_spte_atomic(vcpu->kvm, iter, new_spte))
 		return RET_PF_RETRY;
 	trace_kvm_mmu_set_spte(iter->level, iter->gfn,
 			       rcu_dereference(iter->sptep));

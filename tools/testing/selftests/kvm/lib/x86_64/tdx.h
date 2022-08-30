@@ -23,10 +23,21 @@
 
 /*
  * Max Page Table Size
- * To map 4GB memory region with 2MB pages, there needs to be 1 page for PML4,
- * 1 Page for PDPT, 4 pages for PD. Reserving 6 pages for PT.
+ * To map 4GB memory regions for each private and shared memory with 2MB pages,
+ * there needs to be 1 page for PML4, 1 Page for PDPT, 8 pages for PD. Reserving
+ * 10 pages for PT.
  */
-#define TDX_GUEST_NR_PT_PAGES (1 + 1 + 4)
+#define TDX_GUEST_NR_PT_PAGES (1 + 1 + 8)
+
+/*
+ * Guest Virtual Address Shared Bit
+ * TDX's shared bit is defined as the highest order bit in the GPA. Since the
+ * highest order bit allowed in the GPA may exceed the GVA's, a 1:1 mapping
+ * cannot be applied for shared memory. This value is a bit within the range
+ * [32 - 38] (0-indexed) that will designate a 4 GB region of GVAs that map the
+ * shared GPAs. This approach does not increase number of PML4 and PDPT pages.
+ */
+#define TDX_GUEST_VIRT_SHARED_BIT 32
 
 /*
  * Predefined GDTR values.
@@ -60,6 +71,7 @@
 #define TDX_VMCALL_INVALID_OPERAND 0x8000000000000000
 
 #define TDX_GET_TD_VM_CALL_INFO 0x10000
+#define TDX_MAP_GPA 0x10001
 #define TDX_REPORT_FATAL_ERROR 0x10003
 #define TDX_INSTRUCTION_CPUID 10
 #define TDX_INSTRUCTION_HLT 12
@@ -101,7 +113,7 @@ struct __packed tdx_gdtr {
 struct page_table {
 	uint64_t  pml4[512];
 	uint64_t  pdpt[512];
-	uint64_t  pd[4][512];
+	uint64_t  pd[8][512];
 };
 
 void add_td_memory(struct kvm_vm *vm, void *source_page,
@@ -409,6 +421,24 @@ static inline uint64_t tdcall_vp_info(uint64_t *rcx, uint64_t *rdx,
 		*r11 = regs.r11;
 
 	return regs.rax;
+}
+
+/*
+ * Execute MapGPA instruction.
+ */
+static inline uint64_t tdvmcall_map_gpa(uint64_t address, uint64_t size,
+					uint64_t *data_out)
+{
+	struct kvm_regs regs;
+
+	memset(&regs, 0, sizeof(regs));
+	regs.r11 = TDX_MAP_GPA;
+	regs.r12 = address;
+	regs.r13 = size;
+	regs.rcx = 0x3C00;
+	tdcall(&regs);
+	*data_out = regs.r11;
+	return regs.r10;
 }
 
 /*

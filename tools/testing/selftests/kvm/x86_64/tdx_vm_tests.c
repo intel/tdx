@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
+#include "asm/kvm.h"
+#include <bits/stdint-uintn.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <kvm_util.h>
@@ -573,6 +575,87 @@ void verify_guest_writes(void)
 	printf("\t ... PASSED\n");
 }
 
+/*
+ * Verifies IO functionality by reading values of different sizes
+ * from the host.
+ */
+TDX_GUEST_FUNCTION(guest_io_reads)
+{
+	uint64_t data;
+	uint64_t ret;
+
+	ret = tdvmcall_io(TDX_TEST_PORT, 1, TDX_IO_READ, &data);
+	if (ret)
+		tdvmcall_fatal(ret);
+	if (data != 0xAB)
+		tdvmcall_fatal(1);
+
+	ret = tdvmcall_io(TDX_TEST_PORT, 2, TDX_IO_READ, &data);
+	if (ret)
+		tdvmcall_fatal(ret);
+	if (data != 0xABCD)
+		tdvmcall_fatal(2);
+
+	ret = tdvmcall_io(TDX_TEST_PORT, 4, TDX_IO_READ, &data);
+	if (ret)
+		tdvmcall_fatal(ret);
+	if (data != 0xFFABCDEF)
+		tdvmcall_fatal(4);
+
+	// Read an invalid number of bytes.
+	ret = tdvmcall_io(TDX_TEST_PORT, 5, TDX_IO_READ, &data);
+	if (ret)
+		tdvmcall_fatal(ret);
+
+	tdvmcall_success();
+}
+
+void verify_guest_reads(void)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+
+	printf("Verifying guest reads:\n");
+	/* Create a TD VM with no memory.*/
+	vm = vm_create_tdx();
+
+	/* Allocate TD guest memory and initialize the TD.*/
+	initialize_td(vm);
+
+	/* Initialize the TD vcpu and copy the test code to the guest memory.*/
+	vcpu = vm_vcpu_add_tdx(vm, 0);
+
+	/* Setup and initialize VM memory */
+	prepare_source_image(vm, guest_io_reads,
+			     TDX_FUNCTION_SIZE(guest_io_reads), 0);
+	finalize_td_memory(vm);
+
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	CHECK_IO(vcpu, TDX_TEST_PORT, 1, TDX_IO_READ);
+	*(uint8_t *)((void *)vcpu->run + vcpu->run->io.data_offset) = 0xAB;
+
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	CHECK_IO(vcpu, TDX_TEST_PORT, 2, TDX_IO_READ);
+	*(uint16_t *)((void *)vcpu->run + vcpu->run->io.data_offset) = 0xABCD;
+
+	vcpu_run(vcpu);
+	CHECK_GUEST_FAILURE(vcpu);
+	CHECK_IO(vcpu, TDX_TEST_PORT, 4, TDX_IO_READ);
+	*(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset) = 0xFFABCDEF;
+
+	vcpu_run(vcpu);
+	ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_SYSTEM_EVENT);
+	ASSERT_EQ(vcpu->run->system_event.data[1], TDX_VMCALL_INVALID_OPERAND);
+
+	vcpu_run(vcpu);
+	CHECK_GUEST_COMPLETION(vcpu);
+
+	kvm_vm_free(vm);
+	printf("\t ... PASSED\n");
+}
+
 int main(int argc, char **argv)
 {
 	if (!is_tdx_enabled()) {
@@ -586,6 +669,7 @@ int main(int argc, char **argv)
 	run_in_new_process(&verify_td_cpuid);
 	run_in_new_process(&verify_get_td_vmcall_info);
 	run_in_new_process(&verify_guest_writes);
+	run_in_new_process(&verify_guest_reads);
 
 	return 0;
 }

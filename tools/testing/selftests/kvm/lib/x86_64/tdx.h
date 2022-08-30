@@ -56,6 +56,7 @@
 
 #define TDX_SUCCESS_PORT 0x30
 #define TDX_TEST_PORT 0x31
+#define TDX_DATA_REPORT_PORT 0x32
 #define TDX_IO_READ 0
 #define TDX_IO_WRITE 1
 
@@ -229,6 +230,18 @@ static inline void tdvmcall_fatal(uint64_t error_code)
 	regs.r12 = error_code;
 	regs.rcx = 0x1C00;
 	tdcall(&regs);
+}
+
+/*
+ * Reports a 32 bit value from the guest to user space using a TDVM IO call.
+ * Data is reported on port TDX_DATA_REPORT_PORT.
+ */
+static inline uint64_t tdvm_report_to_user_space(uint32_t data)
+{
+	// Need to upcast data to match tdvmcall_io signature.
+	uint64_t data_64 = data;
+
+	return tdvmcall_io(TDX_DATA_REPORT_PORT, /*size=*/4, TDX_IO_WRITE, &data_64);
 }
 
 #define TDX_FUNCTION_SIZE(name) ((uint64_t)&__stop_sec_ ## name -\

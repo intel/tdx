@@ -78,10 +78,10 @@ static struct tdx_cpuid_data get_tdx_cpuid_data(struct kvm_vm *vm)
 }
 
 /*
- * Initialize a VM as a TD.
+ * Initialize a VM as a TD with attributes.
  *
  */
-void initialize_td(struct kvm_vm *vm)
+void initialize_td_with_attributes(struct kvm_vm *vm, uint64_t attributes)
 {
 	struct tdx_cpuid_data cpuid_data;
 	int rc;
@@ -99,7 +99,7 @@ void initialize_td(struct kvm_vm *vm)
 			      KVM_X2APIC_API_DISABLE_BROADCAST_QUIRK);
 	vm_enable_cap(vm, KVM_CAP_SPLIT_IRQCHIP, 24);
 
-	/* Allocate and setup memoryfor the td guest. */
+	/* Allocate and setup memory for the td guest. */
 	vm_userspace_mem_region_add(vm, VM_MEM_SRC_ANONYMOUS,
 				    TDX_GUEST_PT_FIXED_ADDR,
 				    0, TDX_GUEST_MAX_NR_PAGES, 0);
@@ -108,12 +108,20 @@ void initialize_td(struct kvm_vm *vm)
 
 	cpuid_data = get_tdx_cpuid_data(vm);
 
-	init_vm.max_vcpus = 1;
-	init_vm.attributes = 0;
+	init_vm.max_vcpus = TDX_GUEST_MAX_NUM_VCPUS;
+	init_vm.attributes = attributes;
 	memcpy(&init_vm.cpuid, &cpuid_data, sizeof(cpuid_data));
 	tdx_ioctl(vm->fd, KVM_TDX_INIT_VM, 0, &init_vm);
 }
 
+/*
+ * Initialize a VM as a TD with no attributes.
+ *
+ */
+void initialize_td(struct kvm_vm *vm)
+{
+	initialize_td_with_attributes(vm, 0);
+}
 
 void initialize_td_vcpu(struct kvm_vcpu *vcpu)
 {

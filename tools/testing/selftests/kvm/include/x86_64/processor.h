@@ -855,6 +855,7 @@ enum pg_level {
 #define PG_SIZE_1G PG_LEVEL_SIZE(PG_LEVEL_1G)
 
 void __virt_pg_map(struct kvm_vm *vm, uint64_t vaddr, uint64_t paddr, int level);
+struct kvm_vcpu *vm_vcpu_add_tdx(struct kvm_vm *vm, uint32_t vcpu_id);
 
 /*
  * Basic CPU control in CR0

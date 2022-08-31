@@ -129,12 +129,6 @@ static bool authorized_node_match(struct device *dev,
 				 to_pci_dev(dev)))
 			return true;
 
-		/*
-		 * Prevent any config space accesses in initcalls.
-		 * No locking needed here because it's a fresh device.
-		 */
-		if (pci_pcie_type(pdev) != PCI_EXP_TYPE_ROOT_PORT)
-			pdev->error_state = pci_channel_io_perm_failure;
 	} else if (dev_is_acpi(dev)) {
 		for (i = 0; i < ARRAY_SIZE(acpi_allow_hids); i++) {
 			if (!strncmp(acpi_allow_hids[i], dev_name(dev),
@@ -233,6 +227,16 @@ bool dev_authorized_init(void)
 	return true;
 }
 
+static void fixup_unauthorized_device(struct device *dev)
+{
+	/*
+	 * Prevent any config space accesses in initcalls.
+	 * No locking needed here because it's a fresh device.
+	 */
+	if (dev_is_pci(dev))
+		to_pci_dev(dev)->error_state = pci_channel_io_perm_failure;
+}
+
 bool arch_dev_authorized(struct device *dev)
 {
 	int i;
@@ -257,6 +261,8 @@ bool arch_dev_authorized(struct device *dev)
 		if (authorized_node_match(dev, &cmd_allowed_nodes[i]))
 			return true;
 	}
+
+	fixup_unauthorized_device(dev);
 
 	return false;
 }

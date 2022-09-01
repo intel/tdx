@@ -196,6 +196,7 @@ module_param(eager_page_split, bool, 0644);
 
 struct kvm_user_return_msrs {
 	struct user_return_notifier urn;
+	bool initialized;
 	bool registered;
 	struct kvm_user_return_msr_values {
 		u64 host;
@@ -409,18 +410,20 @@ int kvm_find_user_return_msr(u32 msr)
 }
 EXPORT_SYMBOL_GPL(kvm_find_user_return_msr);
 
-static void kvm_user_return_msr_cpu_online(void)
+static void kvm_user_return_msr_init_cpu(struct kvm_user_return_msrs *msrs)
 {
-	unsigned int cpu = smp_processor_id();
-	struct kvm_user_return_msrs *msrs = per_cpu_ptr(user_return_msrs, cpu);
 	u64 value;
 	int i;
+
+	if (likely(msrs->initialized))
+		return;
 
 	for (i = 0; i < kvm_nr_uret_msrs; ++i) {
 		rdmsrl_safe(kvm_uret_msrs_list[i], &value);
 		msrs->values[i].host = value;
 		msrs->values[i].curr = value;
 	}
+	msrs->initialized = true;
 }
 
 int kvm_set_user_return_msr(unsigned slot, u64 value, u64 mask)
@@ -428,6 +431,8 @@ int kvm_set_user_return_msr(unsigned slot, u64 value, u64 mask)
 	unsigned int cpu = smp_processor_id();
 	struct kvm_user_return_msrs *msrs = per_cpu_ptr(user_return_msrs, cpu);
 	int err;
+
+	kvm_user_return_msr_init_cpu(msrs);
 
 	value = (value & mask) | (msrs->values[slot].host & ~mask);
 	if (value == msrs->values[slot].curr)
@@ -9225,7 +9230,12 @@ int kvm_arch_init(void *opaque)
 		return -ENOMEM;
 	}
 
-	user_return_msrs = alloc_percpu(struct kvm_user_return_msrs);
+	/*
+	 * __GFP_ZERO to ensure user_return_msrs.initialized = false.
+	 * See kvm_user_return_msr_init_cpu().
+	 */
+	user_return_msrs = alloc_percpu_gfp(struct kvm_user_return_msrs,
+					    GFP_KERNEL | __GFP_ZERO);
 	if (!user_return_msrs) {
 		printk(KERN_ERR "kvm: failed to allocate percpu kvm_user_return_msrs\n");
 		r = -ENOMEM;
@@ -11862,7 +11872,6 @@ int kvm_arch_hardware_enable(void)
 	u64 max_tsc = 0;
 	bool stable, backwards_tsc = false;
 
-	kvm_user_return_msr_cpu_online();
 	ret = static_call(kvm_x86_hardware_enable)();
 	if (ret != 0)
 		return ret;

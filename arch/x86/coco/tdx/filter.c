@@ -68,6 +68,12 @@ struct pci_device_id pci_allow_ids[] = {
 /* List of ACPI HID allow list */
 static char *acpi_allow_hids[] = {
 	"LNXPWRBN",
+	"ACPI0013",
+};
+
+/* List of PLATFORM HID allow list */
+static char *platform_allow_hids[] = {
+	"ACPI0013",
 };
 
 static struct authorize_node allow_list[] = {
@@ -75,11 +81,18 @@ static struct authorize_node allow_list[] = {
 	{ "pci", pci_allow_ids },
 	/* Allow devices in acpi_allow_hids in "acpi" bus */
 	{ "acpi", acpi_allow_hids },
+	/* Allow devices in platform_allow_hids in "platform" bus */
+	{ "platform", platform_allow_hids },
 };
 
 static bool dev_is_acpi(struct device *dev)
 {
 	return !strcmp(dev_bus_name(dev), "acpi");
+}
+
+static bool dev_is_platform(struct device *dev)
+{
+       return !strcmp(dev_bus_name(dev), "platform");
 }
 
 static bool authorized_node_match(struct device *dev,
@@ -116,6 +129,12 @@ static bool authorized_node_match(struct device *dev,
 		for (i = 0; i < ARRAY_SIZE(acpi_allow_hids); i++) {
 			if (!strncmp(acpi_allow_hids[i], dev_name(dev),
 						strlen(acpi_allow_hids[i])))
+				return true;
+		}
+	} else if (dev_is_platform(dev)) {
+		for (i = 0; i < ARRAY_SIZE(platform_allow_hids); i++) {
+			if (!strncmp(platform_allow_hids[i], dev_name(dev),
+						strlen(platform_allow_hids[i])))
 				return true;
 		}
 	}

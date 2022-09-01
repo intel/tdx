@@ -688,6 +688,8 @@ int platform_device_add(struct platform_device *pdev)
 		break;
 	}
 
+	pdev->dev.authorized = arch_dev_authorized(&pdev->dev);
+
 	for (i = 0; i < pdev->num_resources; i++) {
 		struct resource *p, *r = &pdev->resource[i];
 

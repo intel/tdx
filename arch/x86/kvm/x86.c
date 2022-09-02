@@ -12304,11 +12304,6 @@ int kvm_arch_drop_vm(int usage_count)
 	return 0;
 }
 
-int kvm_arch_check_processor_compat_all(void)
-{
-	return 0;
-}
-
 int kvm_arch_online_cpu(unsigned int cpu, int usage_count)
 {
 	int ret;
@@ -12474,11 +12469,6 @@ static int kvm_check_processor_compatibility(void)
 		return -EIO;
 
 	return static_call(kvm_x86_check_processor_compatibility)();
-}
-
-int kvm_arch_check_processor_compat(void)
-{
-	return 0;
 }
 
 bool kvm_vcpu_is_reset_bsp(struct kvm_vcpu *vcpu)

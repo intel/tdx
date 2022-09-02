@@ -129,6 +129,8 @@ static int kvm_vcpu_do_singlestep(struct kvm_vcpu *vcpu);
 static int __set_sregs2(struct kvm_vcpu *vcpu, struct kvm_sregs2 *sregs2);
 static void __get_sregs2(struct kvm_vcpu *vcpu, struct kvm_sregs2 *sregs2);
 
+static int kvm_check_processor_compatibility(void);
+
 struct kvm_x86_ops kvm_x86_ops __read_mostly;
 
 #define KVM_X86_OP(func)					     \
@@ -12028,21 +12030,8 @@ int kvm_arch_del_vm(int usage_count)
 	return 0;
 }
 
-static void check_processor_compat(void *rtn)
-{
-	*(int *)rtn = kvm_arch_check_processor_compat();
-}
-
 int kvm_arch_check_processor_compat_all(void)
 {
-	int cpu;
-	int r;
-
-	for_each_online_cpu(cpu) {
-		smp_call_function_single(cpu, check_processor_compat, &r, 1);
-		if (r < 0)
-			return r;
-	}
 	return 0;
 }
 
@@ -12050,7 +12039,7 @@ int kvm_arch_online_cpu(unsigned int cpu, int usage_count)
 {
 	int ret;
 
-	ret = kvm_arch_check_processor_compat();
+	ret = kvm_check_processor_compatibility();
 	if (ret)
 		return ret;
 
@@ -12124,6 +12113,24 @@ static inline void kvm_ops_update(struct kvm_x86_init_ops *ops)
 	kvm_pmu_ops_update(ops->pmu_ops);
 }
 
+static void check_processor_compat(void *rtn)
+{
+	*(int *)rtn = kvm_check_processor_compatibility();
+}
+
+static int kvm_check_processor_compatibility_all(void)
+{
+	int cpu;
+	int r;
+
+	for_each_online_cpu(cpu) {
+		smp_call_function_single(cpu, check_processor_compat, &r, 1);
+		if (r < 0)
+			return r;
+	}
+	return 0;
+}
+
 int kvm_arch_hardware_setup(void *opaque)
 {
 	struct kvm_x86_init_ops *ops = opaque;
@@ -12164,7 +12171,8 @@ int kvm_arch_hardware_setup(void *opaque)
 	}
 	kvm_caps.default_tsc_scaling_ratio = 1ULL << kvm_caps.tsc_scaling_ratio_frac_bits;
 	kvm_init_msr_list();
-	return 0;
+
+	return kvm_check_processor_compatibility_all();
 }
 
 void kvm_arch_hardware_unsetup(void)
@@ -12174,7 +12182,7 @@ void kvm_arch_hardware_unsetup(void)
 	static_call(kvm_x86_hardware_unsetup)();
 }
 
-int kvm_arch_check_processor_compat(void)
+static int kvm_check_processor_compatibility(void)
 {
 	int cpu = smp_processor_id();
 	struct cpuinfo_x86 *c = &cpu_data(cpu);
@@ -12192,6 +12200,11 @@ int kvm_arch_check_processor_compat(void)
 		return -EIO;
 
 	return static_call(kvm_x86_check_processor_compatibility)();
+}
+
+int kvm_arch_check_processor_compat(void)
+{
+	return 0;
 }
 
 bool kvm_vcpu_is_reset_bsp(struct kvm_vcpu *vcpu)

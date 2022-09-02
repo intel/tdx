@@ -82,31 +82,9 @@ int __weak kvm_arch_del_vm(int usage_count)
 	return 0;
 }
 
-static void check_processor_compat(void *rtn)
-{
-	*(int *)rtn = kvm_arch_check_processor_compat();
-}
-
-int __weak kvm_arch_check_processor_compat_all(void)
-{
-	int cpu;
-	int r;
-
-	for_each_online_cpu(cpu) {
-		smp_call_function_single(cpu, check_processor_compat, &r, 1);
-		if (r < 0)
-			return r;
-	}
-	return 0;
-}
-
 int __weak kvm_arch_online_cpu(unsigned int cpu, int usage_count)
 {
 	int ret;
-
-	ret = kvm_arch_check_processor_compat();
-	if (ret)
-		return ret;
 
 	if (!usage_count)
 		return 0;

@@ -483,6 +483,59 @@ static int tdx_get_sysinfo(void)
 	return check_cmrs(tdx_cmr_array, &tdx_cmr_num);
 }
 
+/* Check whether the first range is the subrange of the second */
+static bool is_subrange(u64 r1_start, u64 r1_end, u64 r2_start, u64 r2_end)
+{
+	return r1_start >= r2_start && r1_end <= r2_end;
+}
+
+/* Check whether the address range is covered by any CMR or not. */
+static bool range_covered_by_cmr(struct cmr_info *cmr_array, int cmr_num,
+				 u64 start, u64 end)
+{
+	int i;
+
+	for (i = 0; i < cmr_num; i++) {
+		struct cmr_info *cmr = &cmr_array[i];
+
+		if (is_subrange(start, end, cmr->base, cmr->base + cmr->size))
+			return true;
+	}
+
+	return false;
+}
+
+/*
+ * Check whether all memory regions in memblock are TDX convertible
+ * memory.  Return 0 if all memory regions are convertible, or error.
+ */
+static int sanity_check_tdx_memory(void)
+{
+	struct tdx_memblock *tmb;
+
+	list_for_each_entry(tmb, &tdx_memlist, list) {
+		u64 start = tmb->start_pfn << PAGE_SHIFT;
+		u64 end = tmb->end_pfn << PAGE_SHIFT;
+
+		/*
+		 * Note: The spec doesn't say two CMRs cannot be
+		 * contiguous.  Theoretically a memory region crossing
+		 * two contiguous CMRs (but still falls into the two
+		 * CMRs) should be treated as covered by CMR.  But this
+		 * is purely theoretically thing that doesn't occur in
+		 * practice.
+		 */
+		if (!range_covered_by_cmr(tdx_cmr_array, tdx_cmr_num, start,
+					end)) {
+			pr_err("[0x%llx, 0x%llx) is not fully convertible memory\n",
+					start, end);
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
 /*
  * Detect and initialize the TDX module.
  *
@@ -511,6 +564,14 @@ static int init_tdx_module(void)
 	if (ret)
 		goto out;
 
+	/*
+	 * TDX memory ranges were built during kernel boot.  Need to
+	 * make sure all those ranges are truly convertible memory
+	 * before passing them to the TDX module.
+	 */
+	ret = sanity_check_tdx_memory();
+	if (ret)
+		goto out;
 	/*
 	 * Return -EINVAL until all steps of TDX module initialization
 	 * process are done.

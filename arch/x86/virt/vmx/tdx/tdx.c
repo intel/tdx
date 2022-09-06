@@ -16,6 +16,11 @@
 #include <linux/smp.h>
 #include <linux/atomic.h>
 #include <linux/align.h>
+#include <linux/list.h>
+#include <linux/slab.h>
+#include <linux/memblock.h>
+#include <linux/minmax.h>
+#include <linux/sizes.h>
 #include <asm/msr-index.h>
 #include <asm/msr.h>
 #include <asm/apic.h>
@@ -34,6 +39,13 @@ enum tdx_module_status_t {
 	TDX_MODULE_SHUTDOWN,
 };
 
+struct tdx_memblock {
+	struct list_head list;
+	unsigned long start_pfn;
+	unsigned long end_pfn;
+	int nid;
+};
+
 static u32 tdx_keyid_start __ro_after_init;
 static u32 tdx_keyid_num __ro_after_init;
 
@@ -45,6 +57,9 @@ static DEFINE_MUTEX(tdx_module_lock);
 static struct tdsysinfo_struct tdx_sysinfo;
 static struct cmr_info tdx_cmr_array[MAX_CMRS] __aligned(CMR_INFO_ARRAY_ALIGNMENT);
 static int tdx_cmr_num;
+
+/* All TDX-usable memory regions */
+static LIST_HEAD(tdx_memlist);
 
 /*
  * Detect TDX private KeyIDs to see whether TDX has been enabled by the
@@ -329,6 +344,107 @@ static int tdx_get_sysinfo(void)
 	return trim_empty_cmrs(tdx_cmr_array, &tdx_cmr_num);
 }
 
+/* Check whether the given pfn range is covered by any CMR or not. */
+static bool pfn_range_covered_by_cmr(unsigned long start_pfn,
+				     unsigned long end_pfn)
+{
+	int i;
+
+	for (i = 0; i < tdx_cmr_num; i++) {
+		struct cmr_info *cmr = &tdx_cmr_array[i];
+		unsigned long cmr_start_pfn;
+		unsigned long cmr_end_pfn;
+
+		cmr_start_pfn = cmr->base >> PAGE_SHIFT;
+		cmr_end_pfn = (cmr->base + cmr->size) >> PAGE_SHIFT;
+
+		if (start_pfn >= cmr_start_pfn && end_pfn <= cmr_end_pfn)
+			return true;
+	}
+
+	return false;
+}
+
+/*
+ * Add a memory region on a given node as a TDX memory block.  The caller
+ * to make sure all memory regions are added in address ascending order
+ * and don't overlap.
+ */
+static int add_tdx_memblock(unsigned long start_pfn, unsigned long end_pfn,
+			    int nid)
+{
+	struct tdx_memblock *tmb;
+
+	tmb = kmalloc(sizeof(*tmb), GFP_KERNEL);
+	if (!tmb)
+		return -ENOMEM;
+
+	INIT_LIST_HEAD(&tmb->list);
+	tmb->start_pfn = start_pfn;
+	tmb->end_pfn = end_pfn;
+	tmb->nid = nid;
+
+	list_add_tail(&tmb->list, &tdx_memlist);
+	return 0;
+}
+
+static void free_tdx_memory(void)
+{
+	while (!list_empty(&tdx_memlist)) {
+		struct tdx_memblock *tmb = list_first_entry(&tdx_memlist,
+				struct tdx_memblock, list);
+
+		list_del(&tmb->list);
+		kfree(tmb);
+	}
+}
+
+/*
+ * Add all memblock memory regions to the @tdx_memlist as TDX memory.
+ * Must be called when get_online_mems() is called by the caller.
+ */
+static int build_tdx_memory(void)
+{
+	unsigned long start_pfn, end_pfn;
+	int i, nid, ret;
+
+	for_each_mem_pfn_range(i, MAX_NUMNODES, &start_pfn, &end_pfn, &nid) {
+		/*
+		 * The first 1MB may not be reported as TDX convertible
+		 * memory.  Manually exclude them as TDX memory.
+		 *
+		 * This is fine as the first 1MB is already reserved in
+		 * reserve_real_mode() and won't end up to ZONE_DMA as
+		 * free page anyway.
+		 */
+		start_pfn = max(start_pfn, (unsigned long)SZ_1M >> PAGE_SHIFT);
+		if (start_pfn >= end_pfn)
+			continue;
+
+		/* Verify memory is truly TDX convertible memory */
+		if (!pfn_range_covered_by_cmr(start_pfn, end_pfn)) {
+			pr_info("Memory region [0x%lx, 0x%lx) is not TDX convertible memorry.\n",
+					start_pfn << PAGE_SHIFT,
+					end_pfn << PAGE_SHIFT);
+			return -EINVAL;
+		}
+
+		/*
+		 * Add the memory regions as TDX memory.  The regions in
+		 * memblock has already guaranteed they are in address
+		 * ascending order and don't overlap.
+		 */
+		ret = add_tdx_memblock(start_pfn, end_pfn, nid);
+		if (ret)
+			goto err;
+	}
+
+	return 0;
+err:
+	free_tdx_memory();
+	return ret;
+}
+
 /*
  * Detect and initialize the TDX module.
  *
@@ -358,11 +474,55 @@ static int init_tdx_module(void)
 		goto out;
 
 	/*
+	 * All memory regions that can be used by the TDX module must be
+	 * passed to the TDX module during the module initialization.
+	 * Once this is done, all "TDX-usable" memory regions are fixed
+	 * during module's runtime.
+	 *
+	 * The initial support of TDX guests only allocates memory from
+	 * the global page allocator.  To keep things simple, for now
+	 * just make sure all pages in the page allocator are TDX memory.
+	 *
+	 * To achieve this, use all system memory in the core-mm at the
+	 * time of initializing the TDX module as TDX memory, and at the
+	 * meantime, reject any new memory in memory hot-add.
+	 *
+	 * This works as in practice, all boot-time present DIMM is TDX
+	 * convertible memory.  However if any new memory is hot-added
+	 * before initializing the TDX module, the initialization will
+	 * fail due to that memory is not covered by CMR.
+	 *
+	 * This can be enhanced in the future, i.e. by allowing adding or
+	 * onlining non-TDX memory to a separate node, in which case the
+	 * "TDX-capable" nodes and the "non-TDX-capable" nodes can exist
+	 * together -- the userspace/kernel just needs to make sure pages
+	 * for TDX guests must come from those "TDX-capable" nodes.
+	 *
+	 * Build the list of TDX memory regions as mentioned above so
+	 * they can be passed to the TDX module later.
+	 */
+	get_online_mems();
+
+	ret = build_tdx_memory();
+	if (ret)
+		goto out;
+	/*
 	 * Return -EINVAL until all steps of TDX module initialization
 	 * process are done.
 	 */
 	ret = -EINVAL;
 out:
+	/*
+	 * Memory hotplug checks the hot-added memory region against the
+	 * @tdx_memlist to see if the region is TDX memory.
+	 *
+	 * Do put_online_mems() here to make sure any modification to
+	 * @tdx_memlist is done while holding the memory hotplug read
+	 * lock, so that the memory hotplug path can just check the
+	 * @tdx_memlist w/o holding the @tdx_module_lock which may cause
+	 * deadlock.
+	 */
+	put_online_mems();
 	return ret;
 }
 
@@ -485,3 +645,26 @@ int tdx_enable(void)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(tdx_enable);
+
+/*
+ * Check whether the given range is TDX memory.  Must be called between
+ * mem_hotplug_begin()/mem_hotplug_done().
+ */
+bool tdx_cc_memory_compatible(unsigned long start_pfn, unsigned long end_pfn)
+{
+	struct tdx_memblock *tmb;
+
+	/* Empty list means TDX isn't enabled successfully */
+	if (list_empty(&tdx_memlist))
+		return true;
+
+	list_for_each_entry(tmb, &tdx_memlist, list) {
+		/*
+		 * The new range is TDX memory if it is fully covered
+		 * by any TDX memory block.
+		 */
+		if (start_pfn >= tmb->start_pfn && end_pfn <= tmb->end_pfn)
+			return true;
+	}
+	return false;
+}

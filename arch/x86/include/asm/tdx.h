@@ -111,9 +111,12 @@ static inline long tdx_kvm_hypercall(unsigned int nr, unsigned long p1,
 #ifdef CONFIG_INTEL_TDX_HOST
 bool platform_tdx_enabled(void);
 int tdx_enable(void);
+bool tdx_cc_memory_compatible(unsigned long start_pfn, unsigned long end_pfn);
 #else	/* !CONFIG_INTEL_TDX_HOST */
 static inline bool platform_tdx_enabled(void) { return false; }
 static inline int tdx_enable(void)  { return -ENODEV; }
+static inline bool tdx_cc_memory_compatible(unsigned long start_pfn,
+		unsigned long end_pfn) { return true; }
 #endif	/* CONFIG_INTEL_TDX_HOST */
 
 #endif /* !__ASSEMBLY__ */

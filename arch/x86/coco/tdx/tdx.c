@@ -655,7 +655,6 @@ static bool try_accept_one(phys_addr_t *start, unsigned long len,
 {
 	unsigned long accept_size = page_level_size(pg_level);
 	u64 tdcall_rcx;
-	u8 page_size;
 
 	if (!IS_ALIGNED(*start, accept_size))
 		return false;
@@ -663,27 +662,16 @@ static bool try_accept_one(phys_addr_t *start, unsigned long len,
 	if (len < accept_size)
 		return false;
 
+	/* TDX only supports 4K/2M/1G page sizes */
+	if (pg_level < PG_LEVEL_4K || pg_level > PG_LEVEL_1G)
+		return false;
 	/*
 	 * Pass the page physical address to the TDX module to accept the
 	 * pending, private page.
 	 *
 	 * Bits 2:0 of RCX encode page size: 0 - 4K, 1 - 2M, 2 - 1G.
 	 */
-	switch (pg_level) {
-	case PG_LEVEL_4K:
-		page_size = 0;
-		break;
-	case PG_LEVEL_2M:
-		page_size = 1;
-		break;
-	case PG_LEVEL_1G:
-		page_size = 2;
-		break;
-	default:
-		return false;
-	}
-
-	tdcall_rcx = *start | page_size;
+	tdcall_rcx = *start | to_tdx_pg_level(pg_level);
 	if (__tdx_module_call(TDX_ACCEPT_PAGE, tdcall_rcx, 0, 0, 0, NULL))
 		return false;
 

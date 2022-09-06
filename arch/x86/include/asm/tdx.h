@@ -20,6 +20,39 @@
 
 #ifndef __ASSEMBLY__
 
+#include <asm/pgtable_types.h>
+
+/*
+ * The page levels of TDX supported page sizes (4K/2M/1G).
+ *
+ * Those values are part of the TDX module ABI.  Do not change them.
+ */
+enum tdx_pg_level {
+	TDX_PG_LEVEL_4K,
+	TDX_PG_LEVEL_2M,
+	TDX_PG_LEVEL_1G,
+	TDX_PG_LEVEL_NUM
+};
+
+/*
+ * Get the TDX page level based on the kernel page level.  The caller
+ * to make sure only pass 4K/2M/1G kernel page level.
+ */
+static inline enum tdx_pg_level to_tdx_pg_level(enum pg_level pglvl)
+{
+	switch (pglvl) {
+	case PG_LEVEL_4K:
+		return TDX_PG_LEVEL_4K;
+	case PG_LEVEL_2M:
+		return TDX_PG_LEVEL_2M;
+	case PG_LEVEL_1G:
+		return TDX_PG_LEVEL_1G;
+	default:
+		WARN_ON_ONCE(1);
+	}
+	return TDX_PG_LEVEL_NUM;
+}
+
 /*
  * Used to gather the output registers values of the TDCALL and SEAMCALL
  * instructions when requesting services from the TDX module.

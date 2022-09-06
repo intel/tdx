@@ -55,6 +55,7 @@
 #include <asm/uv/uv.h>
 #include <asm/setup.h>
 #include <asm/ftrace.h>
+#include <asm/tdx.h>
 
 #include "mm_internal.h"
 
@@ -967,6 +968,15 @@ int arch_add_memory(int nid, u64 start, u64 size,
 {
 	unsigned long start_pfn = start >> PAGE_SHIFT;
 	unsigned long nr_pages = size >> PAGE_SHIFT;
+
+	/*
+	 * For now if TDX is enabled, all pages in the page allocator
+	 * must be TDX memory, which is a fixed set of memory regions
+	 * that are passed to the TDX module.  Reject the new region
+	 * if it is not TDX memory to guarantee above is true.
+	 */
+	if (!tdx_cc_memory_compatible(start_pfn, start_pfn + nr_pages))
+		return -EINVAL;
 
 	init_memory_mapping(start, start + size, params->pgprot);
 

@@ -65,6 +65,7 @@
 struct io_tlb_slot {
 	phys_addr_t orig_addr;
 	size_t alloc_size;
+	struct list_head node;
 };
 
 static bool swiotlb_force_bounce;
@@ -81,13 +82,13 @@ static unsigned long default_nareas;
  * This is a single area with a single lock.
  *
  * @used:	The number of used IO TLB block.
- * @index:	The slot index to start searching in this area for next round.
+ * @free_slots:	List of free slots.
  * @lock:	The lock to protect the above data structures in the map and
  *		unmap calls.
  */
 struct io_tlb_area {
 	unsigned long used;
-	unsigned int index;
+	struct list_head free_slots;
 	spinlock_t lock;
 };
 
@@ -216,6 +217,7 @@ static void swiotlb_init_io_tlb_mem(struct io_tlb_mem *mem, phys_addr_t start,
 {
 	void *vaddr = phys_to_virt(start);
 	unsigned long bytes = nslabs << IO_TLB_SHIFT, i;
+	int aindex;
 
 	mem->nslabs = nslabs;
 	mem->start = start;
@@ -228,14 +230,17 @@ static void swiotlb_init_io_tlb_mem(struct io_tlb_mem *mem, phys_addr_t start,
 
 	for (i = 0; i < mem->nareas; i++) {
 		spin_lock_init(&mem->areas[i].lock);
-		mem->areas[i].index = 0;
 		mem->areas[i].used = 0;
+		INIT_LIST_HEAD(&mem->areas[i].free_slots);
 	}
 
 	for (i = 0; i < mem->nslabs; i++) {
 		__set_bit(i, mem->bitmap);
 		mem->slots[i].orig_addr = INVALID_PHYS_ADDR;
 		mem->slots[i].alloc_size = 0;
+		aindex = i / mem->area_nslabs;
+		list_add_tail(&mem->slots[i].node,
+			      &mem->areas[aindex].free_slots);
 	}
 
 	memset(vaddr, 0, bytes);
@@ -563,13 +568,6 @@ static inline unsigned long get_max_slots(unsigned long boundary_mask)
 	return nr_slots(boundary_mask + 1);
 }
 
-static unsigned int wrap_area_index(struct io_tlb_mem *mem, unsigned int index)
-{
-	if (index >= mem->area_nslabs)
-		return 0;
-	return index;
-}
-
 /*
  * Track the total used slots with a global atomic value in order to have
  * correct information to determine the high water mark. The mem_used()
@@ -617,32 +615,18 @@ static int swiotlb_do_find_slots(struct device *dev, int area_index,
 	unsigned long boundary_mask = dma_get_seg_boundary(dev);
 	dma_addr_t tbl_dma_addr =
 		phys_to_dma_unencrypted(dev, mem->start) & boundary_mask;
+	dma_addr_t slot_dma_addr;
 	unsigned long max_slots = get_max_slots(boundary_mask);
 	unsigned int iotlb_align_mask =
 		dma_get_min_align_mask(dev) | alloc_align_mask;
-	unsigned int nslots = nr_slots(alloc_size), stride;
+	unsigned int nslots = nr_slots(alloc_size);
+	unsigned int slot_index, i;
 	unsigned int offset = swiotlb_align_offset(dev, orig_addr);
-	unsigned int index, slots_checked, i;
 	unsigned long flags;
-	unsigned int slot_base;
-	unsigned int slot_index;
+	struct io_tlb_slot *slot, *tmp;
 
 	BUG_ON(!nslots);
 	BUG_ON(area_index >= mem->nareas);
-
-	/*
-	 * For allocations of PAGE_SIZE or larger only look for page aligned
-	 * allocations.
-	 */
-	if (alloc_size >= PAGE_SIZE)
-		iotlb_align_mask |= ~PAGE_MASK;
-	iotlb_align_mask &= ~(IO_TLB_SIZE - 1);
-
-	/*
-	 * For mappings with an alignment requirement don't bother looping to
-	 * unaligned slots once we found an aligned one.
-	 */
-	stride = (iotlb_align_mask >> IO_TLB_SHIFT) + 1;
 
 	/* slots shouldn't cross one segment */
 	max_slots = max_t(unsigned long, max_slots, IO_TLB_SEGSIZE);
@@ -651,19 +635,26 @@ static int swiotlb_do_find_slots(struct device *dev, int area_index,
 	if (unlikely(nslots > mem->area_nslabs - area->used))
 		goto not_found;
 
-	slot_base = area_index * mem->area_nslabs;
-	index = area->index;
-
-	for (slots_checked = 0; slots_checked < mem->area_nslabs; ) {
-		slot_index = slot_base + index;
+	list_for_each_entry_safe(slot, tmp, &area->free_slots, node) {
+		slot_index = slot - mem->slots;
+		slot_dma_addr = slot_addr(tbl_dma_addr, slot_index);
 
 		if (orig_addr &&
-		    (slot_addr(tbl_dma_addr, slot_index) &
-		     iotlb_align_mask) != (orig_addr & iotlb_align_mask)) {
-			index = wrap_area_index(mem, index + 1);
-			slots_checked++;
+		    (slot_dma_addr & iotlb_align_mask) !=
+			(orig_addr & iotlb_align_mask)) {
 			continue;
 		}
+
+		/* Ensure requested alignment is met */
+		if (alloc_align_mask && (slot_dma_addr & (alloc_align_mask - 1)))
+			continue;
+
+		/*
+		 * If requested size is larger than a page, ensure allocated
+		 * memory to be page aligned.
+		 */
+		if (alloc_size >= PAGE_SIZE && (slot_dma_addr & ~PAGE_MASK))
+			continue;
 
 		/*
 		 * If we find a slot that indicates we have 'nslots' number of
@@ -677,8 +668,6 @@ static int swiotlb_do_find_slots(struct device *dev, int area_index,
 					       slot_index) == slot_index + nslots)
 				goto found;
 		}
-		index = wrap_area_index(mem, index + stride);
-		slots_checked += stride;
 	}
 
 not_found:
@@ -690,12 +679,8 @@ found:
 		__clear_bit(i, mem->bitmap);
 		mem->slots[i].alloc_size = alloc_size - (offset +
 				((i - slot_index) << IO_TLB_SHIFT));
+		list_del(&mem->slots[i].node);
 	}
-
-	/*
-	 * Update the indices to avoid searching in the next round.
-	 */
-	area->index = wrap_area_index(mem, index + nslots);
 	area->used += nslots;
 	spin_unlock_irqrestore(&area->lock, flags);
 
@@ -809,6 +794,7 @@ static void swiotlb_release_slots(struct device *dev, phys_addr_t tlb_addr)
 		__set_bit(i, mem->bitmap);
 		mem->slots[i].orig_addr = INVALID_PHYS_ADDR;
 		mem->slots[i].alloc_size = 0;
+		list_add(&mem->slots[i].node, &mem->areas[aindex].free_slots);
 	}
 
 	area->used -= nslots;

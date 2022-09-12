@@ -65,7 +65,6 @@
 struct io_tlb_slot {
 	phys_addr_t orig_addr;
 	size_t alloc_size;
-	unsigned int list;
 };
 
 static bool swiotlb_force_bounce;
@@ -189,11 +188,6 @@ void swiotlb_print_info(void)
 	       (mem->nslabs << IO_TLB_SHIFT) >> 20);
 }
 
-static inline unsigned long io_tlb_offset(unsigned long val)
-{
-	return val & (IO_TLB_SEGSIZE - 1);
-}
-
 static inline unsigned long nr_slots(u64 val)
 {
 	return DIV_ROUND_UP(val, IO_TLB_SIZE);
@@ -239,7 +233,7 @@ static void swiotlb_init_io_tlb_mem(struct io_tlb_mem *mem, phys_addr_t start,
 	}
 
 	for (i = 0; i < mem->nslabs; i++) {
-		mem->slots[i].list = IO_TLB_SEGSIZE - io_tlb_offset(i);
+		__set_bit(i, mem->bitmap);
 		mem->slots[i].orig_addr = INVALID_PHYS_ADDR;
 		mem->slots[i].alloc_size = 0;
 	}
@@ -333,6 +327,11 @@ void __init swiotlb_init_remap(bool addressing_limit, unsigned int flags,
 		return;
 	}
 
+	mem->bitmap = memblock_alloc(BITS_TO_BYTES(nslabs), SMP_CACHE_BYTES);
+	if (!mem->bitmap)
+		panic("%s: Failed to allocate %lu bytes align=0x%x\n",
+		      __func__, BITS_TO_BYTES(nslabs), SMP_CACHE_BYTES);
+
 	swiotlb_init_io_tlb_mem(mem, __pa(tlb), nslabs, flags, false,
 				default_nareas);
 
@@ -407,6 +406,10 @@ retry:
 	if (!mem->areas)
 		goto error_area;
 
+	mem->bitmap = bitmap_zalloc(nslabs, GFP_KERNEL);
+	if (!mem->bitmap)
+		goto error_bitmap;
+
 	mem->slots = (void *)__get_free_pages(GFP_KERNEL | __GFP_ZERO,
 		get_order(array_size(sizeof(*mem->slots), nslabs)));
 	if (!mem->slots)
@@ -421,6 +424,8 @@ retry:
 	return 0;
 
 error_slots:
+	bitmap_free(mem->bitmap);
+error_bitmap:
 	free_pages((unsigned long)mem->areas, area_order);
 error_area:
 	free_pages((unsigned long)vstart, order);
@@ -617,7 +622,7 @@ static int swiotlb_do_find_slots(struct device *dev, int area_index,
 		dma_get_min_align_mask(dev) | alloc_align_mask;
 	unsigned int nslots = nr_slots(alloc_size), stride;
 	unsigned int offset = swiotlb_align_offset(dev, orig_addr);
-	unsigned int index, slots_checked, count = 0, i;
+	unsigned int index, slots_checked, i;
 	unsigned long flags;
 	unsigned int slot_base;
 	unsigned int slot_index;
@@ -638,6 +643,9 @@ static int swiotlb_do_find_slots(struct device *dev, int area_index,
 	 * unaligned slots once we found an aligned one.
 	 */
 	stride = (iotlb_align_mask >> IO_TLB_SHIFT) + 1;
+
+	/* slots shouldn't cross one segment */
+	max_slots = max_t(unsigned long, max_slots, IO_TLB_SEGSIZE);
 
 	spin_lock_irqsave(&area->lock, flags);
 	if (unlikely(nslots > mem->area_nslabs - area->used))
@@ -665,7 +673,8 @@ static int swiotlb_do_find_slots(struct device *dev, int area_index,
 		if (!iommu_is_span_boundary(slot_index, nslots,
 					    nr_slots(tbl_dma_addr),
 					    max_slots)) {
-			if (mem->slots[slot_index].list >= nslots)
+			if (find_next_zero_bit(mem->bitmap, slot_index + nslots,
+					       slot_index) == slot_index + nslots)
 				goto found;
 		}
 		index = wrap_area_index(mem, index + stride);
@@ -678,14 +687,10 @@ not_found:
 
 found:
 	for (i = slot_index; i < slot_index + nslots; i++) {
-		mem->slots[i].list = 0;
+		__clear_bit(i, mem->bitmap);
 		mem->slots[i].alloc_size = alloc_size - (offset +
 				((i - slot_index) << IO_TLB_SHIFT));
 	}
-	for (i = slot_index - 1;
-	     io_tlb_offset(i) != IO_TLB_SEGSIZE - 1 &&
-	     mem->slots[i].list; i--)
-		mem->slots[i].list = ++count;
 
 	/*
 	 * Update the indices to avoid searching in the next round.
@@ -791,40 +796,21 @@ static void swiotlb_release_slots(struct device *dev, phys_addr_t tlb_addr)
 	int nslots = nr_slots(mem->slots[index].alloc_size + offset);
 	int aindex = index / mem->area_nslabs;
 	struct io_tlb_area *area = &mem->areas[aindex];
-	int count, i;
+	int i;
 
 	/*
-	 * Return the buffer to the free list by setting the corresponding
-	 * entries to indicate the number of contiguous entries available.
-	 * While returning the entries to the free list, we merge the entries
-	 * with slots below and above the pool being returned.
+	 * Return the slots to swiotlb, updating bitmap to indicate
+	 * corresponding entries are free.
 	 */
 	BUG_ON(aindex >= mem->nareas);
 
 	spin_lock_irqsave(&area->lock, flags);
-	if (index + nslots < ALIGN(index + 1, IO_TLB_SEGSIZE))
-		count = mem->slots[index + nslots].list;
-	else
-		count = 0;
-
-	/*
-	 * Step 1: return the slots to the free list, merging the slots with
-	 * superceeding slots
-	 */
 	for (i = index + nslots - 1; i >= index; i--) {
-		mem->slots[i].list = ++count;
+		__set_bit(i, mem->bitmap);
 		mem->slots[i].orig_addr = INVALID_PHYS_ADDR;
 		mem->slots[i].alloc_size = 0;
 	}
 
-	/*
-	 * Step 2: merge the returned slots with the preceding slots, if
-	 * available (non zero)
-	 */
-	for (i = index - 1;
-	     io_tlb_offset(i) != IO_TLB_SEGSIZE - 1 && mem->slots[i].list;
-	     i--)
-		mem->slots[i].list = ++count;
 	area->used -= nslots;
 	spin_unlock_irqrestore(&area->lock, flags);
 
@@ -1048,7 +1034,10 @@ static int rmem_swiotlb_device_init(struct reserved_mem *rmem,
 			return -ENOMEM;
 
 		mem->slots = kcalloc(nslabs, sizeof(*mem->slots), GFP_KERNEL);
-		if (!mem->slots) {
+		mem->bitmap = bitmap_zalloc(nslabs, GFP_KERNEL);
+		if (!mem->slots || !mem->bitmap) {
+			kfree(mem->slots);
+			bitmap_free(mem->bitmap);
 			kfree(mem);
 			return -ENOMEM;
 		}

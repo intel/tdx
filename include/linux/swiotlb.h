@@ -77,8 +77,6 @@ dma_addr_t swiotlb_map(struct device *dev, phys_addr_t phys,
  *		@end. For default swiotlb, this is command line adjustable via
  *		setup_io_tlb_npages.
  * @used:	The number of used IO TLB block.
- * @list:	The free list describing the number of free entries available
- *		from each index.
  * @orig_addr:	The original address corresponding to a mapped entry.
  * @alloc_size:	Size of the allocated buffer.
  * @debugfs:	The dentry to debugfs.
@@ -92,6 +90,8 @@ dma_addr_t swiotlb_map(struct device *dev, phys_addr_t phys,
  *		debugfs.
  * @used_hiwater: The high water mark for total_used.  Used only for reporting
  *		in debugfs.
+ * @bitmap:	The bitmap used to track free entries. 1 in bit X means the slot
+ * 		indexed by X is free.
  */
 struct io_tlb_mem {
 	phys_addr_t start;
@@ -111,6 +111,7 @@ struct io_tlb_mem {
 	atomic_long_t total_used;
 	atomic_long_t used_hiwater;
 #endif
+	unsigned long *bitmap;
 };
 extern struct io_tlb_mem io_tlb_default_mem;
 

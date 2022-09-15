@@ -933,6 +933,47 @@ static int kvm_init_mmu_notifier(struct kvm *kvm)
 
 #endif /* CONFIG_MMU_NOTIFIER && KVM_ARCH_WANT_MMU_NOTIFIER */
 
+#ifdef CONFIG_HAVE_KVM_PRIVATE_MEM
+#define KVM_MEM_ATTR_SHARED	0x0001
+static int kvm_vm_ioctl_set_mem_attr(struct kvm *kvm, gpa_t gpa, gpa_t size,
+				     bool is_private)
+{
+	gfn_t start, end;
+	unsigned long index;
+	void *entry;
+	int r;
+
+	if (size == 0 || gpa + size < gpa)
+		return -EINVAL;
+	if (gpa & (PAGE_SIZE - 1) || size & (PAGE_SIZE - 1))
+		return -EINVAL;
+
+	start = gpa >> PAGE_SHIFT;
+	end = (gpa + size - 1 + PAGE_SIZE) >> PAGE_SHIFT;
+
+	/*
+	 * Guest memory defaults to private, kvm->mem_attr_array only stores
+	 * shared memory.
+	 */
+	entry = is_private ? NULL : xa_mk_value(KVM_MEM_ATTR_SHARED);
+
+	for (index = start; index < end; index++) {
+		r = xa_err(xa_store(&kvm->mem_attr_array, index, entry,
+				    GFP_KERNEL_ACCOUNT));
+		if (r)
+			goto err;
+	}
+
+	kvm_zap_gfn_range(kvm, start, end);
+
+	return r;
+err:
+	for (; index > start; index--)
+		xa_erase(&kvm->mem_attr_array, index);
+	return r;
+}
+#endif /* CONFIG_HAVE_KVM_PRIVATE_MEM */
+
 #ifdef CONFIG_HAVE_KVM_PM_NOTIFIER
 static int kvm_pm_notifier_call(struct notifier_block *bl,
 				unsigned long state,
@@ -1152,6 +1193,9 @@ static struct kvm *kvm_create_vm(unsigned long type, const char *fdname)
 	spin_lock_init(&kvm->mn_invalidate_lock);
 	rcuwait_init(&kvm->mn_memslots_update_rcuwait);
 	xa_init(&kvm->vcpu_array);
+#ifdef CONFIG_HAVE_KVM_PRIVATE_MEM
+	xa_init(&kvm->mem_attr_array);
+#endif
 
 	INIT_LIST_HEAD(&kvm->gpc_list);
 	spin_lock_init(&kvm->gpc_lock);
@@ -1335,6 +1379,9 @@ static void kvm_destroy_vm(struct kvm *kvm)
 		kvm_free_memslots(kvm, &kvm->__memslots[i][0]);
 		kvm_free_memslots(kvm, &kvm->__memslots[i][1]);
 	}
+#ifdef CONFIG_HAVE_KVM_PRIVATE_MEM
+	xa_destroy(&kvm->mem_attr_array);
+#endif
 	cleanup_srcu_struct(&kvm->irq_srcu);
 	cleanup_srcu_struct(&kvm->srcu);
 	kvm_arch_free_vm(kvm);
@@ -1536,6 +1583,11 @@ static void kvm_replace_memslot(struct kvm *kvm,
 			kvm_erase_gfn_node(slots, old);
 		kvm_insert_gfn_node(slots, new);
 	}
+}
+
+bool __weak kvm_arch_has_private_mem(struct kvm *kvm)
+{
+	return false;
 }
 
 static int check_memory_region_flags(const struct kvm_user_mem_region *mem)
@@ -4700,6 +4752,24 @@ static long kvm_vm_ioctl(struct file *filp,
 		r = kvm_vm_ioctl_set_memory_region(kvm, &mem);
 		break;
 	}
+#ifdef CONFIG_HAVE_KVM_PRIVATE_MEM
+	case KVM_MEMORY_ENCRYPT_REG_REGION:
+	case KVM_MEMORY_ENCRYPT_UNREG_REGION: {
+		struct kvm_enc_region region;
+		bool set = ioctl == KVM_MEMORY_ENCRYPT_REG_REGION;
+
+		if (!kvm_arch_has_private_mem(kvm))
+			goto arch_vm_ioctl;
+
+		r = -EFAULT;
+		if (copy_from_user(&region, argp, sizeof(region)))
+			goto out;
+
+		r = kvm_vm_ioctl_set_mem_attr(kvm, region.addr,
+					      region.size, set);
+		break;
+	}
+#endif
 	case KVM_GET_DIRTY_LOG: {
 		struct kvm_dirty_log log;
 
@@ -4853,6 +4923,9 @@ static long kvm_vm_ioctl(struct file *filp,
 		r = kvm_vm_ioctl_get_stats_fd(kvm);
 		break;
 	default:
+#ifdef CONFIG_HAVE_KVM_PRIVATE_MEM
+arch_vm_ioctl:
+#endif
 		r = kvm_arch_vm_ioctl(filp, ioctl, arg);
 	}
 out:

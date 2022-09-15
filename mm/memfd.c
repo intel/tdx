@@ -261,7 +261,8 @@ long memfd_fcntl(struct file *file, unsigned int cmd, unsigned long arg)
 #define MFD_NAME_PREFIX_LEN (sizeof(MFD_NAME_PREFIX) - 1)
 #define MFD_NAME_MAX_LEN (NAME_MAX - MFD_NAME_PREFIX_LEN)
 
-#define MFD_ALL_FLAGS (MFD_CLOEXEC | MFD_ALLOW_SEALING | MFD_HUGETLB)
+#define MFD_ALL_FLAGS (MFD_CLOEXEC | MFD_ALLOW_SEALING | MFD_HUGETLB | \
+		       MFD_INACCESSIBLE)
 
 SYSCALL_DEFINE2(memfd_create,
 		const char __user *, uname,
@@ -282,6 +283,14 @@ SYSCALL_DEFINE2(memfd_create,
 				(MFD_HUGE_MASK << MFD_HUGE_SHIFT)))
 			return -EINVAL;
 	}
+
+	/* Disallow sealing when MFD_INACCESSIBLE is set. */
+	if ((flags & MFD_INACCESSIBLE) && (flags & MFD_ALLOW_SEALING))
+		return -EINVAL;
+
+	/* TODO: add hugetlb support */
+	if ((flags & MFD_INACCESSIBLE) && (flags & MFD_HUGETLB))
+		return -EINVAL;
 
 	/* length includes terminating zero */
 	len = strnlen_user(uname, MFD_NAME_MAX_LEN + 1);
@@ -331,10 +340,24 @@ SYSCALL_DEFINE2(memfd_create,
 		*file_seals &= ~F_SEAL_SEAL;
 	}
 
+	if (flags & MFD_INACCESSIBLE) {
+		struct file *inaccessible_file;
+
+		inaccessible_file = memfd_mkinaccessible(file);
+		if (IS_ERR(inaccessible_file)) {
+			error = PTR_ERR(inaccessible_file);
+			goto err_file;
+		}
+
+		file = inaccessible_file;
+	}
+
 	fd_install(fd, file);
 	kfree(name);
 	return fd;
 
+err_file:
+	fput(file);
 err_fd:
 	put_unused_fd(fd);
 err_name:

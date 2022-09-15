@@ -2301,6 +2301,30 @@ static inline void kvm_arch_update_mem_attr(struct kvm *kvm, unsigned int attr,
 }
 #endif
 
+static inline int kvm_private_mem_get_pfn(struct kvm_memory_slot *slot,
+					  gfn_t gfn, kvm_pfn_t *pfn, int *order)
+{
+	int ret;
+	pfn_t pfnt;
+	pgoff_t index = gfn - slot->base_gfn +
+			(slot->private_offset >> PAGE_SHIFT);
+
+	ret = inaccessible_get_pfn(slot->private_file, index, &pfnt, order);
+	*pfn = pfn_t_to_pfn(pfnt);
+	return ret;
+}
+
+static inline void kvm_private_mem_put_pfn(struct kvm_memory_slot *slot,
+					   kvm_pfn_t pfn)
+{
+	inaccessible_put_pfn(slot->private_file, pfn_to_pfn_t(pfn));
+}
+
+static inline bool kvm_mem_is_private(struct kvm *kvm, gfn_t gfn)
+{
+	return !xa_load(&kvm->mem_attr_array, gfn);
+}
+
 #endif /* CONFIG_HAVE_KVM_PRIVATE_MEM */
 
 #endif

@@ -934,13 +934,13 @@ static int kvm_init_mmu_notifier(struct kvm *kvm)
 #endif /* CONFIG_MMU_NOTIFIER && KVM_ARCH_WANT_MMU_NOTIFIER */
 
 #ifdef CONFIG_HAVE_KVM_PRIVATE_MEM
-#define KVM_MEM_ATTR_SHARED	0x0001
 static int kvm_vm_ioctl_set_mem_attr(struct kvm *kvm, gpa_t gpa, gpa_t size,
 				     bool is_private)
 {
 	gfn_t start, end;
 	unsigned long index;
 	void *entry;
+	int attr;
 	int r;
 
 	if (size == 0 || gpa + size < gpa)
@@ -955,7 +955,13 @@ static int kvm_vm_ioctl_set_mem_attr(struct kvm *kvm, gpa_t gpa, gpa_t size,
 	 * Guest memory defaults to private, kvm->mem_attr_array only stores
 	 * shared memory.
 	 */
-	entry = is_private ? NULL : xa_mk_value(KVM_MEM_ATTR_SHARED);
+	if (is_private) {
+		attr = KVM_MEM_ATTR_PRIVATE;
+		entry = NULL;
+	} else {
+		attr = KVM_MEM_ATTR_SHARED;
+		entry = xa_mk_value(KVM_MEM_ATTR_SHARED);
+	}
 
 	for (index = start; index < end; index++) {
 		r = xa_err(xa_store(&kvm->mem_attr_array, index, entry,
@@ -965,6 +971,7 @@ static int kvm_vm_ioctl_set_mem_attr(struct kvm *kvm, gpa_t gpa, gpa_t size,
 	}
 
 	kvm_zap_gfn_range(kvm, start, end);
+	kvm_arch_update_mem_attr(kvm, attr, start, end);
 
 	return r;
 err:

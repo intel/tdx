@@ -75,3 +75,6 @@ config HAVE_KVM_PM_NOTIFIER
 
 config HAVE_KVM_OVERRIDE_HARDWARE_ENABLE
 	def_bool n
+
+config HAVE_KVM_PRIVATE_MEM
+       bool

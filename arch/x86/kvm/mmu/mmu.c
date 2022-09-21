@@ -4409,10 +4409,6 @@ static int kvm_tdp_mmu_page_fault(struct kvm_vcpu *vcpu,
 	if (is_page_fault_stale(vcpu, fault))
 		goto out_unlock;
 
-	r = make_mmu_pages_available(vcpu);
-	if (r)
-		goto out_unlock;
-
 	r = kvm_tdp_mmu_map(vcpu, fault);
 
 out_unlock:

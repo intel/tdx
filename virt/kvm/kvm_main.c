@@ -1174,6 +1174,21 @@ int __weak kvm_arch_online_cpu(unsigned int cpu, int usage_count)
 	return ret;
 }
 
+int __weak kvm_arch_offline_cpu(unsigned int cpu, int usage_count)
+{
+	if (usage_count) {
+		/*
+		 * arch callback kvm_arch_hardware_disable() assumes that
+		 * preemption is disabled for historical reason.  Disable
+		 * preemption until all arch callbacks are fixed.
+		 */
+		preempt_disable();
+		hardware_disable_nolock(NULL);
+		preempt_enable();
+	}
+	return 0;
+}
+
 int __weak kvm_arch_reboot(int val)
 {
 	on_each_cpu(hardware_disable_nolock, NULL, 1);
@@ -5137,19 +5152,12 @@ static void hardware_disable_nolock(void *junk)
 
 static int kvm_offline_cpu(unsigned int cpu)
 {
+	int ret;
+
 	mutex_lock(&kvm_lock);
-	if (kvm_usage_count) {
-		/*
-		 * arch callback kvm_arch_hardware_disable() assumes that
-		 * preemption is disabled for historical reason.  Disable
-		 * preemption until all arch callbacks are fixed.
-		 */
-		preempt_disable();
-		hardware_disable_nolock(NULL);
-		preempt_enable();
-	}
+	ret = kvm_arch_offline_cpu(cpu, kvm_usage_count);
 	mutex_unlock(&kvm_lock);
-	return 0;
+	return ret;
 }
 
 static void kvm_del_vm(void)

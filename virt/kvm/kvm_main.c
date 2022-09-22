@@ -1142,6 +1142,38 @@ int __weak kvm_arch_del_vm(int usage_count)
 	return 0;
 }
 
+int __weak kvm_arch_online_cpu(unsigned int cpu, int usage_count)
+{
+	int ret = 0;
+
+	ret = kvm_arch_check_processor_compat();
+	if (ret)
+		return ret;
+
+	/*
+	 * Abort the CPU online process if hardware virtualization cannot
+	 * be enabled. Otherwise running VMs would encounter unrecoverable
+	 * errors when scheduled to this CPU.
+	 */
+	if (usage_count) {
+		WARN_ON_ONCE(atomic_read(&hardware_enable_failed));
+
+		/*
+		 * arch callback kvm_arch_hardware_eanble() assumes that
+		 * preemption is disabled for historical reason.  Disable
+		 * preemption until all arch callbacks are fixed.
+		 */
+		preempt_disable();
+		hardware_enable_nolock(NULL);
+		preempt_enable();
+		if (atomic_read(&hardware_enable_failed)) {
+			atomic_set(&hardware_enable_failed, 0);
+			ret = -EIO;
+		}
+	}
+	return ret;
+}
+
 int __weak kvm_arch_reboot(int val)
 {
 	on_each_cpu(hardware_disable_nolock, NULL, 1);
@@ -5085,32 +5117,8 @@ static int kvm_online_cpu(unsigned int cpu)
 {
 	int ret;
 
-	ret = kvm_arch_check_processor_compat();
-	if (ret)
-		return ret;
-
 	mutex_lock(&kvm_lock);
-	/*
-	 * Abort the CPU online process if hardware virtualization cannot
-	 * be enabled. Otherwise running VMs would encounter unrecoverable
-	 * errors when scheduled to this CPU.
-	 */
-	if (kvm_usage_count) {
-		WARN_ON_ONCE(atomic_read(&hardware_enable_failed));
-
-		/*
-		 * arch callback kvm_arch_hardware_eanble() assumes that
-		 * preemption is disabled for historical reason.  Disable
-		 * preemption until all arch callbacks are fixed.
-		 */
-		preempt_disable();
-		hardware_enable_nolock(NULL);
-		preempt_enable();
-		if (atomic_read(&hardware_enable_failed)) {
-			atomic_set(&hardware_enable_failed, 0);
-			ret = -EIO;
-		}
-	}
+	ret = kvm_arch_online_cpu(cpu, kvm_usage_count);
 	mutex_unlock(&kvm_lock);
 	return ret;
 }

@@ -1434,6 +1434,7 @@ void kvm_arch_create_vcpu_debugfs(struct kvm_vcpu *vcpu, struct dentry *debugfs_
 static inline void kvm_create_vcpu_debugfs(struct kvm_vcpu *vcpu) {}
 #endif
 
+int kvm_arch_online_cpu(unsigned int cpu, int usage_count);
 int kvm_arch_reboot(int val);
 int kvm_arch_suspend(int usage_count);
 void kvm_arch_resume(int usage_count);

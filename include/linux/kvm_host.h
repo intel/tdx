@@ -1435,6 +1435,7 @@ static inline void kvm_create_vcpu_debugfs(struct kvm_vcpu *vcpu) {}
 #endif
 
 int kvm_arch_reboot(int val);
+int kvm_arch_suspend(int usage_count);
 
 int kvm_arch_hardware_enable(void);
 void kvm_arch_hardware_disable(void);

@@ -1148,6 +1148,17 @@ int __weak kvm_arch_reboot(int val)
 	return NOTIFY_OK;
 }
 
+int __weak kvm_arch_suspend(int usage_count)
+{
+	if (usage_count)
+		/*
+		 * Because kvm_suspend() is called with interrupt disabled,  no
+		 * need to disable preemption.
+		 */
+		hardware_disable_nolock(NULL);
+	return 0;
+}
+
 /*
  * Called just after removing the VM from the vm_list, but before doing any
  * other destruction.
@@ -5753,15 +5764,7 @@ static int kvm_suspend(void)
 	 * locking.
 	 */
 	lockdep_assert_not_held(&kvm_lock);
-
-	if (kvm_usage_count) {
-		/*
-		 * Because kvm_suspend() is called with interrupt disabled,  no
-		 * need to disable preemption.
-		 */
-		hardware_disable_nolock(NULL);
-	}
-	return 0;
+	return kvm_arch_suspend(kvm_usage_count);
 }
 
 static void kvm_resume(void)

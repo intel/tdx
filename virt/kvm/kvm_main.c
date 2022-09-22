@@ -1150,6 +1150,12 @@ int __weak kvm_arch_drop_vm(int usage_count)
 	return 0;
 }
 
+int __weak kvm_arch_reboot(int val)
+{
+	on_each_cpu(hardware_disable_nolock, NULL, 1);
+	return NOTIFY_OK;
+}
+
 static int kvm_add_vm(struct kvm *kvm)
 {
 	int r;
@@ -5159,6 +5165,8 @@ static int kvm_offline_cpu(unsigned int cpu)
 static int kvm_reboot(struct notifier_block *notifier, unsigned long val,
 		      void *v)
 {
+	int r;
+
 	/*
 	 * Some (well, at least mine) BIOSes hang on reboot if
 	 * in vmx root mode.
@@ -5167,8 +5175,14 @@ static int kvm_reboot(struct notifier_block *notifier, unsigned long val,
 	 */
 	pr_info("kvm: exiting hardware virtualization\n");
 	kvm_rebooting = true;
-	on_each_cpu(hardware_disable_nolock, NULL, 1);
-	return NOTIFY_OK;
+
+	/* This hook is called without cpuhotplug disabled.  */
+	cpus_read_lock();
+	mutex_lock(&kvm_lock);
+	r = kvm_arch_reboot(val);
+	mutex_unlock(&kvm_lock);
+	cpus_read_unlock();
+	return r;
 }
 
 static struct notifier_block kvm_reboot_notifier = {

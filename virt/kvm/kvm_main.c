@@ -1159,6 +1159,12 @@ int __weak kvm_arch_suspend(int usage_count)
 	return 0;
 }
 
+void __weak kvm_arch_resume(int usage_count)
+{
+	if (usage_count)
+		hardware_enable_nolock(NULL);
+}
+
 /*
  * Called just after removing the VM from the vm_list, but before doing any
  * other destruction.
@@ -5769,10 +5775,8 @@ static int kvm_suspend(void)
 
 static void kvm_resume(void)
 {
-	if (kvm_usage_count) {
-		lockdep_assert_not_held(&kvm_lock);
-		hardware_enable_nolock(NULL);
-	}
+	lockdep_assert_not_held(&kvm_lock);
+	kvm_arch_resume(kvm_usage_count);
 }
 
 static struct syscore_ops kvm_syscore_ops = {

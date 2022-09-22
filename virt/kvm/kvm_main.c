@@ -102,9 +102,7 @@ EXPORT_SYMBOL_GPL(halt_poll_ns_shrink);
 DEFINE_MUTEX(kvm_lock);
 LIST_HEAD(vm_list);
 
-static cpumask_var_t cpus_hardware_enabled;
 static int kvm_usage_count;
-static atomic_t hardware_enable_failed;
 
 static struct kmem_cache *kvm_vcpu_cache;
 
@@ -142,8 +140,6 @@ static int kvm_no_compat_open(struct inode *inode, struct file *file)
 #define KVM_COMPAT(c)	.compat_ioctl	= kvm_no_compat_ioctl,	\
 			.open		= kvm_no_compat_open
 #endif
-static void hardware_enable_nolock(void *junk);
-static void hardware_disable_nolock(void *junk);
 static void kvm_del_vm(void);
 
 static void kvm_io_bus_destroy(struct kvm_io_bus *bus);
@@ -1096,120 +1092,6 @@ static int kvm_create_vm_debugfs(struct kvm *kvm, const char *fdname)
 out_err:
 	kvm_destroy_vm_debugfs(kvm);
 	return ret;
-}
-
-/*
- * Called after the VM is otherwise initialized, but just before adding it to
- * the vm_list.
- */
-int __weak kvm_arch_post_init_vm(struct kvm *kvm)
-{
-	return 0;
-}
-
-/*
- * Called after the VM is otherwise initialized, but just before adding it to
- * the vm_list.
- */
-int __weak kvm_arch_add_vm(struct kvm *kvm, int usage_count)
-{
-	int r = 0;
-
-	if (usage_count != 1)
-		return kvm_arch_post_init_vm(kvm);
-
-	atomic_set(&hardware_enable_failed, 0);
-	on_each_cpu(hardware_enable_nolock, NULL, 1);
-
-	if (atomic_read(&hardware_enable_failed)) {
-		r = -EBUSY;
-		goto err;
-	}
-
-	r = kvm_arch_post_init_vm(kvm);
-err:
-	if (r)
-		on_each_cpu(hardware_disable_nolock, NULL, 1);
-	return r;
-}
-
-int __weak kvm_arch_del_vm(int usage_count)
-{
-	if (usage_count)
-		return 0;
-
-	on_each_cpu(hardware_disable_nolock, NULL, 1);
-	return 0;
-}
-
-int __weak kvm_arch_online_cpu(unsigned int cpu, int usage_count)
-{
-	int ret = 0;
-
-	ret = kvm_arch_check_processor_compat();
-	if (ret)
-		return ret;
-
-	/*
-	 * Abort the CPU online process if hardware virtualization cannot
-	 * be enabled. Otherwise running VMs would encounter unrecoverable
-	 * errors when scheduled to this CPU.
-	 */
-	if (usage_count) {
-		WARN_ON_ONCE(atomic_read(&hardware_enable_failed));
-
-		/*
-		 * arch callback kvm_arch_hardware_eanble() assumes that
-		 * preemption is disabled for historical reason.  Disable
-		 * preemption until all arch callbacks are fixed.
-		 */
-		preempt_disable();
-		hardware_enable_nolock(NULL);
-		preempt_enable();
-		if (atomic_read(&hardware_enable_failed)) {
-			atomic_set(&hardware_enable_failed, 0);
-			ret = -EIO;
-		}
-	}
-	return ret;
-}
-
-int __weak kvm_arch_offline_cpu(unsigned int cpu, int usage_count)
-{
-	if (usage_count) {
-		/*
-		 * arch callback kvm_arch_hardware_disable() assumes that
-		 * preemption is disabled for historical reason.  Disable
-		 * preemption until all arch callbacks are fixed.
-		 */
-		preempt_disable();
-		hardware_disable_nolock(NULL);
-		preempt_enable();
-	}
-	return 0;
-}
-
-int __weak kvm_arch_reboot(int val)
-{
-	on_each_cpu(hardware_disable_nolock, NULL, 1);
-	return NOTIFY_OK;
-}
-
-int __weak kvm_arch_suspend(int usage_count)
-{
-	if (usage_count)
-		/*
-		 * Because kvm_suspend() is called with interrupt disabled,  no
-		 * need to disable preemption.
-		 */
-		hardware_disable_nolock(NULL);
-	return 0;
-}
-
-void __weak kvm_arch_resume(int usage_count)
-{
-	if (usage_count)
-		hardware_enable_nolock(NULL);
 }
 
 /*
@@ -5106,28 +4988,6 @@ static struct miscdevice kvm_dev = {
 	&kvm_chardev_ops,
 };
 
-static void hardware_enable_nolock(void *junk)
-{
-	int cpu = raw_smp_processor_id();
-	int r;
-
-	WARN_ON_ONCE(preemptible());
-
-	if (cpumask_test_cpu(cpu, cpus_hardware_enabled))
-		return;
-
-	cpumask_set_cpu(cpu, cpus_hardware_enabled);
-
-	r = kvm_arch_hardware_enable();
-
-	if (r) {
-		cpumask_clear_cpu(cpu, cpus_hardware_enabled);
-		atomic_inc(&hardware_enable_failed);
-		pr_warn("kvm: enabling virtualization on CPU%d failed during %pSb\n",
-			cpu, __builtin_return_address(0));
-	}
-}
-
 static int kvm_online_cpu(unsigned int cpu)
 {
 	int ret;
@@ -5136,18 +4996,6 @@ static int kvm_online_cpu(unsigned int cpu)
 	ret = kvm_arch_online_cpu(cpu, kvm_usage_count);
 	mutex_unlock(&kvm_lock);
 	return ret;
-}
-
-static void hardware_disable_nolock(void *junk)
-{
-	int cpu = raw_smp_processor_id();
-
-	WARN_ON_ONCE(preemptible());
-
-	if (!cpumask_test_cpu(cpu, cpus_hardware_enabled))
-		return;
-	cpumask_clear_cpu(cpu, cpus_hardware_enabled);
-	kvm_arch_hardware_disable();
 }
 
 static int kvm_offline_cpu(unsigned int cpu)
@@ -5930,11 +5778,6 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
 	if (r)
 		goto out_irqfd;
 
-	if (!zalloc_cpumask_var(&cpus_hardware_enabled, GFP_KERNEL)) {
-		r = -ENOMEM;
-		goto out_free_0;
-	}
-
 	r = kvm_arch_hardware_setup(opaque);
 	if (r < 0)
 		goto out_free_1;
@@ -6011,8 +5854,6 @@ out_free_3:
 out_free_2:
 	kvm_arch_hardware_unsetup();
 out_free_1:
-	free_cpumask_var(cpus_hardware_enabled);
-out_free_0:
 	kvm_irqfd_exit();
 out_irqfd:
 	kvm_arch_exit();
@@ -6038,7 +5879,6 @@ void kvm_exit(void)
 	kvm_arch_hardware_unsetup();
 	kvm_arch_exit();
 	kvm_irqfd_exit();
-	free_cpumask_var(cpus_hardware_enabled);
 	kvm_vfio_ops_exit();
 }
 EXPORT_SYMBOL_GPL(kvm_exit);

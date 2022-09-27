@@ -995,17 +995,37 @@ static int tdmr_set_up_rsvd_areas(struct tdmr_info *tdmr,
 			continue;
 		}
 
-		/* Add the hole before this region */
-		ret = tdmr_add_rsvd_area(tdmr, &rsvd_idx, prev_end,
+		/*
+		 * Add the memory hole before this region.
+		 *
+		 * Although it's very rare, it's possible that the BIOS
+		 * could pass a e820 table to the kernel with many
+		 * discrete memory regions in the first 1G or 2G region
+		 * (i.e. caused by ACPI data/code).  In such case, one
+		 * TDMR could end up with having more than 16 reserved
+		 * areas, resulting fail to initializing the TDX module.
+		 *
+		 * To resolve, only include non-CMR memory holes into the
+		 * reserved areas.
+		 */
+		if (!range_covered_by_cmr(tdx_cmr_array, tdx_cmr_num,
+					prev_end, start)) {
+			ret = tdmr_add_rsvd_area(tdmr, &rsvd_idx, prev_end,
 				start - prev_end);
-		if (ret)
-			return ret;
+			if (ret)
+				return ret;
+		}
 
 		prev_end = end;
 	}
 
-	/* Add the hole after the last region if it exists. */
-	if (prev_end < tdmr_end(tdmr)) {
+	/*
+	 * Add the hole after the last region if it exists, but only
+	 * add when the hole is a non-CMR hole.
+	 */
+	if ((prev_end < tdmr_end(tdmr)) &&
+			!range_covered_by_cmr(tdx_cmr_array, tdx_cmr_num,
+				prev_end,  tdmr_end(tdmr))) {
 		ret = tdmr_add_rsvd_area(tdmr, &rsvd_idx, prev_end,
 				tdmr_end(tdmr) - prev_end);
 		if (ret)

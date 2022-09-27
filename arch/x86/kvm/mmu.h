@@ -215,6 +215,11 @@ static inline u8 permission_fault(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu,
 	return -(u32)fault & errcode;
 }
 
+#ifdef CONFIG_INTEL_TDX_HOST
+int kvm_tdp_mmu_is_page_private(struct kvm *kvm, struct kvm_memory_slot *memslot,
+				gfn_t gfn, bool *is_private);
+#endif
+
 int kvm_arch_write_log_dirty(struct kvm_vcpu *vcpu);
 
 int __kvm_mmu_map_gpa(struct kvm *kvm, gfn_t *startp, gfn_t end,

@@ -6954,55 +6954,85 @@ void kvm_mmu_pre_destroy_vm(struct kvm *kvm)
 		kthread_stop(kvm->arch.nx_lpage_recovery_thread);
 }
 
-static bool mem_attr_is_mixed(struct kvm *kvm, unsigned int attr,
-			      gfn_t start, gfn_t end)
+bool kvm_mem_attr_is_mixed(struct kvm_memory_slot *slot, gfn_t gfn, int level)
+{
+	gfn_t pages = KVM_PAGES_PER_HPAGE(level);
+	gfn_t mask = ~(pages - 1);
+	struct kvm_lpage_info *linfo = lpage_info_slot(gfn & mask, slot, level);
+
+	WARN_ON_ONCE(level == PG_LEVEL_4K);
+	return linfo->disallow_lpage & KVM_LPAGE_PRIVATE_SHARED_MIXED;
+}
+
+static void update_mixed(struct kvm_lpage_info *linfo, bool mixed)
+{
+	if (mixed)
+		linfo->disallow_lpage |= KVM_LPAGE_PRIVATE_SHARED_MIXED;
+	else
+		linfo->disallow_lpage &= ~KVM_LPAGE_PRIVATE_SHARED_MIXED;
+}
+
+static bool __mem_attr_is_mixed(struct kvm *kvm, gfn_t start, gfn_t end)
 {
 	XA_STATE(xas, &kvm->mem_attr_array, start);
-	gfn_t gfn = start;
-	void *entry;
-	bool shared, private;
 	bool mixed = false;
-
-	if (attr == KVM_MEM_ATTR_SHARED) {
-		shared = true;
-		private = false;
-	} else {
-		shared = false;
-		private = true;
-	}
+	gfn_t gfn = start;
+	void *s_entry;
+	void *entry;
 
 	rcu_read_lock();
-	entry = xas_load(&xas);
+	s_entry = xas_load(&xas);
+	entry = s_entry;
 	while (gfn < end) {
 		if (xas_retry(&xas, entry))
 			continue;
 
 		KVM_BUG_ON(gfn != xas.xa_index, kvm);
 
-		if (entry)
-			private = true;
-		else
-			shared = true;
-
-		if (private && shared) {
-			mixed = true;
-			goto out;
-		}
-
 		entry = xas_next(&xas);
+		if (entry != s_entry) {
+			mixed = true;
+			break;
+		}
 		gfn++;
 	}
-out:
 	rcu_read_unlock();
 	return mixed;
 }
 
-static inline void update_mixed(struct kvm_lpage_info *linfo, bool mixed)
+static bool mem_attr_is_mixed(struct kvm *kvm,
+			      struct kvm_memory_slot *slot, int level,
+			      gfn_t start, gfn_t end)
 {
-	if (mixed)
-		linfo->disallow_lpage |= KVM_LPAGE_PRIVATE_SHARED_MIXED;
-	else
-		linfo->disallow_lpage &= ~KVM_LPAGE_PRIVATE_SHARED_MIXED;
+	struct kvm_lpage_info *child_linfo;
+	unsigned long child_pages;
+	bool mixed = false;
+	unsigned long gfn;
+	void *entry;
+
+	if (WARN_ON_ONCE(level == PG_LEVEL_4K))
+		return false;
+
+	if (level == PG_LEVEL_2M)
+		return __mem_attr_is_mixed(kvm, start, end);
+
+	/* This assumes that level - 1 is already updated. */
+	rcu_read_lock();
+	child_pages = KVM_PAGES_PER_HPAGE(level - 1);
+	entry = xa_load(&kvm->mem_attr_array, start);
+	for (gfn = start; gfn < end; gfn += child_pages) {
+		child_linfo = lpage_info_slot(gfn, slot, level - 1);
+		if (child_linfo->disallow_lpage & KVM_LPAGE_PRIVATE_SHARED_MIXED) {
+			mixed = true;
+			break;
+		}
+		if (xa_load(&kvm->mem_attr_array, gfn) != entry) {
+			mixed = true;
+			break;
+		}
+	}
+	rcu_read_unlock();
+	return mixed;
 }
 
 static void update_mem_lpage_info(struct kvm *kvm,
@@ -7025,8 +7055,8 @@ static void update_mem_lpage_info(struct kvm *kvm,
 		 * we know they are not mixed.
 		 */
 		update_mixed(lpage_info_slot(lpage_start, slot, level),
-			     mem_attr_is_mixed(kvm, attr, lpage_start,
-							  lpage_start + pages));
+			     mem_attr_is_mixed(kvm, slot, level,
+					       lpage_start, lpage_start + pages));
 
 		if (lpage_start == lpage_end)
 			return;
@@ -7035,8 +7065,8 @@ static void update_mem_lpage_info(struct kvm *kvm,
 			update_mixed(lpage_info_slot(gfn, slot, level), false);
 
 		update_mixed(lpage_info_slot(lpage_end, slot, level),
-			     mem_attr_is_mixed(kvm, attr, lpage_end,
-							  lpage_end + pages));
+			     mem_attr_is_mixed(kvm, slot, level,
+					       lpage_end, lpage_end + pages));
 	}
 }
 
@@ -7046,11 +7076,13 @@ void kvm_arch_update_mem_attr(struct kvm *kvm, unsigned int attr,
 	struct kvm_memory_slot *slot;
 	struct kvm_memslots *slots;
 	struct kvm_memslot_iter iter;
+	int idx;
 	int i;
 
 	WARN_ONCE(!(attr & (KVM_MEM_ATTR_PRIVATE | KVM_MEM_ATTR_SHARED)),
 			"Unsupported mem attribute.\n");
 
+	idx = srcu_read_lock(&kvm->srcu);
 	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++) {
 		slots = __kvm_memslots(kvm, i);
 
@@ -7064,4 +7096,5 @@ void kvm_arch_update_mem_attr(struct kvm *kvm, unsigned int attr,
 			update_mem_lpage_info(kvm, slot, attr, start, end);
 		}
 	}
+	srcu_read_unlock(&kvm->srcu, idx);
 }

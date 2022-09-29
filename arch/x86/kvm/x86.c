@@ -3650,7 +3650,7 @@ int kvm_set_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		break;
 	}
 	case MSR_IA32_SMBASE:
-		if (!msr_info->host_initiated)
+		if (!IS_ENABLED(CONFIG_KVM_SMM) || !msr_info->host_initiated)
 			return 1;
 		vcpu->arch.smbase = data;
 		break;
@@ -4066,7 +4066,7 @@ int kvm_get_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		msr_info->data = vcpu->arch.ia32_misc_enable_msr;
 		break;
 	case MSR_IA32_SMBASE:
-		if (!msr_info->host_initiated)
+		if (!IS_ENABLED(CONFIG_KVM_SMM) || !msr_info->host_initiated)
 			return 1;
 		msr_info->data = vcpu->arch.smbase;
 		break;
@@ -4440,6 +4440,9 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 			r |= KVM_X86_DISABLE_EXITS_MWAIT;
 		break;
 	case KVM_CAP_X86_SMM:
+		if (!IS_ENABLED(CONFIG_KVM_SMM))
+			break;
+
 		/* SMBASE is usually relocated above 1M on modern chipsets,
 		 * and SMM handlers might indeed rely on 4G segment limits,
 		 * so do not report SMM to be available if real mode is
@@ -5190,6 +5193,7 @@ static int kvm_vcpu_ioctl_x86_set_vcpu_events(struct kvm_vcpu *vcpu,
 		vcpu->arch.apic->sipi_vector = events->sipi_vector;
 
 	if (events->flags & KVM_VCPUEVENT_VALID_SMM) {
+#ifdef CONFIG_KVM_SMM
 		if (!!(vcpu->arch.hflags & HF_SMM_MASK) != events->smi.smm) {
 			kvm_leave_nested(vcpu);
 			kvm_smm_changed(vcpu, events->smi.smm);
@@ -5203,6 +5207,12 @@ static int kvm_vcpu_ioctl_x86_set_vcpu_events(struct kvm_vcpu *vcpu,
 			else
 				vcpu->arch.hflags &= ~HF_SMM_INSIDE_NMI_MASK;
 		}
+
+#else
+		if (events->smi.smm || events->smi.pending ||
+		    events->smi.smm_inside_nmi)
+			return -EINVAL;
+#endif
 
 		if (lapic_in_kernel(vcpu)) {
 			if (events->smi.latched_init)
@@ -8128,6 +8138,14 @@ static unsigned emulator_get_hflags(struct x86_emulate_ctxt *ctxt)
 {
 	return emul_to_vcpu(ctxt)->arch.hflags;
 }
+
+#ifndef CONFIG_KVM_SMM
+static int emulator_leave_smm(struct x86_emulate_ctxt *ctxt)
+{
+	WARN_ON_ONCE(1);
+	return X86EMUL_UNHANDLEABLE;
+}
+#endif
 
 static void emulator_triple_fault(struct x86_emulate_ctxt *ctxt)
 {

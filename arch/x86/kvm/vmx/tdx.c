@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/cpu.h>
+#include <linux/suspend.h>
 
 #include <asm/tdx.h>
 
@@ -42,6 +43,7 @@ static struct tdx_capabilities tdx_caps;
  */
 static DEFINE_MUTEX(tdx_lock);
 static struct mutex *tdx_mng_key_config_lock;
+static atomic_t nr_configured_hkid;
 
 static __always_inline hpa_t set_hkid_to_hpa(hpa_t pa, u16 hkid)
 {
@@ -222,7 +224,8 @@ void tdx_mmu_release_hkid(struct kvm *kvm)
 		pr_err("tdh_mng_key_freeid failed. HKID %d is leaked.\n",
 			kvm_tdx->hkid);
 		return;
-	}
+	} else
+		atomic_dec(&nr_configured_hkid);
 
 free_hkid:
 	tdx_hkid_free(kvm_tdx);
@@ -371,6 +374,8 @@ int tdx_vm_init(struct kvm *kvm)
 		if (ret)
 			break;
 	}
+	if (!ret)
+		atomic_inc(&nr_configured_hkid);
 	cpus_read_unlock();
 	free_cpumask_var(packages);
 	if (ret)
@@ -513,4 +518,42 @@ void tdx_hardware_unsetup(void)
 {
 	/* kfree accepts NULL. */
 	kfree(tdx_mng_key_config_lock);
+}
+
+int tdx_offline_cpu(void)
+{
+	int curr_cpu = smp_processor_id();
+	cpumask_var_t packages;
+	int ret = 0;
+	int i;
+
+	if (!atomic_read(&nr_configured_hkid))
+		return 0;
+
+	/* ACPI S1.  The PM layer will online CPU after resume. */
+	if (pm_suspend_target_state == PM_SUSPEND_STANDBY)
+		return 0;
+
+	/*
+	 * To reclaim hkid, need to call TDH.PHYMEM.PAGE.WBINVD on all packages.
+	 * If this is the last online cpu on the package, refuse offline.
+	 */
+	if (!zalloc_cpumask_var(&packages, GFP_KERNEL))
+		return -ENOMEM;
+
+	for_each_online_cpu(i) {
+		if (i != curr_cpu)
+			cpumask_set_cpu(topology_physical_package_id(i), packages);
+	}
+	if (!cpumask_test_cpu(topology_physical_package_id(curr_cpu), packages))
+		ret = -EBUSY;
+	free_cpumask_var(packages);
+	if (ret)
+		/*
+		 * Because it's hard for human operator to understand the
+		 * reason, warn it.
+		 */
+		pr_warn("TDX requires all packages to have an online CPU.  "
+			"Delete all TDs in order to offline all CPUs of a package.\n");
+	return ret;
 }

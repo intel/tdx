@@ -12062,16 +12062,23 @@ int kvm_arch_online_cpu(unsigned int cpu, int usage_count)
 
 int kvm_arch_offline_cpu(unsigned int cpu, int usage_count)
 {
-	if (usage_count) {
-		/*
-		 * arch callback kvm_arch_hardware_disable() assumes that
-		 * preemption is disabled for historical reason.  Disable
-		 * preemption until all arch callbacks are fixed.
-		 */
-		preempt_disable();
-		hardware_disable(NULL);
-		preempt_enable();
-	}
+	int ret;
+
+	if (!usage_count)
+		return 0;
+
+	ret = static_call(kvm_x86_offline_cpu)();
+	if (ret)
+		return ret;
+
+	/*
+	 * arch callback kvm_arch_hardware_disable() assumes that preemption is
+	 * disabled for historical reason.  Disable preemption until all arch
+	 * callbacks are fixed.
+	 */
+	preempt_disable();
+	hardware_disable(NULL);
+	preempt_enable();
 	return 0;
 }
 

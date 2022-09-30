@@ -67,6 +67,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.name = "kvm_intel",
 
 	.hardware_unsetup = vt_hardware_unsetup,
+	.offline_cpu = tdx_offline_cpu,
 	.check_processor_compatibility = vmx_check_processor_compatibility,
 
 	.hardware_enable = vmx_hardware_enable,

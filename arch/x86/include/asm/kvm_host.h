@@ -1202,6 +1202,17 @@ enum kvm_apicv_inhibit {
 	 * AVIC is disabled because SEV doesn't support it.
 	 */
 	APICV_INHIBIT_REASON_SEV,
+
+	/*
+	 * Due to sharing page tables across vCPUs, the xAPIC memslot must be
+	 * deleted if any vCPU has x2APIC enabled as SVM doesn't provide fully
+	 * independent controls for AVIC vs. x2AVIC, and also because SVM
+	 * supports a "hybrid" AVIC mode for CPUs that support AVIC but not
+	 * x2AVIC.  Note, this isn't a "full" inhibit and is tracked separately.
+	 * AVIC can still be activated, but KVM must not create SPTEs for the
+	 * APIC base.  For simplicity, this is sticky.
+	 */
+	APICV_INHIBIT_REASON_X2APIC,
 };
 
 struct kvm_arch {
@@ -1250,10 +1261,11 @@ struct kvm_arch {
 	struct kvm_apic_map __rcu *apic_map;
 	atomic_t apic_map_dirty;
 
-	/* Protects apic_access_memslot_enabled and apicv_inhibit_reasons */
-	struct rw_semaphore apicv_update_lock;
-
 	bool apic_access_memslot_enabled;
+	bool apic_access_memslot_inhibited;
+
+	/* Protects apicv_inhibit_reasons */
+	struct rw_semaphore apicv_update_lock;
 	unsigned long apicv_inhibit_reasons;
 
 	gpa_t wall_clock;
@@ -1974,7 +1986,7 @@ gpa_t kvm_mmu_gva_to_gpa_system(struct kvm_vcpu *vcpu, gva_t gva,
 
 bool kvm_apicv_activated(struct kvm *kvm);
 bool kvm_vcpu_apicv_activated(struct kvm_vcpu *vcpu);
-void kvm_vcpu_update_apicv(struct kvm_vcpu *vcpu);
+void __kvm_vcpu_update_apicv(struct kvm_vcpu *vcpu);
 void __kvm_set_or_clear_apicv_inhibit(struct kvm *kvm,
 				      enum kvm_apicv_inhibit reason, bool set);
 void kvm_set_or_clear_apicv_inhibit(struct kvm *kvm,

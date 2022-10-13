@@ -71,6 +71,14 @@ tdp_ptep_t spte_to_child_pt(u64 spte, int level)
 	return (tdp_ptep_t)__va(spte_to_pfn(spte) << PAGE_SHIFT);
 }
 
+static void step_down(struct tdp_iter *iter, tdp_ptep_t child_pt)
+{
+	iter->level--;
+	iter->pt_path[iter->level - 1] = child_pt;
+	iter->gfn = gfn_round_for_level(iter->next_last_level_gfn, iter->level);
+	tdp_iter_refresh_sptep(iter);
+}
+
 /*
  * Steps down one level in the paging structure towards the goal GFN. Returns
  * true if the iterator was able to step down a level, false otherwise.
@@ -92,12 +100,26 @@ static bool try_step_down(struct tdp_iter *iter)
 	if (!child_pt)
 		return false;
 
-	iter->level--;
-	iter->pt_path[iter->level - 1] = child_pt;
-	iter->gfn = gfn_round_for_level(iter->next_last_level_gfn, iter->level);
-	tdp_iter_refresh_sptep(iter);
-
+	step_down(iter, child_pt);
 	return true;
+}
+
+/* Steps down for frozen spte.  Don't re-read sptep because it was frozen. */
+void tdp_iter_step_down(struct tdp_iter *iter, tdp_ptep_t child_pt)
+{
+	WARN_ON_ONCE(!child_pt);
+	WARN_ON_ONCE(iter->yielded);
+	WARN_ON_ONCE(iter->level == iter->min_level);
+
+	step_down(iter, child_pt);
+}
+
+void tdp_iter_step_side(struct tdp_iter *iter)
+{
+	iter->gfn += KVM_PAGES_PER_HPAGE(iter->level);
+	iter->next_last_level_gfn = iter->gfn;
+	iter->sptep++;
+	iter->old_spte = kvm_tdp_mmu_read_spte(iter->sptep);
 }
 
 /*
@@ -117,10 +139,7 @@ static bool try_step_side(struct tdp_iter *iter)
 	    (SPTE_ENT_PER_PAGE - 1))
 		return false;
 
-	iter->gfn += KVM_PAGES_PER_HPAGE(iter->level);
-	iter->next_last_level_gfn = iter->gfn;
-	iter->sptep++;
-	iter->old_spte = kvm_tdp_mmu_read_spte(iter->sptep);
+	tdp_iter_step_side(iter);
 
 	return true;
 }

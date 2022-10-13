@@ -639,6 +639,10 @@ static int __must_check handle_changed_private_spte(struct kvm *kvm, gfn_t gfn,
 		void *private_spt;
 
 		if (level > PG_LEVEL_4K && was_leaf && !is_leaf) {
+			/*
+			 * splitting large page into 4KB.
+			 * tdp_mmu_split_huage_page() => tdp_mmu_link_sp()
+			 */
 			private_spt = get_private_spt(gfn, new_spte, level);
 			KVM_BUG_ON(!private_spt, kvm);
 			ret = static_call(kvm_x86_zap_private_spte)(kvm, gfn, level);
@@ -915,6 +919,13 @@ static inline int __must_check tdp_mmu_set_spte_atomic(struct kvm *kvm,
 	return ret;
 }
 
+static u64 __private_zapped_spte(u64 old_spte)
+{
+	return SHADOW_NONPRESENT_VALUE | SPTE_PRIVATE_ZAPPED |
+		(spte_to_pfn(old_spte) << PAGE_SHIFT) |
+		(is_large_pte(old_spte) ? PT_PAGE_SIZE_MASK : 0);
+}
+
 static u64 private_zapped_spte(struct kvm *kvm, const struct tdp_iter *iter)
 {
 	if (!kvm_gfn_shared_mask(kvm))
@@ -923,9 +934,7 @@ static u64 private_zapped_spte(struct kvm *kvm, const struct tdp_iter *iter)
 	if (!is_private_sptep(iter->sptep))
 		return SHADOW_NONPRESENT_VALUE;
 
-	return SHADOW_NONPRESENT_VALUE | SPTE_PRIVATE_ZAPPED |
-		(spte_to_pfn(iter->old_spte) << PAGE_SHIFT) |
-		(is_large_pte(iter->old_spte) ? PT_PAGE_SIZE_MASK : 0);
+	return __private_zapped_spte(iter->old_spte);
 }
 
 static inline int __must_check tdp_mmu_zap_spte_atomic(struct kvm *kvm,
@@ -1432,6 +1441,130 @@ void kvm_tdp_mmu_invalidate_all_roots(struct kvm *kvm)
 	}
 }
 
+static int tdp_mmu_merge_private_spt(struct kvm_vcpu *vcpu,
+				     struct kvm_page_fault *fault,
+				     struct tdp_iter *iter, u64 new_spte)
+{
+	u64 *sptep = rcu_dereference(iter->sptep);
+	struct kvm_mmu_page *child_sp;
+	struct kvm *kvm = vcpu->kvm;
+	bool unzap_retry = false;
+	int level = iter->level;
+	gfn_t gfn = iter->gfn;
+	u64 old_spte = *sptep;
+	tdp_ptep_t child_pt;
+	u64 child_spte;
+	int ret;
+	int i;
+
+	/*
+	 * TDX KVM supports only 2MB large page.  It's not supported to merge
+	 * 2MB pages into 1GB page at the moment.
+	 */
+	WARN_ON_ONCE(fault->goal_level != PG_LEVEL_2M);
+	WARN_ON_ONCE(iter->level != PG_LEVEL_2M);
+
+	/* Freeze the spte to prevent other threads from working spte. */
+	if (!try_cmpxchg64(sptep, &iter->old_spte, REMOVED_SPTE))
+		return -EBUSY;
+
+	/* Prevent the Secure-EPT entry from being used. */
+	ret = static_call(kvm_x86_zap_private_spte)(kvm, gfn, level);
+	if (ret)
+		goto out;
+	kvm_flush_remote_tlbs_with_address(kvm, gfn, KVM_PAGES_PER_HPAGE(level));
+
+	/*
+	 * All child pages are required to be populated for merging them into a
+	 * large page.  Populate all child spte.
+	 */
+	child_pt = spte_to_child_pt(iter->old_spte, iter->level);
+	child_sp = sptep_to_sp(child_pt);
+	unzap_retry = false;
+	/* Step down to spte. */
+	tdp_iter_next(iter);
+	for (i = 0; i < SPTE_ENT_PER_PAGE; i++, tdp_iter_next(iter)) {
+		WARN_ON_ONCE(iter->level != PG_LEVEL_4K);
+		if (is_shadow_present_pte(iter->old_spte)) {
+			/* TODO: relocate page for huge page. */
+			WARN_ON_ONCE(spte_to_pfn(iter->old_spte) != spte_to_pfn(new_spte) + i);
+			continue;
+		}
+
+		WARN_ON_ONCE(is_private_zapped_spte(old_spte) &&
+			     spte_to_pfn(iter->old_spte) != spte_to_pfn(new_spte) + i);
+		child_spte = make_huge_page_split_spte(kvm, new_spte, child_sp->role, i);
+		/*
+		 * Because other thread may have started to operate on this spte
+		 * before freezing parent spte,  Use atomic version to prevent
+		 * race.
+		 */
+		ret = tdp_mmu_set_spte_atomic(vcpu->kvm, iter, child_spte);
+		if (ret == -EBUSY || ret == -EAGAIN)
+			/*
+			 * There was a race condition.  Populate remaining 4K
+			 * spte to resolve fault->gfn to guarantee the forward
+			 * progress.
+			 */
+			unzap_retry = true;
+		else if (ret)
+			goto unzap;
+	}
+	if (unzap_retry) {
+		ret = RET_PF_RETRY;
+		goto unzap;
+	}
+
+	/* Merge pages into a large page. */
+	ret = static_call(kvm_x86_merge_private_spt)(kvm, gfn, level,
+						     kvm_mmu_private_spt(child_sp));
+	/*
+	 * Failed to merge pages because some pages are accepted and some are
+	 * pending.  Since the child page was mapped above, let vcpu run.
+	 */
+	if (ret == -EAGAIN)
+		ret = RET_PF_RETRY;
+	if (ret)
+		goto unzap;
+
+	/* Unfreeze spte. */
+	__kvm_tdp_mmu_write_spte(sptep, new_spte);
+
+	/*
+	 * Free unused child sp.  Secure-EPT page was already freed at TDX level
+	 * by kvm_x86_merge_private_spt().
+	 */
+	tdp_mmu_free_sp(child_sp);
+	return RET_PF_RETRY;
+
+unzap:
+	if (static_call(kvm_x86_unzap_private_spte)(kvm, gfn, level))
+		old_spte = __private_zapped_spte(old_spte);
+out:
+	__kvm_tdp_mmu_write_spte(sptep, old_spte);
+	return ret;
+}
+
+static int __tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
+					     struct kvm_page_fault *fault,
+					     struct tdp_iter *iter, u64 new_spte)
+{
+	/*
+	 * The private page has smaller-size pages.  For example, the child
+	 * pages was converted from shared to page, and now it can be mapped as
+	 * a large page.  Try to merge small pages into a large page.
+	 */
+	if (fault->slot &&
+	    kvm_gfn_shared_mask(vcpu->kvm) &&
+	    iter->level > PG_LEVEL_4K &&
+	    kvm_is_private_gpa(vcpu->kvm, gfn_to_gpa(fault->gfn)) &&
+	    is_shadow_present_pte(iter->old_spte) &&
+	    !is_large_pte(iter->old_spte))
+		return tdp_mmu_merge_private_spt(vcpu, fault, iter, new_spte);
+
+	return tdp_mmu_set_spte_atomic(vcpu->kvm, iter, new_spte);
+}
+
 /*
  * Installs a last-level SPTE to handle a TDP page fault.
  * (NPT/EPT violation/misconfiguration)
@@ -1464,7 +1597,7 @@ static int tdp_mmu_map_handle_target_level(struct kvm_vcpu *vcpu,
 
 	if (new_spte == iter->old_spte)
 		ret = RET_PF_SPURIOUS;
-	else if (tdp_mmu_set_spte_atomic(vcpu->kvm, iter, new_spte))
+	else if (__tdp_mmu_map_handle_target_level(vcpu, fault, iter, new_spte))
 		return RET_PF_RETRY;
 	else if (is_shadow_present_pte(iter->old_spte) &&
 		 !is_last_spte(iter->old_spte, iter->level))

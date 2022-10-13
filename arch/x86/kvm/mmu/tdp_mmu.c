@@ -940,6 +940,13 @@ static inline int __must_check tdp_mmu_set_spte_atomic(struct kvm *kvm,
 	return ret;
 }
 
+static u64 __private_zapped_spte(u64 old_spte)
+{
+	return SHADOW_NONPRESENT_VALUE | SPTE_PRIVATE_ZAPPED |
+		(spte_to_pfn(old_spte) << PAGE_SHIFT) |
+		(is_large_pte(old_spte) ? PT_PAGE_SIZE_MASK : 0);
+}
+
 static u64 private_zapped_spte(struct kvm *kvm, const struct tdp_iter *iter)
 {
 	if (!kvm_gfn_shared_mask(kvm))
@@ -948,9 +955,7 @@ static u64 private_zapped_spte(struct kvm *kvm, const struct tdp_iter *iter)
 	if (!is_private_sptep(iter->sptep))
 		return SHADOW_NONPRESENT_VALUE;
 
-	return SHADOW_NONPRESENT_VALUE | SPTE_PRIVATE_ZAPPED |
-		(spte_to_pfn(iter->old_spte) << PAGE_SHIFT) |
-		(is_large_pte(iter->old_spte) ? PT_PAGE_SIZE_MASK : 0);
+	return __private_zapped_spte(iter->old_spte);
 }
 
 static inline int __must_check tdp_mmu_zap_spte_atomic(struct kvm *kvm,
@@ -1521,7 +1526,8 @@ static int tdp_mmu_merge_private_spt(struct kvm_vcpu *vcpu,
 			continue;
 		}
 
-		WARN_ON_ONCE(spte_to_pfn(child_iter.old_spte) != spte_to_pfn(new_spte) + i);
+		WARN_ON_ONCE(is_private_zapped_spte(old_spte) &&
+			     spte_to_pfn(child_iter.old_spte) != spte_to_pfn(new_spte) + i);
 		child_spte = make_huge_page_split_spte(kvm, new_spte, child_sp->role, i);
 		/*
 		 * Because other thread may have started to operate on this spte
@@ -1575,9 +1581,7 @@ static int tdp_mmu_merge_private_spt(struct kvm_vcpu *vcpu,
 
 unzap:
 	if (static_call(kvm_x86_unzap_private_spte)(kvm, gfn, level))
-		old_spte = SHADOW_NONPRESENT_VALUE |
-			(spte_to_pfn(old_spte) << PAGE_SHIFT) |
-			PT_PAGE_SIZE_MASK;
+		old_spte = __private_zapped_spte(old_spte);
 out:
 	__kvm_tdp_mmu_write_spte(sptep, old_spte);
 	return ret;

@@ -29,6 +29,7 @@
 #define TDH_MNG_KEY_FREEID		20
 #define TDH_MNG_INIT			21
 #define TDH_VP_INIT			22
+#define TDH_MEM_PAGE_PROMOTE		23
 #define TDH_MEM_SEPT_RD			25
 #define TDH_VP_RD			26
 #define TDH_MNG_KEY_RECLAIMID		27

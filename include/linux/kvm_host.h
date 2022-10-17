@@ -2298,8 +2298,6 @@ static inline void kvm_handle_signal_exit(struct kvm_vcpu *vcpu)
 #define KVM_MEM_ATTR_SHARED	0x0001
 #define KVM_MEM_ATTR_PRIVATE	0x0002
 
-#ifdef CONFIG_HAVE_KVM_PRIVATE_MEM
-
 #ifdef __KVM_HAVE_ARCH_UPDATE_MEM_ATTR
 /* memory attr on [start, end) */
 int kvm_vm_reserve_mem_attr(struct kvm *kvm, gfn_t start, gfn_t end);
@@ -2321,6 +2319,7 @@ static inline void kvm_arch_update_mem_attr(struct kvm *kvm, unsigned int attr,
 }
 #endif
 
+#ifdef CONFIG_HAVE_KVM_PRIVATE_MEM
 static inline int kvm_private_mem_get_pfn(struct kvm_memory_slot *slot,
 					  gfn_t gfn, kvm_pfn_t *pfn, int *order)
 {

@@ -805,7 +805,7 @@ struct kvm {
 	struct notifier_block pm_notifier;
 #endif
 	char stats_id[KVM_STATS_NAME_SIZE];
-#ifdef CONFIG_HAVE_KVM_PRIVATE_MEM
+#ifdef __KVM_HAVE_ARCH_UPDATE_MEM_ATTR
 	struct xarray mem_attr_array;
 #endif
 #ifdef __KVM_HAVE_READONLY_MEM

@@ -183,7 +183,17 @@ a2: attributes
     Where 'attributes' :
         * bits  3:0 - preferred page size encoding 0 = 4kb, 1 = 2mb, 2 = 1gb, etc...
         * bit     4 - plaintext = 0, encrypted = 1
-        * bits 63:5 - reserved (must be zero)
+        * bits    5 - set attr = 0, get attr = 1
+        * bits 63:6 - reserved (must be zero)
+
+    When get attr = 1,
+    * a1 - must be 1
+    * page size - must be 4kb
+    * bit 4 - must be 0
+    Return value in eax/rax:
+    * 0 - the given GPA is mapped as private
+    * 1 - the given GPA is mapped as shared
+    * < 0 : error
 
 **Implementation note**: this hypercall is implemented in userspace via
 the KVM_CAP_EXIT_HYPERCALL capability. Userspace must enable that capability

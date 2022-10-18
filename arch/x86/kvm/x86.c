@@ -9943,6 +9943,32 @@ unsigned long __kvm_emulate_hypercall(struct kvm_vcpu *vcpu, unsigned long nr,
 			ret = -KVM_EINVAL;
 			break;
 		}
+		if (attrs & KVM_MAP_GPA_RANGE_GET_ATTR) {
+			struct kvm_memory_slot *slot;
+			gfn_t gfn;
+
+			/* Only 1 page query is supported at the moment. */
+			if (npages != 1)
+				return -KVM_EINVAL;
+			/* Only 4K page query is supported. */
+			if (attrs & KVM_MAP_GPA_RANGE_PAGE_SZ_MASK)
+				return -KVM_EINVAL;
+			/* ENC bit must be zero. */
+			if (attrs & KVM_MAP_GPA_RANGE_ENC_MASK)
+				return -KVM_EINVAL;
+
+			/* The gpa is out of memslot. */
+			gfn = gpa_to_gfn(gpa) & ~kvm_gfn_shared_mask(vcpu->kvm);
+			slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
+			if (!slot)
+				return -KVM_EFAULT;
+
+			if (!kvm_gfn_shared_mask(vcpu->kvm))
+				return KVM_MAP_GPA_RANGE_DECRYPTED;
+			if (!kvm_mem_is_private(vcpu->kvm, gpa_to_gfn(gpa)))
+				return KVM_MAP_GPA_RANGE_DECRYPTED;
+			return KVM_MAP_GPA_RANGE_ENCRYPTED;
+		}
 
 		vcpu->run->exit_reason        = KVM_EXIT_HYPERCALL;
 		vcpu->run->hypercall.nr       = KVM_HC_MAP_GPA_RANGE;

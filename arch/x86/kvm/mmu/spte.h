@@ -315,12 +315,6 @@ static inline bool is_dirty_spte(u64 spte)
 	return dirty_mask ? spte & dirty_mask : spte & PT_WRITABLE_MASK;
 }
 
-static inline bool is_private_spte(u64 spte)
-{
-	/* FIXME: Query C-bit/S-bit for SEV/TDX. */
-	return false;
-}
-
 static inline u64 get_rsvd_bits(struct rsvd_bits_validate *rsvd_check, u64 pte,
 				int level)
 {

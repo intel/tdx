@@ -12,6 +12,7 @@
 #include <linux/printk.h>
 #include <asm/msr-index.h>
 #include <asm/msr.h>
+#include <asm/apic.h>
 #include <asm/tdx.h>
 #include "tdx.h"
 
@@ -78,6 +79,16 @@ static int __init tdx_init(void)
 	 */
 	if (tdx_keyid_num < 2) {
 		pr_info("Disable TDX as there's only one TDX private KeyID available.\n");
+		goto no_tdx;
+	}
+
+	/*
+	 * TDX requires X2APIC being enabled to prevent potential data
+	 * leak via APIC MMIO registers.  Just disable TDX if not using
+	 * X2APIC.
+	 */
+	if (!x2apic_enabled()) {
+		pr_info("Disable TDX as X2APIC is not enabled.\n");
 		goto no_tdx;
 	}
 

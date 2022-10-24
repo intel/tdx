@@ -191,10 +191,15 @@ int inaccessible_get_pfn(struct file *file, pgoff_t offset, pfn_t *pfn,
 {
 	struct inaccessible_data *data = file->f_mapping->private_data;
 	struct file *memfd = data->memfd;
+	struct folio *folio = NULL;
 	struct page *page;
 	int ret;
 
-	ret = shmem_getpage(file_inode(memfd), offset, &page, SGP_WRITE);
+	ret = shmem_get_folio(file_inode(memfd), offset, &folio, SGP_WRITE);
+	if (folio)
+		page = folio_file_page(folio, offset);
+	else
+		page = NULL;
 	if (ret)
 		return ret;
 

@@ -231,13 +231,15 @@ int restrictedmem_get_page(struct file *file, pgoff_t offset,
 {
 	struct restrictedmem_data *data = file->f_mapping->private_data;
 	struct file *memfd = data->memfd;
+	struct folio *folio = NULL;
 	struct page *page;
 	int ret;
 
-	ret = shmem_getpage(file_inode(memfd), offset, &page, SGP_WRITE);
+	ret = shmem_get_folio(file_inode(memfd), offset, &folio, SGP_WRITE);
 	if (ret)
 		return ret;
 
+	page = folio_file_page(folio, offset);
 	*pagep = page;
 	if (order)
 		*order = thp_order(compound_head(page));

@@ -12371,6 +12371,8 @@ static int kvm_alloc_memslot_metadata(struct kvm *kvm,
 		if ((slot->base_gfn + npages) & (KVM_PAGES_PER_HPAGE(level) - 1))
 			linfo[lpages - 1].disallow_lpage = 1;
 		ugfn = slot->userspace_addr >> PAGE_SHIFT;
+		if (kvm_slot_can_be_private(slot))
+			ugfn |= slot->restricted_offset >> PAGE_SHIFT;
 		/*
 		 * If the gfn and userspace address are not aligned wrt each
 		 * other, disable large page support for this slot.

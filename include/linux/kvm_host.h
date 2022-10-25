@@ -2294,4 +2294,23 @@ static inline void kvm_account_pgtable_pages(void *virt, int nr)
 /* Max number of entries allowed for each kvm dirty ring */
 #define  KVM_DIRTY_RING_MAX_ENTRIES  65536
 
+#ifdef CONFIG_KVM_GENERIC_PRIVATE_MEM
+
+#define KVM_MEM_ATTR_SHARED	0x0001
+#define KVM_MEM_ATTR_PRIVATE	0x0002
+
+#ifdef __KVM_HAVE_ARCH_UPDATE_MEM_ATTR
+void kvm_arch_update_mem_attr(struct kvm *kvm, struct kvm_memory_slot *slot,
+			      unsigned int attr, gfn_t start, gfn_t end);
+#else
+static inline void kvm_arch_update_mem_attr(struct kvm *kvm,
+					    struct kvm_memory_slot *slot,
+					    unsigned int attr,
+					    gfn_t start, gfn_t end)
+{
+}
+#endif
+
+#endif /* CONFIG_KVM_GENERIC_PRIVATE_MEM */
+
 #endif

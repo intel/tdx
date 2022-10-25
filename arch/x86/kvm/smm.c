@@ -296,17 +296,18 @@ void enter_smm(struct kvm_vcpu *vcpu)
 	struct kvm_segment cs, ds;
 	struct desc_ptr dt;
 	unsigned long cr0;
-	char buf[512];
+	union kvm_smram smram;
 
 	check_smram_offsets();
 
-	memset(buf, 0, 512);
+	memset(smram.bytes, 0, sizeof(smram.bytes));
+
 #ifdef CONFIG_X86_64
 	if (guest_cpuid_has(vcpu, X86_FEATURE_LM))
-		enter_smm_save_state_64(vcpu, buf);
+		enter_smm_save_state_64(vcpu, smram.bytes);
 	else
 #endif
-		enter_smm_save_state_32(vcpu, buf);
+		enter_smm_save_state_32(vcpu, smram.bytes);
 
 	/*
 	 * Give enter_smm() a chance to make ISA-specific changes to the vCPU
@@ -316,12 +317,12 @@ void enter_smm(struct kvm_vcpu *vcpu)
 	 * Kill the VM in the unlikely case of failure, because the VM
 	 * can be in undefined state in this case.
 	 */
-	if (static_call(kvm_x86_enter_smm)(vcpu, buf))
+	if (static_call(kvm_x86_enter_smm)(vcpu, &smram))
 		goto error;
 
 	kvm_smm_changed(vcpu, true);
 
-	if (kvm_vcpu_write_guest(vcpu, vcpu->arch.smbase + 0xfe00, buf, sizeof(buf)))
+	if (kvm_vcpu_write_guest(vcpu, vcpu->arch.smbase + 0xfe00, &smram, sizeof(smram)))
 		goto error;
 
 	if (static_call(kvm_x86_get_nmi_mask)(vcpu))
@@ -481,7 +482,7 @@ static int rsm_enter_protected_mode(struct kvm_vcpu *vcpu,
 }
 
 static int rsm_load_state_32(struct x86_emulate_ctxt *ctxt,
-			     const char *smstate)
+			     u8 *smstate)
 {
 	struct kvm_vcpu *vcpu = ctxt->vcpu;
 	struct kvm_segment desc;
@@ -542,7 +543,7 @@ static int rsm_load_state_32(struct x86_emulate_ctxt *ctxt,
 
 #ifdef CONFIG_X86_64
 static int rsm_load_state_64(struct x86_emulate_ctxt *ctxt,
-			     const char *smstate)
+			     u8 *smstate)
 {
 	struct kvm_vcpu *vcpu = ctxt->vcpu;
 	struct kvm_segment desc;
@@ -613,13 +614,13 @@ int emulator_leave_smm(struct x86_emulate_ctxt *ctxt)
 {
 	struct kvm_vcpu *vcpu = ctxt->vcpu;
 	unsigned long cr0;
-	char buf[512];
+	union kvm_smram smram;
 	u64 smbase;
 	int ret;
 
 	smbase = vcpu->arch.smbase;
 
-	ret = kvm_vcpu_read_guest(vcpu, smbase + 0xfe00, buf, sizeof(buf));
+	ret = kvm_vcpu_read_guest(vcpu, smbase + 0xfe00, smram.bytes, sizeof(smram));
 	if (ret < 0)
 		return X86EMUL_UNHANDLEABLE;
 
@@ -676,13 +677,13 @@ int emulator_leave_smm(struct x86_emulate_ctxt *ctxt)
 	 * state (e.g. enter guest mode) before loading state from the SMM
 	 * state-save area.
 	 */
-	if (static_call(kvm_x86_leave_smm)(vcpu, buf))
+	if (static_call(kvm_x86_leave_smm)(vcpu, &smram))
 		return X86EMUL_UNHANDLEABLE;
 
 #ifdef CONFIG_X86_64
 	if (guest_cpuid_has(vcpu, X86_FEATURE_LM))
-		return rsm_load_state_64(ctxt, buf);
+		return rsm_load_state_64(ctxt, smram.bytes);
 	else
 #endif
-		return rsm_load_state_32(ctxt, buf);
+		return rsm_load_state_32(ctxt, smram.bytes);
 }

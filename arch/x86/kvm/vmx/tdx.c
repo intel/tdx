@@ -543,8 +543,6 @@ int tdx_vm_init(struct kvm *kvm)
 	/* TDH.MEM.PAGE.AUG supports up to 2MB page. */
 	kvm->arch.tdp_max_page_level = PG_LEVEL_2M;
 
-	/* vCPUs can't be created until after KVM_TDX_INIT_VM. */
-	kvm->max_vcpus = 0;
 	kvm_tdx->hkid = -1;
 
 	spin_lock_init(&kvm_tdx->seamcall_lock);
@@ -2989,7 +2987,9 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 	int max_pa;
 	int i;
 
-	td_params->max_vcpus = init_vm->max_vcpus;
+	if (kvm->created_vcpus)
+		return -EBUSY;
+	td_params->max_vcpus = kvm->max_vcpus;
 	td_params->attributes = init_vm->attributes;
 
 	for (i = 0; i < tdx_caps.nr_cpuid_configs; i++) {
@@ -3081,8 +3081,11 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params)
 	u64 err;
 
 	kvm_tdx->hkid = tdx_keyid_alloc();
-	if (kvm_tdx->hkid < 0)
-		return -EBUSY;
+	if (kvm_tdx->hkid < 0) {
+		ret = kvm_tdx->hkid;
+		kvm_tdx->hkid = -1;
+		return ret;
+	}
 	kvm_tdx->misc_cg = get_current_misc_cg();
 	ret = misc_cg_try_charge(MISC_CG_RES_TDX, kvm_tdx->misc_cg, 1);
 	if (ret)
@@ -3266,8 +3269,6 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	/* Unused part must be zero. */
 	if (memchr_inv(entries_end, 0, (void *)(init_vm + 1) - entries_end))
 		goto out;
-	if (init_vm->max_vcpus > KVM_MAX_VCPUS)
-		goto out;
 
 	td_params = kzalloc(sizeof(struct td_params), GFP_KERNEL);
 	if (!td_params) {
@@ -3286,7 +3287,6 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	kvm_tdx->tsc_offset = td_tdcs_exec_read64(kvm_tdx, TD_TDCS_EXEC_TSC_OFFSET);
 	kvm_tdx->attributes = td_params->attributes;
 	kvm_tdx->xfam = td_params->xfam;
-	kvm->max_vcpus = td_params->max_vcpus;
 
 	if (td_params->exec_controls & TDX_EXEC_CONTROL_MAX_GPAW)
 		kvm->arch.gfn_shared_mask = gpa_to_gfn(BIT_ULL(51));

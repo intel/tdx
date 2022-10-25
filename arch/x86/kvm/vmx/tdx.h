@@ -165,7 +165,7 @@ static inline struct vcpu_tdx *to_tdx(struct kvm_vcpu *vcpu)
 
 static inline bool is_td_initialized(struct kvm *kvm)
 {
-	return !!kvm->max_vcpus;
+	return to_kvm_tdx(kvm)->hkid > 0;
 }
 
 static __always_inline void tdvps_vmcs_check(u32 field, u8 bits)

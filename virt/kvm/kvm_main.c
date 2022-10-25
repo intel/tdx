@@ -4952,7 +4952,27 @@ static int kvm_vm_ioctl_enable_cap_generic(struct kvm *kvm,
 		}
 
 		mutex_unlock(&kvm->slots_lock);
+		return r;
+	}
+	case KVM_CAP_MAX_VCPUS: {
+		int r;
 
+		if (cap->flags || cap->args[0] == 0)
+			return -EINVAL;
+		if (cap->args[0] >  kvm_vm_ioctl_check_extension(kvm, KVM_CAP_MAX_VCPUS))
+			return -E2BIG;
+
+		mutex_lock(&kvm->lock);
+		/* Only decreasing is allowed. */
+		if (cap->args[0] > kvm->max_vcpus)
+			r = -E2BIG;
+		else if (kvm->created_vcpus)
+			r = -EBUSY;
+		else {
+			kvm->max_vcpus = cap->args[0];
+			r = 0;
+		}
+		mutex_unlock(&kvm->lock);
 		return r;
 	}
 	default:

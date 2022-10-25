@@ -512,6 +512,62 @@ void kvm_destroy_vcpus(struct kvm *kvm)
 }
 EXPORT_SYMBOL_GPL(kvm_destroy_vcpus);
 
+static inline void update_invalidate_range(struct kvm *kvm, gfn_t start,
+							    gfn_t end)
+{
+	if (likely(kvm->mmu_invalidate_in_progress == 1)) {
+		kvm->mmu_invalidate_range_start = start;
+		kvm->mmu_invalidate_range_end = end;
+	} else {
+		/*
+		 * Fully tracking multiple concurrent ranges has diminishing
+		 * returns. Keep things simple and just find the minimal range
+		 * which includes the current and new ranges. As there won't be
+		 * enough information to subtract a range after its invalidate
+		 * completes, any ranges invalidated concurrently will
+		 * accumulate and persist until all outstanding invalidates
+		 * complete.
+		 */
+		kvm->mmu_invalidate_range_start =
+			min(kvm->mmu_invalidate_range_start, start);
+		kvm->mmu_invalidate_range_end =
+			max(kvm->mmu_invalidate_range_end, end);
+	}
+}
+
+static void mark_invalidate_in_progress(struct kvm *kvm, gfn_t start, gfn_t end)
+{
+	/*
+	 * The count increase must become visible at unlock time as no
+	 * spte can be established without taking the mmu_lock and
+	 * count is also read inside the mmu_lock critical section.
+	 */
+	kvm->mmu_invalidate_in_progress++;
+}
+
+void kvm_mmu_invalidate_begin(struct kvm *kvm, gfn_t start, gfn_t end)
+{
+	mark_invalidate_in_progress(kvm, start, end);
+	update_invalidate_range(kvm, start, end);
+}
+
+void kvm_mmu_invalidate_end(struct kvm *kvm, gfn_t start, gfn_t end)
+{
+	/*
+	 * This sequence increase will notify the kvm page fault that
+	 * the page that is going to be mapped in the spte could have
+	 * been freed.
+	 */
+	kvm->mmu_invalidate_seq++;
+	smp_wmb();
+	/*
+	 * The above sequence increase must be visible before the
+	 * below count decrease, which is ensured by the smp_wmb above
+	 * in conjunction with the smp_rmb in mmu_invalidate_retry().
+	 */
+	kvm->mmu_invalidate_in_progress--;
+}
+
 #if defined(CONFIG_MMU_NOTIFIER) && defined(KVM_ARCH_WANT_MMU_NOTIFIER)
 static inline struct kvm *mmu_notifier_to_kvm(struct mmu_notifier *mn)
 {
@@ -707,49 +763,10 @@ static void kvm_mmu_notifier_change_pte(struct mmu_notifier *mn,
 	kvm_handle_hva_range(mn, address, address + 1, pte, kvm_set_spte_gfn);
 }
 
-static inline void update_invalidate_range(struct kvm *kvm, gfn_t start,
-							    gfn_t end)
-{
-	if (likely(kvm->mmu_invalidate_in_progress == 1)) {
-		kvm->mmu_invalidate_range_start = start;
-		kvm->mmu_invalidate_range_end = end;
-	} else {
-		/*
-		 * Fully tracking multiple concurrent ranges has diminishing
-		 * returns. Keep things simple and just find the minimal range
-		 * which includes the current and new ranges. As there won't be
-		 * enough information to subtract a range after its invalidate
-		 * completes, any ranges invalidated concurrently will
-		 * accumulate and persist until all outstanding invalidates
-		 * complete.
-		 */
-		kvm->mmu_invalidate_range_start =
-			min(kvm->mmu_invalidate_range_start, start);
-		kvm->mmu_invalidate_range_end =
-			max(kvm->mmu_invalidate_range_end, end);
-	}
-}
-
-static void mark_invalidate_in_progress(struct kvm *kvm, gfn_t start, gfn_t end)
-{
-	/*
-	 * The count increase must become visible at unlock time as no
-	 * spte can be established without taking the mmu_lock and
-	 * count is also read inside the mmu_lock critical section.
-	 */
-	kvm->mmu_invalidate_in_progress++;
-}
-
 static bool kvm_mmu_handle_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)
 {
 	update_invalidate_range(kvm, range->start, range->end);
 	return kvm_unmap_gfn_range(kvm, range);
-}
-
-void kvm_mmu_invalidate_begin(struct kvm *kvm, gfn_t start, gfn_t end)
-{
-	mark_invalidate_in_progress(kvm, start, end);
-	update_invalidate_range(kvm, start, end);
 }
 
 static int kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
@@ -797,23 +814,6 @@ static int kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
 	__kvm_handle_hva_range(kvm, &hva_range);
 
 	return 0;
-}
-
-void kvm_mmu_invalidate_end(struct kvm *kvm, gfn_t start, gfn_t end)
-{
-	/*
-	 * This sequence increase will notify the kvm page fault that
-	 * the page that is going to be mapped in the spte could have
-	 * been freed.
-	 */
-	kvm->mmu_invalidate_seq++;
-	smp_wmb();
-	/*
-	 * The above sequence increase must be visible before the
-	 * below count decrease, which is ensured by the smp_wmb above
-	 * in conjunction with the smp_rmb in mmu_invalidate_retry().
-	 */
-	kvm->mmu_invalidate_in_progress--;
 }
 
 static void kvm_mmu_notifier_invalidate_range_end(struct mmu_notifier *mn,
@@ -928,6 +928,89 @@ static int kvm_init_mmu_notifier(struct kvm *kvm)
 }
 
 #endif /* CONFIG_MMU_NOTIFIER && KVM_ARCH_WANT_MMU_NOTIFIER */
+
+#ifdef CONFIG_KVM_GENERIC_PRIVATE_MEM
+
+static void kvm_unmap_mem_range(struct kvm *kvm, gfn_t start, gfn_t end)
+{
+	struct kvm_gfn_range gfn_range;
+	struct kvm_memory_slot *slot;
+	struct kvm_memslots *slots;
+	struct kvm_memslot_iter iter;
+	int i;
+	int r = 0;
+
+	gfn_range.pte = __pte(0);
+	gfn_range.may_block = true;
+
+	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++) {
+		slots = __kvm_memslots(kvm, i);
+
+		kvm_for_each_memslot_in_gfn_range(&iter, slots, start, end) {
+			slot = iter.slot;
+			gfn_range.start = max(start, slot->base_gfn);
+			gfn_range.end = min(end, slot->base_gfn + slot->npages);
+			if (gfn_range.start >= gfn_range.end)
+				continue;
+			gfn_range.slot = slot;
+
+			r |= kvm_unmap_gfn_range(kvm, &gfn_range);
+		}
+	}
+
+	if (r)
+		kvm_flush_remote_tlbs(kvm);
+}
+
+#define KVM_MEM_ATTR_SHARED	0x0001
+static int kvm_vm_ioctl_set_mem_attr(struct kvm *kvm, gpa_t gpa, gpa_t size,
+				     bool is_private)
+{
+	gfn_t start, end;
+	unsigned long i;
+	void *entry;
+	int idx;
+	int r = 0;
+
+	if (size == 0 || gpa + size < gpa)
+		return -EINVAL;
+	if (gpa & (PAGE_SIZE - 1) || size & (PAGE_SIZE - 1))
+		return -EINVAL;
+
+	start = gpa >> PAGE_SHIFT;
+	end = (gpa + size - 1 + PAGE_SIZE) >> PAGE_SHIFT;
+
+	/*
+	 * Guest memory defaults to private, kvm->mem_attr_array only stores
+	 * shared memory.
+	 */
+	entry = is_private ? NULL : xa_mk_value(KVM_MEM_ATTR_SHARED);
+
+	idx = srcu_read_lock(&kvm->srcu);
+	KVM_MMU_LOCK(kvm);
+	kvm_mmu_invalidate_begin(kvm, start, end);
+
+	for (i = start; i < end; i++) {
+		r = xa_err(xa_store(&kvm->mem_attr_array, i, entry,
+				    GFP_KERNEL_ACCOUNT));
+		if (r)
+			goto err;
+	}
+
+	kvm_unmap_mem_range(kvm, start, end);
+
+	goto ret;
+err:
+	for (; i > start; i--)
+		xa_erase(&kvm->mem_attr_array, i);
+ret:
+	kvm_mmu_invalidate_end(kvm, start, end);
+	KVM_MMU_UNLOCK(kvm);
+	srcu_read_unlock(&kvm->srcu, idx);
+
+	return r;
+}
+#endif /* CONFIG_KVM_GENERIC_PRIVATE_MEM */
 
 #ifdef CONFIG_HAVE_KVM_PM_NOTIFIER
 static int kvm_pm_notifier_call(struct notifier_block *bl,
@@ -1157,6 +1240,9 @@ static struct kvm *kvm_create_vm(unsigned long type, const char *fdname)
 	spin_lock_init(&kvm->mn_invalidate_lock);
 	rcuwait_init(&kvm->mn_memslots_update_rcuwait);
 	xa_init(&kvm->vcpu_array);
+#ifdef CONFIG_KVM_GENERIC_PRIVATE_MEM
+	xa_init(&kvm->mem_attr_array);
+#endif
 
 	INIT_LIST_HEAD(&kvm->gpc_list);
 	spin_lock_init(&kvm->gpc_lock);
@@ -1328,6 +1414,9 @@ static void kvm_destroy_vm(struct kvm *kvm)
 		kvm_free_memslots(kvm, &kvm->__memslots[i][0]);
 		kvm_free_memslots(kvm, &kvm->__memslots[i][1]);
 	}
+#ifdef CONFIG_KVM_GENERIC_PRIVATE_MEM
+	xa_destroy(&kvm->mem_attr_array);
+#endif
 	cleanup_srcu_struct(&kvm->irq_srcu);
 	cleanup_srcu_struct(&kvm->srcu);
 	kvm_arch_free_vm(kvm);
@@ -1529,6 +1618,11 @@ static void kvm_replace_memslot(struct kvm *kvm,
 			kvm_erase_gfn_node(slots, old);
 		kvm_insert_gfn_node(slots, new);
 	}
+}
+
+bool __weak kvm_arch_has_private_mem(struct kvm *kvm)
+{
+	return false;
 }
 
 static int check_memory_region_flags(const struct kvm_user_mem_region *mem)
@@ -4735,6 +4829,24 @@ static long kvm_vm_ioctl(struct file *filp,
 		r = kvm_vm_ioctl_set_memory_region(kvm, &mem);
 		break;
 	}
+#ifdef CONFIG_KVM_GENERIC_PRIVATE_MEM
+	case KVM_MEMORY_ENCRYPT_REG_REGION:
+	case KVM_MEMORY_ENCRYPT_UNREG_REGION: {
+		struct kvm_enc_region region;
+		bool set = ioctl == KVM_MEMORY_ENCRYPT_REG_REGION;
+
+		if (!kvm_arch_has_private_mem(kvm))
+			goto arch_vm_ioctl;
+
+		r = -EFAULT;
+		if (copy_from_user(&region, argp, sizeof(region)))
+			goto out;
+
+		r = kvm_vm_ioctl_set_mem_attr(kvm, region.addr,
+					      region.size, set);
+		break;
+	}
+#endif
 	case KVM_GET_DIRTY_LOG: {
 		struct kvm_dirty_log log;
 
@@ -4888,6 +5000,9 @@ static long kvm_vm_ioctl(struct file *filp,
 		r = kvm_vm_ioctl_get_stats_fd(kvm);
 		break;
 	default:
+#ifdef CONFIG_KVM_GENERIC_PRIVATE_MEM
+arch_vm_ioctl:
+#endif
 		r = kvm_arch_vm_ioctl(filp, ioctl, arg);
 	}
 out:

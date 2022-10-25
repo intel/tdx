@@ -1516,7 +1516,7 @@ static void kvm_replace_memslot(struct kvm *kvm,
 	}
 }
 
-static int check_memory_region_flags(const struct kvm_userspace_memory_region *mem)
+static int check_memory_region_flags(const struct kvm_user_mem_region *mem)
 {
 	u32 valid_flags = KVM_MEM_LOG_DIRTY_PAGES;
 
@@ -1910,7 +1910,7 @@ static bool kvm_check_memslot_overlap(struct kvm_memslots *slots, int id,
  * Must be called holding kvm->slots_lock for write.
  */
 int __kvm_set_memory_region(struct kvm *kvm,
-			    const struct kvm_userspace_memory_region *mem)
+			    const struct kvm_user_mem_region *mem)
 {
 	struct kvm_memory_slot *old, *new;
 	struct kvm_memslots *slots;
@@ -2014,7 +2014,7 @@ int __kvm_set_memory_region(struct kvm *kvm,
 EXPORT_SYMBOL_GPL(__kvm_set_memory_region);
 
 int kvm_set_memory_region(struct kvm *kvm,
-			  const struct kvm_userspace_memory_region *mem)
+			  const struct kvm_user_mem_region *mem)
 {
 	int r;
 
@@ -2026,7 +2026,7 @@ int kvm_set_memory_region(struct kvm *kvm,
 EXPORT_SYMBOL_GPL(kvm_set_memory_region);
 
 static int kvm_vm_ioctl_set_memory_region(struct kvm *kvm,
-					  struct kvm_userspace_memory_region *mem)
+					  struct kvm_user_mem_region *mem)
 {
 	if ((u16)mem->slot >= KVM_USER_MEM_SLOTS)
 		return -EINVAL;
@@ -4654,6 +4654,33 @@ static int kvm_vm_ioctl_get_stats_fd(struct kvm *kvm)
 	return fd;
 }
 
+#define SANITY_CHECK_MEM_REGION_FIELD(field)					\
+do {										\
+	BUILD_BUG_ON(offsetof(struct kvm_user_mem_region, field) !=		\
+		     offsetof(struct kvm_userspace_memory_region, field));	\
+	BUILD_BUG_ON(sizeof_field(struct kvm_user_mem_region, field) !=		\
+		     sizeof_field(struct kvm_userspace_memory_region, field));	\
+} while (0)
+
+#define SANITY_CHECK_MEM_REGION_EXT_FIELD(field)					\
+do {											\
+	BUILD_BUG_ON(offsetof(struct kvm_user_mem_region, field) !=			\
+		     offsetof(struct kvm_userspace_memory_region_ext, field));		\
+	BUILD_BUG_ON(sizeof_field(struct kvm_user_mem_region, field) !=			\
+		     sizeof_field(struct kvm_userspace_memory_region_ext, field));	\
+} while (0)
+
+static void kvm_sanity_check_user_mem_region_alias(void)
+{
+	SANITY_CHECK_MEM_REGION_FIELD(slot);
+	SANITY_CHECK_MEM_REGION_FIELD(flags);
+	SANITY_CHECK_MEM_REGION_FIELD(guest_phys_addr);
+	SANITY_CHECK_MEM_REGION_FIELD(memory_size);
+	SANITY_CHECK_MEM_REGION_FIELD(userspace_addr);
+	SANITY_CHECK_MEM_REGION_EXT_FIELD(restricted_offset);
+	SANITY_CHECK_MEM_REGION_EXT_FIELD(restricted_fd);
+}
+
 static long kvm_vm_ioctl(struct file *filp,
 			   unsigned int ioctl, unsigned long arg)
 {
@@ -4677,14 +4704,20 @@ static long kvm_vm_ioctl(struct file *filp,
 		break;
 	}
 	case KVM_SET_USER_MEMORY_REGION: {
-		struct kvm_userspace_memory_region kvm_userspace_mem;
+		struct kvm_user_mem_region mem;
+		unsigned long size = sizeof(struct kvm_userspace_memory_region);
+
+		kvm_sanity_check_user_mem_region_alias();
 
 		r = -EFAULT;
-		if (copy_from_user(&kvm_userspace_mem, argp,
-						sizeof(kvm_userspace_mem)))
+		if (copy_from_user(&mem, argp, size))
 			goto out;
 
-		r = kvm_vm_ioctl_set_memory_region(kvm, &kvm_userspace_mem);
+		r = -EINVAL;
+		if (mem.flags & KVM_MEM_PRIVATE)
+			goto out;
+
+		r = kvm_vm_ioctl_set_memory_region(kvm, &mem);
 		break;
 	}
 	case KVM_GET_DIRTY_LOG: {

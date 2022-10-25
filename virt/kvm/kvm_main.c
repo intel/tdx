@@ -931,7 +931,8 @@ static int kvm_init_mmu_notifier(struct kvm *kvm)
 
 #ifdef CONFIG_KVM_GENERIC_PRIVATE_MEM
 
-static void kvm_unmap_mem_range(struct kvm *kvm, gfn_t start, gfn_t end)
+static void kvm_unmap_mem_range(struct kvm *kvm, gfn_t start, gfn_t end,
+				unsigned int attr)
 {
 	struct kvm_gfn_range gfn_range;
 	struct kvm_memory_slot *slot;
@@ -955,6 +956,7 @@ static void kvm_unmap_mem_range(struct kvm *kvm, gfn_t start, gfn_t end)
 			gfn_range.slot = slot;
 
 			r |= kvm_unmap_gfn_range(kvm, &gfn_range);
+			kvm_arch_update_mem_attr(kvm, slot, attr, start, end);
 		}
 	}
 
@@ -962,7 +964,6 @@ static void kvm_unmap_mem_range(struct kvm *kvm, gfn_t start, gfn_t end)
 		kvm_flush_remote_tlbs(kvm);
 }
 
-#define KVM_MEM_ATTR_SHARED	0x0001
 static int kvm_vm_ioctl_set_mem_attr(struct kvm *kvm, gpa_t gpa, gpa_t size,
 				     bool is_private)
 {
@@ -971,6 +972,7 @@ static int kvm_vm_ioctl_set_mem_attr(struct kvm *kvm, gpa_t gpa, gpa_t size,
 	void *entry;
 	int idx;
 	int r = 0;
+	unsigned int attr;
 
 	if (size == 0 || gpa + size < gpa)
 		return -EINVAL;
@@ -984,7 +986,13 @@ static int kvm_vm_ioctl_set_mem_attr(struct kvm *kvm, gpa_t gpa, gpa_t size,
 	 * Guest memory defaults to private, kvm->mem_attr_array only stores
 	 * shared memory.
 	 */
-	entry = is_private ? NULL : xa_mk_value(KVM_MEM_ATTR_SHARED);
+	if (is_private) {
+		attr = KVM_MEM_ATTR_PRIVATE;
+		entry = NULL;
+	} else {
+		attr = KVM_MEM_ATTR_SHARED;
+		entry = xa_mk_value(KVM_MEM_ATTR_SHARED);
+	}
 
 	idx = srcu_read_lock(&kvm->srcu);
 	KVM_MMU_LOCK(kvm);
@@ -997,7 +1005,7 @@ static int kvm_vm_ioctl_set_mem_attr(struct kvm *kvm, gpa_t gpa, gpa_t size,
 			goto err;
 	}
 
-	kvm_unmap_mem_range(kvm, start, end);
+	kvm_unmap_mem_range(kvm, start, end, attr);
 
 	goto ret;
 err:

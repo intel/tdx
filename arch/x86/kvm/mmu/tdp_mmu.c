@@ -1769,7 +1769,8 @@ retry:
 			continue;
 
 		max_mapping_level = kvm_mmu_max_mapping_level(kvm, slot,
-							      iter.gfn, PG_LEVEL_NUM);
+						iter.gfn, PG_LEVEL_NUM,
+						is_private_spte(iter.old_spte));
 		if (max_mapping_level < iter.level)
 			continue;
 

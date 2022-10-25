@@ -1319,7 +1319,7 @@ yet and must be cleared on entry.
 :Capability: KVM_CAP_USER_MEMORY
 :Architectures: all
 :Type: vm ioctl
-:Parameters: struct kvm_userspace_memory_region (in)
+:Parameters: struct kvm_userspace_memory_region(_ext) (in)
 :Returns: 0 on success, -1 on error
 
 ::
@@ -1332,9 +1332,18 @@ yet and must be cleared on entry.
 	__u64 userspace_addr; /* start of the userspace allocated memory */
   };
 
+  struct kvm_userspace_memory_region_ext {
+	struct kvm_userspace_memory_region region;
+	__u64 restricted_offset;
+	__u32 restricted_fd;
+	__u32 pad1;
+	__u64 pad2[14];
+  };
+
   /* for kvm_memory_region::flags */
   #define KVM_MEM_LOG_DIRTY_PAGES	(1UL << 0)
   #define KVM_MEM_READONLY	(1UL << 1)
+  #define KVM_MEM_PRIVATE		(1UL << 2)
 
 This ioctl allows the user to create, modify or delete a guest physical
 memory slot.  Bits 0-15 of "slot" specify the slot id and this value
@@ -1365,12 +1374,27 @@ It is recommended that the lower 21 bits of guest_phys_addr and userspace_addr
 be identical.  This allows large pages in the guest to be backed by large
 pages in the host.
 
-The flags field supports two flags: KVM_MEM_LOG_DIRTY_PAGES and
-KVM_MEM_READONLY.  The former can be set to instruct KVM to keep track of
-writes to memory within the slot.  See KVM_GET_DIRTY_LOG ioctl to know how to
-use it.  The latter can be set, if KVM_CAP_READONLY_MEM capability allows it,
-to make a new slot read-only.  In this case, writes to this memory will be
-posted to userspace as KVM_EXIT_MMIO exits.
+kvm_userspace_memory_region_ext struct includes all fields of
+kvm_userspace_memory_region struct, while also adds additional fields for some
+other features. See below description of flags field for more information.
+It's recommended to use kvm_userspace_memory_region_ext in new userspace code.
+
+The flags field supports following flags:
+
+- KVM_MEM_LOG_DIRTY_PAGES to instruct KVM to keep track of writes to memory
+  within the slot.  For more details, see KVM_GET_DIRTY_LOG ioctl.
+
+- KVM_MEM_READONLY, if KVM_CAP_READONLY_MEM allows, to make a new slot
+  read-only.  In this case, writes to this memory will be posted to userspace as
+  KVM_EXIT_MMIO exits.
+
+- KVM_MEM_PRIVATE, if KVM_CAP_PRIVATE_MEM allows, to indicate a new slot has
+  private memory backed by a file descriptor(fd) and userspace access to the
+  fd may be restricted. Userspace should use restricted_fd/restricted_offset in
+  kvm_userspace_memory_region_ext to instruct KVM to provide private memory
+  to guest. Userspace should guarantee not to map the same pfn indicated by
+  restricted_fd/restricted_offset to different gfns with multiple memslots.
+  Failed to do this may result undefined behavior.
 
 When the KVM_CAP_SYNC_MMU capability is available, changes in the backing of
 the memory region are automatically reflected into the guest.  For example, an
@@ -8214,6 +8238,16 @@ structure.
 
 When getting the Modified Change Topology Report value, the attr->addr
 must point to a byte where the value will be stored or retrieved from.
+
+8.36 KVM_CAP_PRIVATE_MEM
+------------------------
+
+:Architectures: x86
+
+This capability indicates that private memory is supported and userspace can
+set KVM_MEM_PRIVATE flag for KVM_SET_USER_MEMORY_REGION ioctl.  See
+KVM_SET_USER_MEMORY_REGION for details on the usage of KVM_MEM_PRIVATE and
+kvm_userspace_memory_region_ext fields.
 
 9. Known KVM API problems
 =========================

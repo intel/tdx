@@ -603,6 +603,8 @@ static __always_inline int __kvm_handle_hva_range(struct kvm *kvm,
 			 */
 			gfn_range.arg.raw = range->arg.raw;
 			gfn_range.may_block = range->may_block;
+			gfn_range.only_private = false;
+			gfn_range.only_shared = true;
 
 			/*
 			 * {gfn(page) | page intersects with [hva_start, hva_end)} =
@@ -2405,6 +2407,8 @@ static __always_inline void kvm_handle_gfn_range(struct kvm *kvm,
 
 	gfn_range.arg.raw = range->arg.raw;
 	gfn_range.may_block = range->may_block;
+	gfn_range.only_private = false;
+	gfn_range.only_shared = false;
 
 	for (i = 0; i < kvm_arch_nr_memslot_as_ids(kvm); i++) {
 		slots = __kvm_memslots(kvm, i);

@@ -105,6 +105,8 @@ static void kvm_gmem_invalidate_begin(struct kvm_gmem *gmem, pgoff_t start,
 			.end = slot->base_gfn + min(pgoff + slot->npages, end) - pgoff,
 			.slot = slot,
 			.may_block = true,
+			.only_private = true,
+			.only_shared = false,
 		};
 
 		flush |= kvm_mmu_unmap_gfn_range(kvm, &gfn_range);

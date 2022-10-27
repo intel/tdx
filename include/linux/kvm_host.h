@@ -268,6 +268,8 @@ struct kvm_gfn_range {
 		u64 raw;
 	} arg;
 	bool may_block;
+	bool only_private;
+	bool only_shared;
 };
 bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range);
 bool kvm_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range);

@@ -590,6 +590,8 @@ static __always_inline int __kvm_handle_hva_range(struct kvm *kvm,
 			 * the second or later invocation of the handler).
 			 */
 			gfn_range.pte = range->pte;
+			gfn_range.only_private = false;
+			gfn_range.only_shared = true;
 			gfn_range.may_block = range->may_block;
 
 			/*
@@ -2394,7 +2396,9 @@ static void kvm_mem_attrs_changed(struct kvm *kvm, unsigned long attrs,
 	bool flush = false;
 	int i;
 
-	gfn_range.pte = __pte(0);
+	gfn_range.attributes = attrs;
+	gfn_range.only_private = false;
+	gfn_range.only_shared = false;
 	gfn_range.may_block = true;
 
 	for (i = 0; i < kvm_arch_nr_memslot_as_ids(kvm); i++) {
@@ -2408,11 +2412,7 @@ static void kvm_mem_attrs_changed(struct kvm *kvm, unsigned long attrs,
 				continue;
 			gfn_range.slot = slot;
 
-			flush |= kvm_unmap_gfn_range(kvm, &gfn_range);
-
-			kvm_arch_set_memory_attributes(kvm, slot, attrs,
-						       gfn_range.start,
-						       gfn_range.end);
+			flush |= kvm_arch_set_memory_attributes(kvm, &gfn_range);
 		}
 	}
 

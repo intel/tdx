@@ -7384,11 +7384,13 @@ static bool hugepage_has_attrs(struct kvm *kvm, struct kvm_memory_slot *slot,
 	return true;
 }
 
-void kvm_arch_set_memory_attributes(struct kvm *kvm,
-				    struct kvm_memory_slot *slot,
-				    unsigned long attrs,
-				    gfn_t start, gfn_t end)
+bool kvm_arch_set_memory_attributes(struct kvm *kvm, struct kvm_gfn_range *range)
 {
+	struct kvm_memory_slot *slot = range->slot;
+	unsigned long attrs = range->attributes;
+	gfn_t start = range->start;
+	gfn_t end = range->end;
+	bool flush = false;
 	int level;
 
 	lockdep_assert_held_write(&kvm->mmu_lock);
@@ -7399,7 +7401,13 @@ void kvm_arch_set_memory_attributes(struct kvm *kvm,
 	 * the slot if the slot will never consume the PRIVATE attribute.
 	 */
 	if (!kvm_slot_can_be_private(slot))
-		return;
+		return flush;
+
+	if (kvm->arch.vm_type == KVM_X86_PROTECTED_VM &&
+	    !kvm_x86_ops.set_memory_attributes)
+		flush = kvm_unmap_gfn_range(kvm, range);
+	else
+		flush = static_call(kvm_x86_set_memory_attributes)(kvm, range);
 
 	/*
 	 * The sequence matters here: upper levels consume the result of lower
@@ -7445,6 +7453,8 @@ void kvm_arch_set_memory_attributes(struct kvm *kvm,
 				hugepage_set_mixed(slot, gfn, level);
 		}
 	}
+
+	return flush;
 }
 
 void kvm_mmu_init_memslot_memory_attributes(struct kvm *kvm,

@@ -117,6 +117,8 @@ static void kvm_gmem_invalidate_begin(struct kvm *kvm, struct kvm_gmem *gmem,
 			.end = slot->base_gfn + index_end - slot->gmem.index,
 			.slot = slot,
 			.pte = __pte(0),
+			.only_private = true,
+			.only_shared = false,
 			.may_block = true,
 		};
 

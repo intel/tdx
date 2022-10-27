@@ -1534,6 +1534,8 @@ static inline u16 kvm_lapic_irq_dest_mode(bool dest_mode_logical)
 	return dest_mode_logical ? APIC_DEST_LOGICAL : APIC_DEST_PHYSICAL;
 }
 
+struct kvm_gfn_range;
+
 struct kvm_x86_ops {
 	const char *name;
 
@@ -1716,6 +1718,7 @@ struct kvm_x86_ops {
 	int (*vm_copy_enc_context_from)(struct kvm *kvm, unsigned int source_fd);
 	int (*vm_move_enc_context_from)(struct kvm *kvm, unsigned int source_fd);
 	void (*guest_memory_reclaimed)(struct kvm *kvm);
+	bool (*set_memory_attributes)(struct kvm *kvm, struct kvm_gfn_range *range);
 
 	int (*get_msr_feature)(struct kvm_msr_entry *entry);
 

@@ -260,7 +260,13 @@ struct kvm_gfn_range {
 	struct kvm_memory_slot *slot;
 	gfn_t start;
 	gfn_t end;
-	pte_t pte;
+	union {
+		unsigned long attributes;
+		pte_t pte;
+		unsigned long callback_arg; /* needs a better name */
+	};
+	bool only_private;
+	bool only_shared;
 	bool may_block;
 };
 bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range);
@@ -2333,10 +2339,7 @@ static inline unsigned long kvm_get_memory_attributes(struct kvm *kvm, gfn_t gfn
 	return xa_to_value(xa_load(&kvm->mem_attr_array, gfn));
 }
 
-void kvm_arch_set_memory_attributes(struct kvm *kvm,
-				    struct kvm_memory_slot *slot,
-				    unsigned long attrs,
-				    gfn_t start, gfn_t end);
+bool kvm_arch_set_memory_attributes(struct kvm *kvm, struct kvm_gfn_range *range);
 
 static inline bool kvm_mem_is_private(struct kvm *kvm, gfn_t gfn)
 {

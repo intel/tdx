@@ -643,6 +643,8 @@ static __always_inline kvm_mn_ret_t __kvm_handle_hva_range(struct kvm *kvm,
 			gfn_range.only_private = false;
 			gfn_range.only_shared = true;
 			gfn_range.may_block = range->may_block;
+			gfn_range.only_private = false;
+			gfn_range.only_shared = true;
 
 			/*
 			 * {gfn(page) | page intersects with [hva_start, hva_end)} =
@@ -2488,6 +2490,8 @@ static __always_inline void kvm_handle_gfn_range(struct kvm *kvm,
 
 	gfn_range.arg = range->arg;
 	gfn_range.may_block = range->may_block;
+	gfn_range.only_private = false;
+	gfn_range.only_shared = false;
 
 	/*
 	 * If/when KVM supports more attributes beyond private .vs shared, this

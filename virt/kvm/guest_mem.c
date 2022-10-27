@@ -116,6 +116,7 @@ static void kvm_gmem_invalidate_begin(struct kvm *kvm, struct kvm_gmem *gmem,
 			.slot = slot,
 			.pte = __pte(0),
 			.may_block = true,
+			.flags = KVM_GFN_RANGE_FLAGS_GMEM,
 		};
 
 		if (WARN_ON_ONCE(start < slot->gmem.index ||

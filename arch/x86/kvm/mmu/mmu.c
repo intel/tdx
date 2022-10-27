@@ -7451,6 +7451,12 @@ bool kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
 	if (WARN_ON_ONCE(!kvm_arch_has_private_mem(kvm)))
 		return false;
 
+	/* Unmmap the old attribute page. */
+	if (range->arg.attributes & KVM_MEMORY_ATTRIBUTE_PRIVATE)
+		range->process = KVM_PROCESS_SHARED;
+	else
+		range->process = KVM_PROCESS_PRIVATE;
+
 	return kvm_unmap_gfn_range(kvm, range);
 }
 

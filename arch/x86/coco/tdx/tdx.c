@@ -34,6 +34,9 @@
 #define VE_GET_PORT_NUM(e)	((e) >> 16)
 #define VE_IS_IO_STRING(e)	((e) & BIT(4))
 
+/* TD Attributes */
+#define ATTR_SEPT_VE_DISABLE	BIT(28)
+
 /* Caches GPA width from TDG.VP.INFO TDCALL */
 static unsigned int gpa_width __ro_after_init;
 
@@ -769,6 +772,52 @@ void __init tdx_early_init(void)
 	 * get_cc_mask() or attribute checks.
 	 */
 	tdx_parse_tdinfo();
+
+	/*
+	 * Do not allow #VE due to EPT violation on the private memory
+	 *
+	 * Virtualization Exceptions (#VE) are delivered to TDX guests due to
+	 * specific guest actions such as using specific instructions or
+	 * accessing a specific MSR.
+	 *
+	 * Notable reason for #VE is access to specific guest physical
+	 * addresses. It requires special security considerations as it is not
+	 * fully in control of the guest kernel. VMM can remove a page from EPT
+	 * page table and trigger #VE on access.
+	 *
+	 * The primary use-case for #VE on a memory access is MMIO: VMM removes
+	 * page from EPT to trigger exception in the guest which allows guest to
+	 * emulate MMIO with hypercalls.
+	 *
+	 * MMIO only happens on shared memory. All conventional kernel memory is
+	 * private. This includes everything from kernel stacks to kernel text.
+	 *
+	 * Handling exceptions on arbitrary accesses to kernel memory is
+	 * essentially impossible as handling #VE may require access to memory
+	 * that also triggers the exception.
+	 *
+	 * TDX module provides mechanism to disable #VE delivery on access to
+	 * private memory. If SEPT_VE_DISABLE TD attribute is set, private EPT
+	 * violation will not be reflected to the guest as #VE, but will trigger
+	 * exit to VMM.
+	 *
+	 * Make sure the attribute is set by VMM. Panic otherwise.
+	 *
+	 * There's small window during the boot before the check where kernel has
+	 * early #VE handler. But the handler is only for port I/O and panic as
+	 * soon as it sees any other #VE reason.
+	 *
+	 * SEPT_VE_DISABLE makes SEPT violation unrecoverable and terminating
+	 * the TD is the only option.
+	 *
+	 * Kernel has no legitimate use-cases for #VE on private memory. It is
+	 * either a guest kernel bug (like access of unaccepted memory) or
+	 * malicious/buggy VMM that removes guest page that is still in use.
+	 *
+	 * In both cases terminating TD is the right thing to do.
+	 */
+	if (!(td_attr & ATTR_SEPT_VE_DISABLE))
+		panic("TD misconfiguration: SEPT_VE_DISABLE attibute must be set.\n");
 
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
 

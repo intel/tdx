@@ -260,11 +260,19 @@ union kvm_mmu_notifier_arg {
 	unsigned long attributes;
 };
 
+enum kvm_process {
+	BUGGY_KVM_INVALIDATION		= 0,
+	KVM_PROCESS_SHARED		= BIT(0),
+	KVM_PROCESS_PRIVATE		= BIT(1),
+	KVM_PROCESS_PRIVATE_AND_SHARED	= KVM_PROCESS_SHARED | KVM_PROCESS_PRIVATE,
+};
+
 struct kvm_gfn_range {
 	struct kvm_memory_slot *slot;
 	gfn_t start;
 	gfn_t end;
 	union kvm_mmu_notifier_arg arg;
+	enum kvm_process process;
 	bool may_block;
 };
 bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range);

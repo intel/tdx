@@ -6979,6 +6979,12 @@ static void kvm_mmu_zap_memslot_leafs(struct kvm *kvm, struct kvm_memory_slot *s
 		.start = slot->base_gfn,
 		.end = slot->base_gfn + slot->npages,
 		.may_block = true,
+
+		/*
+		 * All private and shared page should be zapped on memslot
+		 * deletion.
+		 */
+		.process = KVM_PROCESS_PRIVATE_AND_SHARED,
 	};
 
 	if (kvm_tdp_mmu_unmap_gfn_range(kvm, &range, false))
@@ -7478,6 +7484,12 @@ bool kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
 	 */
 	if (WARN_ON_ONCE(!kvm_arch_has_private_mem(kvm)))
 		return false;
+
+	/* Unmmap the old attribute page. */
+	if (range->arg.attributes & KVM_MEMORY_ATTRIBUTE_PRIVATE)
+		range->process = KVM_PROCESS_SHARED;
+	else
+		range->process = KVM_PROCESS_PRIVATE;
 
 	return kvm_unmap_gfn_range(kvm, range);
 }

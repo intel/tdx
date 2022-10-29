@@ -102,7 +102,7 @@ EXPORT_SYMBOL_GPL(halt_poll_ns_shrink);
 DEFINE_MUTEX(kvm_lock);
 LIST_HEAD(vm_list);
 
-static cpumask_var_t cpus_hardware_enabled;
+static cpumask_t cpus_hardware_enabled = CPU_MASK_NONE;
 static int kvm_usage_count;
 static atomic_t hardware_enable_failed;
 
@@ -5149,15 +5149,15 @@ static void hardware_enable_nolock(void *junk)
 
 	WARN_ON_ONCE(preemptible());
 
-	if (cpumask_test_cpu(cpu, cpus_hardware_enabled))
+	if (cpumask_test_cpu(cpu, &cpus_hardware_enabled))
 		return;
 
-	cpumask_set_cpu(cpu, cpus_hardware_enabled);
+	cpumask_set_cpu(cpu, &cpus_hardware_enabled);
 
 	r = kvm_arch_hardware_enable();
 
 	if (r) {
-		cpumask_clear_cpu(cpu, cpus_hardware_enabled);
+		cpumask_clear_cpu(cpu, &cpus_hardware_enabled);
 		atomic_inc(&hardware_enable_failed);
 		pr_info("kvm: enabling virtualization on CPU%d failed\n", cpu);
 	}
@@ -5179,9 +5179,9 @@ static void hardware_disable_nolock(void *junk)
 
 	WARN_ON_ONCE(preemptible());
 
-	if (!cpumask_test_cpu(cpu, cpus_hardware_enabled))
+	if (!cpumask_test_cpu(cpu, &cpus_hardware_enabled))
 		return;
-	cpumask_clear_cpu(cpu, cpus_hardware_enabled);
+	cpumask_clear_cpu(cpu, &cpus_hardware_enabled);
 	kvm_arch_hardware_disable();
 }
 
@@ -5954,11 +5954,6 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
 	if (r)
 		goto out_irqfd;
 
-	if (!zalloc_cpumask_var(&cpus_hardware_enabled, GFP_KERNEL)) {
-		r = -ENOMEM;
-		goto out_free_0;
-	}
-
 	r = kvm_arch_hardware_setup(opaque);
 	if (r < 0)
 		goto out_free_1;
@@ -6034,8 +6029,6 @@ out_free_3:
 out_free_2:
 	kvm_arch_hardware_unsetup();
 out_free_1:
-	free_cpumask_var(cpus_hardware_enabled);
-out_free_0:
 	kvm_irqfd_exit();
 out_irqfd:
 	kvm_arch_exit();
@@ -6062,7 +6055,6 @@ void kvm_exit(void)
 	kvm_arch_hardware_unsetup();
 	kvm_arch_exit();
 	kvm_irqfd_exit();
-	free_cpumask_var(cpus_hardware_enabled);
 	kvm_vfio_ops_exit();
 }
 EXPORT_SYMBOL_GPL(kvm_exit);

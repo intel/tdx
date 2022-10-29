@@ -349,9 +349,9 @@ out:
 	return __pa(root->spt);
 }
 
-static void handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
-				u64 old_spte, u64 new_spte, int level,
-				bool shared);
+static int __must_check handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
+					    u64 old_spte, u64 new_spte, int level,
+					    bool shared);
 
 static void handle_changed_spte_acc_track(u64 old_spte, u64 new_spte, int level)
 {
@@ -445,6 +445,7 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
 	struct kvm_mmu_page *sp = sptep_to_sp(rcu_dereference(pt));
 	int level = sp->role.level;
 	gfn_t base_gfn = sp->gfn;
+	int ret;
 	int i;
 
 	trace_kvm_mmu_prepare_zap_page(sp);
@@ -516,8 +517,14 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
 			old_spte = kvm_tdp_mmu_write_spte(sptep, old_spte,
 							  REMOVED_SPTE, level);
 		}
-		handle_changed_spte(kvm, kvm_mmu_page_as_id(sp), gfn,
-				    old_spte, REMOVED_SPTE, level, shared);
+		ret = handle_changed_spte(kvm, kvm_mmu_page_as_id(sp), gfn,
+					  old_spte, REMOVED_SPTE, level, shared);
+		/*
+		 * We are removing page tables.  Because in TDX case we don't
+		 * zap private page tables except tearing down VM.  It means
+		 * no race condition.
+		 */
+		WARN_ON_ONCE(ret);
 	}
 
 	call_rcu(&sp->rcu_head, tdp_mmu_free_sp_rcu_callback);
@@ -538,9 +545,9 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
  * Handle bookkeeping that might result from the modification of a SPTE.
  * This function must be called for all TDP SPTE modifications.
  */
-static void __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
-				  u64 old_spte, u64 new_spte, int level,
-				  bool shared)
+static int __must_check __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
+					      u64 old_spte, u64 new_spte, int level,
+					      bool shared)
 {
 	bool was_present = is_shadow_present_pte(old_spte);
 	bool is_present = is_shadow_present_pte(new_spte);
@@ -576,7 +583,7 @@ static void __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 	}
 
 	if (old_spte == new_spte)
-		return;
+		return 0;
 
 	trace_kvm_tdp_mmu_spte_changed(as_id, gfn, level, old_spte, new_spte);
 
@@ -605,7 +612,7 @@ static void __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 			       "a temporary removed SPTE.\n"
 			       "as_id: %d gfn: %llx old_spte: %llx new_spte: %llx level: %d",
 			       as_id, gfn, old_spte, new_spte, level);
-		return;
+		return 0;
 	}
 
 	if (is_leaf != was_leaf)
@@ -624,17 +631,25 @@ static void __handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 	if (was_present && !was_leaf &&
 	    (is_leaf || !is_present || WARN_ON_ONCE(pfn_changed)))
 		handle_removed_pt(kvm, spte_to_child_pt(old_spte, level), shared);
+
+	return 0;
 }
 
-static void handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
-				u64 old_spte, u64 new_spte, int level,
-				bool shared)
+static int __must_check handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
+					    u64 old_spte, u64 new_spte, int level,
+					    bool shared)
 {
-	__handle_changed_spte(kvm, as_id, gfn, old_spte, new_spte, level,
-			      shared);
+	int ret;
+
+	ret = __handle_changed_spte(kvm, as_id, gfn, old_spte, new_spte, level,
+				    shared);
+	if (ret)
+		return ret;
+
 	handle_changed_spte_acc_track(old_spte, new_spte, level);
 	handle_changed_spte_dirty_log(kvm, as_id, gfn, old_spte,
 				      new_spte, level);
+	return 0;
 }
 
 /*
@@ -653,12 +668,14 @@ static void handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
  * * -EBUSY - If the SPTE cannot be set. In this case this function will have
  *            no side-effects other than setting iter->old_spte to the last
  *            known value of the spte.
+ * * -EAGAIN - Same to -EBUSY. But the source is from callbacks for private spt
  */
-static inline int tdp_mmu_set_spte_atomic(struct kvm *kvm,
-					  struct tdp_iter *iter,
-					  u64 new_spte)
+static inline int __must_check tdp_mmu_set_spte_atomic(struct kvm *kvm,
+						       struct tdp_iter *iter,
+						       u64 new_spte)
 {
 	u64 *sptep = rcu_dereference(iter->sptep);
+	int ret;
 
 	/*
 	 * The caller is responsible for ensuring the old SPTE is not a REMOVED
@@ -677,15 +694,16 @@ static inline int tdp_mmu_set_spte_atomic(struct kvm *kvm,
 	if (!try_cmpxchg64(sptep, &iter->old_spte, new_spte))
 		return -EBUSY;
 
-	__handle_changed_spte(kvm, iter->as_id, iter->gfn, iter->old_spte,
-			      new_spte, iter->level, true);
-	handle_changed_spte_acc_track(iter->old_spte, new_spte, iter->level);
+	ret = __handle_changed_spte(kvm, iter->as_id, iter->gfn, iter->old_spte,
+				    new_spte, iter->level, true);
+	if (!ret)
+		handle_changed_spte_acc_track(iter->old_spte, new_spte, iter->level);
 
-	return 0;
+	return ret;
 }
 
-static inline int tdp_mmu_zap_spte_atomic(struct kvm *kvm,
-					  struct tdp_iter *iter)
+static inline int __must_check tdp_mmu_zap_spte_atomic(struct kvm *kvm,
+						       struct tdp_iter *iter)
 {
 	int ret;
 
@@ -750,6 +768,8 @@ static u64 __tdp_mmu_set_spte(struct kvm *kvm, int as_id, tdp_ptep_t sptep,
 			      u64 old_spte, u64 new_spte, gfn_t gfn, int level,
 			      bool record_acc_track, bool record_dirty_log)
 {
+	int ret;
+
 	lockdep_assert_held_write(&kvm->mmu_lock);
 
 	/*
@@ -763,7 +783,9 @@ static u64 __tdp_mmu_set_spte(struct kvm *kvm, int as_id, tdp_ptep_t sptep,
 
 	old_spte = kvm_tdp_mmu_write_spte(sptep, old_spte, new_spte, level);
 
-	__handle_changed_spte(kvm, as_id, gfn, old_spte, new_spte, level, false);
+	ret = __handle_changed_spte(kvm, as_id, gfn, old_spte, new_spte, level, false);
+	/* Because write spin lock is held, no race.  It should success. */
+	WARN_ON_ONCE(ret);
 
 	if (record_acc_track)
 		handle_changed_spte_acc_track(old_spte, new_spte, level);

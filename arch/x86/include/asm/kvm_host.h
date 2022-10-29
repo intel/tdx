@@ -470,6 +470,7 @@ struct kvm_mmu {
 	int (*sync_spte)(struct kvm_vcpu *vcpu,
 			 struct kvm_mmu_page *sp, int i);
 	struct kvm_mmu_root_info root;
+	hpa_t private_root_hpa;
 	union kvm_cpu_role cpu_role;
 	union kvm_mmu_page_role root_role;
 
@@ -1746,6 +1747,30 @@ struct kvm_x86_ops {
 
 	void (*load_mmu_pgd)(struct kvm_vcpu *vcpu, hpa_t root_hpa,
 			     int root_level);
+
+	/* Add a page as page table page into private page table */
+	int (*link_private_spt)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+				void *private_spt);
+	/*
+	 * Free a page table page of private page table.
+	 * Only expected to be called when guest is not active, specifically
+	 * during VM destruction phase.
+	 */
+	int (*free_private_spt)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+				void *private_spt);
+
+	/* Add a guest private page into private page table */
+	int (*set_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+				kvm_pfn_t pfn);
+
+	/* Remove a guest private page from private page table*/
+	int (*remove_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+				   kvm_pfn_t pfn);
+	/*
+	 * Keep a guest private page mapped in private page table, but clear its
+	 * present bit
+	 */
+	int (*zap_private_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level);
 
 	bool (*has_wbinvd_exit)(void);
 

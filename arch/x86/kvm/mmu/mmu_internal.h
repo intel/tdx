@@ -6,6 +6,8 @@
 #include <linux/kvm_host.h>
 #include <asm/kvm_host.h>
 
+#include "mmu.h"
+
 #undef MMU_DEBUG
 
 #ifdef MMU_DEBUG
@@ -204,6 +206,15 @@ static inline void kvm_mmu_free_private_spt(struct kvm_mmu_page *sp)
 	if (sp->private_spt)
 		free_page((unsigned long)sp->private_spt);
 }
+
+static inline gfn_t kvm_gfn_for_root(struct kvm *kvm, struct kvm_mmu_page *root,
+				     gfn_t gfn)
+{
+	if (is_private_sp(root))
+		return kvm_gfn_to_private(kvm, gfn);
+	else
+		return kvm_gfn_to_shared(kvm, gfn);
+}
 #else
 static inline void *kvm_mmu_private_spt(struct kvm_mmu_page *sp)
 {
@@ -220,6 +231,12 @@ static inline void kvm_mmu_alloc_private_spt(struct kvm_vcpu *vcpu, struct kvm_m
 
 static inline void kvm_mmu_free_private_spt(struct kvm_mmu_page *sp)
 {
+}
+
+static inline gfn_t kvm_gfn_for_root(struct kvm *kvm, struct kvm_mmu_page *root,
+				     gfn_t gfn)
+{
+	return gfn;
 }
 #endif
 
@@ -386,7 +403,7 @@ static inline int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 	int r;
 
 	if (vcpu->arch.mmu->root_role.direct) {
-		fault.gfn = fault.addr >> PAGE_SHIFT;
+		fault.gfn = gpa_to_gfn(fault.addr) & ~kvm_gfn_shared_mask(vcpu->kvm);
 		fault.slot = kvm_vcpu_gfn_to_memslot(vcpu, fault.gfn);
 	}
 

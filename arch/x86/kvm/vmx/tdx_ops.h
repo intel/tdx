@@ -77,6 +77,16 @@ static inline void tdx_set_page_present_level(hpa_t addr, enum pg_level pg_level
 		set_direct_map_default_noflush(pfn_to_page((addr >> PAGE_SHIFT) + i));
 }
 
+static inline bool tdx_op_is_busy(void)
+{
+	static atomic_t count;
+
+	if (!IS_ENABLED(CONFIG_KVM_TDX_OPERAND_BUSY_INJECTION))
+		return false;
+#define KVM_TDX_BUSY_COUNT	(47)	/* random prime number */
+	return !(atomic_inc_return(&count) % KVM_TDX_BUSY_COUNT);
+}
+
 /*
  * TDX module acquires its internal lock for resources.  It doesn't spin to get
  * locks because of its restrictions of allowed execution time.  Instead, it
@@ -94,8 +104,8 @@ static inline void tdx_set_page_present_level(hpa_t addr, enum pg_level pg_level
  */
 #define TDX_ERROR_SEPT_BUSY    (TDX_OPERAND_BUSY | TDX_OPERAND_ID_SEPT)
 
-static inline u64 seamcall_sept(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
-				struct tdx_module_output *out)
+static inline u64 __seamcall_sept(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
+				  struct tdx_module_output *out)
 {
 #define SEAMCALL_RETRY_MAX     16
 	int retry = SEAMCALL_RETRY_MAX;
@@ -105,6 +115,14 @@ static inline u64 seamcall_sept(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
 		ret = __seamcall(op, rcx, rdx, r8, r9, out);
 	} while (ret == TDX_ERROR_SEPT_BUSY && retry-- > 0);
 	return ret;
+}
+
+static inline u64 seamcall_sept(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
+				struct tdx_module_output *out)
+{
+	if (tdx_op_is_busy())
+		return TDX_ERROR_SEPT_BUSY;
+	return __seamcall_sept(op, rcx, rdx, r8, r9, out);
 }
 
 static inline u64 tdh_mng_addcx(hpa_t tdr, hpa_t addr)
@@ -181,7 +199,10 @@ static inline u64 tdh_mem_page_aug(hpa_t tdr, gpa_t gpa, int level, hpa_t hpa,
 static inline u64 tdh_mem_range_block(hpa_t tdr, gpa_t gpa, int level,
 				      struct tdx_module_output *out)
 {
-	return seamcall_sept(TDH_MEM_RANGE_BLOCK, gpa | level, tdr, 0, 0, out);
+	/*
+	 * When zapping all secure-ept, kvm->mmu_lock is write locked. No race.
+	 */
+	return __seamcall_sept(TDH_MEM_RANGE_BLOCK, gpa | level, tdr, 0, 0, out);
 }
 
 static inline u64 tdh_mng_key_config(hpa_t tdr)
@@ -306,6 +327,8 @@ static inline u64 tdh_mng_key_reclaimid(hpa_t tdr)
 static inline u64 tdh_phymem_page_reclaim(hpa_t page,
 					  struct tdx_module_output *out)
 {
+	if (tdx_op_is_busy())
+		return TDX_OPERAND_BUSY | TDX_OPERAND_ID_RCX;
 	return __seamcall(TDH_PHYMEM_PAGE_RECLAIM, page, 0, 0, 0, out);
 }
 
@@ -322,6 +345,8 @@ static inline u64 tdh_sys_lp_shutdown(void)
 
 static inline u64 tdh_mem_track(hpa_t tdr)
 {
+	if (tdx_op_is_busy())
+		return TDX_OPERAND_BUSY | TDX_OPERAND_ID_TD_EPOCH;
 	return __seamcall(TDH_MEM_TRACK, tdr, 0, 0, 0, NULL);
 }
 
@@ -338,6 +363,8 @@ static inline u64 tdh_phymem_cache_wb(bool resume)
 
 static inline u64 tdh_phymem_page_wbinvd(hpa_t page)
 {
+	if (tdx_op_is_busy())
+		return TDX_OPERAND_BUSY | TDX_OPERAND_ID_RCX;
 	return __seamcall(TDH_PHYMEM_PAGE_WBINVD, page, 0, 0, 0, NULL);
 }
 

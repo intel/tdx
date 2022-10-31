@@ -116,6 +116,16 @@ static inline void tdx_set_page_present_level(hpa_t addr, enum pg_level pg_level
 		set_direct_map_default_noflush(pfn_to_page((addr >> PAGE_SHIFT) + i));
 }
 
+static inline bool tdx_op_is_busy(void)
+{
+	static atomic_t count;
+
+	if (!IS_ENABLED(CONFIG_KVM_TDX_OPERAND_BUSY_INJECTION))
+		return false;
+#define KVM_TDX_BUSY_COUNT	(47)	/* random prime number */
+	return !(atomic_inc_return(&count) % KVM_TDX_BUSY_COUNT);
+}
+
 /*
  * TDX module acquires its internal lock for resources.  It doesn't spin to get
  * locks because of its restrictions of allowed execution time.  Instead, it
@@ -133,7 +143,7 @@ static inline void tdx_set_page_present_level(hpa_t addr, enum pg_level pg_level
  */
 #define TDX_ERROR_SEPT_BUSY    (TDX_OPERAND_BUSY | TDX_OPERAND_ID_SEPT)
 
-static inline u64 tdx_seamcall_sept(u64 op, struct tdx_module_args *in,
+static inline u64 __tdx_seamcall_sept(u64 op, struct tdx_module_args *in,
 				    struct tdx_module_args *out)
 {
 #define SEAMCALL_RETRY_MAX     16
@@ -144,6 +154,14 @@ static inline u64 tdx_seamcall_sept(u64 op, struct tdx_module_args *in,
 		ret = tdx_seamcall(op, in, out);
 	} while (ret == TDX_ERROR_SEPT_BUSY && retry-- > 0);
 	return ret;
+}
+
+static inline u64 tdx_seamcall_sept(u64 op, struct tdx_module_args *in,
+				    struct tdx_module_args *out)
+{
+	if (tdx_op_is_busy())
+		return TDX_ERROR_SEPT_BUSY;
+	return __tdx_seamcall_sept(op, in, out);
 }
 
 static inline u64 tdh_mng_addcx(hpa_t tdr, hpa_t addr)
@@ -273,7 +291,10 @@ static inline u64 tdh_mem_range_block(hpa_t tdr, gpa_t gpa, int level,
 		.rdx = tdr,
 	};
 
-	return tdx_seamcall_sept(TDH_MEM_RANGE_BLOCK, &in, out);
+	/*
+	 * When zapping all secure-ept, kvm->mmu_lock is write locked. No race.
+	 */
+	return __tdx_seamcall_sept(TDH_MEM_RANGE_BLOCK, &in, out);
 }
 
 static inline u64 tdh_mng_key_config(hpa_t tdr)
@@ -448,6 +469,8 @@ static inline u64 tdh_phymem_page_reclaim(hpa_t page,
 		.rcx = page,
 	};
 
+	if (tdx_op_is_busy())
+		return TDX_OPERAND_BUSY | TDX_OPERAND_ID_RCX;
 	return tdx_seamcall(TDH_PHYMEM_PAGE_RECLAIM, &in, out);
 }
 
@@ -476,6 +499,8 @@ static inline u64 tdh_mem_track(hpa_t tdr)
 		.rcx = tdr,
 	};
 
+	if (tdx_op_is_busy())
+		return TDX_OPERAND_BUSY | TDX_OPERAND_ID_TD_EPOCH;
 	return tdx_seamcall(TDH_MEM_TRACK, &in, NULL);
 }
 
@@ -505,6 +530,8 @@ static inline u64 tdh_phymem_page_wbinvd(hpa_t page)
 		.rcx = page,
 	};
 
+	if (tdx_op_is_busy())
+		return TDX_OPERAND_BUSY | TDX_OPERAND_ID_RCX;
 	return tdx_seamcall(TDH_PHYMEM_PAGE_WBINVD, &in, NULL);
 }
 

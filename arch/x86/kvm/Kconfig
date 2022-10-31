@@ -160,4 +160,9 @@ config KVM_MMU_PRIVATE
 	def_bool y
 	depends on INTEL_TDX_HOST && KVM_INTEL
 
+config KVM_TDX_OPERAND_BUSY_INJECTION
+	def_bool n
+	bool "TDX operand busy injection"
+	depends on INTEL_TDX_HOST && KVM_INTEL
+
 endif # VIRTUALIZATION

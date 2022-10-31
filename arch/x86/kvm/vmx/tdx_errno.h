@@ -115,5 +115,6 @@
  */
 #define TDX_OPERAND_ID_RCX			0x01
 #define TDX_OPERAND_ID_SEPT			0x92
+#define TDX_OPERAND_ID_TD_EPOCH			0xa9
 
 #endif /* __KVM_X86_TDX_ERRNO_H */

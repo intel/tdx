@@ -8505,6 +8505,7 @@ static void vmx_exit(void)
 #endif
 
 	kvm_exit();
+	kvm_x86_vendor_exit();
 
 	hv_cleanup_evmcs();
 
@@ -8520,13 +8521,17 @@ static int __init vmx_init(void)
 
 	hv_setup_evmcs();
 
+	r = kvm_x86_vendor_init(&vmx_init_ops);
+	if (r)
+		goto err_x86_init;
+
 	r = kvm_init(&vmx_init_ops, sizeof(struct vcpu_vmx),
 		     __alignof__(struct vcpu_vmx), THIS_MODULE);
 	if (r)
 		goto err_kvm_init;
 
 	/*
-	 * Must be called after kvm_init() so enable_ept is properly set
+	 * Must be called after common x86 init so enable_ept is properly set
 	 * up. Hand the parameter mitigation value in which was stored in
 	 * the pre module init parser. If no parameter was given, it will
 	 * contain 'auto' which will be turned into the default 'cond'
@@ -8563,6 +8568,8 @@ static int __init vmx_init(void)
 err_l1d_flush:
 	vmx_exit();
 err_kvm_init:
+	kvm_x86_vendor_exit();
+err_x86_init:
 	hv_cleanup_evmcs();
 	return r;
 }

@@ -9281,7 +9281,8 @@ struct kvm_cpu_compat_check {
 
 static int kvm_x86_check_processor_compatibility(struct kvm_x86_init_ops *ops)
 {
-	struct cpuinfo_x86 *c = &cpu_data(smp_processor_id());
+	int cpu = smp_processor_id();
+	struct cpuinfo_x86 *c = &cpu_data(cpu);
 
 	WARN_ON(!irqs_disabled());
 
@@ -9289,7 +9290,7 @@ static int kvm_x86_check_processor_compatibility(struct kvm_x86_init_ops *ops)
 	    __cr4_reserved_bits(cpu_has, &boot_cpu_data))
 		return -EIO;
 
-	return ops->check_processor_compatibility();
+	return ops->check_processor_compatibility(cpu);
 }
 
 static void kvm_x86_check_cpu_compat(void *data)

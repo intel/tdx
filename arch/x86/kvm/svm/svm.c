@@ -519,13 +519,13 @@ static void svm_init_osvw(struct kvm_vcpu *vcpu)
 		vcpu->arch.osvw.status |= 1;
 }
 
-static bool kvm_is_svm_supported(void)
+static bool kvm_is_svm_supported(int cpu)
 {
 	const char *msg;
 	u64 vm_cr;
 
 	if (!cpu_has_svm(&msg)) {
-		pr_err("SVM not supported, %s\n", msg);
+		pr_err("SVM not supported by CPU %d, %s\n", cpu, msg);
 		return false;
 	}
 
@@ -536,16 +536,16 @@ static bool kvm_is_svm_supported(void)
 
 	rdmsrl(MSR_VM_CR, vm_cr);
 	if (vm_cr & (1 << SVM_VM_CR_SVM_DISABLE)) {
-		pr_err("SVM disabled in MSR_VM_CR\n");
+		pr_err("SVM disabled in MSR_VM_CR on CPU %d\n", cpu);
 		return false;
 	}
 
 	return true;
 }
 
-static int __init svm_check_processor_compat(void)
+static int svm_check_processor_compat(int cpu)
 {
-	if (!kvm_is_svm_supported())
+	if (!kvm_is_svm_supported(cpu))
 		return -EIO;
 
 	return 0;
@@ -582,13 +582,16 @@ static int svm_hardware_enable(void)
 	uint64_t efer;
 	struct desc_struct *gdt;
 	int me = raw_smp_processor_id();
+	int r;
+
+	r = svm_check_processor_compat(me);
+	if (r)
+		return r;
 
 	rdmsrl(MSR_EFER, efer);
 	if (efer & EFER_SVME)
 		return -EBUSY;
 
-	if (!kvm_is_svm_supported())
-		return -EINVAL;
 	sd = per_cpu_ptr(&svm_data, me);
 	sd->asid_generation = 1;
 	sd->max_asid = cpuid_ebx(SVM_CPUID_FUNC) - 1;
@@ -5084,7 +5087,7 @@ static int __init svm_init(void)
 
 	__unused_size_checks();
 
-	if (!kvm_is_svm_supported())
+	if (!kvm_is_svm_supported(raw_smp_processor_id()))
 		return -EOPNOTSUPP;
 
 	r = kvm_x86_vendor_init(&svm_init_ops);

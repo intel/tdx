@@ -1476,24 +1476,6 @@ static int tdx_get_td_vm_call_info(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
-static int tdx_report_fatal_error(struct kvm_vcpu *vcpu)
-{
-	/*
-	 * Exit to userspace device model for teardown.
-	 * Because guest TD is already panicing, returning an error to guerst TD
-	 * doesn't make sense.  No argument check is done.
-	 */
-
-	vcpu->run->exit_reason = KVM_EXIT_SYSTEM_EVENT;
-	vcpu->run->system_event.type = KVM_SYSTEM_EVENT_TDX;
-	vcpu->run->system_event.ndata = 3;
-	vcpu->run->system_event.data[0] = TDG_VP_VMCALL_REPORT_FATAL_ERROR;
-	vcpu->run->system_event.data[1] = tdvmcall_a0_read(vcpu);
-	vcpu->run->system_event.data[2] = tdvmcall_a1_read(vcpu);
-
-	return 0;
-}
-
 static int tdx_complete_vp_vmcall(struct kvm_vcpu *vcpu)
 {
 	struct kvm_tdx_vmcall *tdx_vmcall = &vcpu->run->tdx.u.vmcall;
@@ -1565,6 +1547,16 @@ static int tdx_vp_vmcall_to_user(struct kvm_vcpu *vcpu)
 
 	/* notify userspace to handle the request */
 	return 0;
+}
+
+static int tdx_report_fatal_error(struct kvm_vcpu *vcpu)
+{
+	/*
+	 * Exit to userspace device model for tear down.
+	 * Because guest TD is already panicing, returning an error to guerst TD
+	 * doesn't make sense.  No argument check is done.
+	 */
+	return tdx_vp_vmcall_to_user(vcpu);
 }
 
 static int tdx_map_gpa(struct kvm_vcpu *vcpu)

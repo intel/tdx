@@ -140,6 +140,7 @@ void vmx_cancel_hv_timer(struct kvm_vcpu *vcpu);
 void vmx_setup_mce(struct kvm_vcpu *vcpu);
 
 #ifdef CONFIG_INTEL_TDX_HOST
+int __init tdx_init(void);
 int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops);
 bool tdx_is_vm_type_supported(unsigned long type);
 void tdx_hardware_unsetup(void);
@@ -210,11 +211,11 @@ void tdx_update_exception_bitmap(struct kvm_vcpu *vcpu);
 void tdx_set_dr7(struct kvm_vcpu *vcpu, unsigned long val);
 bool tdx_check_apicv_inhibit_reasons(struct kvm *kvm, ulong bit);
 #else
+static inline int tdx_init(void) { return 0; };
 static inline int tdx_hardware_setup(struct kvm_x86_ops *x86_ops) { return 0; }
 static inline bool tdx_is_vm_type_supported(unsigned long type) { return false; }
 static inline void tdx_hardware_unsetup(void) {}
 static inline int tdx_offline_cpu(void) { return 0; }
-static inline void tdx_hardware_enable(void) {}
 static inline void tdx_hardware_disable(void) {}
 static inline int tdx_dev_ioctl(void __user *argp) { return -EOPNOTSUPP; };
 

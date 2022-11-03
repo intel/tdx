@@ -18,18 +18,6 @@ static bool vt_is_vm_type_supported(unsigned long type)
 		(enable_tdx && tdx_is_vm_type_supported(type));
 }
 
-static int vt_hardware_enable(void)
-{
-	int ret;
-
-	ret = vmx_hardware_enable();
-	if (ret)
-		return ret;
-
-	tdx_hardware_enable();
-	return 0;
-}
-
 static void vt_hardware_disable(void)
 {
 	/* Note, TDX *and* VMX need to be disabled if TDX is enabled. */
@@ -959,7 +947,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.hardware_unsetup = vt_hardware_unsetup,
 	.offline_cpu = tdx_offline_cpu,
 
-	.hardware_enable = vt_hardware_enable,
+	.hardware_enable = vmx_hardware_enable,
 	.hardware_disable = vt_hardware_disable,
 	.has_emulated_msr = vt_has_emulated_msr,
 
@@ -1137,6 +1125,10 @@ static int __init vt_init(void)
 	if (r)
 		goto err_vmx_init;
 
+	r = tdx_init();
+	if (r)
+		goto err_tdx_init;
+
 	/*
 	 * Common KVM initialization _must_ come last, after this, /dev/kvm is
 	 * exposed to userspace!
@@ -1159,6 +1151,8 @@ static int __init vt_init(void)
 	return 0;
 
 err_kvm_init:
+	/* tdx_exit() is not defined. */
+err_tdx_init:
 	vmx_exit();
 err_vmx_init:
 	kvm_x86_vendor_exit();

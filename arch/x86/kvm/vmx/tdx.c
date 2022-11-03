@@ -215,11 +215,6 @@ static inline void tdx_disassociate_vp(struct kvm_vcpu *vcpu)
 	vcpu->cpu = -1;
 }
 
-void tdx_hardware_enable(void)
-{
-	INIT_LIST_HEAD(&per_cpu(associated_tdvcpus, raw_smp_processor_id()));
-}
-
 void tdx_hardware_disable(void)
 {
 	int cpu = raw_smp_processor_id();
@@ -4307,4 +4302,13 @@ int tdx_offline_cpu(void)
 		pr_warn("TDX requires all packages to have an online CPU.  "
 			"Delete all TDs in order to offline all CPUs of a package.\n");
 	return ret;
+}
+
+int __init tdx_init(void)
+{
+	int cpu;
+
+	for_each_possible_cpu(cpu)
+		INIT_LIST_HEAD(&per_cpu(associated_tdvcpus, cpu));
+	return 0;
 }

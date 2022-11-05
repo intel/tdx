@@ -9,9 +9,9 @@ struct restrictedmem_notifier;
 
 struct restrictedmem_notifier_ops {
 	void (*invalidate_start)(struct restrictedmem_notifier *notifier,
-				 pgoff_t start, pgoff_t end);
+				 int mode, pgoff_t start, pgoff_t end);
 	void (*invalidate_end)(struct restrictedmem_notifier *notifier,
-			       pgoff_t start, pgoff_t end);
+			       int mode, pgoff_t start, pgoff_t end);
 };
 
 struct restrictedmem_notifier {

@@ -256,6 +256,7 @@ struct kvm_gfn_range {
 	union {
 		pte_t pte;
 		int attr;
+		int mode;
 	};
 	bool may_block;
 	unsigned int flags;

@@ -45,6 +45,7 @@
 #include <linux/hash.h>
 #include <linux/kern_levels.h>
 #include <linux/kthread.h>
+#include <linux/falloc.h>
 
 #include <asm/page.h>
 #include <asm/memtype.h>
@@ -1765,7 +1766,9 @@ bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)
 			 * KVM_MEMORY_ENCRYPT_REG/UNREG_REGION, we can
 			 * ignore the request from restrictedmem.
 			 */
-			return flush;
+			if (!(range->mode & FALLOC_FL_PUNCH_HOLE))
+				return flush;
+			zap_private = true;
 		} else if (range->flags & KVM_GFN_RANGE_FLAGS_SET_MEM_ATTR) {
 			if (range->attr == KVM_MEM_ATTR_SHARED)
 				zap_private = true;

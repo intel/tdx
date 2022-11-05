@@ -15,16 +15,16 @@ struct restrictedmem_data {
 };
 
 static void restrictedmem_notifier_invalidate(struct restrictedmem_data *data,
-				 pgoff_t start, pgoff_t end, bool notify_start)
+					      int mode, pgoff_t start, pgoff_t end, bool notify_start)
 {
 	struct restrictedmem_notifier *notifier;
 
 	mutex_lock(&data->lock);
 	list_for_each_entry(notifier, &data->notifiers, list) {
 		if (notify_start)
-			notifier->ops->invalidate_start(notifier, start, end);
+			notifier->ops->invalidate_start(notifier, mode, start, end);
 		else
-			notifier->ops->invalidate_end(notifier, start, end);
+			notifier->ops->invalidate_end(notifier, mode, start, end);
 	}
 	mutex_unlock(&data->lock);
 }
@@ -50,9 +50,9 @@ static long restrictedmem_fallocate(struct file *file, int mode,
 			return -EINVAL;
 	}
 
-	restrictedmem_notifier_invalidate(data, offset, offset + len, true);
+	restrictedmem_notifier_invalidate(data, mode, offset, offset + len, true);
 	ret = memfd->f_op->fallocate(memfd, mode, offset, len);
-	restrictedmem_notifier_invalidate(data, offset, offset + len, false);
+	restrictedmem_notifier_invalidate(data, mode, offset, offset + len, false);
 	return ret;
 }
 

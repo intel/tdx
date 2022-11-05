@@ -1047,7 +1047,7 @@ static bool restrictedmem_range_is_valid(struct kvm_memory_slot *slot,
 }
 
 static void kvm_restrictedmem_invalidate_begin(struct restrictedmem_notifier *notifier,
-					       pgoff_t start, pgoff_t end)
+					       int mode, pgoff_t start, pgoff_t end)
 {
 	struct kvm_memory_slot *slot = container_of(notifier,
 						    struct kvm_memory_slot,
@@ -1069,7 +1069,7 @@ static void kvm_restrictedmem_invalidate_begin(struct restrictedmem_notifier *no
 	gfn_range.start = gfn_start;
 	gfn_range.end = gfn_end;
 	gfn_range.slot = slot;
-	gfn_range.pte = __pte(0);
+	gfn_range.mode = mode;
 	gfn_range.may_block = true;
 	gfn_range.flags = KVM_GFN_RANGE_FLAGS_RESTRICTED_MEM;
 
@@ -1081,7 +1081,7 @@ static void kvm_restrictedmem_invalidate_begin(struct restrictedmem_notifier *no
 }
 
 static void kvm_restrictedmem_invalidate_end(struct restrictedmem_notifier *notifier,
-					     pgoff_t start, pgoff_t end)
+					     int mode, pgoff_t start, pgoff_t end)
 {
 	struct kvm_memory_slot *slot = container_of(notifier,
 						    struct kvm_memory_slot,

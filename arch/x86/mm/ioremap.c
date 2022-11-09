@@ -440,6 +440,48 @@ void __iomem *ioremap_driver_hardened(resource_size_t phys_addr, unsigned long s
 EXPORT_SYMBOL(ioremap_driver_hardened);
 
 /**
+ * ioremap_driver_hardened_uc - map memory into CPU space shared with host
+ * @phys_addr:	bus address of the memory
+ * @size:	size of the resource to map
+ *
+ * This version of ioremap behaves like ioremap_uc, but ensures that the
+ * memory is marked shared with the host when it used by a hardened driver.
+ * This is useful for confidential guests.
+ *
+ * Note that drivers should not use this function directly, but use
+ * pci_iomap_range(), devm_ioremap* et.al.
+ *
+ * Must be freed with iounmap.
+ */
+void __iomem *ioremap_driver_hardened_uc(resource_size_t phys_addr, unsigned long size)
+{
+	return __ioremap_caller(phys_addr, size, _PAGE_CACHE_MODE_UC,
+			__builtin_return_address(0), false, true);
+}
+EXPORT_SYMBOL(ioremap_driver_hardened_uc);
+
+/**
+ * ioremap_driver_hardened_wc - map memory into CPU space shared with host
+ * @phys_addr:	bus address of the memory
+ * @size:	size of the resource to map
+ *
+ * This version of ioremap behaves like ioremap_wc, but ensures that the
+ * memory is marked shared with the host when it used by a hardened driver.
+ * This is useful for confidential guests.
+ *
+ * Note that drivers should not use this function directly, but use
+ * pci_iomap_range(), devm_ioremap* et.al.
+ *
+ * Must be freed with iounmap.
+ */
+void __iomem *ioremap_driver_hardened_wc(resource_size_t phys_addr, unsigned long size)
+{
+	return __ioremap_caller(phys_addr, size, _PAGE_CACHE_MODE_WC,
+			__builtin_return_address(0), false, true);
+}
+EXPORT_SYMBOL(ioremap_driver_hardened_wc);
+
+/**
  * ioremap_wt	-	map memory into CPU space write through
  * @phys_addr:	bus address of the memory
  * @size:	size of the resource to map

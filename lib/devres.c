@@ -36,16 +36,28 @@ static void __iomem *__devm_ioremap(struct device *dev, resource_size_t offset,
 
 	switch (type) {
 	case DEVM_IOREMAP:
-		addr = ioremap(offset, size);
+		if (dev->authorized)
+			addr = ioremap_driver_hardened(offset, size);
+		else
+			addr = ioremap(offset, size);
 		break;
 	case DEVM_IOREMAP_UC:
-		addr = ioremap_uc(offset, size);
+		if (dev->authorized)
+			addr = ioremap_driver_hardened_uc(offset, size);
+		else
+			addr = ioremap_uc(offset, size);
 		break;
 	case DEVM_IOREMAP_WC:
-		addr = ioremap_wc(offset, size);
+		if (dev->authorized)
+			addr = ioremap_driver_hardened_wc(offset, size);
+		else
+			addr = ioremap_wc(offset, size);
 		break;
 	case DEVM_IOREMAP_NP:
-		addr = ioremap_np(offset, size);
+		if (dev->authorized)
+			addr = ioremap_driver_hardened_np(offset, size);
+		else
+			addr = ioremap_np(offset, size);
 		break;
 	}
 

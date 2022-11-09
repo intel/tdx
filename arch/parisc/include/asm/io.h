@@ -140,8 +140,8 @@ static inline void gsc_writeq(unsigned long long val, unsigned long addr)
 /* Share memory with host in confidential guest platforms (WB version) */
 #define ioremap_cache_shared \
 	ioremap_prot((addr), (size), _PAGE_IOREMAP)
-#define ioremap_uc \
-	ioremap_prot((addr), (size), _PAGE_IOREMAP)
+#define ioremap_driver_hardened_uc	ioremap_uc
+#define ioremap_driver_hardened_wc	ioremap_wc
 
 #define pci_iounmap			pci_iounmap
 

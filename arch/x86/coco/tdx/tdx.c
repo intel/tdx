@@ -510,6 +510,35 @@ static int handle_cpuid(struct pt_regs *regs, struct ve_info *ve)
 	};
 
 	/*
+	 * CPUID leaf 0x2 provides cache and TLB information.
+	 *
+	 * The leaf is obsolete. There are leafs that provides the same
+	 * information in a structured form. See leaf 0x4 on cache info and
+	 * leaf 0x18 on TLB info.
+	 */
+	if (regs->ax == 2) {
+		/*
+		 * Each byte in EAX/EBX/ECX/EDX is an informational descriptor.
+		 *
+		 * The least-significant byte in register EAX always returns
+		 * 0x01. Software should ignore this value and not interpret
+		 * it as an informational descriptor.
+		 *
+		 * Descriptors used here:
+		 *
+		 *  - 0xff: use CPUID leaf 0x4 to query cache parameters;
+		 *
+		 *  - 0xfe: use CPUID leaf 0x18 to query TLB and other address
+		 *          translation parameters.
+		 *
+		 * XXX: provide prefetch information?
+		 */
+		regs->ax = 0xf1ff01;
+		regs->bx = regs->cx = regs->dx = 0;
+		return ve_instr_len(ve);
+	}
+
+	/*
 	 * Only allow VMM to control range reserved for hypervisor
 	 * communication.
 	 *

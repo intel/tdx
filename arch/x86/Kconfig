@@ -1965,6 +1965,17 @@ config INTEL_TDX_HOST
 
 	  If unsure, say N.
 
+config INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT
+	bool "Intel Trust Domain Extensions (TDX) host debug memory corruption"
+	default n
+	depends on INTEL_TDX_HOST
+	help
+	  Intel Trust Domain Extentions (TDX) encrypts memory and protect it
+	  against host.  By making non-present encrypted memory, detect
+	  unintended memory access to encrypted memory.
+
+	  If unuser, say N.
+
 config INTEL_TDX_HOST_DEBUG
 	tristate "TDX host debugfs"
 	default n

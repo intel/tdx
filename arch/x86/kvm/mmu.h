@@ -3,6 +3,7 @@
 #define __KVM_X86_MMU_H
 
 #include <linux/kvm_host.h>
+#include <asm/set_memory.h>
 #include "kvm_cache_regs.h"
 #include "cpuid.h"
 
@@ -320,6 +321,16 @@ static inline bool kvm_is_private_gpa(const struct kvm *kvm, gpa_t gpa)
 	gfn_t mask = kvm_gfn_shared_mask(kvm);
 
 	return mask && !(gpa_to_gfn(gpa) & mask);
+}
+
+static inline void kvm_mmu_split_direct_map(struct page *page)
+{
+	/*
+	 * Hack to forcibly split kernel direct map so that no split will occur
+	 * within mmu_lock by set_direct_map_{invalid, default}_noflush().
+	 */
+	if (IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
+		set_direct_map_split_noflush(page);
 }
 
 #endif

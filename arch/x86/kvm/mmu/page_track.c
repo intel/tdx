@@ -35,6 +35,9 @@ static bool kvm_external_write_tracking_enabled(struct kvm *kvm)
 
 bool kvm_page_track_write_tracking_enabled(struct kvm *kvm)
 {
+	if (kvm->arch.vm_type == KVM_X86_TDX_VM)
+		return false;
+
 	return kvm_external_write_tracking_enabled(kvm) ||
 	       kvm_shadow_root_allocated(kvm) || !tdp_enabled;
 }

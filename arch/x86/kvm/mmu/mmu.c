@@ -4752,6 +4752,8 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 		return r;
 
 	r = RET_PF_RETRY;
+	if (fault->slot && fault->is_private)
+		kvm_mmu_split_direct_map(pfn_to_page(fault->pfn));
 
 	if (is_tdp_mmu_fault)
 		read_lock(&vcpu->kvm->mmu_lock);

@@ -295,6 +295,7 @@ static int tdx_reclaim_page(hpa_t pa, enum pg_level level,
 		}
 	}
 
+	tdx_set_page_present_level(pa, level);
 	tdx_clear_page(pa, KVM_HPAGE_SIZE(level));
 	return 0;
 }
@@ -307,6 +308,7 @@ static int tdx_alloc_td_page(struct tdx_td_page *page)
 	if (!va)
 		return -ENOMEM;
 
+	kvm_mmu_split_direct_map(virt_to_page(va));
 	page->pa = __pa(va);
 	return 0;
 }

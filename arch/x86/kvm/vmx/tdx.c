@@ -1933,6 +1933,7 @@ static int tdx_sept_merge_private_spt(struct kvm *kvm, gfn_t gfn,
 		return -EIO;
 	}
 
+	tdx_set_page_present(__pa(private_spt));
 	tdx_clear_page(__pa(private_spt), PAGE_SIZE);
 	return 0;
 }
@@ -2090,6 +2091,7 @@ static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 		pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
 		return -EIO;
 	}
+	tdx_set_page_present(__pa(private_spt));
 	tdx_clear_page(__pa(private_spt), PAGE_SIZE);
 	return 0;
 }

@@ -251,6 +251,7 @@ static int __tdx_reclaim_page(hpa_t pa, enum pg_level level)
 	/* out.r8 == tdx sept page level */
 	WARN_ON_ONCE(out.r8 != pg_level_to_tdx_sept_level(level));
 
+	tdx_set_page_present_level(pa, level);
 	return 0;
 }
 

@@ -27,12 +27,14 @@
 #include <linux/align.h>
 #include <linux/sort.h>
 #include <linux/log2.h>
+#include <linux/reboot.h>
 #include <asm/msr-index.h>
 #include <asm/msr.h>
 #include <asm/archrandom.h>
 #include <asm/page.h>
 #include <asm/special_insns.h>
 #include <asm/tdx.h>
+#include <asm/set_memory.h>
 #include "tdx.h"
 
 #ifdef CONFIG_SYSFS
@@ -673,6 +675,9 @@ static int tdmr_set_up_pamt(struct tdmr_info *tdmr,
 			nid, &node_online_map);
 	if (!pamt)
 		return -ENOMEM;
+	if (IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
+		set_memory_np((unsigned long)page_to_virt(pamt),
+			      tdmr_pamt_size >> PAGE_SHIFT);
 
 	/*
 	 * Break the contiguous allocation back up into the
@@ -729,14 +734,16 @@ static void tdmr_do_pamt_func(struct tdmr_info *tdmr,
 	(*pamt_func)(pamt_base, pamt_size);
 }
 
-static void free_pamt(unsigned long pamt_base, unsigned long pamt_size)
+void pamt_free_contig_range(unsigned long pfn, unsigned long npages)
 {
-	free_contig_range(pamt_base >> PAGE_SHIFT, pamt_size >> PAGE_SHIFT);
+	if (IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
+		set_memory_p((unsigned long)pfn_to_kaddr(pfn), npages);
+	free_contig_range(pfn, npages);
 }
 
 static void tdmr_free_pamt(struct tdmr_info *tdmr)
 {
-	tdmr_do_pamt_func(tdmr, free_pamt);
+	tdmr_do_pamt_func(tdmr, pamt_free_contig_range);
 }
 
 static void tdmrs_free_pamt_all(struct tdmr_info_list *tdmr_list)
@@ -767,6 +774,28 @@ err:
 	return ret;
 }
 
+static void set_tdx_pages_p(unsigned long pfn, unsigned long npages)
+{
+	if (IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
+		set_memory_p((unsigned long)pfn_to_kaddr(pfn), npages);
+}
+
+static int tdx_reboot_notifier(struct notifier_block *nb,
+			  unsigned long action,
+			  void *data)
+{
+	int i;
+
+	for (i = 0; i < tdx_tdmr_list.nr_consumed_tdmrs; i++)
+		tdmr_do_pamt_func(tdmr_entry(&tdx_tdmr_list, i), set_tdx_pages_p);
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block tdx_reboot_nb = {
+	.notifier_call = tdx_reboot_notifier,
+};
+
 /*
  * Convert TDX private pages back to normal by using MOVDIR64B to
  * clear these pages.  Note this function doesn't flush cache of
@@ -776,6 +805,11 @@ static void reset_tdx_pages(unsigned long base, unsigned long size)
 {
 	const void *zero_page = (const void *)page_address(ZERO_PAGE(0));
 	unsigned long phys, end;
+
+	if (system_state != SYSTEM_HALT &&
+	    system_state != SYSTEM_POWER_OFF &&
+	    system_state != SYSTEM_RESTART)
+		set_tdx_pages_p(base >> PAGE_SHIFT, size >> PAGE_SHIFT);
 
 	end = base + size;
 	for (phys = base; phys < end; phys += 64)
@@ -1648,6 +1682,17 @@ static int __init tdx_init(void)
 	tdx_global_keyid = tdx_keyid_start;
 	tdx_guest_keyid_start = tdx_keyid_start + 1;
 	tdx_nr_guest_keyids = nr_tdx_keyids - 1;
+
+	if (boot_cpu_has_bug(X86_BUG_TDX_PW_MCE)) {
+		/*
+		 * Because tdx_memory_shutdown() will access PAMT with movdir64b,
+		 * make the PAMT accesible that requires TLB flush.  TLB
+		 * shootdown requires SMP context. memory_shutdown context
+		 * isn't such context. Do it early with notifier.
+		 */
+		if (IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
+			register_reboot_notifier(&tdx_reboot_nb);
+	}
 
 	return 0;
 }

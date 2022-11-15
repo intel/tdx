@@ -1896,8 +1896,10 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		if (KVM_BUG_ON(err, kvm)) {
 			pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
 			r = -EIO;
-		} else
+		} else {
+			tdx_set_page_present(hpa);
 			tdx_unpin(kvm, gfn + i, pfn + i, PG_LEVEL_4K);
+		}
 		hpa += PAGE_SIZE;
 	}
 	return r;

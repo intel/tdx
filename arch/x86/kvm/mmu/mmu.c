@@ -705,8 +705,14 @@ static int mmu_topup_memory_caches(struct kvm_vcpu *vcpu, bool maybe_indirect)
 	if (r)
 		return r;
 	if (kvm_gfn_shared_mask(vcpu->kvm)) {
-		r = kvm_mmu_topup_memory_cache(&vcpu->arch.mmu_private_spt_cache,
-					       PT64_ROOT_MAX_LEVEL);
+		struct kvm_mmu_memory_cache *mc = &vcpu->arch.mmu_private_spt_cache;
+		int start, end, i;
+
+		start = kvm_mmu_memory_cache_nr_free_objects(mc);
+		r = kvm_mmu_topup_memory_cache(mc, PT64_ROOT_MAX_LEVEL);
+		end = kvm_mmu_memory_cache_nr_free_objects(mc);
+		for (i = start; i < end; i++)
+			kvm_mmu_split_direct_map(virt_to_page(mc->objects[i]));
 		if (r)
 			return r;
 	}
@@ -722,6 +728,26 @@ static int mmu_topup_memory_caches(struct kvm_vcpu *vcpu, bool maybe_indirect)
 	}
 	return kvm_mmu_topup_memory_cache(&vcpu->arch.mmu_page_header_cache,
 					  PT64_ROOT_MAX_LEVEL);
+}
+
+static int kvm_mmu_topup_memory_cache_for_split(struct kvm *kvm)
+{
+	int r = 0;
+#ifdef CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT
+	struct kvm_mmu_memory_cache *mc;
+	int start, end, i;
+
+	mutex_lock(&kvm->arch.private_spt_for_split_lock);
+	mc = &kvm->arch.private_spt_for_split_cache;
+	start = kvm_mmu_memory_cache_nr_free_objects(mc);
+	r = kvm_mmu_topup_memory_cache(mc, KVM_MAX_HUGEPAGE_LEVEL *
+				       kvm->created_vcpus);
+	end = kvm_mmu_memory_cache_nr_free_objects(mc);
+	for (i = start; i < end; i++)
+		kvm_mmu_split_direct_map(virt_to_page(mc->objects[i]));
+	mutex_unlock(&kvm->arch.private_spt_for_split_lock);
+#endif
+	return r;
 }
 
 static void mmu_free_memory_caches(struct kvm_vcpu *vcpu)
@@ -4874,6 +4900,11 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 	r = mmu_topup_memory_caches(vcpu, false);
 	if (r)
 		return r;
+	if (fault->is_private) {
+		r = kvm_mmu_topup_memory_cache_for_split(vcpu->kvm);
+		if (r)
+			return r;
+	}
 
 	r = kvm_faultin_pfn(vcpu, fault, ACC_ALL);
 	if (r != RET_PF_CONTINUE)
@@ -6881,6 +6912,9 @@ static void mmu_free_vm_memory_caches(struct kvm *kvm)
 	kvm_mmu_free_memory_cache(&kvm->arch.split_page_header_cache);
 	kvm_mmu_free_memory_cache(&kvm->arch.split_shadow_page_cache);
 	kvm_mmu_free_memory_cache(&kvm->arch.split_private_spt_cache);
+#ifdef CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT
+	kvm_mmu_free_memory_cache(&kvm->arch.private_spt_for_split_cache);
+#endif
 }
 
 void kvm_mmu_uninit_vm(struct kvm *kvm)
@@ -7033,6 +7067,8 @@ static int topup_split_caches(struct kvm *kvm)
 	 */
 	const int capacity = SPLIT_DESC_CACHE_MIN_NR_OBJECTS +
 			     KVM_ARCH_NR_OBJS_PER_MEMORY_CACHE;
+	struct kvm_mmu_memory_cache *mc;
+	int start, end, i;
 	int r;
 
 	lockdep_assert_held(&kvm->slots_lock);
@@ -7050,7 +7086,13 @@ static int topup_split_caches(struct kvm *kvm)
 	if (r)
 		return r;
 
-	return kvm_mmu_topup_memory_cache(&kvm->arch.split_private_spt_cache, 1);
+	mc = &kvm->arch.split_private_spt_cache;
+	start = kvm_mmu_memory_cache_nr_free_objects(mc);
+	r = kvm_mmu_topup_memory_cache(mc, KVM_MAX_HUGEPAGE_LEVEL);
+	end = kvm_mmu_memory_cache_nr_free_objects(mc);
+	for (i = start; i < end; i++)
+		kvm_mmu_split_direct_map(virt_to_page(mc->objects[i]));
+	return r;
 }
 
 static struct kvm_mmu_page *shadow_mmu_get_sp_for_split(struct kvm *kvm, u64 *huge_sptep)

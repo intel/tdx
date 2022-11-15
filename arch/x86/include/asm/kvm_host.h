@@ -1480,6 +1480,10 @@ struct kvm_arch {
 	struct kvm_mmu_memory_cache split_page_header_cache;
 	struct kvm_mmu_memory_cache split_private_spt_cache;
 
+#ifdef CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT
+	struct mutex private_spt_for_split_lock;
+	struct kvm_mmu_memory_cache private_spt_for_split_cache;
+#endif
 	/*
 	 * Memory cache used to allocate pte_list_desc structs while splitting
 	 * huge pages. In the worst case, to split one huge page, 512

@@ -1847,6 +1847,7 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 			pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
 			r = -EIO;
 		} else {
+			tdx_set_page_present(hpa);
 			tdx_clear_page(hpa, PAGE_SIZE);
 			tdx_unpin(kvm, gfn + i, pfn + i, PG_LEVEL_4K);
 		}

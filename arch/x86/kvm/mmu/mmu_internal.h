@@ -201,12 +201,36 @@ static inline void kvm_mmu_alloc_private_spt(struct kvm_vcpu *vcpu, struct kvm_m
 	}
 }
 
-static inline int kvm_alloc_private_spt_for_split(struct kvm_mmu_page *sp, gfp_t gfp)
+static inline int kvm_alloc_private_spt_for_split(struct kvm *kvm, struct kvm_mmu_page *sp,
+						  gfp_t gfp, bool can_yield)
 {
 	gfp &= ~__GFP_ZERO;
+
+#ifdef CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT
+	/* This check is hacky. See the caller, tdp_mmu_alloc_sp_for_split(). */
+	if ((gfp & GFP_NOWAIT) && gfp != GFP_KERNEL_ACCOUNT) {
+		if (can_yield)
+			return -ENOMEM;
+		/*
+		 * This is hack to avoid blocking. Unless memory is severely
+		 * lacking, this works.  Correct way is to pre-allocate
+		 * potentially necessary memory for all the possible execution
+		 * path with kvm->mmu_lock.
+		 */
+		while (!mutex_trylock(&kvm->arch.private_spt_for_split_lock))
+			/* nothing */;
+		sp->private_spt = kvm_mmu_memory_cache_alloc(&kvm->arch.private_spt_for_split_cache);
+		mutex_unlock(&kvm->arch.private_spt_for_split_lock);
+		if (WARN_ON_ONCE(!sp->private_spt))
+			return -ENOMEM;
+		return 0;
+	}
+#endif
+
 	sp->private_spt = (void *)__get_free_page(gfp);
 	if (!sp->private_spt)
 		return -ENOMEM;
+	kvm_mmu_split_direct_map(virt_to_page(sp->private_spt));
 	return 0;
 }
 

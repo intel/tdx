@@ -44,6 +44,22 @@ static inline void tdx_set_page_np(hpa_t addr)
 	arch_flush_lazy_mmu_mode();
 }
 
+static inline void tdx_set_page_np_level(hpa_t addr, int tdx_level)
+{
+	enum pg_level pg_level = tdx_sept_level_to_pg_level(tdx_level);
+	int i;
+
+	if (!IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
+		return;
+
+	for (i = 0; i < KVM_PAGES_PER_HPAGE(pg_level); i++)
+		set_direct_map_invalid_noflush(pfn_to_page((addr >> PAGE_SHIFT) + i));
+	preempt_disable();
+	__flush_tlb_all();
+	preempt_enable();
+	arch_flush_lazy_mmu_mode();
+}
+
 static inline void tdx_set_page_present(hpa_t addr)
 {
 	if (IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
@@ -105,8 +121,13 @@ static inline u64 tdh_mng_addcx(hpa_t tdr, hpa_t addr)
 static inline u64 tdh_mem_page_add(hpa_t tdr, gpa_t gpa, int level, hpa_t hpa,
 				   hpa_t source, struct tdx_module_output *out)
 {
+	u64 r;
+
 	tdx_clflush_page(hpa, tdx_sept_level_to_pg_level(level));
-	return seamcall_sept(TDH_MEM_PAGE_ADD, gpa | level, tdr, hpa, source, out);
+	r = seamcall_sept(TDH_MEM_PAGE_ADD, gpa | level, tdr, hpa, source, out);
+	if (!r)
+		tdx_set_page_np_level(hpa, level);
+	return r;
 }
 
 static inline u64 tdh_mem_sept_add(hpa_t tdr, gpa_t gpa, int level, hpa_t page,
@@ -143,8 +164,13 @@ static inline u64 tdh_mem_page_relocate(hpa_t tdr, gpa_t gpa, hpa_t hpa,
 static inline u64 tdh_mem_page_aug(hpa_t tdr, gpa_t gpa, int level, hpa_t hpa,
 				   struct tdx_module_output *out)
 {
+	u64 r;
+
 	tdx_clflush_page(hpa, tdx_sept_level_to_pg_level(level));
-	return seamcall_sept(TDH_MEM_PAGE_AUG, gpa | level, tdr, hpa, 0, out);
+	r = seamcall_sept(TDH_MEM_PAGE_AUG, gpa | level, tdr, hpa, 0, out);
+	if (!r)
+		tdx_set_page_np_level(hpa, level);
+	return r;
 }
 
 static inline u64 tdh_mem_range_block(hpa_t tdr, gpa_t gpa, int level,

@@ -292,6 +292,7 @@ static int tdx_reclaim_page(hpa_t pa, enum pg_level level,
 		}
 	}
 
+	tdx_set_page_present_level(pa, level);
 	tdx_clear_page(pa, KVM_HPAGE_SIZE(level));
 	return 0;
 }

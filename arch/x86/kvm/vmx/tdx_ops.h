@@ -133,8 +133,13 @@ static inline u64 tdh_mem_page_add(hpa_t tdr, gpa_t gpa, int level, hpa_t hpa,
 static inline u64 tdh_mem_sept_add(hpa_t tdr, gpa_t gpa, int level, hpa_t page,
 				   struct tdx_module_output *out)
 {
+	u64 r;
+
 	tdx_clflush_page(page, PG_LEVEL_4K);
-	return seamcall_sept(TDH_MEM_SEPT_ADD, gpa | level, tdr, page, 0, out);
+	r = seamcall_sept(TDH_MEM_SEPT_ADD, gpa | level, tdr, page, 0, out);
+	if (!r)
+		tdx_set_page_np(page);
+	return r;
 }
 
 static inline u64 tdh_mem_sept_remove(hpa_t tdr, gpa_t gpa, int level,
@@ -224,8 +229,13 @@ static inline u64 tdh_mng_rd(hpa_t tdr, u64 field, struct tdx_module_output *out
 static inline u64 tdh_mem_page_demote(hpa_t tdr, gpa_t gpa, int level, hpa_t page,
 				      struct tdx_module_output *out)
 {
+	u64 r;
+
 	tdx_clflush_page(page, PG_LEVEL_4K);
-	return seamcall_sept(TDH_MEM_PAGE_DEMOTE, gpa | level, tdr, page, 0, out);
+	r = seamcall_sept(TDH_MEM_PAGE_DEMOTE, gpa | level, tdr, page, 0, out);
+	if (!r)
+		tdx_set_page_np(page);
+	return r;
 }
 
 static inline u64 tdh_mem_page_promote(hpa_t tdr, gpa_t gpa, int level,

@@ -23,6 +23,9 @@ int kvm_mmu_init_tdp_mmu(struct kvm *kvm)
 	INIT_LIST_HEAD(&kvm->arch.tdp_mmu_roots);
 	spin_lock_init(&kvm->arch.tdp_mmu_pages_lock);
 	kvm->arch.tdp_mmu_zap_wq = wq;
+#ifdef CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT
+	mutex_init(&kvm->arch.private_spt_for_split_lock);
+#endif
 	return 1;
 }
 
@@ -2024,7 +2027,9 @@ bool kvm_tdp_mmu_wrprot_slot(struct kvm *kvm,
 	return spte_set;
 }
 
-static struct kvm_mmu_page *__tdp_mmu_alloc_sp_for_split(gfp_t gfp, union kvm_mmu_page_role role)
+static struct kvm_mmu_page *__tdp_mmu_alloc_sp_for_split(struct kvm *kvm, gfp_t gfp,
+							 union kvm_mmu_page_role role,
+							 bool can_yield)
 {
 	struct kvm_mmu_page *sp;
 
@@ -2037,7 +2042,7 @@ static struct kvm_mmu_page *__tdp_mmu_alloc_sp_for_split(gfp_t gfp, union kvm_mm
 	sp->role = role;
 	sp->spt = (void *)__get_free_page(gfp);
 	if (kvm_mmu_page_role_is_private(role)) {
-		if (kvm_alloc_private_spt_for_split(sp, gfp)) {
+		if (kvm_alloc_private_spt_for_split(kvm, sp, gfp, can_yield)) {
 			free_page((unsigned long)sp->spt);
 			sp->spt = NULL;
 		}
@@ -2070,7 +2075,7 @@ static struct kvm_mmu_page *tdp_mmu_alloc_sp_for_split(struct kvm *kvm,
 	 * If this allocation fails we drop the lock and retry with reclaim
 	 * allowed.
 	 */
-	sp = __tdp_mmu_alloc_sp_for_split(GFP_NOWAIT | __GFP_ACCOUNT, role);
+	sp = __tdp_mmu_alloc_sp_for_split(kvm, GFP_NOWAIT | __GFP_ACCOUNT, role, can_yield);
 	if (sp || !can_yield)
 		return sp;
 
@@ -2082,7 +2087,7 @@ static struct kvm_mmu_page *tdp_mmu_alloc_sp_for_split(struct kvm *kvm,
 		write_unlock(&kvm->mmu_lock);
 
 	iter->yielded = true;
-	sp = __tdp_mmu_alloc_sp_for_split(GFP_KERNEL_ACCOUNT, role);
+	sp = __tdp_mmu_alloc_sp_for_split(kvm, GFP_KERNEL_ACCOUNT, role, can_yield);
 
 	if (shared)
 		read_lock(&kvm->mmu_lock);

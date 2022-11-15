@@ -189,9 +189,13 @@ static inline u64 tdh_mem_sept_add(hpa_t tdr, gpa_t gpa, int level, hpa_t page,
 		.rdx = tdr,
 		.r8 = page,
 	};
+	u64 r;
 
 	tdx_clflush_page(page, PG_LEVEL_4K);
-	return tdx_seamcall_sept(TDH_MEM_SEPT_ADD, &in, out);
+	r = tdx_seamcall_sept(TDH_MEM_SEPT_ADD, &in, out);
+	if (!r)
+		tdx_set_page_np(page);
+	return r;
 }
 
 static inline u64 tdh_mem_sept_rd(hpa_t tdr, gpa_t gpa, int level,
@@ -329,9 +333,13 @@ static inline u64 tdh_mem_page_demote(hpa_t tdr, gpa_t gpa, int level, hpa_t pag
 		.rdx = tdr,
 		.r8 = page,
 	};
+	u64 r;
 
 	tdx_clflush_page(page, PG_LEVEL_4K);
-	return tdx_seamcall_sept(TDH_MEM_PAGE_DEMOTE, &in, out);
+	r = tdx_seamcall_sept(TDH_MEM_PAGE_DEMOTE, &in, out);
+	if (!r)
+		tdx_set_page_np(page);
+	return r;
 }
 
 static inline u64 tdh_mem_page_promote(hpa_t tdr, gpa_t gpa, int level,

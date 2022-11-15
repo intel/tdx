@@ -273,6 +273,7 @@ static int tdx_reclaim_page(hpa_t pa, bool do_wb, u16 hkid)
 {
 	int r = __tdx_reclaim_page(pa, PG_LEVEL_4K, do_wb, hkid);
 
+	tdx_set_page_present_level(pa, PG_LEVEL_4K);
 	tdx_clear_page(pa, PAGE_SIZE);
 	return r;
 }
@@ -2894,6 +2895,7 @@ void tdx_gmem_invalidate(struct kvm *kvm, kvm_pfn_t start, kvm_pfn_t end)
 			size = hpage_size;
 		}
 
+		tdx_set_page_present_level(pa, level);
 		tdx_clear_page(pa, size);
 		pa += size;
 	}

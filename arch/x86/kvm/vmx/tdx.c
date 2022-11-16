@@ -3907,6 +3907,45 @@ static int tdx_td_finalizemr(struct kvm *kvm)
 	return 0;
 }
 
+static int tdx_servtd_prebind(struct kvm *usertd_kvm, struct kvm_tdx_cmd *cmd)
+{
+	struct kvm_tdx *usertd_tdx = to_kvm_tdx(usertd_kvm);
+	struct kvm_tdx_servtd servtd;
+	struct page *hash_page;
+	uint16_t slot_id;
+	uint64_t err;
+
+	if (copy_from_user(&servtd, (void __user *)cmd->data,
+			   sizeof(struct kvm_tdx_servtd)))
+		return -EFAULT;
+
+	if (cmd->flags ||
+	    servtd.version != KVM_TDX_SERVTD_VERSION ||
+	    servtd.type >= KVM_TDX_SERVTD_TYPE_MAX)
+		return -EINVAL;
+
+	slot_id = servtd.type;
+	hash_page = alloc_page(GFP_KERNEL_ACCOUNT | __GFP_ZERO);
+	if (!hash_page)
+		return -ENOMEM;
+
+	memcpy(page_to_virt(hash_page),
+	       servtd.hash, KVM_TDX_SERVTD_HASH_SIZE);
+
+	err = tdh_servtd_prebind(usertd_tdx->tdr_pa,
+				 page_to_phys(hash_page),
+				 slot_id,
+				 servtd.attr,
+				 servtd.type);
+	__free_page(hash_page);
+	if (err) {
+		pr_warn("failed to prebind servtd, err=%llx\n", err);
+		return -EIO;
+	}
+
+	return 0;
+}
+
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 {
 	struct kvm_tdx_cmd tdx_cmd;
@@ -3931,6 +3970,9 @@ int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 		break;
 	case KVM_TDX_FINALIZE_VM:
 		r = tdx_td_finalizemr(kvm);
+		break;
+	case KVM_TDX_SERVTD_PREBIND:
+		r = tdx_servtd_prebind(kvm, &tdx_cmd);
 		break;
 	default:
 		r = -EINVAL;

@@ -574,6 +574,7 @@ enum kvm_tdx_cmd_id {
 	KVM_TDX_INIT_VCPU,
 	KVM_TDX_INIT_MEM_REGION,
 	KVM_TDX_FINALIZE_VM,
+	KVM_TDX_SERVTD_PREBIND,
 
 	KVM_TDX_CMD_NR_MAX,
 };
@@ -670,6 +671,19 @@ enum kvm_tdx_servtd_type {
 	KVM_TDX_SERVTD_TYPE_MIGTD = 0,
 
 	KVM_TDX_SERVTD_TYPE_MAX,
+};
+
+/* A SHA384 hash takes up 48 bytes */
+#define KVM_TDX_SERVTD_HASH_SIZE 48
+
+struct kvm_tdx_servtd {
+#define KVM_TDX_SERVTD_VERSION	0
+	__u8  version;
+	__u8  pad[5];
+	__u16 type;
+	__u64 attr;
+	/* KVM_TDX_SERVTD_PREBIND */
+	__u8  hash[KVM_TDX_SERVTD_HASH_SIZE];
 };
 
 #endif /* _ASM_X86_KVM_H */

@@ -6367,6 +6367,28 @@ struct kvm_vcpu * __percpu *kvm_get_running_vcpus(void)
         return &kvm_running_vcpu;
 }
 
+/*
+ * kvm_get_target_kvm - get the target kvm from vm_list using pid
+ *
+ * Returns: the target kvm struct on success, NULL if not found.
+ */
+struct kvm *kvm_get_target_kvm(pid_t pid)
+{
+	struct kvm *kvm, *target_kvm = NULL;
+
+	mutex_lock(&kvm_lock);
+	list_for_each_entry(kvm, &vm_list, vm_list) {
+		if (kvm->userspace_pid == pid) {
+			target_kvm = kvm;
+			break;
+		}
+	}
+	mutex_unlock(&kvm_lock);
+
+	return target_kvm;
+}
+EXPORT_SYMBOL_GPL(kvm_get_target_kvm);
+
 #ifdef CONFIG_GUEST_PERF_EVENTS
 static unsigned int kvm_guest_state(void)
 {

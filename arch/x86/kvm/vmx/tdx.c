@@ -4002,6 +4002,7 @@ static int tdx_servtd_do_bind(struct kvm_tdx *usertd_tdx,
 
 	tdx_binding_slot_bound_set_info(slot, out.rcx, out.r10,
 					out.r11, out.r12, out.r13);
+	tdx_binding_slot_set_state(slot, TDX_BINDING_SLOT_STATE_BOUND);
 
 	return 0;
 }

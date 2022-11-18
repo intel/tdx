@@ -4670,6 +4670,35 @@ static int tdx_set_migration_info(struct kvm *kvm,
 	return 0;
 }
 
+static int tdx_get_migration_info(struct kvm *kvm,
+				  struct kvm_tdx_cmd *cmd)
+{
+	struct kvm_tdx *usertd_tdx = to_kvm_tdx(kvm);
+	struct kvm_tdx_get_migration_info info;
+	struct tdx_binding_slot *slot;
+
+	if (copy_from_user(&info, (void __user *)cmd->data,
+			   sizeof(struct kvm_tdx_get_migration_info)))
+		return -EFAULT;
+
+	if (cmd->flags ||
+	    info.version != KVM_TDX_GET_MIGRATION_INFO_VERSION)
+		return -EINVAL;
+
+	slot = &usertd_tdx->binding_slots[KVM_TDX_SERVTD_TYPE_MIGTD];
+	if (tdx_binding_slot_get_state(slot) ==
+			TDX_BINDING_SLOT_STATE_PREMIG_DONE)
+		info.premig_done = 1;
+	else
+		info.premig_done = 0;
+
+	if (copy_to_user((void __user *)cmd->data, &info,
+			 sizeof(struct kvm_tdx_get_migration_info)))
+		return -EFAULT;
+
+	return 0;
+}
+
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 {
 	struct kvm_tdx_cmd tdx_cmd;
@@ -4703,6 +4732,9 @@ int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 		break;
 	case KVM_TDX_SET_MIGRATION_INFO:
 		r = tdx_set_migration_info(kvm, &tdx_cmd);
+		break;
+	case KVM_TDX_GET_MIGRATION_INFO:
+		r = tdx_get_migration_info(kvm, &tdx_cmd);
 		break;
 	default:
 		r = -EINVAL;

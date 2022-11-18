@@ -577,6 +577,7 @@ enum kvm_tdx_cmd_id {
 	KVM_TDX_SERVTD_PREBIND,
 	KVM_TDX_SERVTD_BIND,
 	KVM_TDX_SET_MIGRATION_INFO,
+	KVM_TDX_GET_MIGRATION_INFO,
 
 	KVM_TDX_CMD_NR_MAX,
 };
@@ -698,6 +699,13 @@ struct kvm_tdx_set_migration_info {
 	__u8  is_src;
 	__u8  pad[2];
 	__u32 vsock_port;
+};
+
+struct kvm_tdx_get_migration_info {
+#define KVM_TDX_GET_MIGRATION_INFO_VERSION	0
+	__u8  version;
+	__u8  premig_done;
+	__u8  pad[6];
 };
 
 #endif /* _ASM_X86_KVM_H */

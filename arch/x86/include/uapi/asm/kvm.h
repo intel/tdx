@@ -723,6 +723,7 @@ struct kvm_dev_tdx_mig_attr {
 /* 4KB buffer can hold 512 entries at most */
 #define TDX_MIG_BUF_LIST_PAGES_MAX		512
 	__u32 buf_list_pages;
+	__u32 max_migs;
 };
 
 #endif /* _ASM_X86_KVM_H */

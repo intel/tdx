@@ -69,10 +69,39 @@ static int tdx_mig_capabilities_setup(void)
 	return 0;
 }
 
+static void tdx_mig_stream_get_tdx_mig_attr(struct tdx_mig_stream *stream,
+					    struct kvm_dev_tdx_mig_attr *attr)
+{
+	attr->version = KVM_DEV_TDX_MIG_ATTR_VERSION;
+	attr->max_migs = tdx_mig_caps.max_migs;
+	attr->buf_list_pages = stream->buf_list_pages;
+}
+
 static int tdx_mig_stream_get_attr(struct kvm_device *dev,
 				   struct kvm_device_attr *attr)
 {
-	return -ENXIO;
+	struct tdx_mig_stream *stream = dev->private;
+	u64 __user *uaddr = (u64 __user *)(long)attr->addr;
+
+	switch (attr->group) {
+	case KVM_DEV_TDX_MIG_ATTR: {
+		struct kvm_dev_tdx_mig_attr tdx_mig_attr;
+
+		if (attr->attr != sizeof(struct kvm_dev_tdx_mig_attr)) {
+			pr_err("Incompatible kvm_dev_get_tdx_mig_attr\n");
+			return -EINVAL;
+		}
+
+		tdx_mig_stream_get_tdx_mig_attr(stream, &tdx_mig_attr);
+		if (copy_to_user(uaddr, &tdx_mig_attr, sizeof(tdx_mig_attr)))
+			return -EFAULT;
+		break;
+	}
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
 static int tdx_mig_stream_set_tdx_mig_attr(struct tdx_mig_stream *stream,

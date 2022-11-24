@@ -463,10 +463,63 @@ static int tdx_mig_stream_set_attr(struct kvm_device *dev,
 	return ret;
 }
 
-static int tdx_mig_stream_mmap(struct kvm_device *dev,
-				   struct vm_area_struct *vma)
+static bool tdx_mig_stream_in_mig_buf_list(uint32_t i, uint32_t max_pages)
 {
-	return -ENXIO;
+	if (i >= TDX_MIG_STREAM_BUF_LIST_MAP_OFFSET &&
+	    i < TDX_MIG_STREAM_BUF_LIST_MAP_OFFSET + max_pages)
+		return true;
+
+	return false;
+}
+
+static vm_fault_t tdx_mig_stream_fault(struct vm_fault *vmf)
+{
+	struct kvm_device *dev = vmf->vma->vm_file->private_data;
+	struct tdx_mig_stream *stream = dev->private;
+	struct page *page;
+	kvm_pfn_t pfn;
+	uint32_t i;
+
+	/* See linear_page_index for pgoff */
+	if (vmf->pgoff == TDX_MIG_STREAM_MBMD_MAP_OFFSET) {
+		page = virt_to_page(stream->mbmd.data);
+	} else if (vmf->pgoff == TDX_MIG_STREAM_GPA_LIST_MAP_OFFSET) {
+		page = virt_to_page(stream->gpa_list.entries);
+	} else if (vmf->pgoff == TDX_MIG_STREAM_MAC_LIST_MAP_OFFSET ||
+		   vmf->pgoff == TDX_MIG_STREAM_MAC_LIST_MAP_OFFSET + 1) {
+		i = vmf->pgoff - TDX_MIG_STREAM_MAC_LIST_MAP_OFFSET;
+		if (stream->mac_list[i].entries) {
+			page = virt_to_page(stream->mac_list[i].entries);
+		} else {
+			pr_err("%s: mac list page %d not allocated\n",
+				__func__, i);
+			return VM_FAULT_SIGBUS;
+		}
+	} else if (tdx_mig_stream_in_mig_buf_list(vmf->pgoff,
+						  stream->buf_list_pages)) {
+		i = vmf->pgoff - TDX_MIG_STREAM_BUF_LIST_MAP_OFFSET;
+		pfn = stream->mem_buf_list.entries[i].pfn;
+		page = pfn_to_page(pfn);
+	} else {
+		pr_err("%s: VM_FAULT_SIGBUS\n", __func__);
+		return VM_FAULT_SIGBUS;
+	}
+
+	get_page(page);
+	vmf->page = page;
+	return 0;
+}
+
+static const struct vm_operations_struct tdx_mig_stream_ops = {
+	.fault = tdx_mig_stream_fault,
+};
+
+static int tdx_mig_stream_mmap(struct kvm_device *dev,
+			       struct vm_area_struct *vma)
+{
+	vma->vm_ops = &tdx_mig_stream_ops;
+
+	return 0;
 }
 
 static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,

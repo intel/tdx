@@ -726,4 +726,9 @@ struct kvm_dev_tdx_mig_attr {
 	__u32 max_migs;
 };
 
+#define TDX_MIG_STREAM_MBMD_MAP_OFFSET		0
+#define TDX_MIG_STREAM_GPA_LIST_MAP_OFFSET	1
+#define TDX_MIG_STREAM_MAC_LIST_MAP_OFFSET	2
+#define TDX_MIG_STREAM_BUF_LIST_MAP_OFFSET	4
+
 #endif /* _ASM_X86_KVM_H */

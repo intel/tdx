@@ -161,7 +161,7 @@ acpi_ex_system_memory_space_handler(u32 function,
 
 		/* Create a new mapping starting at the address given */
 
-		logical_addr_ptr = acpi_os_map_memory(address, map_length);
+		logical_addr_ptr = acpi_os_map_memory_opregion(address, map_length);
 		if (!logical_addr_ptr) {
 			ACPI_ERROR((AE_INFO,
 				    "Could not map memory at 0x%8.8X%8.8X, size %u",

@@ -172,6 +172,8 @@ void iounmap(const volatile void __iomem *addr);
 #define ioremap_uc		ioremap
 /* Share memory with host in confidential guest platforms */
 #define ioremap_driver_hardened	ioremap
+/* Share memory with host in confidential guest platforms (WB version) */
+#define ioremap_cache_shared	ioremap
 
 /*
  * ioremap_cache -	map bus memory into CPU space

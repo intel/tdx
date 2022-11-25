@@ -329,6 +329,10 @@ extern void __iomem *ioremap_driver_hardened(resource_size_t offset,
 					 unsigned long size);
 #define ioremap_driver_hardened ioremap_driver_hardened
 
+extern void __iomem *ioremap_cache_shared(resource_size_t offset,
+					 unsigned long size);
+#define ioremap_cache_shared ioremap_cache_shared
+
 extern bool is_early_ioremap_ptep(pte_t *ptep);
 
 #define IO_SPACE_LIMIT 0xffff

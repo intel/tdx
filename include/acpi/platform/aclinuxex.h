@@ -135,6 +135,8 @@ static inline void acpi_os_terminate_debugger(void)
 	return;
 }
 
+void *__ref acpi_os_map_memory_opregion(acpi_physical_address phys, acpi_size size);
+
 /*
  * OSL interfaces added by Linux
  */

@@ -183,6 +183,11 @@ void acpi_os_free(void *memory);
 void *acpi_os_map_memory(acpi_physical_address where, acpi_size length);
 #endif
 
+#ifndef ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_map_memory_opregion
+# define acpi_os_map_memory_opregion(address, length)	\
+	acpi_os_map_memory(address, length)
+#endif
+
 #ifndef ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_unmap_memory
 void acpi_os_unmap_memory(void *logical_address, acpi_size size);
 #endif

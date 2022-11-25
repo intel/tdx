@@ -429,6 +429,14 @@ of the linear kernel memory area to a regular pointer.
 
 Portable drivers should avoid the use of ioremap_cache().
 
+ioremap_cache_shared()
+----------------------
+
+A version of ioremap_cache() that maps the I/O memory in a way that it can
+be shared with the host in a confidential guest platform. It is mainly used
+in platforms like Trusted Domain Extensions (TDX).
+
+
 ioremap_driver_hardened()
 -------------------------
 

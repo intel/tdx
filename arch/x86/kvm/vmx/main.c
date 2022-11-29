@@ -50,6 +50,10 @@ __init int vt_hardware_setup(void)
 {
 	int ret;
 
+	/* Need to be set before vmx_hardware setup */
+	if (enable_tdx)
+		enable_pml = false;
+
 	ret = vmx_hardware_setup();
 	if (ret)
 		return ret;

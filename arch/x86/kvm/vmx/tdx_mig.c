@@ -1083,6 +1083,19 @@ static int tdx_mig_import_track(struct kvm_tdx *kvm_tdx,
 	return 0;
 }
 
+static int tdx_mig_export_pause(struct kvm_tdx *kvm_tdx)
+{
+	uint64_t err;
+
+	err = tdh_export_pasue(kvm_tdx->tdr_pa);
+	if (err != TDX_SUCCESS) {
+		pr_err("%s: failed, err=%llx\n", __func__, err);
+		return -EIO;
+	}
+
+	return 0;
+}
+
 static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 				 unsigned long arg)
 {
@@ -1118,6 +1131,9 @@ static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 		break;
 	case KVM_TDX_MIG_IMPORT_TRACK:
 		r = tdx_mig_import_track(kvm_tdx, stream);
+		break;
+	case KVM_TDX_MIG_EXPORT_PAUSE:
+		r = tdx_mig_export_pause(kvm_tdx);
 		break;
 	default:
 		r = -EINVAL;

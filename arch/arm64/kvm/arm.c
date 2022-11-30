@@ -1889,7 +1889,7 @@ static int __init do_pkvm_init(u32 hyp_va_bits)
 	return ret;
 }
 
-static void kvm_hyp_init_symbols(void)
+static void __init kvm_hyp_init_symbols(void)
 {
 	kvm_nvhe_sym(id_aa64pfr0_el1_sys_val) = read_sanitised_ftr_reg(SYS_ID_AA64PFR0_EL1);
 	kvm_nvhe_sym(id_aa64pfr1_el1_sys_val) = read_sanitised_ftr_reg(SYS_ID_AA64PFR1_EL1);

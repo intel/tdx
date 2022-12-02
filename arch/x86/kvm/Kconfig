@@ -51,6 +51,8 @@ config KVM
 	select HAVE_KVM_PM_NOTIFIER if PM
 	select KVM_GENERIC_HARDWARE_ENABLING
 	select HAVE_KVM_MEMORY_ATTRIBUTES
+	select HAVE_KVM_RESTRICTED_MEM if X86_64
+	select RESTRICTEDMEM if HAVE_KVM_RESTRICTED_MEM
 	help
 	  Support hosting fully virtualized guest machines using hardware
 	  virtualization extensions.  You will need a fairly recent

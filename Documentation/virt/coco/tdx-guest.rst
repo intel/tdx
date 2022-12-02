@@ -54,6 +54,17 @@ The TDX_CMD_VERIFY_REPORT IOCTL can be used by userspace application to verify
 whether the given REPORTMACSTRUCT (part of TDREPORT struct) is generated in the
 current platform using TDG.MR.VERIFYREPORT TDCALL.
 
+2.3 TDX_CMD_GET_QUOTE
+----------------------
+
+:Input parameters: struct tdx_quote_req
+:Output: Return 0 on success, -EINTR for interrupted request, -EIO on TDCALL
+         failure or standard error number on common failures. Upon successful
+         execution, QUOTE data is copied to tdx_quote_req.buf.
+
+The TDX_CMD_GET_QUOTE IOCTL can be used by attestation software to generate
+QUOTE for the given TDREPORT using TDG.VP.VMCALL<GetQuote> hypercall.
+
 Reference
 ---------
 

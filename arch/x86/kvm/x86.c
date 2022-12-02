@@ -6596,6 +6596,13 @@ int kvm_arch_pm_notifier(struct kvm *kvm, unsigned long state)
 }
 #endif /* CONFIG_HAVE_KVM_PM_NOTIFIER */
 
+#ifdef CONFIG_HAVE_KVM_RESTRICTED_MEM
+void kvm_arch_memory_mce(struct kvm *kvm)
+{
+	kvm_make_all_cpus_request(kvm, KVM_REQ_MEMORY_MCE);
+}
+#endif
+
 static int kvm_vm_ioctl_get_clock(struct kvm *kvm, void __user *argp)
 {
 	struct kvm_clock_data data = { 0 };
@@ -10470,6 +10477,12 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 		if (kvm_check_request(KVM_REQ_UPDATE_CPU_DIRTY_LOGGING, vcpu))
 			static_call(kvm_x86_update_cpu_dirty_logging)(vcpu);
+
+		if (kvm_check_request(KVM_REQ_MEMORY_MCE, vcpu)) {
+			vcpu->run->exit_reason = KVM_EXIT_SHUTDOWN;
+			r = 0;
+			goto out;
+		}
 	}
 
 	if (kvm_check_request(KVM_REQ_EVENT, vcpu) || req_int_win ||

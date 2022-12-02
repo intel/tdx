@@ -62,6 +62,7 @@
 #include <linux/page-isolation.h>
 #include <linux/pagewalk.h>
 #include <linux/shmem_fs.h>
+#include <linux/restrictedmem.h>
 #include "swap.h"
 #include "internal.h"
 #include "ras/ras_event.h"
@@ -953,6 +954,8 @@ static int me_pagecache_clean(struct page_state *ps, struct page *p)
 		ret = MF_FAILED;
 		goto out;
 	}
+
+	restrictedmem_error_page(p, mapping);
 
 	/*
 	 * The shmem page is kept in page cache instead of truncating

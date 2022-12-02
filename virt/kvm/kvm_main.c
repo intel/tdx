@@ -928,6 +928,121 @@ static int kvm_init_mmu_notifier(struct kvm *kvm)
 
 #endif /* CONFIG_MMU_NOTIFIER && KVM_ARCH_WANT_MMU_NOTIFIER */
 
+#ifdef CONFIG_HAVE_KVM_RESTRICTED_MEM
+static bool restrictedmem_range_is_valid(struct kvm_memory_slot *slot,
+					 pgoff_t start, pgoff_t end,
+					 gfn_t *gfn_start, gfn_t *gfn_end)
+{
+	unsigned long base_pgoff = slot->restricted_offset >> PAGE_SHIFT;
+
+	if (start > base_pgoff)
+		*gfn_start = slot->base_gfn + start - base_pgoff;
+	else
+		*gfn_start = slot->base_gfn;
+
+	if (end < base_pgoff + slot->npages)
+		*gfn_end = slot->base_gfn + end - base_pgoff;
+	else
+		*gfn_end = slot->base_gfn + slot->npages;
+
+	if (*gfn_start >= *gfn_end)
+		return false;
+
+	return true;
+}
+
+static void kvm_restrictedmem_invalidate_begin(struct restrictedmem_notifier *notifier,
+					       pgoff_t start, pgoff_t end)
+{
+	struct kvm_memory_slot *slot = container_of(notifier,
+						    struct kvm_memory_slot,
+						    notifier);
+	struct kvm *kvm = slot->kvm;
+	gfn_t gfn_start, gfn_end;
+	struct kvm_gfn_range gfn_range;
+	int idx;
+
+	if (!restrictedmem_range_is_valid(slot, start, end,
+					  &gfn_start, &gfn_end))
+		return;
+
+	gfn_range.start = gfn_start;
+	gfn_range.end = gfn_end;
+	gfn_range.slot = slot;
+	gfn_range.pte = __pte(0);
+	gfn_range.may_block = true;
+
+	idx = srcu_read_lock(&kvm->srcu);
+	KVM_MMU_LOCK(kvm);
+
+	kvm_mmu_invalidate_begin(kvm);
+	kvm_mmu_invalidate_range_add(kvm, gfn_start, gfn_end);
+	if (kvm_unmap_gfn_range(kvm, &gfn_range))
+		kvm_flush_remote_tlbs(kvm);
+
+	KVM_MMU_UNLOCK(kvm);
+	srcu_read_unlock(&kvm->srcu, idx);
+}
+
+static void kvm_restrictedmem_invalidate_end(struct restrictedmem_notifier *notifier,
+					     pgoff_t start, pgoff_t end)
+{
+	struct kvm_memory_slot *slot = container_of(notifier,
+						    struct kvm_memory_slot,
+						    notifier);
+	struct kvm *kvm = slot->kvm;
+	gfn_t gfn_start, gfn_end;
+
+	if (!restrictedmem_range_is_valid(slot, start, end,
+					  &gfn_start, &gfn_end))
+		return;
+
+	KVM_MMU_LOCK(kvm);
+	kvm_mmu_invalidate_end(kvm);
+	KVM_MMU_UNLOCK(kvm);
+}
+
+static void kvm_restrictedmem_error(struct restrictedmem_notifier *notifier,
+				    pgoff_t start, pgoff_t end)
+{
+	struct kvm_memory_slot *slot = container_of(notifier,
+						    struct kvm_memory_slot,
+						    notifier);
+	kvm_arch_memory_mce(slot->kvm);
+}
+
+static struct restrictedmem_notifier_ops kvm_restrictedmem_notifier_ops = {
+	.invalidate_start = kvm_restrictedmem_invalidate_begin,
+	.invalidate_end = kvm_restrictedmem_invalidate_end,
+	.error = kvm_restrictedmem_error,
+};
+
+static inline void kvm_restrictedmem_register(struct kvm_memory_slot *slot)
+{
+	slot->notifier.ops = &kvm_restrictedmem_notifier_ops;
+	restrictedmem_register_notifier(slot->restricted_file, &slot->notifier);
+}
+
+static inline void kvm_restrictedmem_unregister(struct kvm_memory_slot *slot)
+{
+	restrictedmem_unregister_notifier(slot->restricted_file,
+					  &slot->notifier);
+}
+
+#else /* !CONFIG_HAVE_KVM_RESTRICTED_MEM */
+
+static inline void kvm_restrictedmem_register(struct kvm_memory_slot *slot)
+{
+	WARN_ON_ONCE(1);
+}
+
+static inline void kvm_restrictedmem_unregister(struct kvm_memory_slot *slot)
+{
+	WARN_ON_ONCE(1);
+}
+
+#endif /* CONFIG_HAVE_KVM_RESTRICTED_MEM */
+
 #ifdef CONFIG_HAVE_KVM_PM_NOTIFIER
 static int kvm_pm_notifier_call(struct notifier_block *bl,
 				unsigned long state,
@@ -972,6 +1087,11 @@ static void kvm_destroy_dirty_bitmap(struct kvm_memory_slot *memslot)
 /* This does not remove the slot from struct kvm_memslots data structures */
 static void kvm_free_memslot(struct kvm *kvm, struct kvm_memory_slot *slot)
 {
+	if (slot->flags & KVM_MEM_PRIVATE) {
+		kvm_restrictedmem_unregister(slot);
+		fput(slot->restricted_file);
+	}
+
 	kvm_destroy_dirty_bitmap(slot);
 
 	kvm_arch_free_memslot(kvm, slot);
@@ -1541,9 +1661,13 @@ static void kvm_replace_memslot(struct kvm *kvm,
 	}
 }
 
-static int check_memory_region_flags(const struct kvm_user_mem_region *mem)
+static int check_memory_region_flags(struct kvm *kvm,
+				     const struct kvm_user_mem_region *mem)
 {
 	u32 valid_flags = KVM_MEM_LOG_DIRTY_PAGES;
+
+	if (kvm_arch_has_private_mem(kvm))
+		valid_flags |= KVM_MEM_PRIVATE;
 
 #ifdef __KVM_HAVE_READONLY_MEM
 	valid_flags |= KVM_MEM_READONLY;
@@ -1620,6 +1744,9 @@ static int kvm_prepare_memory_region(struct kvm *kvm,
 {
 	int r;
 
+	if (change == KVM_MR_CREATE && new->flags & KVM_MEM_PRIVATE)
+		kvm_restrictedmem_register(new);
+
 	/*
 	 * If dirty logging is disabled, nullify the bitmap; the old bitmap
 	 * will be freed on "commit".  If logging is enabled in both old and
@@ -1647,6 +1774,9 @@ static int kvm_prepare_memory_region(struct kvm *kvm,
 	/* Free the bitmap on failure if it was allocated above. */
 	if (r && new && new->dirty_bitmap && (!old || !old->dirty_bitmap))
 		kvm_destroy_dirty_bitmap(new);
+
+	if (r && change == KVM_MR_CREATE && new->flags & KVM_MEM_PRIVATE)
+		kvm_restrictedmem_unregister(new);
 
 	return r;
 }
@@ -1953,7 +2083,7 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	int as_id, id;
 	int r;
 
-	r = check_memory_region_flags(mem);
+	r = check_memory_region_flags(kvm, mem);
 	if (r)
 		return r;
 
@@ -1971,6 +2101,10 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	    (mem->userspace_addr != untagged_addr(mem->userspace_addr)) ||
 	     !access_ok((void __user *)(unsigned long)mem->userspace_addr,
 			mem->memory_size))
+		return -EINVAL;
+	if (mem->flags & KVM_MEM_PRIVATE &&
+		(mem->restricted_offset & (PAGE_SIZE - 1) ||
+		 mem->restricted_offset > U64_MAX - mem->memory_size))
 		return -EINVAL;
 	if (as_id >= KVM_ADDRESS_SPACE_NUM || id >= KVM_MEM_SLOTS_NUM)
 		return -EINVAL;
@@ -2010,6 +2144,9 @@ int __kvm_set_memory_region(struct kvm *kvm,
 		if ((kvm->nr_memslot_pages + npages) < kvm->nr_memslot_pages)
 			return -EINVAL;
 	} else { /* Modify an existing slot. */
+		/* Private memslots are immutable, they can only be deleted. */
+		if (mem->flags & KVM_MEM_PRIVATE)
+			return -EINVAL;
 		if ((mem->userspace_addr != old->userspace_addr) ||
 		    (npages != old->npages) ||
 		    ((mem->flags ^ old->flags) & KVM_MEM_READONLY))
@@ -2038,10 +2175,28 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	new->npages = npages;
 	new->flags = mem->flags;
 	new->userspace_addr = mem->userspace_addr;
+	if (mem->flags & KVM_MEM_PRIVATE) {
+		new->restricted_file = fget(mem->restricted_fd);
+		if (!new->restricted_file ||
+		    !file_is_restrictedmem(new->restricted_file)) {
+			r = -EINVAL;
+			goto out;
+		}
+		new->restricted_offset = mem->restricted_offset;
+	}
+
+	new->kvm = kvm;
 
 	r = kvm_set_memslot(kvm, old, new, change);
 	if (r)
-		kfree(new);
+		goto out;
+
+	return 0;
+
+out:
+	if (new->restricted_file)
+		fput(new->restricted_file);
+	kfree(new);
 	return r;
 }
 EXPORT_SYMBOL_GPL(__kvm_set_memory_region);
@@ -2341,6 +2496,8 @@ static int kvm_vm_ioctl_clear_dirty_log(struct kvm *kvm,
 #ifdef CONFIG_HAVE_KVM_MEMORY_ATTRIBUTES
 static u64 kvm_supported_mem_attributes(struct kvm *kvm)
 {
+	if (kvm_arch_has_private_mem(kvm))
+		return KVM_MEMORY_ATTRIBUTE_PRIVATE;
 	return 0;
 }
 
@@ -4890,16 +5047,28 @@ static long kvm_vm_ioctl(struct file *filp,
 	}
 	case KVM_SET_USER_MEMORY_REGION: {
 		struct kvm_user_mem_region mem;
-		unsigned long size = sizeof(struct kvm_userspace_memory_region);
+		unsigned int flags_offset = offsetof(typeof(mem), flags);
+		unsigned long size;
+		u32 flags;
 
 		kvm_sanity_check_user_mem_region_alias();
 
+		memset(&mem, 0, sizeof(mem));
+
 		r = -EFAULT;
+		if (get_user(flags, (u32 __user *)(argp + flags_offset)))
+			goto out;
+
+		if (flags & KVM_MEM_PRIVATE)
+			size = sizeof(struct kvm_userspace_memory_region_ext);
+		else
+			size = sizeof(struct kvm_userspace_memory_region);
+
 		if (copy_from_user(&mem, argp, size))
 			goto out;
 
 		r = -EINVAL;
-		if (mem.flags & KVM_MEM_PRIVATE)
+		if ((flags ^ mem.flags) & KVM_MEM_PRIVATE)
 			goto out;
 
 		r = kvm_vm_ioctl_set_memory_region(kvm, &mem);

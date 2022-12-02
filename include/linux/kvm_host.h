@@ -591,6 +591,7 @@ struct kvm_memory_slot {
 	struct file *restricted_file;
 	loff_t restricted_offset;
 	struct restrictedmem_notifier notifier;
+	struct kvm *kvm;
 };
 
 static inline bool kvm_slot_can_be_private(const struct kvm_memory_slot *slot)
@@ -2344,6 +2345,8 @@ static inline int kvm_restricted_mem_get_pfn(struct kvm_memory_slot *slot,
 	*pfn = page_to_pfn(page);
 	return ret;
 }
+
+void kvm_arch_memory_mce(struct kvm *kvm);
 #endif /* CONFIG_HAVE_KVM_RESTRICTED_MEM */
 
 #endif

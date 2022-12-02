@@ -23,6 +23,12 @@
 /* Length of RTMR extend data */
 #define TDX_EXTEND_RTMR_DATA_LEN        48
 
+/* TD Quote status codes */
+#define GET_QUOTE_SUCCESS               0
+#define GET_QUOTE_IN_FLIGHT             0xffffffffffffffff
+#define GET_QUOTE_ERROR                 0x8000000000000000
+#define GET_QUOTE_SERVICE_UNAVAILABLE   0x8000000000000001
+
 /**
  * struct tdx_report_req - Request struct for TDX_CMD_GET_REPORT0 IOCTL.
  *
@@ -63,6 +69,36 @@ struct tdx_extend_rtmr_req {
 };
 
 /*
+ * Format of Quote data header. More details can be found in TDX
+ * Guest-Host Communication Interface (GHCI) for Intel TDX 1.0,
+ * section titled "TDG.VP.VMCALL<GetQuote>"
+ */
+struct tdx_quote_hdr {
+	/* Quote version, filled by TD */
+	__u64 version;
+	/* Status code of Quote request, filled by VMM */
+	__u64 status;
+	/* Length of TDREPORT, filled by TD */
+	__u32 in_len;
+	/* Length of Quote, filled by VMM */
+	__u32 out_len;
+	/* Actual Quote data or TDREPORT on input */
+	__u64 data[0];
+};
+
+/* struct tdx_quote_req: Request struct for TDX_CMD_GET_QUOTE IOCTL.
+ *
+ * @buf         : Address of user buffer that includes TDREPORT. Upon
+ *                successful completion of IOCTL, output is copied
+ *                back to the same buffer.
+ * @len         : Length of the Quote buffer.
+ */
+struct tdx_quote_req {
+	__u64 buf;
+	__u64 len;
+};
+
+/*
  * TDX_CMD_GET_REPORT0 - Get TDREPORT0 (a.k.a. TDREPORT subtype 0) using
  *                       TDCALL[TDG.MR.REPORT]
  *
@@ -86,5 +122,14 @@ struct tdx_extend_rtmr_req {
  * Returns 0 on success, and standard errono on other failures.
  */
 #define TDX_CMD_EXTEND_RTMR		_IOW('T', 3, struct tdx_extend_rtmr_req)
+
+/*
+ * TDX_CMD_GET_QUOTE - Get TD Guest Quote from QE/QGS using GetQuote
+ *		       TDVMCALL.
+ *
+ * Returns 0 on success, -EINTR for interrupted request, and
+ * standard errono on other failures.
+ */
+#define TDX_CMD_GET_QUOTE		_IOWR('T', 4, struct tdx_quote_req)
 
 #endif /* _UAPI_LINUX_TDX_GUEST_H_ */

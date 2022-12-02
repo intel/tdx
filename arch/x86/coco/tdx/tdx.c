@@ -36,6 +36,7 @@
 #define TDVMCALL_MAP_GPA		0x10001
 #define TDVMCALL_REPORT_FATAL_ERROR	0x10003
 #define TDVMCALL_SETUP_NOTIFY_INTR	0x10004
+#define TDVMCALL_GET_QUOTE		0x10002
 
 /* MMIO direction */
 #define EPT_READ	0
@@ -245,6 +246,40 @@ int tdx_mcall_extend_rtmr(u8 *data, u8 index)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(tdx_mcall_extend_rtmr);
+
+/**
+ * tdx_hcall_get_quote() - Wrapper to get TD Quote using GetQuote
+ *                         hypercall.
+ * @tdquote: Address of the input buffer which contains TDREPORT
+ *           data. The same buffer will be used by VMM to store
+ *           the generated TD Quote output.
+ * @size: size of the tdquote buffer.
+ *
+ * Refer to section titled "TDG.VP.VMCALL<GetQuote>" in the TDX GHCI
+ * v1.0 specification for more information on GetQuote hypercall.
+ * It is used in the TDX guest driver module to get the TD Quote.
+ *
+ * Return 0 on success, -EINVAL for invalid operands, or -EIO on
+ * other TDCALL failures.
+ */
+int tdx_hcall_get_quote(void *tdquote, int size)
+{
+        struct tdx_hypercall_args args = {0};
+
+        args.r10 = TDX_HYPERCALL_STANDARD;
+        args.r11 = TDVMCALL_GET_QUOTE;
+        args.r12 = cc_mkdec(virt_to_phys(tdquote));
+        args.r13 = size;
+
+	/*
+	 * Pass the physical address of TDREPORT to the VMM and
+	 * trigger the Quote generation. It is not a blocking
+	 * call, hence completion of this request will be notified to
+	 * the TD guest via a callback interrupt.
+	 */
+	return __tdx_hypercall(&args);
+}
+EXPORT_SYMBOL_GPL(tdx_hcall_get_quote);
 
 static void tdx_parse_tdinfo(u64 *cc_mask)
 {

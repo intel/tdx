@@ -764,11 +764,16 @@ static void update_gfn_disallow_lpage_count(const struct kvm_memory_slot *slot,
 {
 	struct kvm_lpage_info *linfo;
 	int i;
+	int disallow_count;
 
 	for (i = PG_LEVEL_2M; i <= KVM_MAX_HUGEPAGE_LEVEL; ++i) {
 		linfo = lpage_info_slot(gfn, slot, i);
+
+		disallow_count = linfo->disallow_lpage & KVM_LPAGE_COUNT_MAX;
+		WARN_ON(disallow_count + count < 0 ||
+			disallow_count > KVM_LPAGE_COUNT_MAX - count);
+
 		linfo->disallow_lpage += count;
-		WARN_ON(linfo->disallow_lpage < 0);
 	}
 }
 
@@ -6986,4 +6991,131 @@ void kvm_mmu_pre_destroy_vm(struct kvm *kvm)
 {
 	if (kvm->arch.nx_huge_page_recovery_thread)
 		kthread_stop(kvm->arch.nx_huge_page_recovery_thread);
+}
+
+static bool linfo_is_mixed(struct kvm_lpage_info *linfo)
+{
+	return linfo->disallow_lpage & KVM_LPAGE_PRIVATE_SHARED_MIXED;
+}
+
+static void linfo_set_mixed(gfn_t gfn, struct kvm_memory_slot *slot,
+			    int level, bool mixed)
+{
+	struct kvm_lpage_info *linfo = lpage_info_slot(gfn, slot, level);
+
+	if (mixed)
+		linfo->disallow_lpage |= KVM_LPAGE_PRIVATE_SHARED_MIXED;
+	else
+		linfo->disallow_lpage &= ~KVM_LPAGE_PRIVATE_SHARED_MIXED;
+}
+
+static bool is_expected_attr_entry(void *entry, unsigned long expected_attrs)
+{
+	bool expect_private = expected_attrs & KVM_MEMORY_ATTRIBUTE_PRIVATE;
+
+	if (xa_to_value(entry) & KVM_MEMORY_ATTRIBUTE_PRIVATE) {
+		if (!expect_private)
+			return false;
+	} else if (expect_private)
+		return false;
+
+	return true;
+}
+
+static bool mem_attrs_mixed_2m(struct kvm *kvm, unsigned long attrs,
+			       gfn_t start, gfn_t end)
+{
+	XA_STATE(xas, &kvm->mem_attr_array, start);
+	gfn_t gfn = start;
+	void *entry;
+	bool mixed = false;
+
+	rcu_read_lock();
+	entry = xas_load(&xas);
+	while (gfn < end) {
+		if (xas_retry(&xas, entry))
+			continue;
+
+		KVM_BUG_ON(gfn != xas.xa_index, kvm);
+
+		if (!is_expected_attr_entry(entry, attrs)) {
+			mixed = true;
+			break;
+		}
+
+		entry = xas_next(&xas);
+		gfn++;
+	}
+
+	rcu_read_unlock();
+	return mixed;
+}
+
+static bool mem_attrs_mixed(struct kvm *kvm, struct kvm_memory_slot *slot,
+			    int level, unsigned long attrs,
+			    gfn_t start, gfn_t end)
+{
+	unsigned long gfn;
+
+	if (level == PG_LEVEL_2M)
+		return mem_attrs_mixed_2m(kvm, attrs, start, end);
+
+	for (gfn = start; gfn < end; gfn += KVM_PAGES_PER_HPAGE(level - 1))
+		if (linfo_is_mixed(lpage_info_slot(gfn, slot, level - 1)) ||
+		    !is_expected_attr_entry(xa_load(&kvm->mem_attr_array, gfn),
+					    attrs))
+			return true;
+	return false;
+}
+
+static void kvm_update_lpage_private_shared_mixed(struct kvm *kvm,
+						  struct kvm_memory_slot *slot,
+						  unsigned long attrs,
+						  gfn_t start, gfn_t end)
+{
+	unsigned long pages, mask;
+	gfn_t gfn, gfn_end, first, last;
+	int level;
+	bool mixed;
+
+	/*
+	 * The sequence matters here: we set the higher level basing on the
+	 * lower level's scanning result.
+	 */
+	for (level = PG_LEVEL_2M; level <= KVM_MAX_HUGEPAGE_LEVEL; level++) {
+		pages = KVM_PAGES_PER_HPAGE(level);
+		mask = ~(pages - 1);
+		first = start & mask;
+		last = (end - 1) & mask;
+
+		/*
+		 * We only need to scan the head and tail page, for middle pages
+		 * we know they will not be mixed.
+		 */
+		gfn = max(first, slot->base_gfn);
+		gfn_end = min(first + pages, slot->base_gfn + slot->npages);
+		mixed = mem_attrs_mixed(kvm, slot, level, attrs, gfn, gfn_end);
+		linfo_set_mixed(gfn, slot, level, mixed);
+
+		if (first == last)
+			return;
+
+		for (gfn = first + pages; gfn < last; gfn += pages)
+			linfo_set_mixed(gfn, slot, level, false);
+
+		gfn = last;
+		gfn_end = min(last + pages, slot->base_gfn + slot->npages);
+		mixed = mem_attrs_mixed(kvm, slot, level, attrs, gfn, gfn_end);
+		linfo_set_mixed(gfn, slot, level, mixed);
+	}
+}
+
+void kvm_arch_set_memory_attributes(struct kvm *kvm,
+				    struct kvm_memory_slot *slot,
+				    unsigned long attrs,
+				    gfn_t start, gfn_t end)
+{
+	if (kvm_slot_can_be_private(slot))
+		kvm_update_lpage_private_shared_mixed(kvm, slot, attrs,
+						      start, end);
 }

@@ -2316,4 +2316,34 @@ static inline void kvm_arch_set_memory_attributes(struct kvm *kvm,
 }
 #endif /* __KVM_HAVE_ARCH_SET_MEMORY_ATTRIBUTES */
 
+#ifdef CONFIG_HAVE_KVM_MEMORY_ATTRIBUTES
+static inline bool kvm_mem_is_private(struct kvm *kvm, gfn_t gfn)
+{
+	return xa_to_value(xa_load(&kvm->mem_attr_array, gfn)) &
+	       KVM_MEMORY_ATTRIBUTE_PRIVATE;
+}
+#else
+static inline bool kvm_mem_is_private(struct kvm *kvm, gfn_t gfn)
+{
+	return false;
+}
+
+#endif /* CONFIG_HAVE_KVM_MEMORY_ATTRIBUTES */
+
+#ifdef CONFIG_HAVE_KVM_RESTRICTED_MEM
+static inline int kvm_restricted_mem_get_pfn(struct kvm_memory_slot *slot,
+					gfn_t gfn, kvm_pfn_t *pfn, int *order)
+{
+	int ret;
+	struct page *page;
+	pgoff_t index = gfn - slot->base_gfn +
+			(slot->restricted_offset >> PAGE_SHIFT);
+
+	ret = restrictedmem_get_page(slot->restricted_file, index,
+				     &page, order);
+	*pfn = page_to_pfn(page);
+	return ret;
+}
+#endif /* CONFIG_HAVE_KVM_RESTRICTED_MEM */
+
 #endif

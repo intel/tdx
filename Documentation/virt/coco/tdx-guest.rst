@@ -42,6 +42,17 @@ ABI. However, in the future, if the TDX Module supports more than one subtype,
 a new IOCTL CMD will be created to handle it. To keep the IOCTL naming
 consistent, a subtype index is added as part of the IOCTL CMD.
 
+2.2 TDX_CMD_GET_QUOTE
+----------------------
+
+:Input parameters: struct tdx_quote_req
+:Output: Return 0 on success, -EIO on TDCALL failure or standard error number
+         on common failures. Upon successful execution, QUOTE data is copied
+         to tdx_quote_req.buf.
+
+The TDX_CMD_GET_QUOTE IOCTL can be used by attestation software to generate
+QUOTE for the given TDREPORT using TDG.VP.VMCALL<GetQuote> hypercall.
+
 Reference
 ---------
 

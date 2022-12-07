@@ -1055,6 +1055,33 @@ static int init_tdmrs(struct tdmr_info_list *tdmr_list)
 	return 0;
 }
 
+static void do_lp_init(void *data)
+{
+	int ret;
+
+	ret = seamcall(TDH_SYS_LP_INIT, 0, 0, 0, 0, NULL, NULL);
+
+	*(int *)data = ret;
+}
+static int tdx_module_init_cpus(void)
+{
+	int cpu, ret = 0;
+
+	for_each_online_cpu(cpu) {
+		int err;
+
+		ret = smp_call_function_single(cpu, do_lp_init, &err, true);
+		if (ret)
+			break;
+		if (err) {
+			ret = err;
+			break;
+		}
+	}
+
+	return ret;
+}
+
 static int init_tdx_module(void)
 {
 	/*
@@ -1070,6 +1097,11 @@ static int init_tdx_module(void)
 	int ret;
 
 	ret = seamcall(TDH_SYS_INIT, 0, 0, 0, 0, NULL, NULL);
+	if (ret)
+		goto out;
+
+	/* Logical-cpu scope initialization */
+	ret = tdx_module_init_cpus();
 	if (ret)
 		goto out;
 

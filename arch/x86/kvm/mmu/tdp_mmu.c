@@ -1214,6 +1214,7 @@ static void tdp_mmu_zap_root(struct kvm *kvm, struct kvm_mmu_page *root,
 bool kvm_tdp_mmu_zap_sp(struct kvm *kvm, struct kvm_mmu_page *sp)
 {
 	u64 old_spte;
+	u64 new_spte;
 
 	/*
 	 * This helper intentionally doesn't allow zapping a root shadow page,
@@ -1226,8 +1227,13 @@ bool kvm_tdp_mmu_zap_sp(struct kvm *kvm, struct kvm_mmu_page *sp)
 	if (WARN_ON_ONCE(!is_shadow_present_pte(old_spte)))
 		return false;
 
+	if (kvm_gfn_shared_mask(kvm) && is_private_sp(sp))
+		new_spte = __private_zapped_spte(old_spte);
+	else
+		new_spte = SHADOW_NONPRESENT_VALUE;
+
 	__tdp_mmu_set_spte(kvm, kvm_mmu_page_as_id(sp), sp->ptep, old_spte,
-			   SHADOW_NONPRESENT_VALUE, sp->gfn, sp->role.level + 1,
+			   new_spte, sp->gfn, sp->role.level + 1,
 			   true, true);
 
 	return true;
@@ -2442,13 +2448,6 @@ void kvm_tdp_mmu_zap_collapsible_sptes(struct kvm *kvm,
 	struct kvm_mmu_page *root;
 
 	lockdep_assert_held_read(&kvm->mmu_lock);
-
-	/*
-	 * This should only be reachable when diryt-log is supported. It's a
-	 * bug to reach here.
-	 */
-	if (WARN_ON_ONCE(!kvm_arch_dirty_log_supported(kvm)))
-		return;
 
 	for_each_valid_tdp_mmu_root_yield_safe(kvm, root, slot->as_id, true)
 		zap_collapsible_spte_range(kvm, root, slot);

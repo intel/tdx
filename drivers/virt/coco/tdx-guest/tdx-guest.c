@@ -81,6 +81,39 @@ out:
 	return ret;
 }
 
+static long tdx_extend_rtmr(struct tdx_extend_rtmr_req __user *req)
+{
+	u8 *data, index;
+	int ret;
+
+	if (copy_from_user(&index, &req->index, sizeof(u8)))
+		return -EFAULT;
+
+	/*
+	 * RTMR index 0 and 1 is used by BIOS and kernel and are not
+	 * allowed for userspace update.
+	 */
+	if (index < 2)
+		return -EPERM;
+
+	/* TDG.MR.RTMR.EXTEND TDCALL expects buffer to be 64B aligned */
+	data = kmalloc(ALIGN(sizeof(req->data), 64), GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+
+	if (copy_from_user(data, req->data, sizeof(req->data))) {
+		ret = -EFAULT;
+		goto out;
+	}
+
+	/* Extend RTMR registers using "TDG.MR.RTMR.EXTEND" TDCALL */
+	ret = tdx_mcall_extend_rtmr(data, index);
+out:
+	kfree(data);
+
+	return ret;
+}
+
 static long tdx_guest_ioctl(struct file *file, unsigned int cmd,
 			    unsigned long arg)
 {
@@ -89,6 +122,8 @@ static long tdx_guest_ioctl(struct file *file, unsigned int cmd,
 		return tdx_get_report0((struct tdx_report_req __user *)arg);
 	case TDX_CMD_VERIFY_REPORT:
 		return tdx_verify_report((struct tdx_verify_report_req __user *)arg);
+	case TDX_CMD_EXTEND_RTMR:
+		return tdx_extend_rtmr((struct tdx_extend_rtmr_req __user *)arg);
 	default:
 		return -ENOTTY;
 	}

@@ -20,6 +20,9 @@
 /* Length of the REPORTMACSTRUCT */
 #define TDX_REPORTMACSTRUCT_LEN         256
 
+/* Length of RTMR extend data */
+#define TDX_EXTEND_RTMR_DATA_LEN        48
+
 /**
  * struct tdx_report_req - Request struct for TDX_CMD_GET_REPORT0 IOCTL.
  *
@@ -46,6 +49,19 @@ struct tdx_verify_report_req {
 	__u64 err_code;
 };
 
+/**
+ * struct tdx_extend_rtmr_req - Request struct for TDX_CMD_EXTEND_RTMR IOCTL.
+ *
+ * @data: User buffer with RTMR extend data.
+ * @index: Index of RTMR register to be extended. RTMR0 and RTMR1 registers
+ *         are used by kernel and BIOS and hence are not allowed to be extended
+ *         by the userspace.
+ */
+struct tdx_extend_rtmr_req {
+	__u8 data[TDX_EXTEND_RTMR_DATA_LEN];
+	__u8 index;
+};
+
 /*
  * TDX_CMD_GET_REPORT0 - Get TDREPORT0 (a.k.a. TDREPORT subtype 0) using
  *                       TDCALL[TDG.MR.REPORT]
@@ -62,5 +78,13 @@ struct tdx_verify_report_req {
  * Returns 0 on success, and standard errono on other failures.
  */
 #define TDX_CMD_VERIFY_REPORT		_IOWR('T', 2, struct tdx_verify_report_req)
+
+/*
+ * TDX_CMD_EXTEND_RTMR - Extend RTMR registers with user data using
+ *                       TDG.MR.RTMR.EXTEND TDCALL.
+ *
+ * Returns 0 on success, and standard errono on other failures.
+ */
+#define TDX_CMD_EXTEND_RTMR		_IOW('T', 3, struct tdx_extend_rtmr_req)
 
 #endif /* _UAPI_LINUX_TDX_GUEST_H_ */

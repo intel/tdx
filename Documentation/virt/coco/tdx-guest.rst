@@ -54,6 +54,16 @@ The TDX_CMD_VERIFY_REPORT IOCTL can be used by userspace application to verify
 whether the given REPORTMACSTRUCT (part of TDREPORT struct) is generated in the
 current platform using TDG.MR.VERIFYREPORT TDCALL.
 
+2.3 TDX_CMD_EXTEND_RTMR
+-----------------------
+
+:Input parameters: struct tdx_extend_rtmr_req
+:Output: Return 0 on success, -EIO on TDCALL failure, -EBUSY for TDX Module busy
+         condition, or standard error number on common failures.
+
+The TDX_CMD_VERIFY_REPORT IOCTL can be used by userspace application to extend
+RTMR registers > 1 with user specified data using TDG.MR.RTMR.EXTEND TDCALL.
+
 Reference
 ---------
 

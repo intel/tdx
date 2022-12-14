@@ -196,4 +196,25 @@ TEST(verify_reportmac)
 	ASSERT_EQ(0, close(devfd));
 }
 
+TEST(verify_rtmr_extend)
+{
+	struct tdx_extend_rtmr_req req;
+	int devfd, i;
+
+	devfd = open(TDX_GUEST_DEVNAME, O_RDWR | O_SYNC);
+
+	ASSERT_LT(0, devfd);
+
+	/* Generate sample RTMR extend data */
+	for (i = 0; i < TDX_EXTEND_RTMR_DATA_LEN; i++)
+		req.data[i] = i;
+
+	req.index = 2;
+
+	/* Verify reportmac and make sure it is valid */
+	ASSERT_EQ(0, ioctl(devfd, TDX_CMD_EXTEND_RTMR, &req));
+
+	ASSERT_EQ(0, close(devfd));
+}
+
 TEST_HARNESS_MAIN

@@ -42,6 +42,17 @@ ABI. However, in the future, if the TDX Module supports more than one subtype,
 a new IOCTL CMD will be created to handle it. To keep the IOCTL naming
 consistent, a subtype index is added as part of the IOCTL CMD.
 
+
+2.2 TDX_CMD_EXTEND_RTMR
+-----------------------
+
+:Input parameters: struct tdx_extend_rtmr_req
+:Output: Return 0 on success, -EIO on TDCALL failure, -EBUSY for TDX Module busy
+         condition, or standard error number on common failures.
+
+The TDX_CMD_VERIFY_REPORT IOCTL can be used by userspace application to extend
+RTMR registers > 1 with user specified data using TDG.MR.RTMR.EXTEND TDCALL.
+
 Reference
 ---------
 

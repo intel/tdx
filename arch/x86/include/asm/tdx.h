@@ -52,6 +52,8 @@ bool tdx_early_handle_ve(struct pt_regs *regs);
 
 int tdx_mcall_get_report0(u8 *reportdata, u8 *tdreport);
 
+int tdx_mcall_extend_rtmr(u8 *data, u8 index);
+
 #else
 
 static inline void tdx_early_init(void) { };

@@ -6285,9 +6285,8 @@ static void kvm_mmu_zap_memslot(struct kvm *kvm, struct kvm_memory_slot *slot)
 		 */
 		flush = kvm_tdp_mmu_unmap_gfn_range(kvm, &range, flush, true);
 	} else {
-		/* TDX supports only TDP-MMU case. */
-		WARN_ON_ONCE(1);
-		flush = true;
+		flush = slot_handle_level(kvm, slot, __kvm_zap_rmap, PG_LEVEL_4K,
+					  KVM_MAX_HUGEPAGE_LEVEL, true);
 	}
 	if (flush)
 		kvm_flush_remote_tlbs(kvm);

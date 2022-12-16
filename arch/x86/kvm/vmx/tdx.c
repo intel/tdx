@@ -309,6 +309,28 @@ int tdx_vm_init(struct kvm *kvm)
 	return 0;
 }
 
+u8 tdx_get_mt_mask(struct kvm_vcpu *vcpu, gfn_t gfn, bool is_mmio)
+{
+	if (is_mmio)
+		return MTRR_TYPE_UNCACHABLE << VMX_EPT_MT_EPTE_SHIFT;
+
+	/* TDX private GPA is always WB. */
+	if (gfn & kvm_gfn_shared_mask(vcpu->kvm))
+		return  MTRR_TYPE_WRBACK << VMX_EPT_MT_EPTE_SHIFT;
+
+	if (!kvm_arch_has_noncoherent_dma(vcpu->kvm))
+		return (MTRR_TYPE_WRBACK << VMX_EPT_MT_EPTE_SHIFT) | VMX_EPT_IPAT_BIT;
+
+	/* Guest CR0 is unknown.  Assume CR0.CD = 0. */
+
+	/*
+	 * Because the definition of MTRR MSR is unaware of shared-bit,
+	 * clear shared-bit.
+	 */
+	gfn = kvm_gfn_private(vcpu->kvm, gfn);
+	return kvm_mtrr_get_guest_memory_type(vcpu, gfn) << VMX_EPT_MT_EPTE_SHIFT;
+}
+
 int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 {
 	struct kvm_cpuid_entry2 *e;

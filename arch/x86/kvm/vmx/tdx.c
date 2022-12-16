@@ -309,6 +309,25 @@ int tdx_vm_init(struct kvm *kvm)
 	return 0;
 }
 
+u8 tdx_get_mt_mask(struct kvm_vcpu *vcpu, gfn_t gfn, bool is_mmio)
+{
+	/* TDX private GPA is always WB. */
+	if (gfn & kvm_gfn_shared_mask(vcpu->kvm)) {
+		WARN_ON_ONCE(is_mmio);
+		return  MTRR_TYPE_WRBACK << VMX_EPT_MT_EPTE_SHIFT;
+	}
+
+	if (is_mmio)
+		return MTRR_TYPE_UNCACHABLE << VMX_EPT_MT_EPTE_SHIFT;
+
+	/*
+	 * Device assignemnt without VT-d snooping capability with shared-GPA
+	 * is dubious.
+	 */
+	WARN_ON_ONCE(kvm_arch_has_noncoherent_dma(vcpu->kvm));
+	return (MTRR_TYPE_WRBACK << VMX_EPT_MT_EPTE_SHIFT) | VMX_EPT_IPAT_BIT;
+}
+
 int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 {
 	struct kvm_cpuid_entry2 *e;

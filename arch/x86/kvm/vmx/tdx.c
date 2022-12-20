@@ -2546,6 +2546,9 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		return 0;
 	}
 
+	if (!kvm_tdx->td_initialized)
+		return 0;
+
 	/*
 	 * When zapping private page, write lock is held. So no race
 	 * condition with other vcpu sept operation.  Race only with

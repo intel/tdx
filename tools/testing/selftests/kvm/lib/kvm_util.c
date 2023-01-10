@@ -1530,9 +1530,10 @@ void virt_map(struct kvm_vm *vm, uint64_t vaddr, uint64_t paddr,
  * address providing the memory to the vm physical address is returned.
  * A TEST_ASSERT failure occurs if no region containing gpa exists.
  */
-void *addr_gpa2hva(struct kvm_vm *vm, vm_paddr_t gpa)
+void *addr_gpa2hva(struct kvm_vm *vm, vm_paddr_t gpa_tagged)
 {
 	struct userspace_mem_region *region;
+	vm_paddr_t gpa = vm_untag_gpa(vm, gpa_tagged);
 
 	region = userspace_mem_region_find(vm, gpa, gpa);
 	if (!region) {
@@ -2238,4 +2239,22 @@ void __attribute((constructor)) kvm_selftest_init(void)
 	setbuf(stdout, NULL);
 
 	kvm_selftest_arch_init();
+}
+
+bool vm_is_gpa_protected(struct kvm_vm *vm, vm_paddr_t paddr)
+{
+	sparsebit_idx_t pg = 0;
+	struct userspace_mem_region *region;
+
+	if (!vm->protected)
+		return false;
+
+	region = userspace_mem_region_find(vm, paddr, paddr);
+	if (!region) {
+		TEST_FAIL("No vm physical memory at 0x%lx", paddr);
+		return false;
+	}
+
+	pg = paddr >> vm->page_shift;
+	return sparsebit_is_set(region->protected_phy_pages, pg);
 }

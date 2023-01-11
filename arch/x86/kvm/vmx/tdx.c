@@ -1570,6 +1570,10 @@ static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	int i;
 
+	if (WARN_ON_ONCE(is_error_noslot_pfn(pfn) ||
+			 !kvm_pfn_to_refcounted_page(pfn)))
+		return 0;
+
 	/*
 	 * Because restricted mem doesn't support page migration with
 	 * a_ops->migrate_page (yet), no callback isn't triggered for KVM on

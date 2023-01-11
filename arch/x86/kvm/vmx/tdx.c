@@ -804,6 +804,21 @@ void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 }
 
 
+static void tdx_complete_interrupts(struct kvm_vcpu *vcpu)
+{
+	/* Avoid costly SEAMCALL if no NMI was injected. */
+	if (vcpu->arch.nmi_injected) {
+		/*
+		 * No need to request KVM_REQ_EVENT because PEND_NMI is still
+		 * set if NMI re-injection needed.  No other event types need
+		 * to be handled because TDX doesn't support injection of
+		 * exception, SMI or interrupt (via event injection).
+		 */
+		vcpu->arch.nmi_injected = td_management_read8(to_tdx(vcpu),
+							      TD_VCPU_PEND_NMI);
+	}
+}
+
 struct tdx_uret_msr {
 	u32 msr;
 	unsigned int slot;
@@ -956,6 +971,8 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 
 	if (unlikely(tdx_has_exit_reason(vcpu) && tdexit_exit_reason(vcpu).failed_vmentry))
 		return EXIT_FASTPATH_NONE;
+
+	tdx_complete_interrupts(vcpu);
 
 	return tdx_exit_handlers_fastpath(vcpu);
 }

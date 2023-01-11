@@ -603,6 +603,7 @@ void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 bool tdx_protected_apic_has_interrupt(struct kvm_vcpu *vcpu)
 {
 	bool ret = pi_has_pending_interrupt(vcpu);
+	union tdx_vcpu_state_details details;
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 
 	if (ret || vcpu->arch.mp_state != KVM_MP_STATE_HALTED)
@@ -627,7 +628,16 @@ bool tdx_protected_apic_has_interrupt(struct kvm_vcpu *vcpu)
 	 * - It forwards the TDExit nevertheless, to a clueless hypervisor that
 	 *   has no way to glean either RVI or PPR.
 	 */
-	return !!xchg(&tdx->buggy_hlt_workaround, 0);
+	if (xchg(&tdx->buggy_hlt_workaround, 0))
+		return true;
+
+	/*
+	 * This is needed for device assignment. Interrupts can arrive from
+	 * the assigned devices.  Because tdx.buggy_hlt_workaround can't be set
+	 * by VMM, use TDX SEAMCALL to query pending interrupts.
+	 */
+	details.full = td_state_non_arch_read64(tdx, TD_VCPU_STATE_DETAILS_NON_ARCH);
+	return !!details.vmxip;
 }
 
 void tdx_prepare_switch_to_guest(struct kvm_vcpu *vcpu)

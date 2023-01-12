@@ -5,6 +5,7 @@
 
 #include "capabilities.h"
 #include "x86_ops.h"
+#include "common.h"
 #include "tdx.h"
 #include "vmx.h"
 #include "x86.h"
@@ -343,6 +344,22 @@ int tdx_vm_init(struct kvm *kvm)
 	kvm->max_vcpus = min(kvm->max_vcpus, TDX_MAX_VCPUS);
 
 	return 0;
+}
+
+u8 tdx_get_mt_mask(struct kvm_vcpu *vcpu, gfn_t gfn, bool is_mmio)
+{
+	/* TDX private GPA is always WB. */
+	if (!(gfn & kvm_gfn_shared_mask(vcpu->kvm))) {
+		/* MMIO is only for shared GPA. */
+		WARN_ON_ONCE(is_mmio);
+		return  MTRR_TYPE_WRBACK << VMX_EPT_MT_EPTE_SHIFT;
+	}
+
+	/* Drop shared bit as MTRR doesn't know about shared bit. */
+	gfn = kvm_gfn_to_private(vcpu->kvm, gfn);
+
+	/* As TDX enforces CR0.CD to 0, pass check_cr0_cd = false. */
+	return __vmx_get_mt_mask(vcpu, gfn, is_mmio, false);
 }
 
 int tdx_vcpu_create(struct kvm_vcpu *vcpu)

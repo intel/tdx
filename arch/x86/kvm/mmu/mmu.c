@@ -4569,7 +4569,12 @@ int kvm_tdp_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	if (shadow_memtype_mask && kvm_arch_has_noncoherent_dma(vcpu->kvm)) {
 		for ( ; fault->max_level > PG_LEVEL_4K; --fault->max_level) {
 			int page_num = KVM_PAGES_PER_HPAGE(fault->max_level);
-			gfn_t base = gfn_round_for_level(fault->gfn,
+			/*
+			 * kvm_mtrr_check_gfn_range_consistency() requires gfn
+			 * including shared bit.  fault->gfn is masked out with
+			 * shared bit.  So fault->gfn can't be used.
+			 */
+			gfn_t base = gfn_round_for_level(gpa_to_gfn(fault->addr),
 							 fault->max_level);
 
 			if (kvm_mtrr_check_gfn_range_consistency(vcpu, base, page_num))

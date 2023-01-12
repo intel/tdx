@@ -191,6 +191,8 @@ LINUX_HDR_PATH = $(INSTALL_HDR_PATH)/include/
 LINUX_TOOL_INCLUDE = $(top_srcdir)/tools/include
 ifeq ($(ARCH),x86_64)
 LINUX_TOOL_ARCH_INCLUDE = $(top_srcdir)/tools/arch/x86/include
+# Disallow SSE as SSE+ instructions will blow up in guest code
+CFLAGS += -mno-sse
 else
 LINUX_TOOL_ARCH_INCLUDE = $(top_srcdir)/tools/arch/$(ARCH)/include
 endif

@@ -407,6 +407,19 @@ static inline uint64_t vm_get_stat(struct kvm_vm *vm, const char *stat_name)
 }
 
 void vm_create_irqchip(struct kvm_vm *vm);
+static inline int vm_create_guest_memfd(struct kvm_vm *vm, uint64_t size,
+					uint32_t flags)
+{
+	struct kvm_create_guest_memfd gmem = {
+		.size = size,
+		.flags = flags,
+	};
+
+	int fd = __vm_ioctl(vm, KVM_CREATE_GUEST_MEMFD, &gmem);
+
+	TEST_ASSERT(fd >= 0, KVM_IOCTL_ERROR(KVM_CREATE_GUEST_MEMFD, fd));
+	return fd;
+}
 
 void vm_set_user_memory_region(struct kvm_vm *vm, uint32_t slot, uint32_t flags,
 			       uint64_t gpa, uint64_t size, void *hva);

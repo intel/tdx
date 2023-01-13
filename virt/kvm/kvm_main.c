@@ -2339,6 +2339,37 @@ static u64 kvm_supported_mem_attributes(struct kvm *kvm)
 	return 0;
 }
 
+static void kvm_mem_attrs_changed(struct kvm *kvm, gfn_t start, gfn_t end
+{
+	struct kvm_gfn_range gfn_range;
+	struct kvm_memory_slot *slot;
+	struct kvm_memslots *slots;
+	struct kvm_memslot_iter iter;
+	bool flush = false;
+	int i;
+
+	gfn_range.pte = __pte(0);
+	gfn_range.may_block = true;
+
+	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++) {
+		slots = __kvm_memslots(kvm, i);
+
+		kvm_for_each_memslot_in_gfn_range(&iter, slots, start, end) {
+			slot = iter.slot;
+			gfn_range.start = max(start, slot->base_gfn);
+			gfn_range.end = min(end, slot->base_gfn + slot->npages);
+			if (gfn_range.start >= gfn_range.end)
+				continue;
+			gfn_range.slot = slot;
+
+			flush |= kvm_unmap_gfn_range(kvm, &gfn_range);
+		}
+	}
+
+	if (flush)
+		kvm_flush_remote_tlbs(kvm);
+}
+
 static int kvm_vm_ioctl_set_mem_attributes(struct kvm *kvm,
 					   struct kvm_memory_attributes *attrs)
 {
@@ -2362,10 +2393,24 @@ static int kvm_vm_ioctl_set_mem_attributes(struct kvm *kvm,
 	entry = attrs->attributes ? xa_mk_value(attrs->attributes) : NULL;
 
 	mutex_lock(&kvm->slots_lock);
+
+	KVM_MMU_LOCK(kvm);
+	kvm_mmu_invalidate_begin(kvm);
+	kvm_mmu_invalidate_range_add(kvm, start, end);
+	KVM_MMU_UNLOCK(kvm);
+
 	for (i = start; i < end; i++)
 		if (xa_err(xa_store(&kvm->mem_attr_array, i, entry,
 				    GFP_KERNEL_ACCOUNT)))
 			break;
+
+
+	KVM_MMU_LOCK(kvm);
+	if (i > start)
+		kvm_mem_attrs_changed(kvm, start, i);
+	kvm_mmu_invalidate_end(kvm);
+	KVM_MMU_UNLOCK(kvm);
+
 	mutex_unlock(&kvm->slots_lock);
 
 	attrs->address = i << PAGE_SHIFT;

@@ -2520,7 +2520,8 @@ static u64 kvm_supported_mem_attributes(struct kvm *kvm)
 	return 0;
 }
 
-static void kvm_mem_attrs_changed(struct kvm *kvm, gfn_t start, gfn_t end
+static void kvm_mem_attrs_changed(struct kvm *kvm, unsigned long attrs,
+				  gfn_t start, gfn_t end)
 {
 	struct kvm_gfn_range gfn_range;
 	struct kvm_memory_slot *slot;
@@ -2544,6 +2545,10 @@ static void kvm_mem_attrs_changed(struct kvm *kvm, gfn_t start, gfn_t end
 			gfn_range.slot = slot;
 
 			flush |= kvm_unmap_gfn_range(kvm, &gfn_range);
+
+			kvm_arch_set_memory_attributes(kvm, slot, attrs,
+						       gfn_range.start,
+						       gfn_range.end);
 		}
 	}
 
@@ -2588,7 +2593,7 @@ static int kvm_vm_ioctl_set_mem_attributes(struct kvm *kvm,
 
 	KVM_MMU_LOCK(kvm);
 	if (i > start)
-		kvm_mem_attrs_changed(kvm, start, i);
+		kvm_mem_attrs_changed(kvm, attrs->attributes, start, i);
 	kvm_mmu_invalidate_end(kvm);
 	KVM_MMU_UNLOCK(kvm);
 

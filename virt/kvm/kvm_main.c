@@ -928,6 +928,151 @@ static int kvm_init_mmu_notifier(struct kvm *kvm)
 
 #endif /* CONFIG_KVM_GENERIC_MMU_NOTIFIER */
 
+#ifdef CONFIG_KVM_PRIVATE_MEM
+static int restrictedmem_get_gfn_range(struct kvm_memory_slot *slot,
+				       pgoff_t start, pgoff_t end,
+				       struct kvm_gfn_range *range)
+{
+	start = max(start, slot->restrictedmem.index);
+	end = min(end, slot->restrictedmem.index + slot->npages);
+
+	if (WARN_ON_ONCE(start >= end))
+		return -EINVAL;
+
+	range->start = slot->base_gfn + start;
+	range->end = slot->base_gfn + end;
+	range->slot = slot;
+	range->pte = __pte(0);
+	range->may_block = true;
+	return 0;
+}
+
+static void kvm_restrictedmem_invalidate_begin(struct restrictedmem_notifier *notifier,
+					       pgoff_t start, pgoff_t end)
+{
+	struct kvm_memory_slot *slot = container_of(notifier,
+						    struct kvm_memory_slot,
+						    restrictedmem.notifier);
+	struct kvm_gfn_range gfn_range;
+	struct kvm *kvm = slot->kvm;
+	int idx;
+
+	if (restrictedmem_get_gfn_range(slot, start, end, &gfn_range))
+		return;
+
+	idx = srcu_read_lock(&kvm->srcu);
+	KVM_MMU_LOCK(kvm);
+
+	kvm_mmu_invalidate_begin(kvm);
+	kvm_mmu_invalidate_range_add(kvm, gfn_range.start, gfn_range.end);
+	if (kvm_unmap_gfn_range(kvm, &gfn_range))
+		kvm_flush_remote_tlbs(kvm);
+
+	KVM_MMU_UNLOCK(kvm);
+	srcu_read_unlock(&kvm->srcu, idx);
+}
+
+static void kvm_restrictedmem_invalidate_end(struct restrictedmem_notifier *notifier,
+					     pgoff_t start, pgoff_t end)
+{
+	struct kvm_memory_slot *slot = container_of(notifier,
+						    struct kvm_memory_slot,
+						    restrictedmem.notifier);
+	struct kvm_gfn_range gfn_range;
+	struct kvm *kvm = slot->kvm;
+
+	if (restrictedmem_get_gfn_range(slot, start, end, &gfn_range))
+		return;
+
+	KVM_MMU_LOCK(kvm);
+	kvm_mmu_invalidate_end(kvm);
+	KVM_MMU_UNLOCK(kvm);
+}
+
+static void kvm_restrictedmem_error(struct restrictedmem_notifier *notifier,
+				    pgoff_t start, pgoff_t end)
+{
+	struct kvm_memory_slot *slot = container_of(notifier,
+						    struct kvm_memory_slot,
+						    restrictedmem.notifier);
+	gfn_t gfn = 0; /* needs to be calculated. */
+	unsigned long hva = gfn_to_hva_memslot(slot, gfn);
+
+	send_sig_mceerr(BUS_MCEERR_AR, (void __user *)hva, PAGE_SHIFT, current);
+}
+
+static struct restrictedmem_notifier_ops kvm_restrictedmem_notifier_ops = {
+	.invalidate_start = kvm_restrictedmem_invalidate_begin,
+	.invalidate_end = kvm_restrictedmem_invalidate_end,
+	.error = kvm_restrictedmem_error,
+};
+
+static int kvm_restrictedmem_bind(struct kvm_memory_slot *slot,
+				  unsigned int fd, loff_t offset)
+{
+	int r;
+
+	BUILD_BUG_ON(sizeof(gfn_t) != sizeof(slot->restrictedmem.index));
+
+	if (offset < 0)
+		return -EINVAL;
+
+	slot->restrictedmem.file = fget(fd);
+	if (!slot->restrictedmem.file)
+		return -EINVAL;
+
+	if (!file_is_restrictedmem(slot->restrictedmem.file)) {
+		r = -EINVAL;
+		goto err;
+	}
+
+	slot->restrictedmem.index = offset >> PAGE_SHIFT;
+	slot->restrictedmem.notifier.ops = &kvm_restrictedmem_notifier_ops;
+
+	r = restrictedmem_bind(slot->restrictedmem.file,
+			       slot->restrictedmem.index,
+			       slot->restrictedmem.index + slot->npages,
+			       &slot->restrictedmem.notifier, true);
+	if (r)
+		goto err;
+
+	return 0;
+err:
+	fput(slot->restrictedmem.file);
+	slot->restrictedmem.file = NULL;
+	return r;
+}
+
+static void kvm_restrictedmem_unbind(struct kvm_memory_slot *slot)
+{
+	if (WARN_ON_ONCE(!slot->restrictedmem.file))
+		return;
+
+	restrictedmem_unbind(slot->restrictedmem.file,
+			     slot->restrictedmem.index,
+			     slot->restrictedmem.index + slot->npages,
+			     &slot->restrictedmem.notifier);
+
+	fput(slot->restrictedmem.file);
+	slot->restrictedmem.file = NULL;
+}
+
+#else /* !CONFIG_KVM_PRIVATE_MEM */
+
+static int kvm_restrictedmem_bind(struct kvm_memory_slot *slot,
+				  unsigned int fd, loff_t offset)
+{
+	KVM_BUG_ON(1, slot->kvm);
+	return -EIO;
+}
+
+static void kvm_restrictedmem_unbind(struct kvm_memory_slot *slot)
+{
+	KVM_BUG_ON(1, slot->kvm);
+}
+
+#endif /* CONFIG_HAVE_KVM_RESTRICTED_MEM */
+
 #ifdef CONFIG_HAVE_KVM_PM_NOTIFIER
 static int kvm_pm_notifier_call(struct notifier_block *bl,
 				unsigned long state,
@@ -972,6 +1117,9 @@ static void kvm_destroy_dirty_bitmap(struct kvm_memory_slot *memslot)
 /* This does not remove the slot from struct kvm_memslots data structures */
 static void kvm_free_memslot(struct kvm *kvm, struct kvm_memory_slot *slot)
 {
+	if (slot->flags & KVM_MEM_PRIVATE)
+		kvm_restrictedmem_unbind(slot);
+
 	kvm_destroy_dirty_bitmap(slot);
 
 	kvm_arch_free_memslot(kvm, slot);
@@ -1536,9 +1684,17 @@ static void kvm_replace_memslot(struct kvm *kvm,
 	}
 }
 
-static int check_memory_region_flags(const struct kvm_userspace_memory_region2 *mem)
+static int check_memory_region_flags(struct kvm *kvm,
+				     const struct kvm_userspace_memory_region2 *mem)
 {
 	u32 valid_flags = KVM_MEM_LOG_DIRTY_PAGES;
+
+	if (kvm_arch_has_private_mem(kvm))
+		valid_flags |= KVM_MEM_PRIVATE;
+
+	/* Dirty logging private memory is not currently supported. */
+	if (mem->flags & KVM_MEM_PRIVATE)
+		valid_flags &= ~KVM_MEM_LOG_DIRTY_PAGES;
 
 #ifdef __KVM_HAVE_READONLY_MEM
 	valid_flags |= KVM_MEM_READONLY;
@@ -1948,7 +2104,7 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	int as_id, id;
 	int r;
 
-	r = check_memory_region_flags(mem);
+	r = check_memory_region_flags(kvm, mem);
 	if (r)
 		return r;
 
@@ -1966,6 +2122,11 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	    (mem->userspace_addr != untagged_addr(mem->userspace_addr)) ||
 	     !access_ok((void __user *)(unsigned long)mem->userspace_addr,
 			mem->memory_size))
+		return -EINVAL;
+	if (mem->flags & KVM_MEM_PRIVATE &&
+	    (mem->restrictedmem_offset & (PAGE_SIZE - 1) ||
+	     mem->restrictedmem_offset + mem->memory_size < mem->restrictedmem_offset ||
+	     0 /* TODO: require gfn be aligned with restricted offset */))
 		return -EINVAL;
 	if (as_id >= KVM_ADDRESS_SPACE_NUM || id >= KVM_MEM_SLOTS_NUM)
 		return -EINVAL;
@@ -2005,6 +2166,9 @@ int __kvm_set_memory_region(struct kvm *kvm,
 		if ((kvm->nr_memslot_pages + npages) < kvm->nr_memslot_pages)
 			return -EINVAL;
 	} else { /* Modify an existing slot. */
+		/* Private memslots are immutable, they can only be deleted. */
+		if (mem->flags & KVM_MEM_PRIVATE)
+			return -EINVAL;
 		if ((mem->userspace_addr != old->userspace_addr) ||
 		    (npages != old->npages) ||
 		    ((mem->flags ^ old->flags) & KVM_MEM_READONLY))
@@ -2027,16 +2191,31 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	if (!new)
 		return -ENOMEM;
 
+	new->kvm = kvm;
 	new->as_id = as_id;
 	new->id = id;
 	new->base_gfn = base_gfn;
 	new->npages = npages;
 	new->flags = mem->flags;
 	new->userspace_addr = mem->userspace_addr;
+	if (mem->flags & KVM_MEM_PRIVATE) {
+		r = kvm_restrictedmem_bind(new, mem->restrictedmem_fd,
+					   mem->restrictedmem_offset);
+		if (r)
+			goto out;
+	}
 
 	r = kvm_set_memslot(kvm, old, new, change);
 	if (r)
-		kfree(new);
+		goto out_restricted;
+
+	return 0;
+
+out_restricted:
+	if (mem->flags & KVM_MEM_PRIVATE)
+		kvm_restrictedmem_unbind(new);
+out:
+	kfree(new);
 	return r;
 }
 EXPORT_SYMBOL_GPL(__kvm_set_memory_region);
@@ -2336,6 +2515,8 @@ static int kvm_vm_ioctl_clear_dirty_log(struct kvm *kvm,
 #ifdef CONFIG_KVM_GENERIC_MEMORY_ATTRIBUTES
 static u64 kvm_supported_mem_attributes(struct kvm *kvm)
 {
+	if (kvm_arch_has_private_mem(kvm))
+		return KVM_MEMORY_ATTRIBUTE_PRIVATE;
 	return 0;
 }
 

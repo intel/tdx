@@ -34,6 +34,7 @@
 #include <linux/instrumentation.h>
 #include <linux/interval_tree.h>
 #include <linux/rbtree.h>
+#include <linux/restrictedmem.h>
 #include <linux/xarray.h>
 #include <asm/signal.h>
 
@@ -575,6 +576,7 @@ static inline int kvm_vcpu_exiting_guest_mode(struct kvm_vcpu *vcpu)
  * individually added or deleted.
  */
 struct kvm_memory_slot {
+	struct kvm *kvm;
 	struct hlist_node id_node[2];
 	struct interval_tree_node hva_node[2];
 	struct rb_node gfn_node[2];
@@ -586,7 +588,20 @@ struct kvm_memory_slot {
 	u32 flags;
 	short id;
 	u16 as_id;
+
+#ifdef CONFIG_KVM_PRIVATE_MEM
+	struct {
+		struct file *file;
+		pgoff_t index;
+		struct restrictedmem_notifier notifier;
+	} restrictedmem;
+#endif
 };
+
+static inline bool kvm_slot_can_be_private(const struct kvm_memory_slot *slot)
+{
+	return slot && (slot->flags & KVM_MEM_PRIVATE);
+}
 
 static inline bool kvm_slot_dirty_track_enabled(const struct kvm_memory_slot *slot)
 {
@@ -679,6 +694,17 @@ bool kvm_arch_irqchip_in_kernel(struct kvm *kvm);
 static inline int kvm_arch_vcpu_memslots_id(struct kvm_vcpu *vcpu)
 {
 	return 0;
+}
+#endif
+
+/*
+ * Arch code must define kvm_arch_has_private_mem if support for private memory
+ * is enabled.
+ */
+#if !defined(kvm_arch_has_private_mem) && !IS_ENABLED(CONFIG_KVM_PRIVATE_MEM)
+static inline bool kvm_arch_has_private_mem(struct kvm *kvm)
+{
+	return false;
 }
 #endif
 
@@ -2289,5 +2315,50 @@ static inline void kvm_account_pgtable_pages(void *virt, int nr)
 
 /* Max number of entries allowed for each kvm dirty ring */
 #define  KVM_DIRTY_RING_MAX_ENTRIES  65536
+
+#ifdef CONFIG_KVM_GENERIC_MEMORY_ATTRIBUTES
+static inline unsigned long kvm_get_memory_attributes(struct kvm *kvm, gfn_t gfn)
+{
+	return xa_to_value(xa_load(&kvm->mem_attr_array, gfn));
+}
+
+static inline bool kvm_mem_is_private(struct kvm *kvm, gfn_t gfn)
+{
+	return IS_ENABLED(CONFIG_KVM_PRIVATE_MEM) &&
+	       kvm_get_memory_attributes(kvm, gfn) & KVM_MEMORY_ATTRIBUTE_PRIVATE;
+
+}
+#else
+static inline bool kvm_mem_is_private(struct kvm *kvm, gfn_t gfn)
+{
+	return false;
+}
+#endif /* CONFIG_HAVE_KVM_MEMORY_ATTRIBUTES */
+
+#ifdef CONFIG_KVM_PRIVATE_MEM
+static inline int kvm_restrictedmem_get_pfn(struct kvm_memory_slot *slot,
+					    gfn_t gfn, kvm_pfn_t *pfn,
+					    int *order)
+{
+	pgoff_t index = gfn - slot->base_gfn + slot->restrictedmem.index;
+	struct page *page;
+	int ret;
+
+	ret = restrictedmem_get_page(slot->restrictedmem.file, index, &page, order);
+	if (ret)
+		return ret;
+
+	*pfn = page_to_pfn(page);
+	return 0;
+}
+#else
+static inline int kvm_restrictedmem_get_pfn(struct kvm_memory_slot *slot,
+					    gfn_t gfn, kvm_pfn_t *pfn,
+					    int *order)
+{
+	KVM_BUG_ON(1, slot->kvm);
+	return -EIO;
+}
+#endif /* CONFIG_KVM_PRIVATE_MEM */
 
 #endif

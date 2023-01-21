@@ -10,6 +10,7 @@
 
 #include "kvm_util.h"
 #include "test_util.h"
+#include "tdx/tdx.h"
 #include "tdx/td_boot.h"
 #include "kvm_util_base.h"
 #include "processor.h"
@@ -525,4 +526,15 @@ void td_finalize(struct kvm_vm *vm)
 	load_td_private_memory(vm);
 
 	tdx_td_finalizemr(vm);
+}
+
+void td_vcpu_run(struct kvm_vcpu *vcpu)
+{
+	vcpu_run(vcpu);
+
+	/* Handle TD VMCALLs that require userspace handling. */
+	if (vcpu->run->exit_reason == KVM_EXIT_TDX &&
+	    vcpu->run->tdx.type == KVM_EXIT_TDX_VMCALL) {
+		handle_userspace_tdg_vp_vmcall_exit(vcpu);
+	}
 }

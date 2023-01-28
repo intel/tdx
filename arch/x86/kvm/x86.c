@@ -12485,7 +12485,9 @@ static int kvm_alloc_memslot_metadata(struct kvm *kvm,
 	}
 
 #ifdef CONFIG_KVM_GENERIC_MEMORY_ATTRIBUTES
-	pr_crit_once("FIXME: Walk the memory attributes of the slot and set the mixed status appropriately");
+	write_lock(&kvm->mmu_lock);
+	kvm_memory_attributes_create_memslot(kvm, slot);
+	write_unlock(&kvm->mmu_lock);
 #endif
 
 	if (kvm_page_track_create_memslot(kvm, slot, npages))

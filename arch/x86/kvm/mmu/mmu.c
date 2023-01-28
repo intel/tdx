@@ -7213,10 +7213,11 @@ static bool has_mixed_attrs(struct kvm *kvm, struct kvm_memory_slot *slot,
 	return false;
 }
 
-void kvm_arch_set_memory_attributes(struct kvm *kvm,
-				    struct kvm_memory_slot *slot,
-				    unsigned long attrs,
-				    gfn_t start, gfn_t end)
+static void kvm_update_lpage_mixed_flag(struct kvm *kvm,
+					struct kvm_memory_slot *slot,
+					bool set_attrs,
+					unsigned long attrs,
+					gfn_t start, gfn_t end)
 {
 	unsigned long pages, mask;
 	gfn_t gfn, gfn_end, first, last;
@@ -7243,25 +7244,53 @@ void kvm_arch_set_memory_attributes(struct kvm *kvm,
 		first = start & mask;
 		last = (end - 1) & mask;
 
-		/*
-		 * We only need to scan the head and tail page, for middle pages
-		 * we know they will not be mixed.
-		 */
+		/* head page */
 		gfn = max(first, slot->base_gfn);
 		gfn_end = min(first + pages, slot->base_gfn + slot->npages);
+		if(!set_attrs)
+			attrs = kvm_get_memory_attributes(kvm, gfn);
 		mixed = has_mixed_attrs(kvm, slot, level, attrs, gfn, gfn_end);
 		linfo_update_mixed(gfn, slot, level, mixed);
 
 		if (first == last)
 			return;
 
-		for (gfn = first + pages; gfn < last; gfn += pages)
-			linfo_update_mixed(gfn, slot, level, false);
+		/* middle pages */
+		for (gfn = first + pages; gfn < last; gfn += pages) {
+			if (set_attrs) {
+				mixed = false;
+			} else {
+				gfn_end = gfn + pages;
+				attrs = kvm_get_memory_attributes(kvm, gfn);
+				mixed = has_mixed_attrs(kvm, slot, level, attrs,
+							gfn, gfn_end);
+			}
+			linfo_update_mixed(gfn, slot, level, mixed);
+		}
 
+		/* tail page */
 		gfn = last;
 		gfn_end = min(last + pages, slot->base_gfn + slot->npages);
+		if(!set_attrs)
+			attrs = kvm_get_memory_attributes(kvm, gfn);
 		mixed = has_mixed_attrs(kvm, slot, level, attrs, gfn, gfn_end);
 		linfo_update_mixed(gfn, slot, level, mixed);
 	}
+}
+
+void kvm_arch_set_memory_attributes(struct kvm *kvm,
+				    struct kvm_memory_slot *slot,
+				    unsigned long attrs,
+				    gfn_t start, gfn_t end)
+{
+	kvm_update_lpage_mixed_flag(kvm, slot, true, attrs, start, end);
+}
+
+void kvm_memory_attributes_create_memslot(struct kvm *kvm,
+					  struct kvm_memory_slot *slot)
+{
+
+	kvm_update_lpage_mixed_flag(kvm, slot, false, 0, slot->base_gfn,
+				    slot->base_gfn + slot->npages);
 }
 #endif

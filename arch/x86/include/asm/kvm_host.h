@@ -2223,4 +2223,9 @@ int memslot_rmap_alloc(struct kvm_memory_slot *slot, unsigned long npages);
  */
 #define KVM_EXIT_HYPERCALL_MBZ		GENMASK_ULL(31, 1)
 
+#ifdef CONFIG_KVM_GENERIC_MEMORY_ATTRIBUTES
+void kvm_memory_attributes_create_memslot(struct kvm *kvm,
+					  struct kvm_memory_slot *slot);
+#endif
+
 #endif /* _ASM_X86_KVM_HOST_H */

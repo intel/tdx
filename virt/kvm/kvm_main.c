@@ -56,6 +56,7 @@
 #include <asm/processor.h>
 #include <asm/ioctl.h>
 #include <linux/uaccess.h>
+#include <linux/count_zeros.h>
 
 #include "coalesced_mmio.h"
 #include "async_pf.h"
@@ -2086,6 +2087,19 @@ static bool kvm_check_memslot_overlap(struct kvm_memslots *slots, int id,
 }
 
 /*
+ * Return true when ALIGNMENT(offset) >= ALIGNMENT(gpa).
+ */
+static bool kvm_check_rmem_offset_alignment(u64 offset, u64 gpa)
+{
+	if (!offset)
+		return true;
+	if (!gpa)
+		return false;
+
+	return !!(count_trailing_zeros(offset) >= count_trailing_zeros(gpa));
+}
+
+/*
  * Allocate some memory and give it an address in the guest physical address
  * space.
  *
@@ -2126,7 +2140,8 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	if (mem->flags & KVM_MEM_PRIVATE &&
 	    (mem->restrictedmem_offset & (PAGE_SIZE - 1) ||
 	     mem->restrictedmem_offset + mem->memory_size < mem->restrictedmem_offset ||
-	     0 /* TODO: require gfn be aligned with restricted offset */))
+	     !kvm_check_rmem_offset_alignment(mem->restrictedmem_offset,
+					      mem->guest_phys_addr)))
 		return -EINVAL;
 	if (as_id >= kvm_arch_nr_memslot_as_ids(kvm) || id >= KVM_MEM_SLOTS_NUM)
 		return -EINVAL;

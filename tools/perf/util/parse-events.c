@@ -148,6 +148,10 @@ struct event_symbol event_symbols_sw[PERF_COUNT_SW_MAX] = {
 		.symbol = "cgroup-switches",
 		.alias  = "",
 	},
+	[PERF_COUNT_SW_GUEST_ENTER_EXIT] = {
+		.symbol = "guest-enter-exit",
+		.alias  = "",
+	},
 };
 
 bool is_event_supported(u8 type, u64 config)

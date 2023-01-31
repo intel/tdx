@@ -426,6 +426,7 @@ static __always_inline void guest_timing_enter_irqoff(void)
  */
 static __always_inline void guest_context_enter_irqoff(void)
 {
+	perf_event_guest_enter_exit(true);
 	/*
 	 * KVM does not hold any references to rcu protected data when it
 	 * switches CPU into a guest mode. In fact switching to a guest mode
@@ -490,6 +491,7 @@ static __always_inline void guest_state_enter_irqoff(void)
 static __always_inline void guest_context_exit_irqoff(void)
 {
 	context_tracking_guest_exit();
+	perf_event_guest_enter_exit(false);
 }
 
 /*

@@ -357,6 +357,7 @@ user_time						{ return tool(yyscanner, PERF_TOOL_USER_TIME); }
 system_time						{ return tool(yyscanner, PERF_TOOL_SYSTEM_TIME); }
 bpf-output					{ return sym(yyscanner, PERF_TYPE_SOFTWARE, PERF_COUNT_SW_BPF_OUTPUT); }
 cgroup-switches					{ return sym(yyscanner, PERF_TYPE_SOFTWARE, PERF_COUNT_SW_CGROUP_SWITCHES); }
+guest-enter-exit				{ return sym(yyscanner, PERF_TYPE_SOFTWARE, PERF_COUNT_SW_GUEST_ENTER_EXIT); }
 
 	/*
 	 * We have to handle the kernel PMU event cycles-ct/cycles-t/mem-loads/mem-stores separately.

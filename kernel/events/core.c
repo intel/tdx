@@ -6792,6 +6792,17 @@ void perf_unregister_guest_info_callbacks(struct perf_guest_info_callbacks *cbs)
 EXPORT_SYMBOL_GPL(perf_unregister_guest_info_callbacks);
 #endif
 
+void perf_event_guest_enter_exit(bool enter)
+{
+	/*
+	 * This isn't inlined because perf_swevent_enabled and __perf_regs
+	 * aren't exported.
+	 */
+	if (__perf_sw_enabled(PERF_COUNT_SW_GUEST_ENTER_EXIT))
+		__perf_sw_event_sched(PERF_COUNT_SW_GUEST_ENTER_EXIT, 1, enter);
+}
+EXPORT_SYMBOL_GPL(perf_event_guest_enter_exit);
+
 static void
 perf_output_sample_regs(struct perf_output_handle *handle,
 			struct pt_regs *regs, u64 mask)

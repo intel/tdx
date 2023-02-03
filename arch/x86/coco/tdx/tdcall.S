@@ -133,11 +133,10 @@ SYM_FUNC_START(__tdx_hypercall)
 	push %r13
 	push %r12
 	push %rbx
-	push %rbp
 
 	/* Free RDI and RSI to be used as TDVMCALL arguments */
 	movq %rdi, %rax
-	movq %rsi, %rbp
+	push %rsi
 
 	/* Copy hypercall registers from arg struct: */
 	movq TDX_HYPERCALL_r8(%rax),  %r8
@@ -177,7 +176,7 @@ SYM_FUNC_START(__tdx_hypercall)
 	pop %rax
 
 	/* Copy hypercall result registers to arg struct if needed */
-	testq $TDX_HCALL_HAS_OUTPUT, %rbp
+	testq $TDX_HCALL_HAS_OUTPUT, (%rsp)
 	jz .Lout
 
 	movq %r8,  TDX_HYPERCALL_r8(%rax)
@@ -207,11 +206,12 @@ SYM_FUNC_START(__tdx_hypercall)
 	xor %r10d, %r10d
 	xor %r11d, %r11d
 	xor %rdi,  %rdi
-	xor %rsi,  %rsi
 	xor %rdx,  %rdx
 
+	/* Remove TDX_HCALL_* flags from the stack */
+	pop %rsi
+
 	/* Restore callee-saved GPRs as mandated by the x86_64 ABI */
-	pop %rbp
 	pop %rbx
 	pop %r12
 	pop %r13

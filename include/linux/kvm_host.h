@@ -2373,6 +2373,9 @@ static inline int kvm_restrictedmem_get_pfn(struct kvm_memory_slot *slot,
 	struct page *page;
 	int ret;
 
+	if (unlikely(!slot->restrictedmem.file))
+		return -EINVAL;
+
 	ret = restrictedmem_get_page(slot->restrictedmem.file, index, &page, order);
 	if (ret)
 		return ret;

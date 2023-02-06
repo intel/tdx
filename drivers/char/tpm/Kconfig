@@ -210,5 +210,14 @@ config TCG_FTPM_TEE
 	help
 	  This driver proxies for firmware TPM running in TEE.
 
+config TCG_TDX
+	tristate "TDX vTPM support"
+	depends on INTEL_TDX_GUEST
+	help
+	  If you have TDX virtual TPM (VTPM) support say Yes and it
+	  will be accessible from within Linux. To compile this driver
+	  as a module, choose M here and the module will be called
+	  tpm_tdx_vtpm.
+
 source "drivers/char/tpm/st33zp24/Kconfig"
 endif # TCG_TPM

@@ -2682,6 +2682,22 @@ static int kvm_vm_ioctl_set_mem_attributes(struct kvm *kvm,
 
 	mutex_lock(&kvm->slots_lock);
 
+	if (attrs->flags & KVM_MEM_PRIVATE) {
+		/* non-private memory slot doesn't allow KVM_MEM_PRIVATE */
+		for (i = 0; i < kvm_arch_nr_memslot_as_ids(kvm); i++) {
+			struct kvm_memslot_iter iter;
+			struct kvm_memslots *slots;
+
+			slots = __kvm_memslots(kvm, i);
+			kvm_for_each_memslot_in_gfn_range(&iter, slots, start, end) {
+				if (!kvm_slot_can_be_private(iter.slot)) {
+					mutex_unlock(&kvm->slots_lock);
+					return -EINVAL;
+				}
+			}
+		}
+	}
+
 	KVM_MMU_LOCK(kvm);
 	kvm_mmu_invalidate_begin(kvm);
 	kvm_mmu_invalidate_range_add(kvm, start, end);

@@ -2341,6 +2341,11 @@ static inline void kvm_account_pgtable_pages(void *virt, int nr)
 #define  KVM_DIRTY_RING_MAX_ENTRIES  65536
 
 #ifdef CONFIG_KVM_GENERIC_MEMORY_ATTRIBUTES
+static inline void *kvm_make_mem_attr_entry(u64 attributes)
+{
+	return attributes ? xa_mk_value(attributes) : NULL;
+}
+
 static inline unsigned long kvm_get_memory_attributes(struct kvm *kvm, gfn_t gfn)
 {
 	return xa_to_value(xa_load(&kvm->mem_attr_array, gfn));

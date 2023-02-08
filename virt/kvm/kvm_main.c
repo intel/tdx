@@ -1104,8 +1104,7 @@ int kvm_vm_set_memory_attributes(struct kvm *kvm, u64 attributes, gfn_t start, g
 	int r;
 	int i;
 
-	/* By default, the entry is private. */
-	entry = attributes ? xa_mk_value(attributes) : NULL;
+	entry = kvm_make_mem_attr_entry(attributes);
 
 	WARN_ON_ONCE(start >= end);
 	for (gfn = start; gfn < end; gfn++) {
@@ -2679,8 +2678,7 @@ static int kvm_vm_ioctl_set_mem_attributes(struct kvm *kvm,
 
 	start = attrs->address >> PAGE_SHIFT;
 	end = (attrs->address + attrs->size - 1 + PAGE_SIZE) >> PAGE_SHIFT;
-
-	entry = attrs->attributes ? xa_mk_value(attrs->attributes) : NULL;
+	entry = kvm_make_mem_attr_entry(attrs->attributes);
 
 	mutex_lock(&kvm->slots_lock);
 

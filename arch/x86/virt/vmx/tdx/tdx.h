@@ -15,6 +15,7 @@
   * TDX module SEAMCALL leaf functions
   */
 #define TDH_SYS_INIT		33
+#define TDH_SYS_LP_INIT		35
 
 /* Kernel defined TDX module status during module initialization. */
 enum tdx_module_status_t {

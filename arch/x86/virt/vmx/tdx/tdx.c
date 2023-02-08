@@ -13,6 +13,8 @@
 #include <linux/errno.h>
 #include <linux/printk.h>
 #include <linux/mutex.h>
+#include <linux/cpumask.h>
+#include <linux/cpu.h>
 #include <asm/msr-index.h>
 #include <asm/msr.h>
 #include <asm/tdx.h>
@@ -25,6 +27,10 @@ static u32 tdx_nr_guest_keyids __ro_after_init;
 static enum tdx_module_status_t tdx_module_status;
 /* Prevent concurrent attempts on TDX module initialization */
 static DEFINE_MUTEX(tdx_module_lock);
+
+/* TDX-runnable cpus.  Protected by cpu_hotplug_lock. */
+static cpumask_t __cpu_tdx_mask;
+static cpumask_t *cpu_tdx_mask = &__cpu_tdx_mask;
 
 /*
  * Use tdx_global_keyid to indicate that TDX is uninitialized.
@@ -170,6 +176,63 @@ out:
 	return ret;
 }
 
+/*
+ * Call @func on all online cpus one by one but skip those cpus
+ * when @skip_func is valid and returns true for them.
+ */
+static int tdx_on_each_cpu_cond(int (*func)(void *), void *func_data,
+				bool (*skip_func)(int cpu, void *),
+				void *skip_data)
+{
+	int cpu;
+
+	for_each_online_cpu(cpu) {
+		int ret;
+
+		if (skip_func && skip_func(cpu, skip_data))
+			continue;
+
+		/*
+		 * SEAMCALL can be time consuming.  Call the @func on
+		 * remote cpu via smp_call_on_cpu() instead of
+		 * smp_call_function_single() to avoid busy waiting.
+		 */
+		ret = smp_call_on_cpu(cpu, func, func_data, true);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+static int seamcall_lp_init(void)
+{
+	/* All '0's are just unused parameters */
+	return seamcall(TDH_SYS_LP_INIT, 0, 0, 0, 0, NULL, NULL);
+}
+
+static int smp_func_module_lp_init(void *data)
+{
+	int ret, cpu = smp_processor_id();
+
+	ret = seamcall_lp_init();
+	if (!ret)
+		cpumask_set_cpu(cpu, cpu_tdx_mask);
+
+	return ret;
+}
+
+static bool skip_func_module_lp_init_done(int cpu, void *data)
+{
+	return cpumask_test_cpu(cpu, cpu_tdx_mask);
+}
+
+static int module_lp_init_online_cpus(void)
+{
+	return tdx_on_each_cpu_cond(smp_func_module_lp_init, NULL,
+			skip_func_module_lp_init_done, NULL);
+}
+
 static int init_tdx_module(void)
 {
 	int ret;
@@ -183,9 +246,25 @@ static int init_tdx_module(void)
 		return ret;
 
 	/*
+	 * TDX module per-cpu initialization SEAMCALL must be done on
+	 * one cpu before any other SEAMCALLs can be made on that cpu,
+	 * including those involved in further steps to initialize the
+	 * TDX module.
+	 *
+	 * To make sure further SEAMCALLs can be done successfully w/o
+	 * having to consider preemption, disable CPU hotplug during
+	 * rest of module initialization and do per-cpu initialization
+	 * for all online cpus.
+	 */
+	cpus_read_lock();
+
+	ret = module_lp_init_online_cpus();
+	if (ret)
+		goto out;
+
+	/*
 	 * TODO:
 	 *
-	 *  - TDX module per-cpu initialization.
 	 *  - Get TDX module information and TDX-capable memory regions.
 	 *  - Build the list of TDX-usable memory regions.
 	 *  - Construct a list of "TD Memory Regions" (TDMRs) to cover
@@ -196,7 +275,17 @@ static int init_tdx_module(void)
 	 *
 	 *  Return error before all steps are done.
 	 */
-	return -EINVAL;
+	ret = -EINVAL;
+out:
+	/*
+	 * Clear @cpu_tdx_mask if module initialization fails before
+	 * CPU hotplug is re-enabled.  tdx_cpu_online() uses it to check
+	 * whether the initialization has been successful or not.
+	 */
+	if (ret)
+		cpumask_clear(cpu_tdx_mask);
+	cpus_read_unlock();
+	return ret;
 }
 
 static int __tdx_enable(void)
@@ -220,13 +309,72 @@ static int __tdx_enable(void)
 	return 0;
 }
 
+/*
+ * Disable TDX module after it has been initialized successfully.
+ */
+static void disable_tdx_module(void)
+{
+	/*
+	 * TODO: module clean up in reverse to steps in
+	 * init_tdx_module().  Remove this comment after
+	 * all steps are done.
+	 */
+	cpumask_clear(cpu_tdx_mask);
+}
+
+static int tdx_module_init_online_cpus(void)
+{
+	int ret;
+
+	/*
+	 * Make sure no cpu can become online to prevent
+	 * race against tdx_cpu_online().
+	 */
+	cpus_read_lock();
+
+	/*
+	 * Do per-cpu initialization for any new online cpus.
+	 * If any fails, disable TDX.
+	 */
+	ret = module_lp_init_online_cpus();
+	if (ret)
+		disable_tdx_module();
+
+	cpus_read_unlock();
+
+	return ret;
+
+}
+static int __tdx_enable_online_cpus(void)
+{
+	if (tdx_module_init_online_cpus()) {
+		/*
+		 * SEAMCALL failure has already printed
+		 * meaningful error message.
+		 */
+		tdx_module_status = TDX_MODULE_ERROR;
+
+		/*
+		 * Just return one universal error code.
+		 * For now the caller cannot recover anyway.
+		 */
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 /**
  * tdx_enable - Enable TDX to be ready to run TDX guests
  *
  * Initialize the TDX module to enable TDX.  After this function, the TDX
- * module is ready to create and run TDX guests.
+ * module is ready to create and run TDX guests on all online cpus.
+ *
+ * This function internally calls cpus_read_lock()/unlock() to prevent
+ * any cpu from going online and offline.
  *
  * This function assumes all online cpus are already in VMX operation.
+ *
  * This function can be called in parallel by multiple callers.
  *
  * Return 0 if TDX is enabled successfully, otherwise error.
@@ -247,8 +395,17 @@ int tdx_enable(void)
 		ret = __tdx_enable();
 		break;
 	case TDX_MODULE_INITIALIZED:
-		/* Already initialized, great, tell the caller. */
-		ret = 0;
+		/*
+		 * The previous call of __tdx_enable() may only have
+		 * initialized part of present cpus during module
+		 * initialization, and new cpus may have become online
+		 * since then.
+		 *
+		 * To make sure all online cpus are TDX-runnable, always
+		 * do per-cpu initialization for all online cpus here
+		 * even the module has been initialized.
+		 */
+		ret = __tdx_enable_online_cpus();
 		break;
 	default:
 		/* Failed to initialize in the previous attempts */
@@ -261,3 +418,46 @@ int tdx_enable(void)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(tdx_enable);
+
+/**
+ * tdx_cpu_online - Enable TDX on a hotplugged local cpu
+ *
+ * @cpu: the cpu to be brought up.
+ *
+ * Do TDX module per-cpu initialization for a hotplugged cpu to make
+ * it TDX-runnable.  All online cpus are initialized during module
+ * initialization.
+ *
+ * This function must be called from CPU hotplug callback which holds
+ * write lock of cpu_hotplug_lock.
+ *
+ * This function assumes local cpu is already in VMX operation.
+ */
+int tdx_cpu_online(unsigned int cpu)
+{
+	int ret;
+
+	/*
+	 * @cpu_tdx_mask is updated in tdx_enable() and is protected
+	 * by cpus_read_lock()/unlock().  If it is empty, TDX module
+	 * either hasn't been initialized, or TDX didn't get enabled
+	 * successfully.
+	 *
+	 * In either case, do nothing but return success.
+	 */
+	if (cpumask_empty(cpu_tdx_mask))
+		return 0;
+
+	WARN_ON_ONCE(cpu != smp_processor_id());
+
+	/* Already done */
+	if (cpumask_test_cpu(cpu, cpu_tdx_mask))
+		return 0;
+
+	ret = seamcall_lp_init();
+	if (!ret)
+		cpumask_set_cpu(cpu, cpu_tdx_mask);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(tdx_cpu_online);

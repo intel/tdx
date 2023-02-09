@@ -189,6 +189,66 @@ static struct file *restrictedmem_file_create(struct file *memfd)
 	return file;
 }
 
+static int restricted_error_remove_page(struct address_space *mapping,
+					struct page *page)
+{
+	struct super_block *sb = restrictedmem_mnt->mnt_sb;
+	struct inode *inode, *next;
+	pgoff_t start, end;
+
+	start = page->index;
+	end = start + thp_nr_pages(page);
+
+	spin_lock(&sb->s_inode_list_lock);
+	list_for_each_entry_safe(inode, next, &sb->s_inodes, i_sb_list) {
+		struct restrictedmem_notifier *notifier;
+		struct restrictedmem *rm;
+		unsigned long index;
+		struct file *memfd;
+
+		if (atomic_read(&inode->i_count))
+			continue;
+
+		spin_lock(&inode->i_lock);
+		if (inode->i_state & (I_NEW | I_FREEING | I_WILL_FREE)) {
+			spin_unlock(&inode->i_lock);
+			continue;
+		}
+
+		rm = inode->i_mapping->private_data;
+		memfd = rm->memfd;
+
+		if (memfd->f_mapping != mapping) {
+			spin_unlock(&inode->i_lock);
+			continue;
+		}
+		spin_unlock(&inode->i_lock);
+
+		xa_for_each_range(&rm->bindings, index, notifier, start, end)
+			notifier->ops->error(notifier, start, end);
+		break;
+	}
+	spin_unlock(&sb->s_inode_list_lock);
+
+	return 0;
+}
+
+#ifdef CONFIG_MIGRATION
+static int restricted_folio(struct address_space *mapping, struct folio *dst,
+			    struct folio *src, enum migrate_mode mode)
+{
+	return -EBUSY;
+}
+#endif
+
+static struct address_space_operations restricted_aops = {
+	.dirty_folio	= noop_dirty_folio,
+	.error_remove_page = restricted_error_remove_page,
+#ifdef CONFIG_MIGRATION
+	.migrate_folio	= restricted_folio,
+#endif
+};
+
 SYSCALL_DEFINE1(memfd_restricted, unsigned int, flags)
 {
 	struct file *file, *restricted_file;
@@ -208,6 +268,8 @@ SYSCALL_DEFINE1(memfd_restricted, unsigned int, flags)
 	}
 	file->f_mode |= FMODE_LSEEK | FMODE_PREAD | FMODE_PWRITE;
 	file->f_flags |= O_LARGEFILE;
+
+	file->f_mapping->a_ops = &restricted_aops;
 
 	restricted_file = restrictedmem_file_create(file);
 	if (IS_ERR(restricted_file)) {
@@ -292,47 +354,3 @@ int restrictedmem_get_page(struct file *file, pgoff_t offset,
 	return 0;
 }
 EXPORT_SYMBOL_GPL(restrictedmem_get_page);
-
-void restrictedmem_error_page(struct page *page, struct address_space *mapping)
-{
-	struct super_block *sb = restrictedmem_mnt->mnt_sb;
-	struct inode *inode, *next;
-	pgoff_t start, end;
-
-	if (!shmem_mapping(mapping))
-		return;
-
-	start = page->index;
-	end = start + thp_nr_pages(page);
-
-	spin_lock(&sb->s_inode_list_lock);
-	list_for_each_entry_safe(inode, next, &sb->s_inodes, i_sb_list) {
-		struct restrictedmem_notifier *notifier;
-		struct restrictedmem *rm;
-		unsigned long index;
-		struct file *memfd;
-
-		if (atomic_read(&inode->i_count))
-			continue;
-
-		spin_lock(&inode->i_lock);
-		if (inode->i_state & (I_NEW | I_FREEING | I_WILL_FREE)) {
-			spin_unlock(&inode->i_lock);
-			continue;
-		}
-
-		rm = inode->i_mapping->private_data;
-		memfd = rm->memfd;
-
-		if (memfd->f_mapping != mapping) {
-			spin_unlock(&inode->i_lock);
-			continue;
-		}
-		spin_unlock(&inode->i_lock);
-
-		xa_for_each_range(&rm->bindings, index, notifier, start, end)
-			notifier->ops->error(notifier, start, end);
-		break;
-	}
-	spin_unlock(&sb->s_inode_list_lock);
-}

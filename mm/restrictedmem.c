@@ -307,13 +307,28 @@ void restrictedmem_error_page(struct page *page, struct address_space *mapping)
 
 	spin_lock(&sb->s_inode_list_lock);
 	list_for_each_entry_safe(inode, next, &sb->s_inodes, i_sb_list) {
-		struct restrictedmem *rm = inode->i_mapping->private_data;
 		struct restrictedmem_notifier *notifier;
-		struct file *memfd = rm->memfd;
+		struct restrictedmem *rm;
 		unsigned long index;
+		struct file *memfd;
 
-		if (memfd->f_mapping != mapping)
+		if (atomic_read(&inode->i_count))
 			continue;
+
+		spin_lock(&inode->i_lock);
+		if (inode->i_state & (I_NEW | I_FREEING | I_WILL_FREE)) {
+			spin_unlock(&inode->i_lock);
+			continue;
+		}
+
+		rm = inode->i_mapping->private_data;
+		memfd = rm->memfd;
+
+		if (memfd->f_mapping != mapping) {
+			spin_unlock(&inode->i_lock);
+			continue;
+		}
+		spin_unlock(&inode->i_lock);
 
 		xa_for_each_range(&rm->bindings, index, notifier, start, end)
 			notifier->ops->error(notifier, start, end);

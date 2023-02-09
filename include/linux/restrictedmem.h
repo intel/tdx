@@ -36,18 +36,11 @@ static inline bool file_is_restrictedmem(struct file *file)
 	return file->f_inode->i_sb->s_magic == RESTRICTEDMEM_MAGIC;
 }
 
-void restrictedmem_error_page(struct page *page, struct address_space *mapping);
-
 #else
 
 static inline bool file_is_restrictedmem(struct file *file)
 {
 	return false;
-}
-
-static inline void restrictedmem_error_page(struct page *page,
-					    struct address_space *mapping)
-{
 }
 
 #endif /* CONFIG_RESTRICTEDMEM */

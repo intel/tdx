@@ -9,6 +9,7 @@
 #include <linux/percpu_counter.h>
 #include <linux/xattr.h>
 #include <linux/fs_parser.h>
+#include <linux/magic.h>
 
 /* inode in-kernel data */
 
@@ -75,10 +76,9 @@ extern unsigned long shmem_get_unmapped_area(struct file *, unsigned long addr,
 		unsigned long len, unsigned long pgoff, unsigned long flags);
 extern int shmem_lock(struct file *file, int lock, struct ucounts *ucounts);
 #ifdef CONFIG_SHMEM
-extern const struct address_space_operations shmem_aops;
 static inline bool shmem_mapping(struct address_space *mapping)
 {
-	return mapping->a_ops == &shmem_aops;
+	return mapping->host->i_sb->s_magic == TMPFS_MAGIC;
 }
 #else
 static inline bool shmem_mapping(struct address_space *mapping)

@@ -1050,7 +1050,7 @@ static int kvm_restrictedmem_bind(struct kvm_memory_slot *slot,
 
 	r = restrictedmem_bind(slot->restrictedmem.file,
 			       slot->restrictedmem.index,
-			       slot->restrictedmem.index + slot->npages,
+			       slot->restrictedmem.index + slot->npages - 1,
 			       &slot->restrictedmem.notifier, true);
 	if (r)
 		goto err;
@@ -1069,7 +1069,7 @@ static void kvm_restrictedmem_unbind(struct kvm_memory_slot *slot)
 
 	restrictedmem_unbind(slot->restrictedmem.file,
 			     slot->restrictedmem.index,
-			     slot->restrictedmem.index + slot->npages,
+			     slot->restrictedmem.index + slot->npages - 1,
 			     &slot->restrictedmem.notifier);
 
 	fput(slot->restrictedmem.file);

@@ -945,17 +945,20 @@ static int kvm_init_mmu_notifier(struct kvm *kvm)
 
 #ifdef CONFIG_KVM_PRIVATE_MEM
 static int restrictedmem_get_gfn_range(struct kvm_memory_slot *slot,
-				       pgoff_t start, pgoff_t end,
+				       pgoff_t start_orig, pgoff_t end_orig,
 				       struct kvm_gfn_range *range)
 {
-	start = max(start, slot->restrictedmem.index);
-	end = min(end, slot->restrictedmem.index + slot->npages);
+	pgoff_t start = max(start_orig, slot->restrictedmem.index);
+	pgoff_t end = min(end_orig, slot->restrictedmem.index + slot->npages - 1);
 
-	if (WARN_ON_ONCE(start >= end))
+	if (WARN_ON_ONCE(start > end)) {
+		pr_warn("%s: slot->id: %d, start: 0x%lx, end: 0x%lx, gfn_base: 0x%llx, fd_offset: 0x%lx, start_orig: 0x%lx\n",
+			__func__, slot->id, start, end, slot->base_gfn, slot->restrictedmem.index, start_orig);
 		return -EINVAL;
+	}
 
-	range->start = slot->base_gfn + start;
-	range->end = slot->base_gfn + end;
+	range->start = slot->base_gfn + start - slot->restrictedmem.index;
+	range->end = slot->base_gfn + end - slot->restrictedmem.index;
 	range->slot = slot;
 	range->pte = __pte(0);
 	range->may_block = true;

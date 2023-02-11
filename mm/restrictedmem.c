@@ -38,7 +38,8 @@ static long restrictedmem_punch_hole(struct restrictedmem *rm, int mode,
 		return -EINVAL;
 
 	start = offset >> PAGE_SHIFT;
-	end = (offset + len) >> PAGE_SHIFT;
+	/* The notifier iterators/callbacks use inclusive page ranges. */
+	end = (offset + len - 1) >> PAGE_SHIFT;
 
 	/*
 	 * Bindings must stable across invalidation to ensure the start+end

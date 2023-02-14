@@ -1304,6 +1304,16 @@ static int init_tdx_module(void)
 	 */
 	cpus_read_lock();
 
+	/*
+	 * REVERTME: Once TDX module is updated to allow TDH-SYS_LP_INIT only
+	 * for online cpu, remove this check.
+	 */
+	if (!cpumask_equal(cpu_online_mask, cpu_present_mask)) {
+		pr_err("All present CPUs must be online to initialize TDX module\n");
+		ret = -EINVAL;
+		goto out;
+	}
+
 	ret = module_lp_init_online_cpus();
 	if (ret)
 		goto out;

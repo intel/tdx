@@ -4300,6 +4300,20 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 
 	/* tdx_enable() in tdx_module_setup() requires cpus lock. */
 	cpus_read_lock();
+
+	/*
+	 * REVERTME: The current TDX module requires TDH_SYS_LP_INIT for all
+	 * LPs to initialize.  It needs all LPs to be online.
+	 * Once the TDX module is updated to allow offline LPs, remove this
+	 * check.
+	 */
+	if (!cpumask_equal(cpu_online_mask, cpu_present_mask)) {
+		cpus_read_unlock();
+		pr_err("All present CPUs must be online to initialize TDX module\n");
+		r = -EBUSY;
+		goto out;
+	}
+
 	/* TDX requires VMX. */
 	r = vmxon_all();
 	if (!r) {

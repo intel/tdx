@@ -8,7 +8,13 @@
 
 struct kvm_tdx {
 	struct kvm kvm;
-	/* TDX specific members follow. */
+
+	unsigned long tdr_pa;
+	unsigned long *tdcs_pa;
+
+	int hkid;
+	/* To release hkid */
+	struct mmu_notifier mmu_notifier;
 };
 
 struct vcpu_tdx {

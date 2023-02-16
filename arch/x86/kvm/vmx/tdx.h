@@ -18,7 +18,11 @@ struct kvm_tdx {
 	unsigned long tdr_pa;
 	unsigned long *tdcs_pa;
 
+	u64 attributes;
+	u64 xfam;
 	int hkid;
+
+	u64 tsc_offset;
 };
 
 struct vcpu_tdx {
@@ -54,6 +58,7 @@ static __always_inline struct vcpu_tdx *to_tdx(struct kvm_vcpu *vcpu)
  * 'struct kvm_tdx' and 'struct vcpu_tdx'.
  */
 #include "tdx_ops.h"
+
 #else
 struct kvm_tdx {
 	struct kvm kvm;

@@ -12,7 +12,12 @@ extern bool enable_tdx;
 
 struct kvm_tdx {
 	struct kvm kvm;
-	/* TDX specific members follow. */
+
+	unsigned long tdr_pa;
+	unsigned long *tdcs_pa;
+
+	int hkid;
+	u8 nr_tdcs_pages;
 };
 
 struct vcpu_tdx {

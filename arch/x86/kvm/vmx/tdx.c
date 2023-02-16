@@ -7,6 +7,7 @@
 #include "tdx.h"
 #include "tdx_ops.h"
 
+
 #undef pr_fmt
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -351,11 +352,15 @@ static int tdx_do_tdh_mng_key_config(void *param)
 	return 0;
 }
 
-static int __tdx_td_init(struct kvm *kvm);
-
 int tdx_vm_init(struct kvm *kvm)
 {
 	kvm->arch.has_private_mem = true;
+
+	/*
+	 * This function initializes only KVM software construct.  It doesn't
+	 * initialize TDX stuff, e.g. TDCS, TDR, TDCX, HKID etc.
+	 * It is handled by KVM_TDX_INIT_VM, __tdx_td_init().
+	 */
 
 	/*
 	 * TDX has its own limit of the number of vcpus in addition to
@@ -364,8 +369,7 @@ int tdx_vm_init(struct kvm *kvm)
 	kvm->max_vcpus = min(kvm->max_vcpus,
 			tdx_sysinfo->td_conf.max_vcpus_per_td);
 
-	/* Place holder for TDX specific logic. */
-	return __tdx_td_init(kvm);
+	return 0;
 }
 
 static int tdx_get_capabilities(struct kvm_tdx_cmd *cmd)
@@ -414,7 +418,123 @@ out:
 	return ret;
 }
 
-static int __tdx_td_init(struct kvm *kvm)
+static int setup_tdparams_eptp_controls(struct kvm_cpuid2 *cpuid,
+					struct td_params *td_params)
+{
+	const struct kvm_cpuid_entry2 *entry;
+	int max_pa = 36;
+
+	entry = kvm_find_cpuid_entry2(cpuid->entries, cpuid->nent, 0x80000008, 0);
+	if (entry)
+		max_pa = entry->eax & 0xff;
+
+	td_params->eptp_controls = VMX_EPTP_MT_WB;
+	/*
+	 * No CPU supports 4-level && max_pa > 48.
+	 * "5-level paging and 5-level EPT" section 4.1 4-level EPT
+	 * "4-level EPT is limited to translating 48-bit guest-physical
+	 *  addresses."
+	 * cpu_has_vmx_ept_5levels() check is just in case.
+	 */
+	if (!cpu_has_vmx_ept_5levels() && max_pa > 48)
+		return -EINVAL;
+	if (cpu_has_vmx_ept_5levels() && max_pa > 48) {
+		td_params->eptp_controls |= VMX_EPTP_PWL_5;
+		td_params->exec_controls |= TDX_EXEC_CONTROL_MAX_GPAW;
+	} else {
+		td_params->eptp_controls |= VMX_EPTP_PWL_4;
+	}
+
+	return 0;
+}
+
+static int setup_tdparams_cpuids(struct kvm_cpuid2 *cpuid,
+				 struct td_params *td_params)
+{
+	const struct tdx_sysinfo_td_conf *td_conf = &tdx_sysinfo->td_conf;
+	const struct kvm_tdx_cpuid_config *c;
+	const struct kvm_cpuid_entry2 *entry;
+	struct tdx_cpuid_value *value;
+	int i;
+
+	/*
+	 * td_params.cpuid_values: The number and the order of cpuid_value must
+	 * be same to the one of struct tdsysinfo.{num_cpuid_config, cpuid_configs}
+	 * It's assumed that td_params was zeroed.
+	 */
+	for (i = 0; i < td_conf->num_cpuid_config; i++) {
+		c = &kvm_tdx_caps->cpuid_configs[i];
+		entry = kvm_find_cpuid_entry2(cpuid->entries, cpuid->nent,
+					      c->leaf, c->sub_leaf);
+		if (!entry)
+			continue;
+
+		/*
+		 * Check the user input value doesn't set any non-configurable
+		 * bits reported by kvm_tdx_caps.
+		 */
+		if ((entry->eax & c->eax) != entry->eax ||
+		    (entry->ebx & c->ebx) != entry->ebx ||
+		    (entry->ecx & c->ecx) != entry->ecx ||
+		    (entry->edx & c->edx) != entry->edx)
+			return -EINVAL;
+
+		value = &td_params->cpuid_values[i];
+		value->eax = entry->eax;
+		value->ebx = entry->ebx;
+		value->ecx = entry->ecx;
+		value->edx = entry->edx;
+	}
+
+	return 0;
+}
+
+static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
+			struct kvm_tdx_init_vm *init_vm)
+{
+	const struct tdx_sysinfo_td_conf *td_conf = &tdx_sysinfo->td_conf;
+	struct kvm_cpuid2 *cpuid = &init_vm->cpuid;
+	int ret;
+
+	if (kvm->created_vcpus)
+		return -EBUSY;
+
+	if (init_vm->attributes & ~kvm_tdx_caps->supported_attrs)
+		return -EINVAL;
+
+	if (init_vm->xfam & ~kvm_tdx_caps->supported_xfam)
+		return -EINVAL;
+
+	td_params->max_vcpus = kvm->max_vcpus;
+	td_params->attributes = init_vm->attributes | td_conf->attributes_fixed1;
+	td_params->xfam = init_vm->xfam | td_conf->xfam_fixed1;
+
+	/* td_params->exec_controls = TDX_CONTROL_FLAG_NO_RBP_MOD; */
+	td_params->tsc_frequency = TDX_TSC_KHZ_TO_25MHZ(kvm->arch.default_tsc_khz);
+
+	ret = setup_tdparams_eptp_controls(cpuid, td_params);
+	if (ret)
+		return ret;
+
+	ret = setup_tdparams_cpuids(cpuid, td_params);
+	if (ret)
+		return ret;
+
+#define MEMCPY_SAME_SIZE(dst, src)				\
+	do {							\
+		BUILD_BUG_ON(sizeof(dst) != sizeof(src));	\
+		memcpy((dst), (src), sizeof(dst));		\
+	} while (0)
+
+	MEMCPY_SAME_SIZE(td_params->mrconfigid, init_vm->mrconfigid);
+	MEMCPY_SAME_SIZE(td_params->mrowner, init_vm->mrowner);
+	MEMCPY_SAME_SIZE(td_params->mrownerconfig, init_vm->mrownerconfig);
+
+	return 0;
+}
+
+static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
+			 u64 *seamcall_err)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	cpumask_var_t packages;
@@ -422,8 +542,9 @@ static int __tdx_td_init(struct kvm *kvm)
 	unsigned long tdr_pa = 0;
 	unsigned long va;
 	int ret, i;
-	u64 err;
+	u64 err, rcx;
 
+	*seamcall_err = 0;
 	ret = tdx_guest_keyid_alloc();
 	if (ret < 0)
 		return ret;
@@ -541,10 +662,23 @@ static int __tdx_td_init(struct kvm *kvm)
 		}
 	}
 
-	/*
-	 * Note, TDH_MNG_INIT cannot be invoked here.  TDH_MNG_INIT requires a dedicated
-	 * ioctl() to define the configure CPUID values for the TD.
-	 */
+	err = tdh_mng_init(kvm_tdx, __pa(td_params), &rcx);
+	if ((err & TDX_SEAMCALL_STATUS_MASK) == TDX_OPERAND_INVALID) {
+		/*
+		 * Because a user gives operands, don't warn.
+		 * Return a hint to the user because it's sometimes hard for the
+		 * user to figure out which operand is invalid.  SEAMCALL status
+		 * code includes which operand caused invalid operand error.
+		 */
+		*seamcall_err = err;
+		ret = -EINVAL;
+		goto teardown;
+	} else if (WARN_ON_ONCE(err)) {
+		pr_tdx_error_1(TDH_MNG_INIT, err, rcx);
+		ret = -EIO;
+		goto teardown;
+	}
+
 	return 0;
 
 	/*
@@ -587,6 +721,81 @@ free_hkid:
 	return ret;
 }
 
+static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct kvm_tdx_init_vm *init_vm = NULL;
+	struct td_params *td_params = NULL;
+	int ret;
+
+	BUILD_BUG_ON(sizeof(*init_vm) != 8 * 1024);
+	BUILD_BUG_ON(sizeof(struct td_params) != 1024);
+
+	if (is_hkid_assigned(kvm_tdx))
+		return -EINVAL;
+
+	if (cmd->flags)
+		return -EINVAL;
+
+	init_vm = kzalloc(sizeof(*init_vm) +
+			  sizeof(init_vm->cpuid.entries[0]) * KVM_MAX_CPUID_ENTRIES,
+			  GFP_KERNEL);
+	if (!init_vm)
+		return -ENOMEM;
+	if (copy_from_user(init_vm, u64_to_user_ptr(cmd->data), sizeof(*init_vm))) {
+		ret = -EFAULT;
+		goto out;
+	}
+	if (init_vm->cpuid.nent > KVM_MAX_CPUID_ENTRIES) {
+		ret = -E2BIG;
+		goto out;
+	}
+	if (copy_from_user(init_vm->cpuid.entries,
+			   u64_to_user_ptr(cmd->data) + sizeof(*init_vm),
+			   flex_array_size(init_vm, cpuid.entries, init_vm->cpuid.nent))) {
+		ret = -EFAULT;
+		goto out;
+	}
+
+	if (memchr_inv(init_vm->reserved, 0, sizeof(init_vm->reserved))) {
+		ret = -EINVAL;
+		goto out;
+	}
+	if (init_vm->cpuid.padding) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	td_params = kzalloc(sizeof(struct td_params), GFP_KERNEL);
+	if (!td_params) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	ret = setup_tdparams(kvm, td_params, init_vm);
+	if (ret)
+		goto out;
+
+	ret = __tdx_td_init(kvm, td_params, &cmd->hw_error);
+	if (ret)
+		goto out;
+
+	kvm_tdx->tsc_offset = td_tdcs_exec_read64(kvm_tdx, TD_TDCS_EXEC_TSC_OFFSET);
+	kvm_tdx->attributes = td_params->attributes;
+	kvm_tdx->xfam = td_params->xfam;
+
+	if (td_params->exec_controls & TDX_EXEC_CONTROL_MAX_GPAW)
+		kvm->arch.gfn_direct_bits = gpa_to_gfn(BIT_ULL(51));
+	else
+		kvm->arch.gfn_direct_bits = gpa_to_gfn(BIT_ULL(47));
+
+out:
+	/* kfree() accepts NULL. */
+	kfree(init_vm);
+	kfree(td_params);
+	return ret;
+}
+
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 {
 	struct kvm_tdx_cmd tdx_cmd;
@@ -607,6 +816,9 @@ int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 	switch (tdx_cmd.id) {
 	case KVM_TDX_CAPABILITIES:
 		r = tdx_get_capabilities(&tdx_cmd);
+		break;
+	case KVM_TDX_INIT_VM:
+		r = tdx_td_init(kvm, &tdx_cmd);
 		break;
 	default:
 		r = -EINVAL;
@@ -641,6 +853,12 @@ static int __init setup_kvm_tdx_caps(void)
 	kvm_tdx_caps->supported_attrs = kvm_supported;
 
 	kvm_supported = kvm_caps.supported_xcr0 | kvm_caps.supported_xss;
+	/*
+	 * PT and CET can be exposed to TD guest regardless of KVM's XSS, PT
+	 * and, CET support.
+	 */
+	kvm_supported |= XFEATURE_MASK_PT | XFEATURE_MASK_CET_USER |
+			 XFEATURE_MASK_CET_KERNEL;
 	if (((kvm_supported | td_conf->xfam_fixed1) & td_conf->xfam_fixed0) != kvm_supported)
 		return -EIO;
 	kvm_tdx_caps->supported_xfam = kvm_supported;

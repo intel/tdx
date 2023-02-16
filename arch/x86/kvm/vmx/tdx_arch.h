@@ -118,6 +118,12 @@ struct tdx_cpuid_value {
 #define TDX_TD_ATTRIBUTE_PERFMON	BIT_ULL(63)
 
 /*
+ * TODO: Once XFEATURE_CET_{U, S} in arch/x86/include/asm/fpu/types.h is
+ * defined, Replace these with define ones.
+ */
+#define TDX_TD_XFAM_CET	(BIT(11) | BIT(12))
+
+/*
  * TD_PARAMS is provided as an input to TDH_MNG_INIT, the size of which is 1024B.
  */
 #define TDX_MAX_VCPUS	(~(u16)0)

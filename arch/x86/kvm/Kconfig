@@ -76,7 +76,6 @@ config KVM_WERROR
 
 config KVM_SW_PROTECTED_VM
 	bool "Enable support for KVM software-protected VMs"
-	depends on EXPERT
 	depends on KVM && X86_64
 	select KVM_GENERIC_PRIVATE_MEM
 	help
@@ -90,6 +89,8 @@ config KVM_SW_PROTECTED_VM
 config KVM_INTEL
 	tristate "KVM for Intel (and compatible) processors support"
 	depends on KVM && IA32_FEAT_CTL
+	select KVM_SW_PROTECTED_VM if INTEL_TDX_HOST
+	select KVM_GENERIC_MEMORY_ATTRIBUTES if INTEL_TDX_HOST
 	help
 	  Provides support for KVM on processors equipped with Intel's VT
 	  extensions, a.k.a. Virtual Machine Extensions (VMX).

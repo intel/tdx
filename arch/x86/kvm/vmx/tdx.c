@@ -243,6 +243,7 @@ static int __init __do_tdx_bringup(void)
 
 static int __init __tdx_bringup(void)
 {
+	const struct tdx_sysinfo_td_conf *td_conf;
 	int r;
 
 	if (!enable_ept) {
@@ -268,6 +269,43 @@ static int __init __tdx_bringup(void)
 	/* Get TDX global information for later use */
 	tdx_sysinfo = tdx_get_sysinfo();
 	if (WARN_ON_ONCE(!tdx_sysinfo)) {
+		r = -EINVAL;
+		goto get_sysinfo_err;
+	}
+
+	/*
+	 * TDX has its own limit of maximum vCPUs it can support for all
+	 * TDX guests in addition to KVM_MAX_VCPUS.  Userspace needs to
+	 * query TDX guest's maximum vCPUs by checking KVM_CAP_MAX_VCPU
+	 * extension on per-VM basis.
+	 *
+	 * TDX module reports such limit via the MAX_VCPU_PER_TD global
+	 * metadata.  Different modules may report different values.
+	 * Some old module may also not support this metadata (in which
+	 * case this limit is U16_MAX).
+	 *
+	 * In practice, the reported value reflects the maximum logical
+	 * CPUs that ALL the platforms that the module supports can
+	 * possibly have.
+	 *
+	 * Simply forwarding the MAX_VCPU_PER_TD to userspace could
+	 * result in an unpredictable ABI.  KVM instead always advertise
+	 * the number of logical CPUs the platform has as the maximum
+	 * vCPUs for TDX guests.
+	 *
+	 * Make sure MAX_VCPU_PER_TD reported by TDX module is not
+	 * smaller than the number of logical CPUs, otherwise KVM will
+	 * report an unsupported value to userspace.
+	 *
+	 * Note, a platform with TDX enabled in the BIOS cannot support
+	 * physical CPU hotplug, and TDX requires the BIOS has marked
+	 * all logical CPUs in MADT table as enabled.  Just use
+	 * num_present_cpus() for the number of logical CPUs.
+	 */
+	td_conf = &tdx_sysinfo->td_conf;
+	if (td_conf->max_vcpus_per_td < num_present_cpus()) {
+		pr_err("Disable TDX: MAX_VCPU_PER_TD (%u) smaller than number of logical CPUs (%u).\n",
+				td_conf->max_vcpus_per_td, num_present_cpus());
 		r = -EINVAL;
 		goto get_sysinfo_err;
 	}

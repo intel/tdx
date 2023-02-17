@@ -6,6 +6,7 @@
 #include "nested.h"
 #include "pmu.h"
 #include "tdx.h"
+#include "tdx_arch.h"
 
 static bool enable_tdx __ro_after_init;
 module_param_named(tdx, enable_tdx, bool, 0444);
@@ -31,6 +32,14 @@ static void vt_hardware_unsetup(void)
 	if (enable_tdx)
 		tdx_hardware_unsetup();
 	vmx_hardware_unsetup();
+}
+
+static int vt_vm_enable_cap(struct kvm *kvm, struct kvm_enable_cap *cap)
+{
+	if (is_td(kvm))
+		return tdx_vm_enable_cap(kvm, cap);
+
+	return -EINVAL;
 }
 
 static int vt_mem_enc_ioctl(struct kvm *kvm, void __user *argp)
@@ -63,6 +72,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.has_emulated_msr = vmx_has_emulated_msr,
 
 	.vm_size = sizeof(struct kvm_vmx),
+	.vm_enable_cap = vt_vm_enable_cap,
 	.vm_init = vmx_vm_init,
 	.vm_destroy = vmx_vm_destroy,
 

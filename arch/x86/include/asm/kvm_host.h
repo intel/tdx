@@ -1691,7 +1691,7 @@ struct kvm_x86_ops {
 
 	void (*flush_tlb_all)(struct kvm_vcpu *vcpu);
 	void (*flush_tlb_current)(struct kvm_vcpu *vcpu);
-#if IS_ENABLED(CONFIG_HYPERV)
+#if IS_ENABLED(CONFIG_HYPERV) || IS_ENABLED(CONFIG_INTEL_TDX_HOST)
 	int  (*flush_remote_tlbs)(struct kvm *kvm);
 	int  (*flush_remote_tlbs_range)(struct kvm *kvm, gfn_t gfn,
 					gfn_t nr_pages);
@@ -1925,7 +1925,7 @@ static inline struct kvm *kvm_arch_alloc_vm(void)
 #define __KVM_HAVE_ARCH_VM_FREE
 void kvm_arch_free_vm(struct kvm *kvm);
 
-#if IS_ENABLED(CONFIG_HYPERV)
+#if IS_ENABLED(CONFIG_HYPERV) || IS_ENABLED(CONFIG_INTEL_TDX_HOST)
 #define __KVM_HAVE_ARCH_FLUSH_REMOTE_TLBS
 static inline int kvm_arch_flush_remote_tlbs(struct kvm *kvm)
 {
@@ -1945,7 +1945,7 @@ static inline int kvm_arch_flush_remote_tlbs_range(struct kvm *kvm, gfn_t gfn,
 
 	return kvm_x86_call(flush_remote_tlbs_range)(kvm, gfn, nr_pages);
 }
-#endif /* CONFIG_HYPERV */
+#endif /* CONFIG_HYPERV || CONFIG_INTEL_TDX_HOST*/
 
 enum kvm_intr_type {
 	/* Values are arbitrary, but must be non-zero. */

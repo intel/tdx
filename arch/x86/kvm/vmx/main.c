@@ -10,6 +10,11 @@
 #include "tdx.h"
 #include "tdx_arch.h"
 
+#if IS_ENABLED(CONFIG_INTEL_TDX_HOST)
+static int vt_flush_remote_tlbs(struct kvm *kvm);
+static int vt_flush_remote_tlbs_range(struct kvm *kvm, gfn_t start_gfn, gfn_t nr_pages);
+#endif
+
 static __init int vt_hardware_setup(void)
 {
 	int ret;
@@ -17,6 +22,19 @@ static __init int vt_hardware_setup(void)
 	ret = vmx_hardware_setup();
 	if (ret)
 		return ret;
+
+#if IS_ENABLED(CONFIG_INTEL_TDX_HOST)
+	/*
+	 * TDX KVM overrides flush_remote_tlbs method and assumes
+	 * flush_remote_tlbs_range = NULL that falls back to
+	 * flush_remote_tlbs.  Disable TDX if there are conflicts.
+	 */
+	if (vt_x86_ops.flush_remote_tlbs ||
+	    vt_x86_ops.flush_remote_tlbs_range) {
+		enable_tdx = false;
+		pr_warn_ratelimited("TDX requires baremetal. Not Supported on VMM guest.\n");
+	}
+#endif
 
 	/*
 	 * Undate vt_x86_ops::vm_size here so it is ready before
@@ -36,9 +54,28 @@ static __init int vt_hardware_setup(void)
 	 * is KVM may allocate couple of more bytes than needed for
 	 * each VM.
 	 */
-	if (enable_tdx)
+	if (enable_tdx) {
 		vt_x86_ops.vm_size = max_t(unsigned int, vt_x86_ops.vm_size,
 				sizeof(struct kvm_tdx));
+		/*
+		 * Note, TDX may fail to initialize in a later time in
+		 * vt_init(), in which case it is not necessary to setup
+		 * those callbacks.  But making them valid here even
+		 * when TDX fails to init later is fine because those
+		 * callbacks won't be called if the VM isn't TDX guest.
+		 */
+		vt_x86_ops.link_external_spt = tdx_sept_link_private_spt;
+		vt_x86_ops.set_external_spte = tdx_sept_set_private_spte;
+		vt_x86_ops.free_external_spt = tdx_sept_free_private_spt;
+		vt_x86_ops.remove_external_spte = tdx_sept_remove_private_spte;
+	}
+
+#if IS_ENABLED(CONFIG_INTEL_TDX_HOST)
+	if (enable_tdx) {
+		vt_x86_ops.flush_remote_tlbs = vt_flush_remote_tlbs;
+		vt_x86_ops.flush_remote_tlbs_range = vt_flush_remote_tlbs_range;
+	}
+#endif
 
 	return 0;
 }
@@ -109,6 +146,61 @@ static void vt_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	vmx_vcpu_reset(vcpu, init_event);
 }
 
+static void vt_flush_tlb_all(struct kvm_vcpu *vcpu)
+{
+	if (is_td_vcpu(vcpu)) {
+		tdx_flush_tlb(vcpu);
+		return;
+	}
+
+	vmx_flush_tlb_all(vcpu);
+}
+
+static void vt_flush_tlb_current(struct kvm_vcpu *vcpu)
+{
+	if (is_td_vcpu(vcpu)) {
+		tdx_flush_tlb_current(vcpu);
+		return;
+	}
+
+	vmx_flush_tlb_current(vcpu);
+}
+
+#if IS_ENABLED(CONFIG_INTEL_TDX_HOST)
+static int vt_flush_remote_tlbs(struct kvm *kvm)
+{
+	if (is_td(kvm))
+		return tdx_sept_flush_remote_tlbs(kvm);
+
+	/*
+	 * fallback to KVM_REQ_TLB_FLUSH.
+	 * See kvm_arch_flush_remote_tlb() and kvm_flush_remote_tlbs().
+	 */
+	return -EOPNOTSUPP;
+}
+
+static int vt_flush_remote_tlbs_range(struct kvm *kvm, gfn_t start_gfn, gfn_t nr_pages)
+{
+	return -EOPNOTSUPP;
+}
+#endif
+
+static void vt_flush_tlb_gva(struct kvm_vcpu *vcpu, gva_t addr)
+{
+	if (is_td_vcpu(vcpu))
+		return;
+
+	vmx_flush_tlb_gva(vcpu, addr);
+}
+
+static void vt_flush_tlb_guest(struct kvm_vcpu *vcpu)
+{
+	if (is_td_vcpu(vcpu))
+		return;
+
+	vmx_flush_tlb_guest(vcpu);
+}
+
 static void vt_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa,
 			int pgd_level)
 {
@@ -134,6 +226,14 @@ static int vt_vcpu_mem_enc_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 		return -EINVAL;
 
 	return tdx_vcpu_ioctl(vcpu, argp);
+}
+
+static int vt_gmem_private_max_mapping_level(struct kvm *kvm, kvm_pfn_t pfn)
+{
+	if (is_td(kvm))
+		return tdx_gmem_private_max_mapping_level(kvm, pfn);
+
+	return 0;
 }
 
 #define VMX_REQUIRED_APICV_INHIBITS				\
@@ -198,10 +298,10 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.set_rflags = vmx_set_rflags,
 	.get_if_flag = vmx_get_if_flag,
 
-	.flush_tlb_all = vmx_flush_tlb_all,
-	.flush_tlb_current = vmx_flush_tlb_current,
-	.flush_tlb_gva = vmx_flush_tlb_gva,
-	.flush_tlb_guest = vmx_flush_tlb_guest,
+	.flush_tlb_all = vt_flush_tlb_all,
+	.flush_tlb_current = vt_flush_tlb_current,
+	.flush_tlb_gva = vt_flush_tlb_gva,
+	.flush_tlb_guest = vt_flush_tlb_guest,
 
 	.vcpu_pre_run = vmx_vcpu_pre_run,
 	.vcpu_run = vmx_vcpu_run,
@@ -289,6 +389,8 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 
 	.mem_enc_ioctl = vt_mem_enc_ioctl,
 	.vcpu_mem_enc_ioctl = vt_vcpu_mem_enc_ioctl,
+
+	.private_max_mapping_level = vt_gmem_private_max_mapping_level
 };
 
 struct kvm_x86_init_ops vt_init_ops __initdata = {

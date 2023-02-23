@@ -1680,8 +1680,20 @@ int tdx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t fastpath)
 {
 	union tdx_exit_reason exit_reason = to_tdx(vcpu)->exit_reason;
 
-	/* See the comment of tdh_sept_seamcall(). */
-	if (unlikely(exit_reason.full == (TDX_OPERAND_BUSY | TDX_OPERAND_ID_SEPT)))
+	/*
+	 * See the comment of tdh_sept_seamcall().
+	 * TDX module has mitigation against zero-step attacks or single-step
+	 * attacks.  When the TDX module finds repeated EPT violations on the
+	 * same guest RIP, i.e. no advance in guest, it starts to suspect the
+	 * attack.  The mitigation logic on the next entry tries to take the
+	 * lock of S-EPT.  It may result in an error of (TDX_OPERAND_BUSY |
+	 * TDX_OPERAND_ID_SEPT).  As KVM shouldn't spuriously zap private S-EPT
+	 * so that guest can make progress, KVM shouldn't cause the TDX module
+	 * to trigger the mitigation.  Make (TDX_OPERAND_BUSY |
+	 * TDX_OPERAND_ID_SEPT) on entry KVM bug.
+	 */
+	if (KVM_BUG_ON(exit_reason.full == (TDX_OPERAND_BUSY | TDX_OPERAND_ID_SEPT),
+		       vcpu->kvm))
 		return 1;
 
 	if (unlikely(exit_reason.full == TDX_SEAMCALL_UD)) {

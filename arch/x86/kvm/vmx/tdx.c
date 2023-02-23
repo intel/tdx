@@ -1740,6 +1740,36 @@ static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 			tdx_unpin(kvm, gfn, pfn, level);
 			return -EAGAIN;
 		}
+		if (unlikely(err == (TDX_EPT_ENTRY_NOT_FREE | TDX_OPERAND_ID_RCX))) {
+			/*
+			 * TDX 1.0 may return TDX_EPT_ENTRY_NOT_FREE without
+			 * SEPT entry.  TDX 1.5 (or later) returns
+			 * TDX_EPT_ENTRY_STATE_INCORRECT.  Emulate it.
+			 */
+			err = tdh_mem_sept_rd(kvm_tdx->tdr_pa, gpa, tdx_level, &out);
+			if (KVM_BUG_ON(err, kvm)) {
+				pr_tdx_error(TDH_MEM_SEPT_RD, err, &out);
+				tdx_unpin(kvm, gfn, pfn, level);
+				return -EIO;
+			}
+			err = TDX_EPT_ENTRY_STATE_INCORRECT | TDX_OPERAND_ID_RCX;
+		}
+		if (unlikely(err == (TDX_EPT_ENTRY_STATE_INCORRECT | TDX_OPERAND_ID_RCX))) {
+			union tdx_sept_entry entry = {
+				.raw = out.rcx,
+			};
+			union tdx_sept_level_state level_state = {
+				.raw = out.rdx,
+			};
+
+			/* Someone updated the entry to the same value. */
+			if (level_state.level == tdx_level &&
+			    level_state.state == TDX_SEPT_PRESENT &&
+			    entry.leaf && entry.hpa == hpa) {
+				tdx_unpin(kvm, gfn, pfn, level);
+				return -EAGAIN;
+			}
+		}
 		if (KVM_BUG_ON(err, kvm)) {
 			pr_tdx_error(TDH_MEM_PAGE_AUG, err, &out);
 			tdx_unpin(kvm, gfn, pfn, level);
@@ -1869,6 +1899,28 @@ static int tdx_sept_link_private_spt(struct kvm *kvm, gfn_t gfn,
 	err = tdh_mem_sept_add(kvm_tdx->tdr_pa, gpa, tdx_level, hpa, &out);
 	if (unlikely(err == TDX_ERROR_SEPT_BUSY))
 		return -EAGAIN;
+	if (unlikely(err == (TDX_EPT_ENTRY_NOT_FREE | TDX_OPERAND_ID_RCX))) {
+		err = tdh_mem_sept_rd(kvm_tdx->tdr_pa, gpa, tdx_level, &out);
+		if (KVM_BUG_ON(err, kvm)) {
+			pr_tdx_error(TDH_MEM_SEPT_RD, err, &out);
+			return -EIO;
+		}
+		err = TDX_EPT_ENTRY_STATE_INCORRECT | TDX_OPERAND_ID_RCX;
+	}
+	if (unlikely(err == (TDX_EPT_ENTRY_STATE_INCORRECT | TDX_OPERAND_ID_RCX))) {
+		union tdx_sept_entry entry = {
+			.raw = out.rcx,
+		};
+		union tdx_sept_level_state level_state = {
+			.raw = out.rdx,
+		};
+
+		/* someone updated the entry with same value. */
+		if (level_state.level == tdx_level &&
+		    level_state.state == TDX_SEPT_PRESENT &&
+		    !entry.leaf && entry.hpa == hpa)
+			return -EAGAIN;
+	}
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_MEM_SEPT_ADD, err, &out);
 		return -EIO;
@@ -1959,6 +2011,8 @@ static int tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn,
 	err = tdh_mem_range_block(kvm_tdx->tdr_pa, gpa, tdx_level, &out);
 	if (unlikely(err == TDX_ERROR_SEPT_BUSY))
 		return -EAGAIN;
+	if (unlikely(err == (TDX_GPA_RANGE_ALREADY_BLOCKED | TDX_OPERAND_ID_RCX)))
+		return -EAGAIN;
 
 	WRITE_ONCE(kvm_tdx->has_range_blocked, true);
 	if (KVM_BUG_ON(err, kvm)) {
@@ -2038,6 +2092,19 @@ static int tdx_sept_unzap_private_spte(struct kvm *kvm, gfn_t gfn,
 	} while (err == (TDX_TLB_TRACKING_NOT_DONE | TDX_OPERAND_ID_SEPT));
 	if (unlikely(err == TDX_ERROR_SEPT_BUSY))
 		return -EAGAIN;
+	if (unlikely(err == (TDX_GPA_RANGE_NOT_BLOCKED | TDX_OPERAND_ID_RCX)))
+		return -EAGAIN;
+	if (unlikely(err == (TDX_EPT_ENTRY_STATE_INCORRECT | TDX_OPERAND_ID_RCX))) {
+		union tdx_sept_level_state level_state = {
+			.raw = out.rdx,
+		};
+
+		if (level_state.level == tdx_level &&
+		    (level_state.state == TDX_SEPT_PRESENT ||
+		     level_state.state == TDX_SEPT_PENDING)) {
+			return -EAGAIN;
+		}
+	}
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_MEM_RANGE_UNBLOCK, err, &out);
 		return -EIO;

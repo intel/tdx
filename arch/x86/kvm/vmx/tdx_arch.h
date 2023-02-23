@@ -32,6 +32,7 @@
 #define TDH_MNG_INIT			21
 #define TDH_VP_INIT			22
 #define TDH_MEM_PAGE_PROMOTE		23
+#define TDH_MEM_SEPT_RD			25
 #define TDH_VP_RD			26
 #define TDH_MNG_KEY_RECLAIMID		27
 #define TDH_PHYMEM_PAGE_RECLAIM		28
@@ -209,6 +210,44 @@ enum tdx_ext_exit_qualification_type {
 	EXT_EXIT_QUAL_NONE = 0,
 	EXT_EXIT_QUAL_ACCEPT,
 	NUM_EXT_EXIT_QUAL,
+};
+
+union tdx_sept_entry {
+	struct {
+		u64 r		:  1;
+		u64 w		:  1;
+		u64 x		:  1;
+		u64 mt		:  3;
+		u64 ipat	:  1;
+		u64 leaf	:  1;
+		u64 reserved0	:  3;
+		u64 ignored0	:  1;
+		u64 hpa		: 40;
+		u64 reserved1	:  2;
+		u64 ignored1	:  1;
+		u64 reserved2	:  2;
+		u64 ignored2	:  1;
+		u64 sve		:  1;
+	};
+	u64 raw;
+};
+
+enum tdx_sept_entry_state {
+	TDX_SEPT_FREE = 0,
+	TDX_SEPT_BLOCKED = 1,
+	TDX_SEPT_PENDING = 2,
+	TDX_SEPT_PENDING_BLOCKED = 2,
+	TDX_SEPT_PRESENT = 3,
+};
+
+union tdx_sept_level_state {
+	struct {
+		u64 level	: 3;
+		u64 reserved0	: 5;
+		u64 state	: 8;
+		u64 reserved1	: 48;
+	};
+	u64 raw;
 };
 
 #endif /* __KVM_X86_TDX_ARCH_H */

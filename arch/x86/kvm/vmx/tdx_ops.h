@@ -188,6 +188,13 @@ static inline u64 tdh_mem_sept_add(hpa_t tdr, gpa_t gpa, int level, hpa_t page,
 	return r;
 }
 
+static inline u64 tdh_mem_sept_rd(hpa_t tdr, gpa_t gpa, int level,
+				  struct tdx_module_output *out)
+{
+	return tdx_seamcall_sept(TDH_MEM_SEPT_RD, gpa | level, tdr, 0, 0, out);
+}
+
+
 static inline u64 tdh_mem_sept_remove(hpa_t tdr, gpa_t gpa, int level,
 				      struct tdx_module_output *out)
 {

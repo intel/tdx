@@ -263,6 +263,10 @@ static int __always_unused seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
 				cpu);
 		ret = -EINVAL;
 		break;
+	case TDX_INCORRECT_CPUID_VALUE:
+		pr_err_once("TDX module is outdated. Use v1.0.3 or newer.\n");
+		ret = -ENODEV;
+		break;
 	default:
 		pr_err_once("SEAMCALL failed: CPU %d: leaf %llu, error 0x%llx.\n",
 				cpu, fn, sret);

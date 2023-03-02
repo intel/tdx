@@ -29,6 +29,14 @@ struct kvm_tdx {
 	u8 nr_tdcs_pages;
 	u8 nr_vcpu_tdcx_pages;
 
+	/*
+	 * Used on each TD-exit, see tdx_user_return_msr_update_cache().
+	 * TSX_CTRL value on TD exit
+	 * - set 0     if guest TSX enabled
+	 * - preserved if guest TSX disabled
+	 */
+	bool tsx_supported;
+
 	u64 tsc_offset;
 
 	enum kvm_tdx_state state;

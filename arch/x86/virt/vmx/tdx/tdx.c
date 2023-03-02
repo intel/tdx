@@ -120,6 +120,9 @@ static int __always_unused seamcall(u64 fn, struct tdx_module_args *args)
 		pr_err_once("SEAMCALL failed: CPU %d is not in VMX operation.\n",
 				cpu);
 		return -EINVAL;
+	case TDX_INCORRECT_CPUID_VALUE:
+		pr_err_once("TDX module is outdated. Use v1.0.3 or newer.\n");
+		return -ENODEV;
 	default:
 		pr_err_once("SEAMCALL failed: CPU %d: leaf %llu, error 0x%llx.\n",
 				cpu, fn, sret);

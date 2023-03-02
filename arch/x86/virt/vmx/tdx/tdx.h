@@ -69,6 +69,9 @@
 #define MD_FIELD_ID_ELE_SIZE_CODE(_field_id)	\
 		(((_field_id) & GENMASK_ULL(33, 32)) >> 32)
 
+/* CPUID induced SEAMCALL error */
+#define TDX_INCORRECT_CPUID_VALUE	0xC000090000000000ULL
+
 #define MD_FIELD_ID_ELE_SIZE_16BIT	1
 #define MD_FIELD_ID_ELE_SIZE_32BIT	2
 

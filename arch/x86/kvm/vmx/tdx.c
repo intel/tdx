@@ -2058,6 +2058,11 @@ static int __tdx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t fastpath)
 	if (unlikely(exit_reason.full == (TDX_OPERAND_BUSY | TDX_OPERAND_ID_TD_EPOCH)))
 		return 1;
 
+	if (unlikely(exit_reason.full == (TDX_INCONSISTENT_MSR | MSR_IA32_TSX_CTRL))) {
+		pr_err_once("TDX module is outdated. Upgrade the TDX module.\n");
+		return 1;
+	}
+
 	if (unlikely(exit_reason.full == TDX_SEAMCALL_UD)) {
 		kvm_spurious_fault();
 		/*

@@ -23,6 +23,9 @@
 #define TDH_SYS_KEY_CONFIG	31
 #define TDH_SYS_TDMR_INIT	36
 
+/* CPUID induced SEAMCALL error */
+#define TDX_INCORRECT_CPUID_VALUE	0xC000090000000000ULL
+
 struct cmr_info {
 	u64	base;
 	u64	size;

@@ -19,6 +19,14 @@ struct kvm_tdx {
 	/* To release hkid */
 	struct mmu_notifier mmu_notifier;
 
+	/*
+	 * Used on each TD-exit, see tdx_user_return_update_cache().
+	 * TSX_CTRL value on TD exit
+	 * - set 0     if guest TSX enabled
+	 * - preserved if guest TSX disabled
+	 */
+	bool tsx_supported;
+
 	hpa_t source_pa;
 
 	bool finalized;

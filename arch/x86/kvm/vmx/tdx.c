@@ -496,14 +496,17 @@ static struct tdx_uret_msr tdx_uret_msrs[] = {
 	{.msr = MSR_LSTAR,},
 	{.msr = MSR_TSC_AUX,},
 };
+static unsigned int tdx_uret_tsx_ctrl_slot;
 
-static void tdx_user_return_update_cache(void)
+static void tdx_user_return_update_cache(struct kvm_vcpu *vcpu)
 {
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(tdx_uret_msrs); i++)
 		kvm_user_return_update_cache(tdx_uret_msrs[i].slot,
 					     tdx_uret_msrs[i].defval);
+	kvm_user_return_update_cache(tdx_uret_tsx_ctrl_slot,
+				     to_kvm_tdx(vcpu->kvm)->tsx_ctrl_value);
 }
 
 static void tdx_restore_host_xsave_state(struct kvm_vcpu *vcpu)
@@ -545,7 +548,7 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 
 	tdx_vcpu_enter_exit(vcpu, tdx);
 
-	tdx_user_return_update_cache();
+	tdx_user_return_update_cache(vcpu);
 	tdx_restore_host_xsave_state(vcpu);
 	tdx->host_state_need_restore = true;
 
@@ -1019,6 +1022,29 @@ static int setup_tdparams_xfam(struct kvm_cpuid2 *cpuid, struct td_params *td_pa
 	return 0;
 }
 
+static u64 tdparams_tsx_ctrl_value(struct kvm_cpuid2 *cpuid)
+{
+	const struct kvm_cpuid_entry2 *entry;
+	u64 mask;
+	u32 ebx;
+
+	entry = kvm_find_cpuid_entry2(cpuid, 0x7, 0);
+	if (entry)
+		ebx = entry->ebx;
+	else
+		ebx = 0;
+
+	/*
+	 * TDX module resets the TSX_CTRL MSR to 0 at TD exit if TSX
+	 * is enabled for TD, otherwise reset it to 0x3
+	 * (= RTM_DISABLE | TSX_CPUID_CLEAR).
+	 */
+	mask = __feature_bit(X86_FEATURE_HLE) | __feature_bit(X86_FEATURE_RTM);
+	if (ebx & mask)
+		return 0;
+	return TSX_CTRL_RTM_DISABLE | TSX_CTRL_CPUID_CLEAR;
+}
+
 static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 			struct kvm_tdx_init_vm *init_vm)
 {
@@ -1062,6 +1088,7 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 	MEMCPY_SAME_SIZE(td_params->mrowner, init_vm->mrowner);
 	MEMCPY_SAME_SIZE(td_params->mrownerconfig, init_vm->mrownerconfig);
 
+	to_kvm_tdx(kvm)->tsx_ctrl_value = tdparams_tsx_ctrl_value(cpuid);
 	return 0;
 }
 
@@ -1672,6 +1699,11 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 				tdx_uret_msrs[i].msr);
 			return -EIO;
 		}
+	}
+	tdx_uret_tsx_ctrl_slot = kvm_find_user_return_msr(MSR_IA32_TSX_CTRL);
+	if (WARN_ON_ONCE(tdx_uret_tsx_ctrl_slot == -1)) {
+		pr_err("MSR_IA32_TSX_CTRL isn't included by kvm_find_user_return_msr\n");
+		return -EIO;
 	}
 
 	max_pkgs = topology_max_packages();

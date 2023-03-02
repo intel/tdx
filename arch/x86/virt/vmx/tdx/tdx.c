@@ -68,6 +68,8 @@ typedef void (*sc_err_func_t)(u64 fn, u64 err, struct tdx_module_args *args);
 
 static inline void seamcall_err(u64 fn, u64 err, struct tdx_module_args *args)
 {
+	if (err == TDX_INCORRECT_CPUID_VALUE)
+		pr_err_once("TDX module might be outdated. Use v1.0.3 or newer.\n");
 	pr_err("SEAMCALL (0x%016llx) failed: 0x%016llx\n", fn, err);
 }
 

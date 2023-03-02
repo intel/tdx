@@ -102,6 +102,10 @@ static __always_inline bool seamcall_err_is_kernel_defined(u64 err)
 		pr_err("SEAMCALL failed: CPU not in VMX operation.\n");		\
 		___ret = -EACCES;						\
 		break;								\
+	case TDX_INCORRECT_CPUID_VALUE:						\
+		pr_err_once("TDX module is outdated. Use v1.0.3 or newer.\n");	\
+		___ret = -ENODEV;						\
+		break;								\
 	default:								\
 		___ret = -EIO;							\
 	}									\

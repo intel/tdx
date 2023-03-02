@@ -3856,7 +3856,7 @@ static int setup_tdparams_eptp_controls(struct kvm_cpuid2 *cpuid,
 	return 0;
 }
 
-static void setup_tdparams_cpuids(struct kvm *kvm,
+static int setup_tdparams_cpuids(struct kvm *kvm,
 				  const struct tdsysinfo_struct *tdsysinfo,
 				  struct kvm_cpuid2 *cpuid,
 				  struct td_params *td_params)
@@ -3893,10 +3893,19 @@ static void setup_tdparams_cpuids(struct kvm *kvm,
 		value->ecx = entry->ecx & config->ecx;
 		value->edx = entry->edx & config->edx;
 
+		if (config->leaf == 0x1 &&
+			(value->ecx & __feature_bit(X86_FEATURE_MWAIT)) &&
+			!kvm_mwait_in_guest(kvm)) {
+			pr_info_ratelimited("Invalid mwait configuration!\n");
+			return -EINVAL;
+		}
+
 		/* Remember the setting to check for KVM_SET_CPUID2. */
 		kvm_tdx->cpuid[kvm_tdx->cpuid_nent] = *entry;
 		kvm_tdx->cpuid_nent++;
 	}
+
+	return 0;
 }
 
 static int setup_tdparams_xfam(struct kvm_cpuid2 *cpuid, struct td_params *td_params)
@@ -3976,7 +3985,9 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 	ret = setup_tdparams_eptp_controls(cpuid, td_params);
 	if (ret)
 		return ret;
-	setup_tdparams_cpuids(kvm, tdsysinfo, cpuid, td_params);
+	ret = setup_tdparams_cpuids(kvm, tdsysinfo, cpuid, td_params);
+	if (ret)
+		return ret;
 	ret = setup_tdparams_xfam(cpuid, td_params);
 	if (ret)
 		return ret;

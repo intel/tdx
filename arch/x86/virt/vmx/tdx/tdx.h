@@ -33,6 +33,9 @@
 #define	PT_NDA		0x0
 #define	PT_RSVD		0x1
 
+/* CPUID induced SEAMCALL error */
+#define TDX_INCORRECT_CPUID_VALUE	0xC000090000000000ULL
+
 struct cmr_info {
 	u64	base;
 	u64	size;

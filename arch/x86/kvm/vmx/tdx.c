@@ -509,7 +509,7 @@ free_hkid:
 	tdx_hkid_free(kvm_tdx);
 }
 
-void tdx_vm_free(struct kvm *kvm)
+static void __tdx_vm_free(struct kvm *kvm)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	int i;
@@ -520,8 +520,10 @@ void tdx_vm_free(struct kvm *kvm)
 
 	if (kvm_tdx->tdcs_pa) {
 		for (i = 0; i < tdx_info.nr_tdcs_pages; i++) {
-			if (kvm_tdx->tdcs_pa[i])
-				tdx_reclaim_td_page(kvm_tdx->tdcs_pa[i]);
+			if (!kvm_tdx->tdcs_pa[i])
+				continue;
+			tdx_reclaim_td_page(kvm_tdx->tdcs_pa[i]);
+			tdx_unaccount_ctl_page(kvm);
 		}
 		kfree(kvm_tdx->tdcs_pa);
 		kvm_tdx->tdcs_pa = NULL;
@@ -537,8 +539,25 @@ void tdx_vm_free(struct kvm *kvm)
 	if (tdx_reclaim_page(kvm_tdx->tdr_pa, PG_LEVEL_4K, true, tdx_global_keyid))
 		return;
 
+	tdx_unaccount_ctl_page(kvm);
 	free_page((unsigned long)__va(kvm_tdx->tdr_pa));
 	kvm_tdx->tdr_pa = 0;
+
+}
+
+void tdx_vm_free(struct kvm *kvm)
+{
+	__tdx_vm_free(kvm);
+#ifdef CONFIG_KVM_TDX_ACCOUNT_PRIVATE_PAGES
+	if (WARN_ON_ONCE(atomic64_read(&to_kvm_tdx(kvm)->ctl_pages) ||
+			 atomic64_read(&to_kvm_tdx(kvm)->sept_pages) ||
+			 atomic64_read(&to_kvm_tdx(kvm)->td_pages))) {
+		pr_warn_ratelimited("%lld control %lld sept %lld td pages are left\n",
+				    atomic64_read(&to_kvm_tdx(kvm)->ctl_pages),
+				    atomic64_read(&to_kvm_tdx(kvm)->sept_pages),
+				    atomic64_read(&to_kvm_tdx(kvm)->td_pages));
+	}
+#endif
 }
 
 static int tdx_do_tdh_mng_key_config(void *param)
@@ -790,8 +809,10 @@ void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 
 	if (tdx->tdvpx_pa) {
 		for (i = 0; i < tdx_info.nr_tdvpx_pages; i++) {
-			if (tdx->tdvpx_pa[i])
-				tdx_reclaim_td_page(tdx->tdvpx_pa[i]);
+			if (!tdx->tdvpx_pa[i])
+				continue;
+			tdx_reclaim_td_page(tdx->tdvpx_pa[i]);
+			tdx_unaccount_ctl_page(vcpu->kvm);
 		}
 		kfree(tdx->tdvpx_pa);
 		tdx->tdvpx_pa = NULL;
@@ -799,6 +820,7 @@ void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 	if (tdx->tdvpr_pa) {
 		tdx_reclaim_td_page(tdx->tdvpr_pa);
 		tdx->tdvpr_pa = 0;
+		tdx_unaccount_ctl_page(vcpu->kvm);
 	}
 }
 
@@ -1819,6 +1841,7 @@ static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 			tdx_unpin(kvm, gfn, pfn, level);
 			return -EIO;
 		}
+		tdx_account_td_pages(kvm, level);
 		return 0;
 	}
 
@@ -1862,6 +1885,7 @@ static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	} else if (measure)
 		tdx_measure_page(kvm_tdx, gpa, KVM_HPAGE_SIZE(level));
 
+	tdx_account_td_pages(kvm, level);
 	return 0;
 }
 
@@ -1890,6 +1914,7 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 			return -EIO;
 		}
 		tdx_unpin(kvm, gfn, pfn, level);
+		tdx_unaccount_td_pages(kvm, level);
 		return 0;
 	}
 
@@ -1926,6 +1951,7 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		}
 		hpa += PAGE_SIZE;
 	}
+	tdx_unaccount_td_pages(kvm, level);
 	return r;
 }
 
@@ -1969,6 +1995,7 @@ static int tdx_sept_link_private_spt(struct kvm *kvm, gfn_t gfn,
 		return -EIO;
 	}
 
+	tdx_account_sept_page(kvm);
 	return 0;
 }
 
@@ -1991,6 +2018,7 @@ static int tdx_sept_split_private_spt(struct kvm *kvm, gfn_t gfn,
 		return -EIO;
 	}
 
+	tdx_account_sept_page(kvm);
 	return 0;
 }
 
@@ -2033,6 +2061,7 @@ static int tdx_sept_merge_private_spt(struct kvm *kvm, gfn_t gfn,
 	}
 
 	tdx_set_page_present(__pa(private_spt));
+	tdx_unaccount_sept_page(kvm);
 	return 0;
 }
 
@@ -2163,8 +2192,12 @@ static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 	 * The HKID assigned to this TD was already freed and cache was
 	 * already flushed. We don't have to flush again.
 	 */
-	if (!is_hkid_assigned(kvm_tdx))
-		return tdx_reclaim_page(__pa(private_spt), PG_LEVEL_4K, false, 0);
+	if (!is_hkid_assigned(kvm_tdx)) {
+		int r = tdx_reclaim_page(__pa(private_spt), PG_LEVEL_4K, false, 0);
+		if (!r)
+			tdx_unaccount_sept_page(kvm);
+		return r;
+	}
 
 	/*
 	 * Inefficient. But this is only called for deleting memslot
@@ -2193,6 +2226,7 @@ static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 		pr_tdx_error(TDH_MEM_SEPT_REMOVE, err, &out);
 		return -EIO;
 	}
+	tdx_unaccount_sept_page(kvm);
 
 	err = tdh_phymem_page_wbinvd(set_hkid_to_hpa(__pa(private_spt),
 						     kvm_tdx->hkid));
@@ -3348,6 +3382,7 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params)
 		goto free_packages;
 	}
 	kvm_tdx->tdr_pa = tdr_pa;
+	tdx_account_ctl_page(kvm);
 
 	for_each_online_cpu(i) {
 		int pkg = topology_physical_package_id(i);
@@ -3386,6 +3421,7 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params)
 			ret = -EIO;
 			goto teardown;
 		}
+		tdx_account_ctl_page(kvm);
 	}
 
 	err = tdh_mng_init(kvm_tdx->tdr_pa, __pa(td_params), &out);
@@ -3727,6 +3763,7 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 		goto free_tdvpx;
 	}
 	tdx->tdvpr_pa = tdvpr_pa;
+	tdx_account_ctl_page(vcpu->kvm);
 
 	tdx->tdvpx_pa = tdvpx_pa;
 	for (i = 0; i < tdx_info.nr_tdvpx_pages; i++) {
@@ -3740,6 +3777,7 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 			/* vcpu_free method frees TDVPX and TDR donated to TDX */
 			return -EIO;
 		}
+		tdx_account_ctl_page(vcpu->kvm);
 	}
 
 	err = tdh_vp_init(tdx->tdvpr_pa, vcpu_rcx);
@@ -4013,7 +4051,8 @@ static int __init tdx_module_setup(void)
 	};
 
 
-	pr_info("TDX is supported.\n");
+	pr_info("TDX is supported. nr_tdcs %d nr_tdvpx %d\n",
+		tdx_info.nr_tdcs_pages, tdx_info.nr_tdvpx_pages);
 	return 0;
 }
 

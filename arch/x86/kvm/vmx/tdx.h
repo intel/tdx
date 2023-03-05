@@ -28,6 +28,12 @@ struct kvm_tdx {
 
 	/* TDP MMU */
 	bool has_range_blocked;
+
+#ifdef CONFIG_KVM_TDX_ACCOUNT_PRIVATE_PAGES
+	atomic64_t ctl_pages;
+	atomic64_t sept_pages;
+	atomic64_t td_pages;
+#endif
 };
 
 union tdx_exit_reason {
@@ -135,6 +141,50 @@ static inline struct kvm_tdx *to_kvm_tdx(struct kvm *kvm)
 {
 	KVM_BUG_ON(!is_td(kvm), kvm);
 	return container_of(kvm, struct kvm_tdx, kvm);
+}
+
+static inline void tdx_account_ctl_page(struct kvm *kvm)
+{
+#ifdef CONFIG_KVM_TDX_ACCOUNT_PRIVATE_PAGES
+	atomic64_inc(&to_kvm_tdx(kvm)->ctl_pages);
+#endif
+}
+
+static inline void tdx_unaccount_ctl_page(struct kvm *kvm)
+{
+#ifdef CONFIG_KVM_TDX_ACCOUNT_PRIVATE_PAGES
+	atomic64_dec(&to_kvm_tdx(kvm)->ctl_pages);
+#endif
+}
+
+static inline void tdx_account_sept_page(struct kvm *kvm)
+{
+#ifdef CONFIG_KVM_TDX_ACCOUNT_PRIVATE_PAGES
+	atomic64_inc(&to_kvm_tdx(kvm)->sept_pages);
+#endif
+}
+
+static inline void tdx_unaccount_sept_page(struct kvm *kvm)
+{
+#ifdef CONFIG_KVM_TDX_ACCOUNT_PRIVATE_PAGES
+	atomic64_dec(&to_kvm_tdx(kvm)->sept_pages);
+#endif
+}
+
+static inline void tdx_account_td_pages(struct kvm *kvm,
+					     enum pg_level level)
+{
+#ifdef CONFIG_KVM_TDX_ACCOUNT_PRIVATE_PAGES
+	atomic64_add(KVM_PAGES_PER_HPAGE(level), &to_kvm_tdx(kvm)->td_pages);
+#endif
+}
+
+static inline void tdx_unaccount_td_pages(struct kvm *kvm,
+					       enum pg_level level)
+{
+#ifdef CONFIG_KVM_TDX_ACCOUNT_PRIVATE_PAGES
+	atomic64_sub(KVM_PAGES_PER_HPAGE(level), &to_kvm_tdx(kvm)->td_pages);
+#endif
 }
 
 static inline struct vcpu_tdx *to_tdx(struct kvm_vcpu *vcpu)

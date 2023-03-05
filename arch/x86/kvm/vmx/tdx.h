@@ -47,6 +47,12 @@ struct kvm_tdx {
 	 */
 	int cpuid_nent;
 	struct kvm_cpuid_entry2 *cpuid;
+
+#ifdef CONFIG_KVM_TDX_ACCOUNT_PRIVATE_PAGES
+	atomic64_t ctl_pages;
+	atomic64_t sept_pages[PG_LEVEL_NUM - PG_LEVEL_4K];
+	atomic64_t td_pages;
+#endif
 };
 
 union tdx_exit_reason {
@@ -154,6 +160,59 @@ static inline struct kvm_tdx *to_kvm_tdx(struct kvm *kvm)
 {
 	KVM_BUG_ON(!is_td(kvm), kvm);
 	return container_of(kvm, struct kvm_tdx, kvm);
+}
+
+static inline void tdx_account_ctl_page(struct kvm *kvm)
+{
+#ifdef CONFIG_KVM_TDX_ACCOUNT_PRIVATE_PAGES
+	atomic64_inc(&to_kvm_tdx(kvm)->ctl_pages);
+#endif
+}
+
+static inline void tdx_unaccount_ctl_page(struct kvm *kvm)
+{
+#ifdef CONFIG_KVM_TDX_ACCOUNT_PRIVATE_PAGES
+	WARN_ON_ONCE(atomic64_dec_return(&to_kvm_tdx(kvm)->ctl_pages) < 0);
+#endif
+}
+
+static inline void tdx_account_sept_page(struct kvm *kvm, enum pg_level level)
+{
+#ifdef CONFIG_KVM_TDX_ACCOUNT_PRIVATE_PAGES
+	WARN_ON_ONCE(level >= PG_LEVEL_NUM);
+	WARN_ON_ONCE(level < PG_LEVEL_4K);
+	atomic64_inc(&to_kvm_tdx(kvm)->sept_pages[level - PG_LEVEL_4K]);
+#endif
+}
+
+static inline void tdx_unaccount_sept_page(struct kvm * kvm, enum pg_level level)
+{
+#ifdef CONFIG_KVM_TDX_ACCOUNT_PRIVATE_PAGES
+	WARN_ON_ONCE(level >= PG_LEVEL_NUM);
+	WARN_ON_ONCE(level < PG_LEVEL_4K);
+	WARN_ON_ONCE(atomic64_dec_return(&to_kvm_tdx(kvm)->sept_pages[level - PG_LEVEL_4K]) < 0);
+#endif
+}
+
+static inline void tdx_account_td_pages(struct kvm *kvm,
+					     enum pg_level level)
+{
+#ifdef CONFIG_KVM_TDX_ACCOUNT_PRIVATE_PAGES
+	WARN_ON_ONCE(level >= PG_LEVEL_NUM);
+	WARN_ON_ONCE(level < PG_LEVEL_4K);
+	atomic64_add(KVM_PAGES_PER_HPAGE(level), &to_kvm_tdx(kvm)->td_pages);
+#endif
+}
+
+static inline void tdx_unaccount_td_pages(struct kvm *kvm,
+					       enum pg_level level)
+{
+#ifdef CONFIG_KVM_TDX_ACCOUNT_PRIVATE_PAGES
+	WARN_ON_ONCE(level >= PG_LEVEL_NUM);
+	WARN_ON_ONCE(level < PG_LEVEL_4K);
+	WARN_ON_ONCE(atomic64_sub_return(KVM_PAGES_PER_HPAGE(level),
+					 &to_kvm_tdx(kvm)->td_pages) < 0);
+#endif
 }
 
 static inline struct vcpu_tdx *to_tdx(struct kvm_vcpu *vcpu)

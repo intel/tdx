@@ -165,4 +165,9 @@ config KVM_TDX_OPERAND_BUSY_INJECTION
 	bool "TDX operand busy injection"
 	depends on INTEL_TDX_HOST && KVM_INTEL
 
+config KVM_TDX_ACCOUNT_PRIVATE_PAGES
+	def_bool n
+	bool "Account TDX private pges"
+	depends on INTEL_TDX_HOST && KVM_INTEL
+
 endif # VIRTUALIZATION

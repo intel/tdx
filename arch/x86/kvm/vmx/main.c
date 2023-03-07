@@ -9,6 +9,19 @@
 static bool enable_tdx __ro_after_init;
 module_param_named(tdx, enable_tdx, bool, 0444);
 
+static int vt_hardware_enable(void)
+{
+	int ret;
+
+	ret = vmx_hardware_enable();
+	if (!ret && enable_tdx) {
+		ret = tdx_hardware_enable();
+		if (ret)
+			vmx_hardware_disable();
+	}
+	return ret;
+}
+
 static __init int vt_hardware_setup(void)
 {
 	int ret;
@@ -40,7 +53,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 
 	.hardware_unsetup = vmx_hardware_unsetup,
 
-	.hardware_enable = vmx_hardware_enable,
+	.hardware_enable = vt_hardware_enable,
 	.hardware_disable = vmx_hardware_disable,
 	.has_emulated_msr = vmx_has_emulated_msr,
 

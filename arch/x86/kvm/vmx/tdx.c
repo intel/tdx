@@ -10,6 +10,11 @@
 #undef pr_fmt
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+int tdx_hardware_enable(void)
+{
+	return tdx_cpu_enable();
+}
+
 static int __init tdx_module_setup(void)
 {
 	int ret;

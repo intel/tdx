@@ -11,6 +11,8 @@
 enum tdx_binding_slot_state {
 	/* Slot is available for a new user */
 	TDX_BINDING_SLOT_STATE_INIT = 0,
+	/* Slot is used, and servtd is pre-bound */
+	TDX_BINDING_SLOT_STATE_PREBOUND = 1,
 
 	TDX_BINDING_SLOT_STATE_UNKNOWN
 };

@@ -96,6 +96,19 @@ static enum {
 	TD_PROFILE_DISABLE,
 } td_profile_state;
 
+static inline void
+tdx_binding_slot_set_state(struct tdx_binding_slot *slot,
+			   enum tdx_binding_slot_state state)
+{
+	slot->state = state;
+}
+
+static inline enum tdx_binding_slot_state
+tdx_binding_slot_get_state(struct tdx_binding_slot *slot)
+{
+	return slot->state;
+}
+
 /*
  * Currently, host is allowed to get TD's profile only if this TD is debuggable
  * and cannot use PMU.
@@ -3911,6 +3924,7 @@ static int tdx_servtd_prebind(struct kvm *usertd_kvm, struct kvm_tdx_cmd *cmd)
 {
 	struct kvm_tdx *usertd_tdx = to_kvm_tdx(usertd_kvm);
 	struct kvm_tdx_servtd servtd;
+	struct tdx_binding_slot *slot;
 	struct page *hash_page;
 	uint16_t slot_id;
 	uint64_t err;
@@ -3925,6 +3939,10 @@ static int tdx_servtd_prebind(struct kvm *usertd_kvm, struct kvm_tdx_cmd *cmd)
 		return -EINVAL;
 
 	slot_id = servtd.type;
+	slot = &usertd_tdx->binding_slots[slot_id];
+	if (tdx_binding_slot_get_state(slot) != TDX_BINDING_SLOT_STATE_INIT)
+		return -EPERM;
+
 	hash_page = alloc_page(GFP_KERNEL_ACCOUNT | __GFP_ZERO);
 	if (!hash_page)
 		return -ENOMEM;
@@ -3942,6 +3960,7 @@ static int tdx_servtd_prebind(struct kvm *usertd_kvm, struct kvm_tdx_cmd *cmd)
 		pr_warn("failed to prebind servtd, err=%llx\n", err);
 		return -EIO;
 	}
+	tdx_binding_slot_set_state(slot, TDX_BINDING_SLOT_STATE_PREBOUND);
 
 	return 0;
 }

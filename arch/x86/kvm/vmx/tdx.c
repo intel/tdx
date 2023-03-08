@@ -3965,6 +3965,80 @@ static int tdx_servtd_prebind(struct kvm *usertd_kvm, struct kvm_tdx_cmd *cmd)
 	return 0;
 }
 
+static void tdx_binding_slot_bound_set_info(struct tdx_binding_slot *slot,
+					    uint64_t handle,
+					    uint64_t uuid0,
+					    uint64_t uuid1,
+					    uint64_t uuid2,
+					    uint64_t uuid3)
+{
+	slot->handle = handle;
+	memcpy(&slot->uuid[0], &uuid0, sizeof(uint64_t));
+	memcpy(&slot->uuid[8], &uuid1, sizeof(uint64_t));
+	memcpy(&slot->uuid[16], &uuid2, sizeof(uint64_t));
+	memcpy(&slot->uuid[24], &uuid3, sizeof(uint64_t));
+}
+
+static int tdx_servtd_do_bind(struct kvm_tdx *usertd_tdx,
+			      struct kvm_tdx *servtd_tdx,
+			      struct kvm_tdx_servtd *servtd,
+			      struct tdx_binding_slot *slot)
+{
+	struct tdx_module_args out;
+	uint16_t slot_id = servtd->type;
+	u64 err;
+
+	/*TODO: check max binding_slots_id from rdall */
+	err = tdh_servtd_bind(servtd_tdx->tdr_pa,
+			      usertd_tdx->tdr_pa,
+			      slot_id,
+			      servtd->attr,
+			      servtd->type,
+			      &out);
+	if (KVM_BUG_ON(err, &usertd_tdx->kvm)) {
+		pr_tdx_error(TDH_SERVTD_BIND, err, &out);
+		return -EIO;
+	}
+
+	tdx_binding_slot_bound_set_info(slot, out.rcx, out.r10,
+					out.r11, out.r12, out.r13);
+
+	return 0;
+}
+
+static int tdx_servtd_bind(struct kvm *usertd_kvm, struct kvm_tdx_cmd *cmd)
+{
+	struct kvm *servtd_kvm;
+	struct kvm_tdx *servtd_tdx;
+	struct kvm_tdx *usertd_tdx = to_kvm_tdx(usertd_kvm);
+	struct kvm_tdx_servtd servtd;
+	struct tdx_binding_slot *slot;
+	uint16_t slot_id;
+
+	if (copy_from_user(&servtd, (void __user *)cmd->data,
+			   sizeof(struct kvm_tdx_servtd)))
+		return -EFAULT;
+
+	if (cmd->flags ||
+	    servtd.version != KVM_TDX_SERVTD_VERSION ||
+	    servtd.type >= KVM_TDX_SERVTD_TYPE_MAX) {
+		return -EINVAL;
+	}
+
+	servtd_kvm = kvm_get_target_kvm(servtd.pid);
+	if (!servtd_kvm || !is_td(servtd_kvm)) {
+		pr_err("%s: servtd not found, pid=%d\n", __func__, servtd.pid);
+		return -ENOENT;
+	}
+	servtd_tdx = to_kvm_tdx(servtd_kvm);
+
+	/* Each type of servtd has one slot, so reuse the type number as id */
+	slot_id = servtd.type;
+	slot = &usertd_tdx->binding_slots[slot_id];
+
+	return tdx_servtd_do_bind(usertd_tdx, servtd_tdx, &servtd, slot);
+}
+
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 {
 	struct kvm_tdx_cmd tdx_cmd;
@@ -3992,6 +4066,9 @@ int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 		break;
 	case KVM_TDX_SERVTD_PREBIND:
 		r = tdx_servtd_prebind(kvm, &tdx_cmd);
+		break;
+	case KVM_TDX_SERVTD_BIND:
+		r = tdx_servtd_bind(kvm, &tdx_cmd);
 		break;
 	default:
 		r = -EINVAL;

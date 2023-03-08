@@ -19,6 +19,10 @@ enum tdx_binding_slot_state {
 
 struct tdx_binding_slot {
 	enum tdx_binding_slot_state state;
+	/* Identify the user TD and the binding slot */
+	uint64_t handle;
+	/* UUID of the user TD */
+	uint8_t  uuid[32];
 };
 
 struct kvm_tdx {

@@ -26,6 +26,8 @@ enum tdx_binding_slot_state {
 	TDX_BINDING_SLOT_STATE_PREMIG_WAIT = 3,
 	/* Slot is used, and the pre-migration setup is in progress */
 	TDX_BINDING_SLOT_STATE_PREMIG_PROGRESS = 4,
+	/* Slot is used, and the pre-migration setup is done */
+	TDX_BINDING_SLOT_STATE_PREMIG_DONE = 5,
 
 	TDX_BINDING_SLOT_STATE_UNKNOWN
 };

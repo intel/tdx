@@ -191,6 +191,7 @@ struct tdvmcall_service_migtd {
 #define TDVMCALL_SERVICE_MIGTD_WAIT_VERSION	0
 #define TDVMCALL_SERVICE_MIGTD_REPORT_VERSION	0
 	uint8_t version;
+#define TDVMCALL_SERVICE_MIGTD_CMD_SHUTDOWN	0
 #define TDVMCALL_SERVICE_MIGTD_CMD_WAIT		1
 #define TDVMCALL_SERVICE_MIGTD_CMD_REPORT	2
 	uint8_t cmd;
@@ -2112,6 +2113,11 @@ static bool tdx_handle_service_migtd(struct kvm_tdx *tdx,
 	resp_migtd->cmd = cmd_migtd->cmd;
 
 	switch (cmd_migtd->cmd) {
+	case TDVMCALL_SERVICE_MIGTD_CMD_SHUTDOWN:
+		/*TODO: end migtd */
+		pr_err("%s: end migtd, not supported\n", __func__);
+		status = TDVMCALL_SERVICE_S_UNSUPP;
+		break;
 	case TDVMCALL_SERVICE_MIGTD_CMD_WAIT:
 		resp_migtd->version = TDVMCALL_SERVICE_MIGTD_WAIT_VERSION;
 		if (cmd_migtd->version != resp_migtd->version) {

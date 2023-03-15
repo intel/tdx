@@ -41,7 +41,7 @@ static u32 tdx_guest_keyid_start __ro_after_init;
 static u32 tdx_nr_guest_keyids __ro_after_init;
 
 static unsigned int tdx_global_init_status;
-static DEFINE_SPINLOCK(tdx_global_init_lock);
+static DEFINE_RAW_SPINLOCK(tdx_global_init_lock);
 #define TDX_GLOBAL_INIT_DONE	_BITUL(0)
 #define TDX_GLOBAL_INIT_FAILED	_BITUL(1)
 
@@ -356,7 +356,7 @@ static int try_init_module_global(void)
 	 * The TDX module global initialization only needs to be done
 	 * once on any cpu.
 	 */
-	spin_lock(&tdx_global_init_lock);
+	raw_spin_lock(&tdx_global_init_lock);
 
 	if (tdx_global_init_status & TDX_GLOBAL_INIT_DONE) {
 		ret = tdx_global_init_status & TDX_GLOBAL_INIT_FAILED ?
@@ -373,7 +373,7 @@ static int try_init_module_global(void)
 	if (ret)
 		tdx_global_init_status |= TDX_GLOBAL_INIT_FAILED;
 out:
-	spin_unlock(&tdx_global_init_lock);
+	raw_spin_unlock(&tdx_global_init_lock);
 
 	if (ret) {
 		if (trace_boot_seamcalls)

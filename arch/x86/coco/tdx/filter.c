@@ -74,6 +74,7 @@ static char *acpi_allow_hids[] = {
 /* List of PLATFORM HID allow list */
 static char *platform_allow_hids[] = {
 	"ACPI0013",
+	"tdx_guest"
 };
 
 static struct authorize_node allow_list[] = {

@@ -5518,7 +5518,7 @@ static int kvm_offline_cpu(unsigned int cpu)
 	return 0;
 }
 
-static void hardware_disable_all_nolock(void)
+void kvm_hardware_disable_all_nolock(void)
 {
 	BUG_ON(!kvm_usage_count);
 
@@ -5526,20 +5526,39 @@ static void hardware_disable_all_nolock(void)
 	if (!kvm_usage_count)
 		on_each_cpu(hardware_disable_nolock, NULL, 1);
 }
+EXPORT_SYMBOL_GPL(kvm_hardware_disable_all_nolock);
 
 static void hardware_disable_all(void)
 {
 	cpus_read_lock();
 	mutex_lock(&kvm_lock);
-	hardware_disable_all_nolock();
+	kvm_hardware_disable_all_nolock();
 	mutex_unlock(&kvm_lock);
 	cpus_read_unlock();
 }
 
-static int hardware_enable_all(void)
+int kvm_hardware_enable_all_nolock(void)
 {
 	atomic_t failed = ATOMIC_INIT(0);
 	int r = 0;
+
+	kvm_usage_count++;
+	if (kvm_usage_count == 1) {
+		on_each_cpu(hardware_enable_nolock, &failed, 1);
+
+		if (atomic_read(&failed)) {
+			kvm_hardware_disable_all_nolock();
+			r = -EBUSY;
+		}
+	}
+
+	return r;
+}
+EXPORT_SYMBOL_GPL(kvm_hardware_enable_all_nolock);
+
+static int hardware_enable_all(void)
+{
+	int r;
 
 	/*
 	 * When onlining a CPU, cpu_online_mask is set before kvm_online_cpu()
@@ -5551,17 +5570,7 @@ static int hardware_enable_all(void)
 	 */
 	cpus_read_lock();
 	mutex_lock(&kvm_lock);
-
-	kvm_usage_count++;
-	if (kvm_usage_count == 1) {
-		on_each_cpu(hardware_enable_nolock, &failed, 1);
-
-		if (atomic_read(&failed)) {
-			hardware_disable_all_nolock();
-			r = -EBUSY;
-		}
-	}
-
+	r = kvm_hardware_enable_all_nolock();
 	mutex_unlock(&kvm_lock);
 	cpus_read_unlock();
 

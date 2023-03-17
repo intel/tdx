@@ -1730,6 +1730,7 @@ struct kvm_x86_ops {
 
 	void (*load_mmu_pgd)(struct kvm_vcpu *vcpu, hpa_t root_hpa,
 			     int root_level);
+	bool (*fault_is_private)(struct kvm *kvm, gpa_t gpa, u64 error_code);
 
 	int (*link_private_spt)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 				void *private_spt);

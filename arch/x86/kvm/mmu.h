@@ -289,6 +289,25 @@ static inline gpa_t kvm_translate_gpa(struct kvm_vcpu *vcpu,
 	return translate_nested_gpa(vcpu, gpa, access, exception);
 }
 
+static inline bool kvm_mmu_fault_is_private_default(struct kvm *kvm, gpa_t gpa, u64 err)
+{
+	struct kvm_memory_slot *slot;
+	gfn_t gfn = gpa_to_gfn(gpa);
+
+	slot = gfn_to_memslot(kvm, gfn);
+	if (!slot)
+		return false;
+
+	if (!kvm_slot_can_be_private(slot))
+		return false;
+
+	/*
+	 * Handling below is for UPM self-tests and guests that treat userspace
+	 * as the authority on whether a fault should be private or not.
+	 */
+	return kvm_mem_is_private(kvm, gfn);
+}
+
 static inline gfn_t kvm_gfn_shared_mask(const struct kvm *kvm)
 {
 #ifdef CONFIG_KVM_MMU_PRIVATE

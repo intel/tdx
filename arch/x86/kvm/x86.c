@@ -9419,6 +9419,14 @@ static inline void kvm_ops_update(struct kvm_x86_init_ops *ops)
 #undef __KVM_X86_OP
 
 	kvm_pmu_ops_update(ops->pmu_ops);
+
+	/*
+	 * TODO: Once all backend fills this option, remove this and the default
+	 * function.
+	 */
+	if (!ops->runtime_ops->fault_is_private)
+		static_call_update(kvm_x86_fault_is_private,
+				   kvm_mmu_fault_is_private_default);
 }
 
 static int kvm_x86_check_processor_compatibility(void)

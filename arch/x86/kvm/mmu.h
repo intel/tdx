@@ -156,7 +156,7 @@ static inline void kvm_mmu_load_pgd(struct kvm_vcpu *vcpu)
 }
 
 kvm_pfn_t kvm_mmu_map_tdp_page(struct kvm_vcpu *vcpu, gpa_t gpa,
-			       u32 error_code, int max_level);
+			       u64 error_code, int max_level);
 
 /*
  * Check if a given access (described through the I/D, W/R and U/S bits of a

@@ -1723,7 +1723,6 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 		 * Unknown VMCALL.  Toss the request to the user space as it may
 		 * know how to handle.
 		 */
-		tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
 		r = tdx_vp_vmcall_to_user(vcpu);
 		break;
 	}

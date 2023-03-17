@@ -772,6 +772,13 @@ static void vt_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa,
 	vmx_load_mmu_pgd(vcpu, root_hpa, pgd_level);
 }
 
+static bool vt_fault_is_private(struct kvm *kvm, gpa_t gpa, u64 error_code)
+{
+	if (is_td(kvm))
+		return kvm_is_private_gpa(kvm, gpa);
+	return false;
+}
+
 static void vt_sched_in(struct kvm_vcpu *vcpu, int cpu)
 {
 	if (is_td_vcpu(vcpu))
@@ -1153,6 +1160,7 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.write_tsc_multiplier = vt_write_tsc_multiplier,
 
 	.load_mmu_pgd = vt_load_mmu_pgd,
+	.fault_is_private = vt_fault_is_private,
 
 	.check_intercept = vt_check_intercept,
 	.handle_exit_irqoff = vt_handle_exit_irqoff,

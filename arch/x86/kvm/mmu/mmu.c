@@ -7908,6 +7908,7 @@ void kvm_arch_set_memory_attributes(struct kvm *kvm,
 				    gfn_t start, gfn_t end)
 {
 	kvm_update_lpage_mixed_flag(kvm, slot, true, attrs, start, end);
+	static_call(kvm_x86_set_mem_attr)(kvm, slot, attrs, start, end);
 }
 
 void kvm_memory_attributes_create_memslot(struct kvm *kvm,

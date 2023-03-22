@@ -2113,6 +2113,13 @@ static bool kvm_check_memslot_overlap(struct kvm_memslots *slots, int id,
 	return false;
 }
 
+#ifndef kvm_arch_required_alignment
+__weak int kvm_arch_required_alignment(u64 gpa)
+{
+	return PAGE_SHIFT
+}
+#endif
+
 /*
  * Return true when ALIGNMENT(offset) >= ALIGNMENT(gpa).
  */
@@ -2123,7 +2130,7 @@ static bool kvm_check_rmem_offset_alignment(u64 offset, u64 gpa)
 	if (!gpa)
 		return false;
 
-	return !!(count_trailing_zeros(offset) >= count_trailing_zeros(gpa));
+	return !!(count_trailing_zeros(offset) >= kvm_arch_required_alignment(gpa));
 }
 
 /*

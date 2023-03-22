@@ -16,6 +16,7 @@
 #include <linux/irq_work.h>
 #include <linux/irq.h>
 #include <linux/workqueue.h>
+#include <linux/count_zeros.h>
 
 #include <linux/kvm.h>
 #include <linux/kvm_para.h>
@@ -142,6 +143,20 @@
 #define KVM_HPAGE_SIZE(x)	(1UL << KVM_HPAGE_SHIFT(x))
 #define KVM_HPAGE_MASK(x)	(~(KVM_HPAGE_SIZE(x) - 1))
 #define KVM_PAGES_PER_HPAGE(x)	(KVM_HPAGE_SIZE(x) / PAGE_SIZE)
+
+#define kvm_arch_required_alignment	kvm_arch_required_alignment
+static inline int kvm_arch_required_alignment(u64 gpa)
+{
+	int zeros = count_trailing_zeros(gpa);
+
+	WARN_ON_ONCE(!PAGE_ALIGNED(gpa));
+	if (zeros >= KVM_HPAGE_SHIFT(PG_LEVEL_1G))
+		return KVM_HPAGE_SHIFT(PG_LEVEL_1G);
+	else if (zeros >= KVM_HPAGE_SHIFT(PG_LEVEL_2M))
+		return KVM_HPAGE_SHIFT(PG_LEVEL_2M);
+
+	return PAGE_SHIFT;
+}
 
 #define KVM_MEMSLOT_PAGES_TO_MMU_PAGES_RATIO 50
 #define KVM_MIN_ALLOC_MMU_PAGES 64UL

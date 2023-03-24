@@ -715,7 +715,14 @@ bool __init get_mtrr_state(void)
 
 	mtrr_state_set = 1;
 
-	return !!(mtrr_state.enabled & MTRR_STATE_MTRR_ENABLED);
+	return !!((mtrr_state.enabled & MTRR_STATE_MTRR_ENABLED) &&
+		  (num_var_ranges ||
+		   /*
+		    * If no variable range MTRR is supported, check if fixed
+		    * range MTRR is enabled or not.
+		    */
+		   (mtrr_state.have_fixed &&
+		    (mtrr_state.enabled & MTRR_STATE_MTRR_FIXED_ENABLED))));
 }
 
 /* Some BIOS's are messed up and don't set all MTRRs the same! */

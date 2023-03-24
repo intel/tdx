@@ -572,6 +572,9 @@ static void get_fixed_ranges(mtrr_type *frs)
 
 	k8_check_syscfg_dram_mod_en();
 
+	if (!mtrr_state.have_fixed)
+		return;
+
 	rdmsr(MSR_MTRRfix64K_00000, p[0], p[1]);
 
 	for (i = 0; i < 2; i++)

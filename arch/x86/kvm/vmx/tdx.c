@@ -3445,6 +3445,10 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 	mutex_lock(&tdx_lock);
 	err = tdh_mng_create(tdr_pa, kvm_tdx->hkid);
 	mutex_unlock(&tdx_lock);
+	if (err == TDX_RND_NO_ENTROPY) {
+		ret = -EAGAIN;
+		goto free_packages;
+	}
 	if (WARN_ON_ONCE(err)) {
 		pr_tdx_error(TDH_MNG_CREATE, err, NULL);
 		ret = -EIO;
@@ -3485,6 +3489,11 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 	kvm_tdx->tdcs_pa = tdcs_pa;
 	for (i = 0; i < tdx_info.nr_tdcs_pages; i++) {
 		err = tdh_mng_addcx(kvm_tdx->tdr_pa, tdcs_pa[i]);
+		if (err == TDX_RND_NO_ENTROPY) {
+			/* Here it's hard to allow userspace to retry. */
+			ret = -EBUSY;
+			goto teardown;
+		}
 		if (WARN_ON_ONCE(err)) {
 			pr_tdx_error(TDH_MNG_ADDCX, err, NULL);
 			ret = -EIO;

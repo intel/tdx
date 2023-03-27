@@ -70,6 +70,8 @@ int tdx_register_event_irq_cb(tdx_event_irq_cb_t handler, void *data);
 
 int tdx_unregister_event_irq_cb(tdx_event_irq_cb_t handler, void *data);
 
+int tdx_hcall_service(u8 *req, u8 *resp, u64 timeout);
+
 #else
 
 static inline void tdx_early_init(void) { };

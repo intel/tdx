@@ -56,6 +56,8 @@ u64 tdx_hcall_get_quote(u8 *buf, size_t size);
 
 int tdx_mcall_extend_rtmr(u8 *data, u64 index);
 
+u64 tdx_hcall_service(u8 *req, u8 *resp, u64 vector, u64 timeout);
+
 #else
 
 static inline void tdx_early_init(void) { };

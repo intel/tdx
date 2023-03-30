@@ -35,6 +35,12 @@
 #include <asm/tdx.h>
 #include "tdx.h"
 
+#ifdef CONFIG_SYSFS
+static int tdx_sysfs_init(void);
+#else
+static inline int tdx_sysfs_init(void) { return 0; }
+#endif
+
 u32 tdx_global_keyid __ro_after_init;
 EXPORT_SYMBOL_GPL(tdx_global_keyid);
 static u32 tdx_guest_keyid_start __ro_after_init;
@@ -206,6 +212,25 @@ int tdx_cpu_enable(void)
 }
 EXPORT_SYMBOL_GPL(tdx_cpu_enable);
 
+struct tdx_info {
+	u32 attributes;
+	u32 vendor_id;
+	u32 build_date;
+	u16 build_num;
+	u16 minor_version;
+	u16 major_version;
+
+	u64 attributes_fixed0;
+	u64 attributes_fixed1;
+	u64 xfam_fixed0;
+	u64 xfam_fixed1;
+
+	u16 num_cpuid_config;
+	DECLARE_FLEX_ARRAY(struct tdx_cpuid_config, cpuid_configs);
+};
+
+static struct tdx_info *tdsysinfo;
+
 /*
  * Add a memory region as a TDX memory block.  The caller must make sure
  * all memory regions are added in address ascending order and don't
@@ -296,6 +321,24 @@ static int read_sys_metadata_field(u64 field_id, u64 *data)
 		return ret;
 
 	*data = args.r8;
+
+	return 0;
+}
+
+static int read_sys_metadata_field32(u64 field_id, u32 *data)
+{
+	u64 _data;
+	int ret;
+
+	if (WARN_ON_ONCE(MD_FIELD_ID_ELE_SIZE_CODE(field_id) !=
+			MD_FIELD_ID_ELE_SIZE_32BIT))
+		return -EINVAL;
+
+	ret = read_sys_metadata_field(field_id, &_data);
+	if (ret)
+		return ret;
+
+	*data = (u32)_data;
 
 	return 0;
 }
@@ -1095,10 +1138,98 @@ static int init_tdmrs(struct tdmr_info_list *tdmr_list)
 	return 0;
 }
 
+struct md_offset {
+	u64 field;
+	int offset;
+};
+
 static int init_tdx_module(void)
 {
 	struct tdx_tdmr_sysinfo tdmr_sysinfo;
-	int ret;
+	u16 num_cpuid_config;
+	int ret, i;
+
+#define MD_OFFSET(field, member) \
+	{ field, offsetof(struct tdx_info, member), }
+
+	struct md_offset md64[] = {
+		MD_OFFSET(MD_FIELD_ID_ATTRS_FIXED0, attributes_fixed0),
+		MD_OFFSET(MD_FIELD_ID_ATTRS_FIXED1, attributes_fixed1),
+		MD_OFFSET(MD_FIELD_ID_XFAM_FIXED0, xfam_fixed0),
+		MD_OFFSET(MD_FIELD_ID_XFAM_FIXED1, xfam_fixed1),
+	};
+	struct md_offset md32[] = {
+		MD_OFFSET(MD_FIELD_ID_SYS_ATTRIBUTES, attributes),
+		MD_OFFSET(MD_FIELD_ID_VENDOR_ID, vendor_id),
+		MD_OFFSET(MD_FIELD_ID_BUILD_DATE, build_date),
+	};
+	struct md_offset md16[] = {
+		MD_OFFSET(MD_FIELD_ID_BUILD_NUM, build_num),
+		MD_OFFSET(MD_FIELD_ID_MAJOR_VERSION, major_version),
+		MD_OFFSET(MD_FIELD_ID_MINOR_VERSION, minor_version),
+	};
+
+	ret = read_sys_metadata_field16(MD_FIELD_ID_NUM_CPUID_CONFIG,
+					&num_cpuid_config);
+	if (ret)
+		return ret;
+	tdsysinfo = kzalloc(sizeof(*tdsysinfo) +
+			    num_cpuid_config * sizeof(tdsysinfo->cpuid_configs[0]),
+			    GFP_KERNEL);
+	if (!tdsysinfo)
+		return -ENOMEM;
+	tdsysinfo->num_cpuid_config = num_cpuid_config;
+
+	for (i = 0; i < ARRAY_SIZE(md64); i++) {
+		ret = read_sys_metadata_field(md64[i].field,
+					      (void*)tdsysinfo + md64[i].offset);
+		if (ret)
+			goto err_free_tdxmem;
+	}
+	for (i = 0; i < ARRAY_SIZE(md32); i++) {
+		ret = read_sys_metadata_field32(md32[i].field,
+						(void*)tdsysinfo + md32[i].offset);
+		if (ret)
+			goto err_free_tdxmem;
+	}
+	for (i = 0; i < ARRAY_SIZE(md16); i++) {
+		ret = read_sys_metadata_field16(md16[i].field,
+						(void*)tdsysinfo + md16[i].offset);
+		if (ret)
+			goto err_free_tdxmem;
+	}
+
+	for (i = 0; i < num_cpuid_config; i++) {
+		struct tdx_cpuid_config *c = &tdsysinfo->cpuid_configs[i];
+		u64 data;
+
+		ret = read_sys_metadata_field(MD_FIELD_ID_CPUID_CONFIG_LEAVES + i,
+					      &data);
+		if (ret)
+			goto err_free_tdxmem;
+		c->leaf_sub_leaf = (struct tdx_cpuid_config_leaf) {
+			.leaf = (u32)data,
+			.sub_leaf = data >> 32,
+		};
+
+		ret = read_sys_metadata_field(MD_FIELD_ID_CPUID_CONFIG_VALUES + i * 2,
+					      &data);
+		if (ret)
+			goto err_free_tdxmem;
+		c->eax = (u32)data;
+		c->ebx = data >> 32;
+
+		ret = read_sys_metadata_field(MD_FIELD_ID_CPUID_CONFIG_VALUES + i * 2 + 1,
+					      &data);
+		if (ret)
+			goto err_free_tdxmem;
+		c->ecx = (u32)data;
+		c->edx = data >> 32;
+	}
+
+	ret = tdx_sysfs_init();
+	if (ret)
+		goto err_free_tdxmem;
 
 	/*
 	 * To keep things simple, assume that all TDX-protected memory
@@ -1188,6 +1319,8 @@ err_free_tdmrs:
 	free_tdmr_list(&tdx_tdmr_list);
 err_free_tdxmem:
 	free_tdx_memlist(&tdx_memlist);
+	/* kfre() accepts NULL. */
+	kfree(tdsysinfo);
 	/* Do things irrelevant to module initialization result */
 	goto out_put_tdxmem;
 }
@@ -1585,3 +1718,153 @@ bool platform_tdx_enabled(void)
 {
 	return !!tdx_global_keyid;
 }
+
+#ifdef CONFIG_SYSFS
+
+static struct kobject *tdx_kobj;
+static struct kobject *tdx_module_kobj;
+static struct kobject *tdx_metadata_kobj;
+
+#define TDX_METADATA_ATTR(_name, field_id_name, _size)		\
+static struct bin_attribute tdx_metadata_ ## _name = {		\
+	.attr = {						\
+		.name = field_id_name,				\
+		.mode = 0444,					\
+	},							\
+	.size = _size,						\
+	.read = tdx_metadata_ ## _name ## _show,		\
+}
+
+#define TDX_METADATA_ATTR_SHOW(_name, field_id_name)					\
+static ssize_t tdx_metadata_ ## _name ## _show(struct file *filp, struct kobject *kobj,	\
+					       struct bin_attribute *bin_attr,		\
+					       char *buf, loff_t offset, size_t count)	\
+{											\
+	return memory_read_from_buffer(buf, count, &offset,				\
+				       &tdsysinfo->_name,					\
+				       sizeof(tdsysinfo->_name));				\
+}											\
+TDX_METADATA_ATTR(_name, field_id_name, sizeof_field(struct tdx_info, _name))
+
+TDX_METADATA_ATTR_SHOW(attributes_fixed0, TDX_METADATA_ATTRIBUTES_FIXED0_NAME);
+TDX_METADATA_ATTR_SHOW(attributes_fixed1, TDX_METADATA_ATTRIBUTES_FIXED1_NAME);
+TDX_METADATA_ATTR_SHOW(xfam_fixed0, TDX_METADATA_XFAM_FIXED0_NAME);
+TDX_METADATA_ATTR_SHOW(xfam_fixed1, TDX_METADATA_XFAM_FIXED1_NAME);
+
+static ssize_t tdx_metadata_num_cpuid_config_show(struct file *filp, struct kobject *kobj,
+						  struct bin_attribute *bin_attr,
+						  char *buf, loff_t offset, size_t count)
+{
+	/*
+	 * Although tdsysinfo_struct.num_cpuid_config is defined as u32 for
+	 * alignment, TDX 1.5 defines metadata NUM_CONFIG_CPUID as u16.
+	 */
+	u16 tmp = (u16)tdsysinfo->num_cpuid_config;
+
+	WARN_ON_ONCE(tmp != tdsysinfo->num_cpuid_config);
+	return memory_read_from_buffer(buf, count, &offset, &tmp, sizeof(tmp));
+}
+TDX_METADATA_ATTR(num_cpuid_config, TDX_METADATA_NUM_CPUID_CONFIG_NAME, sizeof(u16));
+
+static ssize_t tdx_metadata_cpuid_leaves_show(struct file *filp, struct kobject *kobj,
+					      struct bin_attribute *bin_attr, char *buf,
+					      loff_t offset, size_t count)
+{
+	ssize_t r;
+	struct tdx_cpuid_config_leaf *tmp;
+	u32 i;
+
+	tmp = kmalloc(bin_attr->size, GFP_KERNEL);
+	if (!tmp)
+		return -ENOMEM;
+
+	for (i = 0; i < tdsysinfo->num_cpuid_config; i++) {
+		struct tdx_cpuid_config *c = &tdsysinfo->cpuid_configs[i];
+		struct tdx_cpuid_config_leaf *leaf = (struct tdx_cpuid_config_leaf *)c;
+
+		memcpy(tmp + i, leaf, sizeof(*leaf));
+	}
+
+	r = memory_read_from_buffer(buf, count, &offset, tmp, bin_attr->size);
+	kfree(tmp);
+	return r;
+}
+
+TDX_METADATA_ATTR(cpuid_leaves, TDX_METADATA_CPUID_LEAVES_NAME, 0);
+
+static ssize_t tdx_metadata_cpuid_values_show(struct file *filp, struct kobject *kobj,
+					      struct bin_attribute *bin_attr, char *buf,
+					      loff_t offset, size_t count)
+{
+	struct tdx_cpuid_config_value *tmp;
+	ssize_t r;
+	u32 i;
+
+	tmp = kmalloc(bin_attr->size, GFP_KERNEL);
+	if (!tmp)
+		return -ENOMEM;
+
+	for (i = 0; i < tdsysinfo->num_cpuid_config; i++) {
+		struct tdx_cpuid_config *c = &tdsysinfo->cpuid_configs[i];
+		struct tdx_cpuid_config_value *value = (struct tdx_cpuid_config_value *)&c->eax;
+
+		memcpy(tmp + i, value, sizeof(*value));
+	}
+
+	r = memory_read_from_buffer(buf, count, &offset, tmp, bin_attr->size);
+	kfree(tmp);
+	return r;
+}
+
+TDX_METADATA_ATTR(cpuid_values, TDX_METADATA_CPUID_VALUES_NAME, 0);
+
+static struct bin_attribute *tdx_metadata_attrs[] = {
+	&tdx_metadata_attributes_fixed0,
+	&tdx_metadata_attributes_fixed1,
+	&tdx_metadata_xfam_fixed0,
+	&tdx_metadata_xfam_fixed1,
+	&tdx_metadata_num_cpuid_config,
+	&tdx_metadata_cpuid_leaves,
+	&tdx_metadata_cpuid_values,
+	NULL,
+};
+
+static const struct attribute_group tdx_metadata_attr_group = {
+	.bin_attrs = tdx_metadata_attrs,
+};
+
+static int tdx_sysfs_init(void)
+{
+	int ret;
+
+	if (!tdsysinfo)
+		return 0;
+
+	tdx_kobj = kobject_create_and_add("tdx", firmware_kobj);
+	if (!tdx_kobj) {
+		pr_err("kobject_create_and_add tdx failed\n");
+		return -EINVAL;
+	}
+
+	tdx_module_kobj = kobject_create_and_add("tdx_module", tdx_kobj);
+	if (!tdx_module_kobj) {
+		pr_err("kobject_create_and_add tdx_module failed\n");
+		return -EINVAL;
+	}
+	tdx_metadata_kobj = kobject_create_and_add("metadata", tdx_module_kobj);
+	if (!tdx_metadata_kobj) {
+		pr_err("Sysfs exporting tdx global metadata failed %d\n", ret);
+		return -EINVAL;
+	}
+
+	tdx_metadata_cpuid_leaves.size = tdsysinfo->num_cpuid_config *
+		sizeof(struct tdx_cpuid_config_leaf);
+	tdx_metadata_cpuid_values.size = tdsysinfo->num_cpuid_config *
+		sizeof(struct tdx_cpuid_config_value);
+	ret = sysfs_create_group(tdx_metadata_kobj, &tdx_metadata_attr_group);
+	if (ret)
+		pr_err("Sysfs exporting tdx module attributes failed %d\n", ret);
+
+	return ret;
+}
+#endif

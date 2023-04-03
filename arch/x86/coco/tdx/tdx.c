@@ -9,6 +9,7 @@
 #include <linux/io.h>
 #include <linux/irq.h>
 #include <linux/interrupt.h>
+#include <linux/platform_device.h>
 #include <asm/coco.h>
 #include <asm/tdx.h>
 #include <asm/vmx.h>
@@ -936,3 +937,20 @@ void tdx_free_event_irq(int irq)
 	irq_domain_free_irqs(irq, 1);
 }
 EXPORT_SYMBOL_GPL(tdx_free_event_irq);
+
+static struct platform_device tpm_device = {
+	.name = "tpm",
+	.id = -1,
+};
+
+static int __init tdx_device_init(void)
+{
+	if (!cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
+		return 0;
+
+	if (platform_device_register(&tpm_device))
+		pr_warn("TPM device register failed\n");
+
+	return 0;
+}
+device_initcall(tdx_device_init)

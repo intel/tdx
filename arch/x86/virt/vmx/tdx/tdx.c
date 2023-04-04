@@ -30,7 +30,6 @@
 #include <asm/msr-index.h>
 #include <asm/msr.h>
 #include <asm/page.h>
-#include <asm/cpu.h>
 #include <asm/tdx.h>
 #include <asm/set_memory.h>
 #include "tdx.h"

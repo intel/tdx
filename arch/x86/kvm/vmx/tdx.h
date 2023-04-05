@@ -24,13 +24,21 @@ struct kvm_tdx {
 	u64 xfam;
 	int hkid;
 	u8 nr_tdcs_pages;
+	u8 nr_vcpu_tdcx_pages;
+
+	bool finalized;
 
 	u64 tsc_offset;
 };
 
 struct vcpu_tdx {
 	struct kvm_vcpu	vcpu;
-	/* TDX specific members follow. */
+
+	unsigned long tdvpr_pa;
+	unsigned long *tdcx_pa;
+	bool td_vcpu_created;
+
+	bool initialized;
 };
 
 static inline bool is_td(struct kvm *kvm)

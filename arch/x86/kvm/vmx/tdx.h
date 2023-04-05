@@ -27,15 +27,26 @@ struct kvm_tdx {
 	u64 xfam;
 	int hkid;
 	u8 nr_tdcs_pages;
+	u8 nr_vcpu_tdcx_pages;
 
 	u64 tsc_offset;
 
 	enum kvm_tdx_state state;
 };
 
+/* TDX module vCPU states */
+enum vcpu_tdx_state {
+	VCPU_TD_STATE_UNINITIALIZED = 0,
+	VCPU_TD_STATE_INITIALIZED,
+};
+
 struct vcpu_tdx {
 	struct kvm_vcpu	vcpu;
-	/* TDX specific members follow. */
+
+	unsigned long tdvpr_pa;
+	unsigned long *tdcx_pa;
+
+	enum vcpu_tdx_state state;
 };
 
 static inline bool is_td(struct kvm *kvm)

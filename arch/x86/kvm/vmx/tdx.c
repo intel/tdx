@@ -36,6 +36,7 @@ struct tdx_info {
 
 	u16 max_vcpus_per_td;
 	u8 nr_tdcs_pages;
+	u8 nr_tdcx_pages;
 
 	u16 num_cpuid_config;
 	/* This must the last member. */
@@ -90,6 +91,11 @@ static __always_inline hpa_t set_hkid_to_hpa(hpa_t pa, u16 hkid)
 	return pa | ((hpa_t)hkid << boot_cpu_data.x86_phys_bits);
 }
 
+static inline bool is_td_vcpu_created(struct vcpu_tdx *tdx)
+{
+	return tdx->td_vcpu_created;
+}
+
 static inline bool is_td_created(struct kvm_tdx *kvm_tdx)
 {
 	return kvm_tdx->tdr_pa;
@@ -104,6 +110,11 @@ static inline void tdx_hkid_free(struct kvm_tdx *kvm_tdx)
 static inline bool is_hkid_assigned(struct kvm_tdx *kvm_tdx)
 {
 	return kvm_tdx->hkid > 0;
+}
+
+static inline bool is_td_finalized(struct kvm_tdx *kvm_tdx)
+{
+	return kvm_tdx->finalized;
 }
 
 static void tdx_clear_page(unsigned long page_pa)
@@ -388,7 +399,29 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 
 void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 {
-	/* This is stub for now.  More logic will come. */
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	int i;
+
+	/*
+	 * This methods can be called when vcpu allocation/initialization
+	 * failed. So it's possible that hkid, tdvpx and tdvpr are not assigned
+	 * yet.
+	 */
+	if (is_hkid_assigned(to_kvm_tdx(vcpu->kvm)))
+		return;
+
+	if (tdx->tdcx_pa) {
+		for (i = 0; i < tdx_info->nr_tdcx_pages; i++) {
+			if (tdx->tdcx_pa[i])
+				tdx_reclaim_control_page(tdx->tdcx_pa[i]);
+		}
+		kfree(tdx->tdcx_pa);
+		tdx->tdcx_pa = NULL;
+	}
+	if (tdx->tdvpr_pa) {
+		tdx_reclaim_control_page(tdx->tdvpr_pa);
+		tdx->tdvpr_pa = 0;
+	}
 }
 
 void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
@@ -397,8 +430,13 @@ void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	/* Ignore INIT silently because TDX doesn't support INIT event. */
 	if (init_event)
 		return;
+	if (is_td_vcpu_created(to_tdx(vcpu)))
+		return;
 
-	/* This is stub for now. More logic will come here. */
+	/*
+	 * Don't update mp_state to runnable because more initialization
+	 * is needed by TDX_VCPU_INIT.
+	 */
 }
 
 static int tdx_get_capabilities(struct kvm_tdx_cmd *cmd)
@@ -899,11 +937,161 @@ out:
 	return r;
 }
 
+/* VMM can pass one 64bit auxiliary data to vcpu via RCX for guest BIOS. */
+static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	unsigned long *tdcx_pa = NULL;
+	unsigned long tdvpr_pa;
+	unsigned long va;
+	int ret, i;
+	u64 err;
+
+	if (is_td_vcpu_created(tdx))
+		return -EINVAL;
+
+	/*
+	 * vcpu_free method frees allocated pages.  Avoid partial setup so
+	 * that the method can't handle it.
+	 */
+	va = __get_free_page(GFP_KERNEL_ACCOUNT);
+	if (!va)
+		return -ENOMEM;
+	tdvpr_pa = __pa(va);
+
+	tdcx_pa = kcalloc(tdx_info->nr_tdcx_pages, sizeof(*tdx->tdcx_pa),
+			   GFP_KERNEL_ACCOUNT);
+	if (!tdcx_pa) {
+		ret = -ENOMEM;
+		goto free_tdvpr;
+	}
+
+	tdx->tdcx_pa = tdcx_pa;
+	for (i = 0; i < tdx_info->nr_tdcx_pages; i++) {
+		va = __get_free_page(GFP_KERNEL_ACCOUNT);
+		if (!va) {
+			ret = -ENOMEM;
+			goto free_tdvpx;
+		}
+		tdcx_pa[i] = __pa(va);
+	}
+
+	tdx->tdvpr_pa = tdvpr_pa;
+	err = tdh_vp_create(tdx);
+	if (KVM_BUG_ON(err, vcpu->kvm)) {
+		tdx->tdvpr_pa = 0;
+		ret = -EIO;
+		pr_tdx_error(TDH_VP_CREATE, err, NULL);
+		goto free_tdvpx;
+	}
+
+	for (i = 0; i < tdx_info->nr_tdcx_pages; i++) {
+		err = tdh_vp_addcx(tdx, tdcx_pa[i]);
+		if (KVM_BUG_ON(err, vcpu->kvm)) {
+			pr_tdx_error(TDH_VP_ADDCX, err, NULL);
+			for (; i < tdx_info->nr_tdcx_pages; i++) {
+				free_page((unsigned long)__va(tdcx_pa[i]));
+				tdcx_pa[i] = 0;
+			}
+			/* vcpu_free method frees TDCX and TDR donated to TDX */
+			return -EIO;
+		}
+	}
+
+	if (tdx_info->features0 & MD_FIELD_ID_FEATURES0_TOPOLOGY_ENUM)
+		err = tdh_vp_init_apicid(tdx, vcpu_rcx, vcpu->vcpu_id);
+	else
+		err = tdh_vp_init(tdx, vcpu_rcx);
+	if (KVM_BUG_ON(err, vcpu->kvm)) {
+		pr_tdx_error(TDH_VP_INIT, err, NULL);
+		return -EIO;
+	}
+
+	vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
+	tdx->td_vcpu_created = true;
+	return 0;
+
+free_tdvpx:
+	for (i = 0; i < tdx_info->nr_tdcx_pages; i++) {
+		if (tdcx_pa[i])
+			free_page((unsigned long)__va(tdcx_pa[i]));
+		tdcx_pa[i] = 0;
+	}
+	kfree(tdcx_pa);
+	tdx->tdcx_pa = NULL;
+free_tdvpr:
+	if (tdvpr_pa)
+		free_page((unsigned long)__va(tdvpr_pa));
+	tdx->tdvpr_pa = 0;
+
+	return ret;
+}
+
+static int tdx_vcpu_init(struct kvm_vcpu *vcpu, struct kvm_tdx_cmd *cmd)
+{
+	struct msr_data apic_base_msr;
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	int ret;
+
+	if (cmd->flags)
+		return -EINVAL;
+	if (tdx->initialized)
+		return -EINVAL;
+
+	/*
+	 * As TDX requires X2APIC, set local apic mode to X2APIC.  User space
+	 * VMM, e.g. qemu, is required to set CPUID[0x1].ecx.X2APIC=1 by
+	 * KVM_SET_CPUID2.  Otherwise kvm_set_apic_base() will fail.
+	 */
+	apic_base_msr = (struct msr_data) {
+		.host_initiated = true,
+		.data = APIC_DEFAULT_PHYS_BASE | LAPIC_MODE_X2APIC |
+		(kvm_vcpu_is_reset_bsp(vcpu) ? MSR_IA32_APICBASE_BSP : 0),
+	};
+	if (kvm_set_apic_base(vcpu, &apic_base_msr))
+		return -EINVAL;
+
+	ret = tdx_td_vcpu_init(vcpu, (u64)cmd->data);
+	if (ret)
+		return ret;
+
+	tdx->initialized = true;
+	return 0;
+}
+
+int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
+	struct kvm_tdx_cmd cmd;
+	int ret;
+
+	if (!is_hkid_assigned(kvm_tdx) || is_td_finalized(kvm_tdx))
+		return -EINVAL;
+
+	if (copy_from_user(&cmd, argp, sizeof(cmd)))
+		return -EFAULT;
+
+	if (cmd.error)
+		return -EINVAL;
+
+	switch (cmd.id) {
+	case KVM_TDX_INIT_VCPU:
+		ret = tdx_vcpu_init(vcpu, &cmd);
+		break;
+	default:
+		ret = -EINVAL;
+		break;
+	}
+
+	return ret;
+}
+
 static int __init tdx_module_setup(void)
 {
 	struct st {
 		u16 num_cpuid_config;
 		u16 tdcs_base_size;
+		u16 tdvps_base_size;
 	} st;
 	u64 tmp;
 	int ret;
@@ -915,6 +1103,7 @@ static int __init tdx_module_setup(void)
 	struct tdx_metadata_field_mapping st_fields[] = {
 		TDX_INFO_MAP(NUM_CPUID_CONFIG, num_cpuid_config),
 		TDX_INFO_MAP(TDCS_BASE_SIZE, tdcs_base_size),
+		TDX_INFO_MAP(TDVPS_BASE_SIZE, tdvps_base_size),
 	};
 #undef TDX_INFO_MAP
 
@@ -989,6 +1178,11 @@ static int __init tdx_module_setup(void)
 	}
 
 	tdx_info->nr_tdcs_pages = st.tdcs_base_size / PAGE_SIZE;
+	/*
+	 * TDVPS = TDVPR(4K page) + TDCX(multiple 4K pages).
+	 * -1 for TDVPR.
+	 */
+	tdx_info->nr_tdcx_pages = st.tdvps_base_size / PAGE_SIZE - 1;
 
 	/*
 	 * Make TDH.VP.ENTER preserve RBP so that the stack unwinder

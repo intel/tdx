@@ -357,6 +357,7 @@ static void tdx_trace_seamcalls(u64 level)
 
 static int try_init_module_global(void)
 {
+	unsigned long flags;
 	u64 tsx_ctrl;
 	int ret;
 
@@ -364,7 +365,7 @@ static int try_init_module_global(void)
 	 * The TDX module global initialization only needs to be done
 	 * once on any cpu.
 	 */
-	raw_spin_lock(&tdx_global_init_lock);
+	raw_spin_lock_irqsave(&tdx_global_init_lock, flags);
 
 	if (tdx_global_init_status & TDX_GLOBAL_INIT_DONE) {
 		ret = tdx_global_init_status & TDX_GLOBAL_INIT_FAILED ?
@@ -390,7 +391,7 @@ static int try_init_module_global(void)
 	if (ret)
 		tdx_global_init_status |= TDX_GLOBAL_INIT_FAILED;
 out:
-	raw_spin_unlock(&tdx_global_init_lock);
+	raw_spin_unlock_irqrestore(&tdx_global_init_lock, flags);
 
 	if (!ret) {
 		if (trace_boot_seamcalls)

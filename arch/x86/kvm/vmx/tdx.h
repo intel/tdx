@@ -19,11 +19,18 @@ struct kvm_tdx {
 	/* To release hkid */
 	struct mmu_notifier mmu_notifier;
 
+	bool finalized;
+
 	u64 tsc_offset;
 };
 
 struct vcpu_tdx {
 	struct kvm_vcpu	vcpu;
+
+	unsigned long tdvpr_pa;
+	unsigned long *tdvpx_pa;
+
+	bool initialized;
 
 	/*
 	 * Dummy to make pmu_intel not corrupt memory.

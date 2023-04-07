@@ -1554,116 +1554,6 @@ static bool is_cmd_allowed_from_mirror(u32 cmd_id)
 	return false;
 }
 
-static int sev_lock_two_vms(struct kvm *dst_kvm, struct kvm *src_kvm)
-{
-	struct kvm_sev_info *dst_sev = &to_kvm_svm(dst_kvm)->sev_info;
-	struct kvm_sev_info *src_sev = &to_kvm_svm(src_kvm)->sev_info;
-	int r = -EBUSY;
-
-	if (dst_kvm == src_kvm)
-		return -EINVAL;
-
-	/*
-	 * Bail if these VMs are already involved in a migration to avoid
-	 * deadlock between two VMs trying to migrate to/from each other.
-	 */
-	if (atomic_cmpxchg_acquire(&dst_sev->migration_in_progress, 0, 1))
-		return -EBUSY;
-
-	if (atomic_cmpxchg_acquire(&src_sev->migration_in_progress, 0, 1))
-		goto release_dst;
-
-	r = -EINTR;
-	if (mutex_lock_killable(&dst_kvm->lock))
-		goto release_src;
-	if (mutex_lock_killable_nested(&src_kvm->lock, SINGLE_DEPTH_NESTING))
-		goto unlock_dst;
-	return 0;
-
-unlock_dst:
-	mutex_unlock(&dst_kvm->lock);
-release_src:
-	atomic_set_release(&src_sev->migration_in_progress, 0);
-release_dst:
-	atomic_set_release(&dst_sev->migration_in_progress, 0);
-	return r;
-}
-
-static void sev_unlock_two_vms(struct kvm *dst_kvm, struct kvm *src_kvm)
-{
-	struct kvm_sev_info *dst_sev = &to_kvm_svm(dst_kvm)->sev_info;
-	struct kvm_sev_info *src_sev = &to_kvm_svm(src_kvm)->sev_info;
-
-	mutex_unlock(&dst_kvm->lock);
-	mutex_unlock(&src_kvm->lock);
-	atomic_set_release(&dst_sev->migration_in_progress, 0);
-	atomic_set_release(&src_sev->migration_in_progress, 0);
-}
-
-/* vCPU mutex subclasses.  */
-enum sev_migration_role {
-	SEV_MIGRATION_SOURCE = 0,
-	SEV_MIGRATION_TARGET,
-	SEV_NR_MIGRATION_ROLES,
-};
-
-static int sev_lock_vcpus_for_migration(struct kvm *kvm,
-					enum sev_migration_role role)
-{
-	struct kvm_vcpu *vcpu;
-	unsigned long i, j;
-
-	kvm_for_each_vcpu(i, vcpu, kvm) {
-		if (mutex_lock_killable_nested(&vcpu->mutex, role))
-			goto out_unlock;
-
-#ifdef CONFIG_PROVE_LOCKING
-		if (!i)
-			/*
-			 * Reset the role to one that avoids colliding with
-			 * the role used for the first vcpu mutex.
-			 */
-			role = SEV_NR_MIGRATION_ROLES;
-		else
-			mutex_release(&vcpu->mutex.dep_map, _THIS_IP_);
-#endif
-	}
-
-	return 0;
-
-out_unlock:
-
-	kvm_for_each_vcpu(j, vcpu, kvm) {
-		if (i == j)
-			break;
-
-#ifdef CONFIG_PROVE_LOCKING
-		if (j)
-			mutex_acquire(&vcpu->mutex.dep_map, role, 0, _THIS_IP_);
-#endif
-
-		mutex_unlock(&vcpu->mutex);
-	}
-	return -EINTR;
-}
-
-static void sev_unlock_vcpus_for_migration(struct kvm *kvm)
-{
-	struct kvm_vcpu *vcpu;
-	unsigned long i;
-	bool first = true;
-
-	kvm_for_each_vcpu(i, vcpu, kvm) {
-		if (first)
-			first = false;
-		else
-			mutex_acquire(&vcpu->mutex.dep_map,
-				      SEV_NR_MIGRATION_ROLES, 0, _THIS_IP_);
-
-		mutex_unlock(&vcpu->mutex);
-	}
-}
-
 static void sev_migrate_from(struct kvm *dst_kvm, struct kvm *src_kvm)
 {
 	struct kvm_sev_info *dst = &to_kvm_svm(dst_kvm)->sev_info;
@@ -1745,25 +1635,6 @@ static void sev_migrate_from(struct kvm *dst_kvm, struct kvm *src_kvm)
 	}
 }
 
-static int sev_check_source_vcpus(struct kvm *dst, struct kvm *src)
-{
-	struct kvm_vcpu *src_vcpu;
-	unsigned long i;
-
-	if (!sev_es_guest(src))
-		return 0;
-
-	if (atomic_read(&src->online_vcpus) != atomic_read(&dst->online_vcpus))
-		return -EINVAL;
-
-	kvm_for_each_vcpu(i, src_vcpu, src) {
-		if (!src_vcpu->arch.guest_state_protected)
-			return -EINVAL;
-	}
-
-	return 0;
-}
-
 int sev_vm_move_enc_context_from(struct kvm *kvm, unsigned int source_fd)
 {
 	struct kvm_sev_info *dst_sev = &to_kvm_svm(kvm)->sev_info;
@@ -1782,16 +1653,17 @@ int sev_vm_move_enc_context_from(struct kvm *kvm, unsigned int source_fd)
 	}
 
 	source_kvm = f.file->private_data;
-	ret = sev_lock_two_vms(kvm, source_kvm);
+	src_sev = &to_kvm_svm(source_kvm)->sev_info;
+	ret = pre_move_enc_context_from(kvm, source_kvm,
+					&dst_sev->migration_in_progress,
+					&src_sev->migration_in_progress);
 	if (ret)
 		goto out_fput;
 
 	if (sev_guest(kvm) || !sev_guest(source_kvm)) {
 		ret = -EINVAL;
-		goto out_unlock;
+		goto out_post;
 	}
-
-	src_sev = &to_kvm_svm(source_kvm)->sev_info;
 
 	dst_sev->misc_cg = get_current_misc_cg();
 	cg_cleanup_sev = dst_sev;
@@ -1802,34 +1674,21 @@ int sev_vm_move_enc_context_from(struct kvm *kvm, unsigned int source_fd)
 		charged = true;
 	}
 
-	ret = sev_lock_vcpus_for_migration(kvm, SEV_MIGRATION_SOURCE);
-	if (ret)
-		goto out_dst_cgroup;
-	ret = sev_lock_vcpus_for_migration(source_kvm, SEV_MIGRATION_TARGET);
-	if (ret)
-		goto out_dst_vcpu;
-
-	ret = sev_check_source_vcpus(kvm, source_kvm);
-	if (ret)
-		goto out_source_vcpu;
-
 	sev_migrate_from(kvm, source_kvm);
 	kvm_vm_dead(source_kvm);
 	cg_cleanup_sev = src_sev;
 	ret = 0;
 
-out_source_vcpu:
-	sev_unlock_vcpus_for_migration(source_kvm);
-out_dst_vcpu:
-	sev_unlock_vcpus_for_migration(kvm);
 out_dst_cgroup:
 	/* Operates on the source on success, on the destination on failure.  */
 	if (charged)
 		sev_misc_cg_uncharge(cg_cleanup_sev);
 	put_misc_cg(cg_cleanup_sev->misc_cg);
 	cg_cleanup_sev->misc_cg = NULL;
-out_unlock:
-	sev_unlock_two_vms(kvm, source_kvm);
+out_post:
+	post_move_enc_context_from(kvm, source_kvm,
+				   &dst_sev->migration_in_progress,
+				   &src_sev->migration_in_progress);
 out_fput:
 	fdput(f);
 	return ret;
@@ -2062,7 +1921,11 @@ int sev_vm_copy_enc_context_from(struct kvm *kvm, unsigned int source_fd)
 	}
 
 	source_kvm = f.file->private_data;
-	ret = sev_lock_two_vms(kvm, source_kvm);
+	source_sev = &to_kvm_svm(source_kvm)->sev_info;
+	mirror_sev = &to_kvm_svm(kvm)->sev_info;
+	ret = lock_two_vms_for_migration(kvm, source_kvm,
+					 &mirror_sev->migration_in_progress,
+					 &source_sev->migration_in_progress);
 	if (ret)
 		goto e_source_fput;
 
@@ -2082,9 +1945,7 @@ int sev_vm_copy_enc_context_from(struct kvm *kvm, unsigned int source_fd)
 	 * The mirror kvm holds an enc_context_owner ref so its asid can't
 	 * disappear until we're done with it
 	 */
-	source_sev = &to_kvm_svm(source_kvm)->sev_info;
 	kvm_get_kvm(source_kvm);
-	mirror_sev = &to_kvm_svm(kvm)->sev_info;
 	list_add_tail(&mirror_sev->mirror_entry, &source_sev->mirror_vms);
 
 	/* Set enc_context_owner and copy its encryption context over */
@@ -2105,7 +1966,9 @@ int sev_vm_copy_enc_context_from(struct kvm *kvm, unsigned int source_fd)
 	 */
 
 e_unlock:
-	sev_unlock_two_vms(kvm, source_kvm);
+	unlock_two_vms_for_migration(kvm, source_kvm,
+				     &mirror_sev->migration_in_progress,
+				     &source_sev->migration_in_progress);
 e_source_fput:
 	fdput(f);
 	return ret;

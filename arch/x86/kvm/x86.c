@@ -13825,6 +13825,172 @@ unsigned long kvm_get_cr2(struct kvm_vcpu *vcpu)
 }
 EXPORT_SYMBOL_GPL(kvm_get_cr2);
 
+/* vCPU mutex subclasses.  */
+enum migration_role {
+	MIGRATION_SOURCE = 0,
+	MIGRATION_TARGET,
+	NR_MIGRATION_ROLES,
+};
+
+static int lock_vcpus_for_migration(struct kvm *kvm, enum migration_role role)
+{
+	struct kvm_vcpu *vcpu;
+	unsigned long i, j;
+
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		if (mutex_lock_killable_nested(&vcpu->mutex, role))
+			goto out_unlock;
+
+#ifdef CONFIG_PROVE_LOCKING
+		if (!i)
+			/*
+			 * Reset the role to one that avoids colliding with
+			 * the role used for the first vcpu mutex.
+			 */
+			role = NR_MIGRATION_ROLES;
+		else
+			mutex_release(&vcpu->mutex.dep_map, _THIS_IP_);
+#endif
+	}
+
+	return 0;
+
+out_unlock:
+
+	kvm_for_each_vcpu(j, vcpu, kvm) {
+		if (i == j)
+			break;
+
+#ifdef CONFIG_PROVE_LOCKING
+		if (j)
+			mutex_acquire(&vcpu->mutex.dep_map, role, 0, _THIS_IP_);
+#endif
+
+		mutex_unlock(&vcpu->mutex);
+	}
+	return -EINTR;
+}
+
+static void unlock_vcpus_for_migration(struct kvm *kvm)
+{
+	struct kvm_vcpu *vcpu;
+	unsigned long i;
+	bool first = true;
+
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		if (first)
+			first = false;
+		else
+			mutex_acquire(&vcpu->mutex.dep_map, NR_MIGRATION_ROLES,
+				      0, _THIS_IP_);
+
+		mutex_unlock(&vcpu->mutex);
+	}
+}
+
+int lock_two_vms_for_migration(struct kvm *dst_kvm, struct kvm *src_kvm,
+			       atomic_t *dst_migration_in_progress,
+			       atomic_t *src_migration_in_progress)
+{
+	int r = -EBUSY;
+
+	if (dst_kvm == src_kvm)
+		return -EINVAL;
+
+	/*
+	 * Bail if these VMs are already involved in a migration to avoid
+	 * deadlock between two VMs trying to migrate to/from each other.
+	 */
+	if (atomic_cmpxchg_acquire(dst_migration_in_progress, 0, 1))
+		return -EBUSY;
+
+	if (atomic_cmpxchg_acquire(src_migration_in_progress, 0, 1))
+		goto release_dst;
+
+	r = -EINTR;
+	if (mutex_lock_killable(&dst_kvm->lock))
+		goto release_src;
+	if (mutex_lock_killable_nested(&src_kvm->lock, SINGLE_DEPTH_NESTING))
+		goto unlock_dst;
+	return 0;
+
+unlock_dst:
+	mutex_unlock(&dst_kvm->lock);
+release_src:
+	atomic_set_release(src_migration_in_progress, 0);
+release_dst:
+	atomic_set_release(dst_migration_in_progress, 0);
+	return r;
+}
+EXPORT_SYMBOL_GPL(lock_two_vms_for_migration);
+
+void unlock_two_vms_for_migration(struct kvm *dst_kvm, struct kvm *src_kvm,
+				  atomic_t *dst_migration_in_progress,
+				  atomic_t *src_migration_in_progress)
+{
+	mutex_unlock(&dst_kvm->lock);
+	mutex_unlock(&src_kvm->lock);
+	atomic_set_release(dst_migration_in_progress, 0);
+	atomic_set_release(src_migration_in_progress, 0);
+}
+EXPORT_SYMBOL_GPL(unlock_two_vms_for_migration);
+
+int pre_move_enc_context_from(struct kvm *dst_kvm, struct kvm *src_kvm,
+			      atomic_t *dst_migration_in_progress,
+			      atomic_t *src_migration_in_progress)
+{
+	struct kvm_vcpu *src_vcpu;
+	unsigned long i;
+	int ret = -EINVAL;
+
+	ret = lock_two_vms_for_migration(dst_kvm, src_kvm,
+					 dst_migration_in_progress,
+					 src_migration_in_progress);
+	if (ret)
+		return ret;
+
+	ret = lock_vcpus_for_migration(dst_kvm, MIGRATION_TARGET);
+	if (ret)
+		goto unlock_vms;
+
+	ret = lock_vcpus_for_migration(src_kvm, MIGRATION_SOURCE);
+	if (ret)
+		goto unlock_dst_vcpu;
+
+	if (atomic_read(&dst_kvm->online_vcpus) !=
+	    atomic_read(&src_kvm->online_vcpus))
+		goto unlock_dst_vcpu;
+
+	kvm_for_each_vcpu(i, src_vcpu, src_kvm) {
+		if (!src_vcpu->arch.guest_state_protected)
+			goto unlock_dst_vcpu;
+	}
+
+	return 0;
+
+unlock_dst_vcpu:
+	unlock_vcpus_for_migration(dst_kvm);
+unlock_vms:
+	unlock_two_vms_for_migration(dst_kvm, src_kvm,
+				     dst_migration_in_progress,
+				     src_migration_in_progress);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(pre_move_enc_context_from);
+
+void post_move_enc_context_from(struct kvm *dst_kvm, struct kvm *src_kvm,
+				atomic_t *dst_migration_in_progress,
+				atomic_t *src_migration_in_progress)
+{
+	unlock_vcpus_for_migration(src_kvm);
+	unlock_vcpus_for_migration(dst_kvm);
+	unlock_two_vms_for_migration(dst_kvm, src_kvm,
+				     dst_migration_in_progress,
+				     src_migration_in_progress);
+}
+EXPORT_SYMBOL_GPL(post_move_enc_context_from);
+
 bool kvm_arch_dirty_log_supported(struct kvm *kvm)
 {
 	return kvm->arch.vm_type != KVM_X86_TDX_VM;

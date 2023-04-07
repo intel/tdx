@@ -21,10 +21,14 @@ struct kvm_tdx {
 	/*
 	 * Used on each TD-exit, see tdx_user_return_update_cache().
 	 * TSX_CTRL value on TD exit
+	 * If TDX module supports TSX (post 1.0.3.3)
 	 * - set 0     if guest TSX enabled
 	 * - preserved if guest TSX disabled
+	 *
+	 * If TDX module doesn't support TSX (pre 1.0.3.3)
+	 * - set 0
 	 */
-	u64 tsx_supported;
+	u64 tsx_ctrl_reset;
 
 	hpa_t source_pa;
 

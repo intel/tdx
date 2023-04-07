@@ -4,6 +4,7 @@
 
 #include <asm/fpu/xcr.h>
 #include <asm/virtext.h>
+#include <asm/cpu.h>
 #include <asm/tdx.h>
 
 #include "capabilities.h"
@@ -797,7 +798,7 @@ static void tdx_user_return_update_cache(struct kvm_vcpu *vcpu)
 	 * TSX_CTRL is reset to 0 if guest TSX is supported. Otherwise
 	 * preserved.
 	 */
-	if (to_kvm_tdx(vcpu->kvm)->tsx_supported)
+	if (to_kvm_tdx(vcpu->kvm)->tsx_ctrl_reset)
 		kvm_user_return_update_cache(tdx_uret_tsx_ctrl_slot, 0);
 }
 
@@ -850,6 +851,16 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 
 		kvm_wait_lapic_expire(vcpu);
 	}
+
+	/*
+	 * Before 1.0.3.3, TDH.VP.ENTER has special environment requirements
+	 * that RTM_DISABLE(bit 0) and TSX_CPUID_CLEAR(bit 1) of IA32_TSX_CTRL
+	 * must be 0 if it's supported.  MSR_IA32_TSX_CTRL is restored by user
+	 * return msrs callback which is enabled by
+	 * tdx_user_return_update_cache().
+	 */
+	if (unlikely(!tdx_tsx_supported))
+		tsx_ctrl_clear();
 
 	tdx_vcpu_enter_exit(vcpu, tdx);
 
@@ -2362,11 +2373,27 @@ static int setup_tdparams_xfam(struct kvm_cpuid2 *cpuid, struct td_params *td_pa
 	return 0;
 }
 
-static bool tdparams_tsx_supported(struct kvm_cpuid2 *cpuid)
+/*
+ * Determine TSX_CTRL value on tdexit
+ *
+ * tsx for guest:	TSX CTRL value on tdexit
+ *
+ * Pre 1.0.3.3 (tsx for guest isn't supported):
+ * must be disabled	0 (the value must be 0 on tdentry)
+ *
+ * Post 1.0.3.3 (tsx for geust is supported):
+ * disabled		preserved
+ * enabled		0
+ */
+static bool tdparams_tsx_ctrl_reset(struct kvm_cpuid2 *cpuid)
 {
 	const struct kvm_cpuid_entry2 *entry;
 	u64 mask;
 	u32 ebx;
+
+	/* Pre 1.0.3.3 (tsx for guest isn't supported): */
+	if (!tdx_tsx_supported)
+		return true;
 
 	entry = kvm_find_cpuid_entry2(cpuid, 0x7, 0);
 	if (entry)
@@ -2423,7 +2450,7 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 	MEMCPY_SAME_SIZE(td_params->mrowner, init_vm->mrowner);
 	MEMCPY_SAME_SIZE(td_params->mrownerconfig, init_vm->mrownerconfig);
 
-	to_kvm_tdx(kvm)->tsx_supported = tdparams_tsx_supported(cpuid);
+	to_kvm_tdx(kvm)->tsx_ctrl_reset = tdparams_tsx_ctrl_reset(cpuid);
 	return 0;
 }
 

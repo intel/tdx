@@ -170,6 +170,7 @@ int tdx_enable(void);
  * TD-related pages with the assigned key id.  TDR requires this TDX global key
  * id for cache flush unlike other TD-related pages.
  */
+extern bool tdx_tsx_supported __read_mostly;
 extern u32 tdx_global_keyid __ro_after_init;
 int tdx_guest_keyid_alloc(void);
 void tdx_guest_keyid_free(int keyid);

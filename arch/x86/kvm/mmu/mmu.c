@@ -4217,6 +4217,66 @@ out_unlock:
 	return r;
 }
 
+int kvm_mmu_move_private_pages_from(struct kvm_vcpu *vcpu,
+				    struct kvm_vcpu *src_vcpu)
+{
+	struct kvm_mmu *mmu = vcpu->arch.mmu;
+	struct kvm_mmu *src_mmu = src_vcpu->arch.mmu;
+	gfn_t gfn_shared = kvm_gfn_shared_mask(vcpu->kvm);
+	hpa_t private_root_hpa, shared_root_hpa;
+	int r = -EINVAL;
+
+	// Hold locks for both src and dst. Always take the src lock first.
+	write_lock(&src_vcpu->kvm->mmu_lock);
+	write_lock(&vcpu->kvm->mmu_lock);
+
+	if (!gfn_shared)
+		goto out_unlock;
+
+	WARN_ON_ONCE(!is_tdp_mmu_active(vcpu));
+	WARN_ON_ONCE(!is_tdp_mmu_active(src_vcpu));
+
+	r = mmu_topup_memory_caches(vcpu, !vcpu->arch.mmu->root_role.direct);
+	if (r)
+		goto out_unlock;
+
+	/*
+	 * The private root is moved from the src to the dst and is marked as
+	 * invalid in the src.
+	 */
+	private_root_hpa = kvm_tdp_mmu_move_private_pages_from(vcpu, src_vcpu);
+	if (private_root_hpa == INVALID_PAGE) {
+		/*
+		 * This likely means that the private root was already moved by
+		 * another vCPU.
+		 */
+		private_root_hpa = kvm_tdp_mmu_get_vcpu_root_hpa_no_alloc(vcpu, true);
+		if (private_root_hpa == INVALID_PAGE) {
+			r = -EINVAL;
+			goto out_unlock;
+		}
+	}
+
+	mmu->private_root_hpa = private_root_hpa;
+	src_mmu->private_root_hpa = INVALID_PAGE;
+
+	/*
+	 * The shared root is allocated normally and is not moved from the src.
+	 */
+	shared_root_hpa = kvm_tdp_mmu_get_vcpu_root_hpa(vcpu, false);
+	mmu->root.hpa = shared_root_hpa;
+
+	kvm_mmu_load_pgd(vcpu);
+	static_call(kvm_x86_flush_tlb_current)(vcpu);
+
+out_unlock:
+	write_unlock(&vcpu->kvm->mmu_lock);
+	write_unlock(&src_vcpu->kvm->mmu_lock);
+
+	return r;
+}
+EXPORT_SYMBOL(kvm_mmu_move_private_pages_from);
+
 static int mmu_alloc_shadow_roots(struct kvm_vcpu *vcpu)
 {
 	struct kvm_mmu *mmu = vcpu->arch.mmu;

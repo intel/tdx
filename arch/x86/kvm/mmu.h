@@ -123,6 +123,8 @@ void kvm_mmu_unload(struct kvm_vcpu *vcpu);
 void kvm_mmu_free_obsolete_roots(struct kvm_vcpu *vcpu);
 void kvm_mmu_sync_roots(struct kvm_vcpu *vcpu);
 void kvm_mmu_sync_prev_roots(struct kvm_vcpu *vcpu);
+int kvm_mmu_move_private_pages_from(struct kvm_vcpu *vcpu,
+				    struct kvm_vcpu *src_vcpu);
 
 static inline int kvm_mmu_reload(struct kvm_vcpu *vcpu)
 {

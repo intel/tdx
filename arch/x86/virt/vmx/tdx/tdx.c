@@ -40,6 +40,8 @@ static int tdx_sysfs_init(void);
 static inline int tdx_sysfs_init(void) { return 0;}
 #endif
 
+bool tdx_tsx_supported __read_mostly;
+EXPORT_SYMBOL_GPL(tdx_tsx_supported);
 u32 tdx_global_keyid __ro_after_init;
 EXPORT_SYMBOL_GPL(tdx_global_keyid);
 static u32 tdx_guest_keyid_start __ro_after_init;
@@ -301,7 +303,15 @@ static int try_init_module_global(void)
 		goto out;
 	}
 
-	/* All '0's are just unused parameters. */
+	/*
+	 * Determine if TDX module supports TSX or not.
+	 * Before 1.0.3.3: TSX isn't supported.
+	 * TDH.SYS.INIT() requires TSX_CTRL=0 otherwise TDX_INCORRECT_CPUID_VALUE
+	 *
+	 * After 1.0.3.3: TSX is supported.
+	 * TDH.SYS.INIT() accepts any value of TSX_CTRL.
+	 * TDH.SYS.LP.INIT() requires TSX_CTRL is the same value of TDH.SYS.INIT()
+	 */
 	tsx_ctrl = tsx_ctrl_save();
 	tsx_ctrl_restore(tsx_ctrl & ~MSR_TSX_CTRL_MASK);
 	ret = seamcall(TDH_SYS_INIT, 0, 0, 0, 0, NULL, NULL);
@@ -361,6 +371,7 @@ int tdx_cpu_enable(void)
 		goto update_status;
 
 	tsx_ctrl = tsx_ctrl_save();
+	/* TSX_CTRL must have the same value at TDH.SYS.INIT(). */
 	tsx_ctrl_restore(tsx_ctrl & ~MSR_TSX_CTRL_MASK);
 	/* All '0's are just unused parameters */
 	ret = seamcall(TDH_SYS_LP_INIT, 0, 0, 0, 0, NULL, NULL);
@@ -1231,10 +1242,22 @@ static int init_tdx_module(void)
 	struct tdsysinfo_struct *sysinfo = &PADDED_STRUCT(tdsysinfo);
 	struct tdmr_info_list tdmr_list;
 	int ret;
+	int i;
 
 	ret = __tdx_get_sysinfo(sysinfo, cmr_array);
 	if (ret)
 		return ret;
+	/* Check if guest TSX is supported or not. */
+	for (i = 0; i < sysinfo->num_cpuid_config; i++) {
+		struct tdx_cpuid_config *c = &sysinfo->cpuid_configs[i];
+
+		if (c->leaf == 7 && c->sub_leaf == 0) {
+#define CPUID_07_EBX_TSX_MASK	(BIT(4) | BIT(11))
+			if ((c->ebx & CPUID_07_EBX_TSX_MASK) == CPUID_07_EBX_TSX_MASK)
+				tdx_tsx_supported = true;
+			break;
+		}
+	}
 
 	/*
 	 * To keep things simple, assume that all TDX-protected memory

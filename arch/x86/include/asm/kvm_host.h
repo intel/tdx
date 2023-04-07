@@ -1422,8 +1422,11 @@ struct kvm_arch {
 	struct task_struct *nx_huge_page_recovery_thread;
 
 #ifdef CONFIG_X86_64
-	/* The number of TDP MMU pages across all roots. */
+	/* The number of non-private TDP MMU pages across all roots. */
 	atomic64_t tdp_mmu_pages;
+
+	/* Same as tdp_mmu_pages but only for private pages. */
+	atomic64_t tdp_private_mmu_pages;
 
 	/*
 	 * List of struct kvm_mmu_pages being used as roots.

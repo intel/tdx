@@ -53,6 +53,8 @@ struct kvm_tdx {
 	atomic64_t sept_pages[PG_LEVEL_NUM - PG_LEVEL_4K];
 	atomic64_t td_pages;
 #endif
+
+	atomic_t migration_in_progress;
 };
 
 union tdx_exit_reason {

@@ -57,6 +57,7 @@ void kvm_mmu_uninit_tdp_mmu(struct kvm *kvm)
 	destroy_workqueue(kvm->arch.tdp_mmu_zap_wq);
 
 	WARN_ON(atomic64_read(&kvm->arch.tdp_mmu_pages));
+	WARN_ON(atomic64_read(&kvm->arch.tdp_private_mmu_pages));
 	WARN_ON(!list_empty(&kvm->arch.tdp_mmu_roots));
 
 	/*
@@ -318,13 +319,19 @@ static void handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 static void tdp_account_mmu_page(struct kvm *kvm, struct kvm_mmu_page *sp)
 {
 	kvm_account_pgtable_pages((void *)sp->spt, +1);
-	atomic64_inc(&kvm->arch.tdp_mmu_pages);
+	if (is_private_sp(sp))
+		atomic64_inc(&kvm->arch.tdp_private_mmu_pages);
+	else
+		atomic64_inc(&kvm->arch.tdp_mmu_pages);
 }
 
 static void tdp_unaccount_mmu_page(struct kvm *kvm, struct kvm_mmu_page *sp)
 {
 	kvm_account_pgtable_pages((void *)sp->spt, -1);
-	atomic64_dec(&kvm->arch.tdp_mmu_pages);
+	if (is_private_sp(sp))
+		atomic64_dec(&kvm->arch.tdp_private_mmu_pages);
+	else
+		atomic64_dec(&kvm->arch.tdp_mmu_pages);
 }
 
 /**

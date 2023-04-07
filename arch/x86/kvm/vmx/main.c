@@ -1038,6 +1038,14 @@ static int vt_skip_emulated_instruction(struct kvm_vcpu *vcpu)
 	return vmx_skip_emulated_instruction(vcpu);
 }
 
+static int vt_move_enc_context_from(struct kvm *kvm, unsigned int source_fd)
+{
+	if (!is_td(kvm))
+		return -ENOTTY;
+
+	return tdx_vm_move_enc_context_from(kvm, source_fd);
+}
+
 #define VMX_REQUIRED_APICV_INHIBITS				\
 	(BIT(APICV_INHIBIT_REASON_DISABLE)|			\
 	 BIT(APICV_INHIBIT_REASON_ABSENT) |			\
@@ -1201,6 +1209,8 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 
 	.mem_enc_ioctl = vt_mem_enc_ioctl,
 	.vcpu_mem_enc_ioctl = vt_vcpu_mem_enc_ioctl,
+
+	.vm_move_enc_context_from = vt_move_enc_context_from,
 };
 
 struct kvm_x86_init_ops vt_init_ops __initdata = {

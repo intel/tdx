@@ -4,6 +4,7 @@
 
 #include <asm/fpu/xcr.h>
 #include <asm/virtext.h>
+#include <asm/cpu.h>
 #include <asm/tdx.h>
 
 #include "capabilities.h"
@@ -846,6 +847,16 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 
 		kvm_wait_lapic_expire(vcpu);
 	}
+
+	/*
+	 * Before 1.0.3.3, TDH.VP.ENTER has special environment requirements
+	 * that RTM_DISABLE(bit 0) and TSX_CPUID_CLEAR(bit 1) of IA32_TSX_CTRL
+	 * must be 0 if it's supported.  MSR_IA32_TSX_CTRL is restored by user
+	 * return msrs callback which is enabled by
+	 * tdx_user_return_update_cache().
+	 */
+	if (unlikely(!tdx_tsx_supported))
+		tsx_ctrl_clear();
 
 	tdx_vcpu_enter_exit(vcpu, tdx);
 
@@ -2358,11 +2369,27 @@ static int setup_tdparams_xfam(struct kvm_cpuid2 *cpuid, struct td_params *td_pa
 	return 0;
 }
 
+/*
+ * Determine TSX_CTRL value on tdexit
+ *
+ * tsx for guest:	TSX CTRL value on tdexit
+ *
+ * Pre 1.0.3.3 (tsx for guest isn't supported):
+ * must be disabled	0 (the value must be 0 on tdentry)
+ *
+ * Post 1.0.3.3 (tsx for geust is supported):
+ * disabled		TSX_CTRL_RTM_DISABLE | TSX_CTRL_CPUID_CLEAR
+ * enabled		0
+ */
 static u64 tdparams_tsx_ctrl_value(struct kvm_cpuid2 *cpuid)
 {
 	const struct kvm_cpuid_entry2 *entry;
 	u64 mask;
 	u32 ebx;
+
+	/* Pre 1.0.3.3 (tsx for guest isn't supported): */
+	if (!tdx_tsx_supported)
+		return 0;
 
 	entry = kvm_find_cpuid_entry2(cpuid, 0x7, 0);
 	if (entry)

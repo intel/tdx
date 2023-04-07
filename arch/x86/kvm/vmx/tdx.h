@@ -43,6 +43,8 @@ struct kvm_tdx {
 	 */
 	int cpuid_nent;
 	struct kvm_cpuid_entry2 *cpuid;
+
+	atomic_t migration_in_progress;
 };
 
 union tdx_exit_reason {

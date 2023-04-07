@@ -4763,9 +4763,202 @@ static __always_inline bool tdx_guest(struct kvm *kvm)
 	return tdx_kvm->finalized;
 }
 
+#define for_each_memslot_pair(memslots_1, memslots_2, memslot_iter_1, \
+			      memslot_iter_2)                         \
+	for (memslot_iter_1 = rb_first(&memslots_1->gfn_tree),        \
+	    memslot_iter_2 = rb_first(&memslots_2->gfn_tree);         \
+	     memslot_iter_1 && memslot_iter_2;                        \
+	     memslot_iter_1 = rb_next(memslot_iter_1),                \
+	    memslot_iter_2 = rb_next(memslot_iter_2))
+
 static int tdx_migrate_from(struct kvm *dst, struct kvm *src)
 {
-	return -EINVAL;
+	struct rb_node *src_memslot_iter, *dst_memslot_iter;
+	struct vcpu_tdx *dst_tdx_vcpu, *src_tdx_vcpu;
+	struct kvm_memslots *src_slots, *dst_slots;
+	struct kvm_vcpu *dst_vcpu, *src_vcpu;
+	struct kvm_tdx *src_tdx, *dst_tdx;
+	unsigned long i, j;
+	int ret;
+
+	src_tdx = to_kvm_tdx(src);
+	dst_tdx = to_kvm_tdx(dst);
+
+	src_slots = __kvm_memslots(src, 0);
+	dst_slots = __kvm_memslots(dst, 0);
+
+	ret = -EINVAL;
+
+	if (!src_tdx->finalized) {
+		pr_warn("Cannot migrate from a non finalized VM\n");
+		goto abort;
+	}
+
+	// Traverse both memslots in gfn order and compare them
+	for_each_memslot_pair(src_slots, dst_slots, src_memslot_iter, dst_memslot_iter) {
+		struct kvm_memory_slot *src_slot, *dst_slot;
+
+		src_slot =
+			container_of(src_memslot_iter, struct kvm_memory_slot,
+				     gfn_node[src_slots->node_idx]);
+		dst_slot =
+			container_of(src_memslot_iter, struct kvm_memory_slot,
+				     gfn_node[dst_slots->node_idx]);
+
+		if (src_slot->base_gfn != dst_slot->base_gfn ||
+		    src_slot->npages != dst_slot->npages) {
+			pr_warn("Cannot migrate between VMs with different memory slots configurations\n");
+			goto abort;
+		}
+
+		if (src_slot->flags != dst_slot->flags) {
+			pr_warn("Cannot migrate between VMs with different memory slots configurations\n");
+			goto abort;
+		}
+
+		if (src_slot->flags & KVM_MEM_PRIVATE) {
+			rcu_read_lock();
+			if (src_slot->gmem.file->f_inode->i_ino !=
+			    dst_slot->gmem.file->f_inode->i_ino) {
+				pr_warn("Private memslots points to different restricted files\n");
+				rcu_read_unlock();
+				goto abort;
+			}
+
+			if (src_slot->gmem.index != dst_slot->gmem.index) {
+				pr_warn("Private memslots points to the restricted file at different offsets\n");
+				rcu_read_unlock();
+				goto abort;
+			}
+			rcu_read_unlock();
+		}
+	}
+
+	if (src_memslot_iter || dst_memslot_iter) {
+		pr_warn("Cannot migrate between VMs with different memory slots configurations\n");
+		goto abort;
+	}
+
+	dst_tdx->hkid = src_tdx->hkid;
+	dst_tdx->tdr_pa = src_tdx->tdr_pa;
+
+	dst_tdx->tdcs_pa = kcalloc(tdx_info.nr_tdcs_pages, sizeof(*dst_tdx->tdcs_pa),
+			  GFP_KERNEL_ACCOUNT | __GFP_ZERO);
+	if (!dst_tdx->tdcs_pa) {
+		ret = -ENOMEM;
+		goto late_abort;
+	}
+	memcpy(dst_tdx->tdcs_pa, src_tdx->tdcs_pa,
+	       tdx_info.nr_tdcs_pages * sizeof(*dst_tdx->tdcs_pa));
+
+	dst_tdx->tsc_offset = src_tdx->tsc_offset;
+	dst_tdx->attributes = src_tdx->attributes;
+	dst_tdx->xfam = src_tdx->xfam;
+	dst_tdx->kvm.arch.gfn_shared_mask = src_tdx->kvm.arch.gfn_shared_mask;
+
+	kvm_for_each_vcpu(i, src_vcpu, src)
+		tdx_flush_vp_on_cpu(src_vcpu);
+
+	/* Copy per-vCPU state */
+	kvm_for_each_vcpu(i, src_vcpu, src) {
+		src_tdx_vcpu = to_tdx(src_vcpu);
+		dst_vcpu = kvm_get_vcpu(dst, i);
+		dst_tdx_vcpu = to_tdx(dst_vcpu);
+
+		vcpu_load(dst_vcpu);
+
+		memcpy(dst_vcpu->arch.regs, src_vcpu->arch.regs,
+		       NR_VCPU_REGS * sizeof(src_vcpu->arch.regs[0]));
+		dst_vcpu->arch.regs_avail = src_vcpu->arch.regs_avail;
+		dst_vcpu->arch.regs_dirty = src_vcpu->arch.regs_dirty;
+
+		dst_vcpu->arch.tsc_offset = dst_tdx->tsc_offset;
+
+		dst_tdx_vcpu->interrupt_disabled_hlt = src_tdx_vcpu->interrupt_disabled_hlt;
+		dst_tdx_vcpu->buggy_hlt_workaround = src_tdx_vcpu->buggy_hlt_workaround;
+
+		dst_tdx_vcpu->tdvpr_pa = src_tdx_vcpu->tdvpr_pa;
+		dst_tdx_vcpu->tdvpx_pa = kcalloc(tdx_info.nr_tdvpx_pages,
+						 sizeof(*dst_tdx_vcpu->tdvpx_pa),
+						 GFP_KERNEL_ACCOUNT);
+		if (!dst_tdx_vcpu->tdvpx_pa) {
+			ret = -ENOMEM;
+			vcpu_put(dst_vcpu);
+			goto late_abort;
+		}
+		memcpy(dst_tdx_vcpu->tdvpx_pa, src_tdx_vcpu->tdvpx_pa,
+		       tdx_info.nr_tdvpx_pages * sizeof(*dst_tdx_vcpu->tdvpx_pa));
+
+		td_vmcs_write64(dst_tdx_vcpu, POSTED_INTR_DESC_ADDR, __pa(&dst_tdx_vcpu->pi_desc));
+
+		/* Copy private EPT tables */
+		if (kvm_mmu_move_private_pages_from(dst_vcpu, src_vcpu)) {
+			ret = -EINVAL;
+			vcpu_put(dst_vcpu);
+			goto late_abort;
+		}
+
+		for (j = 0; j < tdx_info.nr_tdvpx_pages; j++)
+			src_tdx_vcpu->tdvpx_pa[j] = 0;
+
+		src_tdx_vcpu->tdvpr_pa = 0;
+
+		vcpu_put(dst_vcpu);
+	}
+
+	for_each_memslot_pair(src_slots, dst_slots, src_memslot_iter,
+			      dst_memslot_iter) {
+		struct kvm_memory_slot *src_slot, *dst_slot;
+
+		src_slot = container_of(src_memslot_iter,
+					struct kvm_memory_slot,
+					gfn_node[src_slots->node_idx]);
+		dst_slot = container_of(src_memslot_iter,
+					struct kvm_memory_slot,
+					gfn_node[dst_slots->node_idx]);
+
+		for (i = 1; i < KVM_NR_PAGE_SIZES; ++i) {
+			unsigned long ugfn;
+			int level = i + 1;
+
+			/*
+			 * If the gfn and userspace address are not aligned wrt each other, then
+			 * large page support should already be disabled at this level.
+			 */
+			ugfn = dst_slot->userspace_addr >> PAGE_SHIFT;
+			if ((dst_slot->base_gfn ^ ugfn) & (KVM_PAGES_PER_HPAGE(level) - 1))
+				continue;
+
+			dst_slot->arch.lpage_info[i - 1] =
+				src_slot->arch.lpage_info[i - 1];
+			src_slot->arch.lpage_info[i - 1] = NULL;
+		}
+	}
+
+	dst->mem_attr_array.xa_head = src->mem_attr_array.xa_head;
+	src->mem_attr_array.xa_head = NULL;
+
+	dst_tdx->finalized = true;
+
+	/* Clear source VM to avoid freeing the hkid and pages on VM put */
+	src_tdx->hkid = -1;
+	src_tdx->tdr_pa = 0;
+	for (i = 0; i < tdx_info.nr_tdcs_pages; i++)
+		src_tdx->tdcs_pa[i] = 0;
+
+	return 0;
+
+late_abort:
+	/* If we aborted after the state transfer already started, the src VM
+	 * is no longer valid.
+	 */
+	kvm_vm_dead(src);
+
+abort:
+	dst_tdx->hkid = -1;
+	dst_tdx->tdr_pa = 0;
+
+	return ret;
 }
 
 int tdx_vm_move_enc_context_from(struct kvm *kvm, unsigned int source_fd)

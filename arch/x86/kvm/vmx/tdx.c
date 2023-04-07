@@ -4755,3 +4755,59 @@ int tdx_offline_cpu(void)
 		pr_warn_ratelimited(MSG_ALLPKG_ONLINE);
 	return ret;
 }
+
+static __always_inline bool tdx_guest(struct kvm *kvm)
+{
+	struct kvm_tdx *tdx_kvm = to_kvm_tdx(kvm);
+
+	return tdx_kvm->finalized;
+}
+
+static int tdx_migrate_from(struct kvm *dst, struct kvm *src)
+{
+	return -EINVAL;
+}
+
+int tdx_vm_move_enc_context_from(struct kvm *kvm, unsigned int source_fd)
+{
+	struct kvm_tdx *dst_tdx = to_kvm_tdx(kvm);
+	struct file *src_kvm_file;
+	struct kvm_tdx *src_tdx;
+	struct kvm *src_kvm;
+	int ret;
+
+	src_kvm_file = fget(source_fd);
+	if (!file_is_kvm(src_kvm_file)) {
+		ret = -EBADF;
+		goto out_fput;
+	}
+	src_kvm = src_kvm_file->private_data;
+	src_tdx = to_kvm_tdx(src_kvm);
+
+	ret = pre_move_enc_context_from(kvm, src_kvm,
+					&dst_tdx->migration_in_progress,
+					&src_tdx->migration_in_progress);
+	if (ret)
+		goto out_fput;
+
+	if (tdx_guest(kvm) || !tdx_guest(src_kvm)) {
+		ret = -EINVAL;
+		goto out_post;
+	}
+
+	ret = tdx_migrate_from(kvm, src_kvm);
+	if (ret)
+		goto out_post;
+
+	kvm_vm_dead(src_kvm);
+	ret = 0;
+
+out_post:
+	post_move_enc_context_from(kvm, src_kvm,
+				 &dst_tdx->migration_in_progress,
+				 &src_tdx->migration_in_progress);
+out_fput:
+	if (src_kvm_file)
+		fput(src_kvm_file);
+	return ret;
+}

@@ -29,6 +29,7 @@
 #define ACPI_SIG_BDAT           "BDAT"	/* BIOS Data ACPI Table */
 #define ACPI_SIG_CCEL           "CCEL"	/* CC Event Log Table */
 #define ACPI_SIG_CDAT           "CDAT"	/* Coherent Device Attribute Table */
+#define ACPI_SIG_DALT           "DALT"	/* Device Authorize List Table */
 #define ACPI_SIG_IORT           "IORT"	/* IO Remapping Table */
 #define ACPI_SIG_IVRS           "IVRS"	/* I/O Virtualization Reporting Structure */
 #define ACPI_SIG_LPIT           "LPIT"	/* Low Power Idle Table */
@@ -368,6 +369,28 @@ struct acpi_table_ccel {
 	u16 reserved;
 	u64 log_area_minimum_length;
 	u64 log_area_start_address;
+};
+
+/*******************************************************************************
+ *
+ * DALT - Device Authorize List Table
+ *
+ ******************************************************************************/
+
+struct acpi_table_dalt {
+	struct acpi_table_header header;	/* Common ACPI table header */
+	u8 list_type;				/* 0 - Allow or 1 - Deny List */
+	u8 devices[];
+};
+
+#define ACPI_DALT_PCI_DEV			(0)
+#define ACPI_DALT_ACPI_DEV			(1)
+#define ACPI_DALT_PLATFORM_DEV			(2)
+
+struct acpi_dalt_device {
+	u8 type;			/* 0 - PCI, 1 - ACPI, 2 - Platform */
+	u16 len;			/* Length of the device name */
+	u8 name[];			/* Name of the device */
 };
 
 /*******************************************************************************

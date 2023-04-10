@@ -2535,6 +2535,7 @@ void pci_device_add(struct pci_dev *dev, struct pci_bus *bus)
 	pci_configure_device(dev);
 
 	device_initialize(&dev->dev);
+	dev->dev.authorized = acpi_dev_authorized(&dev->dev);
 	dev->dev.release = pci_release_dev;
 
 	set_dev_node(&dev->dev, pcibus_to_node(bus));

@@ -594,6 +594,17 @@ config ACPI_PRMT
 	  substantially increase computational overhead related to the
 	  initialization of some server systems.
 
+config ACPI_DALT
+	bool "ACPI Device Authorize List Table Support"
+	default y
+	help
+	  Device Authorize List Table (DALT) is used to provide selective
+	  list of authorized devices. It is mainly used in Confidential
+	  Computing platforms to selectively authorize the enumeration of
+	  devices in bus drivers.
+
+	  If you are unsure what to do, do not enable this option.
+
 endif	# ACPI
 
 config X86_PM_TIMER

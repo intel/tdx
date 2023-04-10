@@ -1523,5 +1523,13 @@ extern void acpi_device_notify_remove(struct device *dev);
 static inline void acpi_device_notify(struct device *dev) { }
 static inline void acpi_device_notify_remove(struct device *dev) { }
 #endif
+#ifdef CONFIG_ACPI_DALT
+extern bool acpi_dev_authorized(struct device *dev);
+#else
+static inline bool acpi_dev_authorized(struct device *dev)
+{
+	return dev->authorized;
+}
+#endif
 
 #endif	/*_LINUX_ACPI_H*/

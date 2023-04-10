@@ -8,7 +8,9 @@
 #define pr_fmt(fmt) "ACPI DALT: " fmt
 
 #include <linux/module.h>
+#include <linux/pci.h>
 #include <linux/acpi.h>
+#include <linux/platform_device.h>
 
 /**
  * struct da_bus_node - DA table bus device node struct.
@@ -21,8 +23,65 @@ struct da_bus_node {
 	struct list_head list;
 };
 
+#define dev_is_acpi(dev) ((dev)->bus == &acpi_bus_type)
+
 /* List of parsed DA bus device nodes */
 static LIST_HEAD(da_bus_list);
+
+/* Flag to track initialization status of DALT parser */
+static bool init_done;
+
+/* Type of the DA list 0 for allow list or 1 for deny list */
+static u8 da_list_type;
+
+/**
+ * acpi_dev_authorized() - Check whether the device is in DALT allow or
+ * 			   deny list.
+ * @dev: Struct device of the device to be checked.
+ *
+ * This helper can be used by bus drivers before device_add() or
+ * device_register() to lookup the platform specific initialization
+ * status of the given device.
+ *
+ * Return true if the device is authorized to enumerate, false if the
+ * device is unauthorized or dev->authorized for all other cases.
+ */
+bool acpi_dev_authorized(struct device *dev)
+{
+	const char *bus = dev_bus_name(dev);
+	struct da_bus_node *node;
+	bool match_found = false;
+
+	/* If not initialized or invalid params, return default value */
+	if (!init_done || !dev->bus || !strlen(bus))
+		return dev->authorized;
+
+	/* If the device bus is not supported, return default value */
+	if (!dev_is_pci(dev) && !dev_is_platform(dev) && !dev_is_acpi(dev))
+		return dev->authorized;
+
+	list_for_each_entry(node, &da_bus_list, list) {
+		if ((node->type == ACPI_DALT_PCI_DEV) && dev_is_pci(dev)) {
+			if (pci_match_id((struct pci_device_id *)node->devid,
+					  to_pci_dev(dev))) {
+				match_found = true;
+				break;
+			}
+		}
+
+		if (((node->type == ACPI_DALT_ACPI_DEV) && dev_is_acpi(dev)) ||
+		      (dev_is_platform(dev) && (node->type == ACPI_DALT_PLATFORM_DEV))) {
+			if (!strncmp(node->devid, dev_name(dev), strlen(node->devid))) {
+				match_found = true;
+				break;
+			}
+		}
+	}
+
+	dev_dbg(dev, "DALT: Device match status:%d\n", match_found);
+
+	return !da_list_type ? match_found : !match_found;
+}
 
 static void print_da_bus_list(void)
 {
@@ -154,6 +213,9 @@ static int __init acpi_dalt_init(void)
 	print_da_bus_list();
 
 	acpi_put_table((struct acpi_table_header *)dalt);
+
+	init_done = true;
+	da_list_type = dalt->list_type;
 
 	pr_info("Parsed successfully\n");
 

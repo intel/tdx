@@ -443,6 +443,8 @@ int register_virtio_device(struct virtio_device *dev)
 	INIT_LIST_HEAD(&dev->vqs);
 	spin_lock_init(&dev->vqs_list_lock);
 
+	dev->dev.authorized = true;
+
 	/* We always start by resetting the device, in case a previous
 	 * driver messed it up.  This also tests that code path a little. */
 	virtio_reset_device(dev);

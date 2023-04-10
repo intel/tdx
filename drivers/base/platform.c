@@ -711,6 +711,8 @@ int platform_device_add(struct platform_device *pdev)
 		}
 	}
 
+	pdev->dev.authorized = acpi_dev_authorized(&pdev->dev);
+
 	pr_debug("Registering platform device '%s'. Parent at %s\n",
 		 dev_name(&pdev->dev), dev_name(pdev->dev.parent));
 

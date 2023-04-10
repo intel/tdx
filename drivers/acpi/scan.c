@@ -728,6 +728,8 @@ int acpi_device_add(struct acpi_device *device)
 
 	mutex_unlock(&acpi_device_lock);
 
+	device->dev.authorized = acpi_dev_authorized(&device->dev);
+
 	result = device_add(&device->dev);
 	if (result) {
 		dev_err(&device->dev, "Error registering device\n");

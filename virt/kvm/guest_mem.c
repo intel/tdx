@@ -28,6 +28,7 @@ static struct vfsmount *kvm_gmem_mnt;
 
 struct kvm_gmem {
 	struct kvm *kvm;
+	u64 flags;
 	struct xarray bindings;
 };
 
@@ -36,14 +37,47 @@ static loff_t kvm_gmem_get_size(struct file *file)
 	return i_size_read(file_inode(file));
 }
 
+static struct folio *kvm_gmem_get_huge_folio(struct file *file, pgoff_t index)
+{
+#ifdef CONFIG_TRANSPARENT_HUGEPAGE
+	unsigned long huge_index = round_down(index, HPAGE_PMD_NR);
+	struct address_space *mapping  = file->f_mapping;
+	struct kvm_gmem *gmem = file->private_data;
+	gfp_t gfp = mapping_gfp_mask(mapping);
+	struct folio *folio;
+
+	if (!(gmem->flags & KVM_GUEST_MEMFD_HUGE_PMD))
+		return NULL;
+
+	if (filemap_range_has_page(mapping, huge_index << PAGE_SHIFT,
+				   (huge_index + HPAGE_PMD_NR - 1) << PAGE_SHIFT))
+		return NULL;
+
+	folio = filemap_alloc_folio(gfp, HPAGE_PMD_ORDER);
+	if (!folio)
+		return NULL;
+
+	if (filemap_add_folio(mapping, folio, huge_index, gfp)) {
+		folio_put(folio);
+		return NULL;
+	}
+
+	return folio;
+#else
+	return NULL;
+#endif
+}
+
 static struct folio *kvm_gmem_get_folio(struct file *file, pgoff_t index)
 {
 	struct folio *folio;
 
-	/* TODO: Support huge pages. */
-	folio = filemap_grab_folio(file->f_mapping, index);
-	if (!folio)
-		return NULL;
+	folio = kvm_gmem_get_huge_folio(file, index);
+	if (!folio) {
+		folio = filemap_grab_folio(file->f_mapping, index);
+		if (!folio)
+			return NULL;
+	}
 
 	/*
 	 * TODO: Confirm this won't zero in-use pages, and skip clearing pages
@@ -332,7 +366,8 @@ static const struct inode_operations kvm_gmem_iops = {
 	.setattr	= kvm_gmem_setattr,
 };
 
-static int __kvm_gmem_create(struct kvm *kvm, loff_t size, struct vfsmount *mnt)
+static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags,
+			     struct vfsmount *mnt)
 {
 	const char *anon_name = "[kvm-gmem]";
 	const struct qstr qname = QSTR_INIT(anon_name, strlen(anon_name));
@@ -371,6 +406,7 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, struct vfsmount *mnt)
 
 	kvm_get_kvm(kvm);
 	gmem->kvm = kvm;
+	gmem->flags = flags;
 
 	inode->i_op = &kvm_gmem_iops;
 	inode->i_mapping->a_ops = &kvm_gmem_aops;
@@ -378,6 +414,7 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, struct vfsmount *mnt)
 	inode->i_mode |= S_IFREG;
 	inode->i_size = size;
 	mapping_set_gfp_mask(inode->i_mapping, GFP_HIGHUSER);
+	mapping_set_large_folios(inode->i_mapping);
 	mapping_set_unevictable(inode->i_mapping);
 
 	file->f_flags |= O_LARGEFILE;
@@ -399,14 +436,24 @@ err_fd:
 int kvm_gmem_create(struct kvm *kvm, struct kvm_create_guest_memfd *gmem)
 {
 	loff_t size = gmem->size;
+	u64 flags = gmem->flags;
 
 	if (size < 0 || !PAGE_ALIGNED(size))
 		return -EINVAL;
 
-	if (gmem->flags)
+	if (flags & ~KVM_GUEST_MEMFD_HUGE_PMD)
 		return -EINVAL;
 
-	return __kvm_gmem_create(kvm, size, kvm_gmem_mnt);
+	if (flags & KVM_GUEST_MEMFD_HUGE_PMD) {
+#ifdef CONFIG_TRANSPARENT_HUGEPAGE
+		if (!IS_ALIGNED(size, HPAGE_PMD_SIZE))
+			return -EINVAL;
+#else
+		return -EINVAL;
+#endif
+	}
+
+	return __kvm_gmem_create(kvm, size, flags, kvm_gmem_mnt);
 }
 
 int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,

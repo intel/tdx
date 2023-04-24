@@ -32,11 +32,6 @@ int open_path_or_exit(const char *path, int flags)
 	return fd;
 }
 
-static int memfd_restricted(unsigned int flags)
-{
-	return syscall(__NR_memfd_restricted, flags);
-}
-
 /*
  * Open KVM_DEV_PATH if available, otherwise exit the entire program.
  *
@@ -986,15 +981,6 @@ void vm_userspace_mem_region_add(struct kvm_vm *vm,
 	}
 
 	region->backing_src_type = src_type;
-
-	if (flags & KVM_MEM_PRIVATE) {
-		region->region.restricted_fd = memfd_restricted(0);
-		region->region.restricted_offset = 0;
-
-		TEST_ASSERT(region->region.restricted_fd >= 0,
-			    "Failed to create restricted memfd");
-	}
-
 	region->unused_phy_pages = sparsebit_alloc();
 	sparsebit_set_num(region->unused_phy_pages,
 		guest_paddr >> vm->page_shift, npages);
@@ -1007,10 +993,9 @@ void vm_userspace_mem_region_add(struct kvm_vm *vm,
 	TEST_ASSERT(ret == 0, "KVM_SET_USER_MEMORY_REGION2 IOCTL failed,\n"
 		"  rc: %i errno: %i\n"
 		"  slot: %u flags: 0x%x\n"
-		"  guest_phys_addr: 0x%lx size: 0x%lx restricted fd: %d\n",
+		"  guest_phys_addr: 0x%lx size: 0x%lx",
 		ret, errno, slot, flags,
-		guest_paddr, (uint64_t) region->region.memory_size,
-		region->region.restricted_fd);
+		guest_paddr, (uint64_t) region->region.memory_size);
 
 	/* Add to quick lookup data structures */
 	vm_userspace_mem_region_gpa_insert(&vm->regions.gpa_tree, region);

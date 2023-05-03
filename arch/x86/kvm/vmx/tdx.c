@@ -1538,9 +1538,18 @@ static int tdx_sept_page_aug(struct kvm *kvm, gfn_t gfn,
 		}
 	}
 	if (unlikely(err == (TDX_EPT_ENTRY_STATE_INCORRECT | TDX_OPERAND_ID_RCX))) {
-		/* Someone updated the entry to the same value. */
 		entry.raw = out.rcx;
 		level_state.raw = out.rdx;
+		if (level_state.level == tdx_level &&
+		    level_state.state == TDX_SEPT_PENDING &&
+		    entry.leaf && entry.pfn == pfn && entry.sve) {
+			tdx_unpin(kvm, gfn, pfn, level);
+			WARN_ON_ONCE(!(to_kvm_tdx(kvm)->attributes &
+				       TDX_TD_ATTR_SEPT_VE_DISABLE));
+			return -EAGAIN;
+		}
+
+		/* Someone updated the entry to the same value. */
 		if (level_state.level == tdx_level &&
 		    level_state.state == TDX_SEPT_PRESENT &&
 		    entry.leaf && entry.pfn == pfn) {

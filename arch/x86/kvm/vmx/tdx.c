@@ -1778,6 +1778,23 @@ static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 				.raw = out.rdx,
 			};
 
+			/*
+			 * TD.attribute.sept_ve_disable=1 and EPT violation on
+			 * pending page. Probably it's a race condition or a bug
+			 * for guest TD to access unaccepted region.  Let vcpu
+			 * retry with the expectation of a race condition so that
+			 * other vcpu would accept the page.
+			 */
+			if (level_state.level == tdx_level &&
+			    level_state.state == TDX_SEPT_PENDING &&
+			    entry.leaf && entry.hpa == hpa && entry.sve) {
+				tdx_unpin(kvm, gfn, pfn, level);
+				WARN_ON_ONCE(!(to_kvm_tdx(kvm)->attributes &
+					       BIT(28) /* =ATTR_SEPT_VE_DISABLE) */));
+				WARN_ON_ONCE(1);
+				return -EAGAIN;
+			}
+
 			/* Someone updated the entry to the same value. */
 			if (level_state.level == tdx_level &&
 			    level_state.state == TDX_SEPT_PRESENT &&

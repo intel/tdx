@@ -5,6 +5,7 @@
 
 #include <linux/init.h>
 #include <linux/bits.h>
+#include <asm/errno.h>
 #include <asm/ptrace.h>
 #include <asm/shared/tdx.h>
 

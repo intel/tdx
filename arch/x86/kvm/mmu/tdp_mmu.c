@@ -780,8 +780,11 @@ static int __must_check __set_private_spte_present(struct kvm *kvm, tdp_ptep_t s
 	int ret = 0;
 
 	lockdep_assert_held(&kvm->mmu_lock);
-	/* TDP MMU doesn't change present -> present */
-	KVM_BUG_ON(was_present, kvm);
+	/*
+	 * TDP MMU doesn't change present -> present. split or merge of large
+	 * page can happen.
+	 */
+	KVM_BUG_ON(was_present && (was_leaf == is_leaf), kvm);
 
 	/*
 	 * Handle special case of old_spte being temporarily blocked private

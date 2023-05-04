@@ -108,7 +108,8 @@ struct tdvmcall_service {
 enum tdvmcall_service_id {
 	TDVMCALL_SERVICE_ID_QUERY = 0,
 	TDVMCALL_SERVICE_ID_MIGTD = 1,
-
+	TDVMCALL_SERVICE_ID_VTPM,
+	TDVMCALL_SERVICE_ID_VTPMTD,
 	TDVMCALL_SERVICE_ID_MAX,
 };
 
@@ -119,6 +120,12 @@ static guid_t tdvmcall_service_ids[TDVMCALL_SERVICE_ID_MAX] __read_mostly = {
 	[TDVMCALL_SERVICE_ID_MIGTD]	= GUID_INIT(0xe60e6330, 0x1e09, 0x4387,
 						    0xa4, 0x44, 0x8f, 0x32,
 						    0xb8, 0xd6, 0x11, 0xe5),
+	[TDVMCALL_SERVICE_ID_VTPM]	= GUID_INIT(0x64590793, 0x7852, 0x4e52,
+						    0xbe, 0x45, 0xcd, 0xbb,
+						    0x11, 0x6f, 0x20, 0xf3),
+	[TDVMCALL_SERVICE_ID_VTPMTD]	= GUID_INIT(0xc3c87a08, 0x3b4a, 0x41ad,
+						    0xa5, 0x2d, 0x96, 0xf1,
+						    0x3c, 0xf8, 0x9a, 0x66),
 };
 
 enum tdvmcall_service_status {
@@ -2224,13 +2231,6 @@ static int tdx_handle_service(struct kvm_vcpu *vcpu)
 	enum tdvmcall_service_id service_id;
 	bool need_block = false;
 
-	if (nvector) {
-		pr_warn("%s: interrupt not supported, nvector %lld\n",
-			__func__, nvector);
-		tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
-		goto err_cmd;
-	}
-
 	if (kvm_mem_is_private(kvm, gpa_to_gfn(cmd_gpa)) ||
 	    kvm_mem_is_private(kvm, gpa_to_gfn(resp_gpa))) {
 		pr_warn("%s: cmd or resp buffer is private\n", __func__);
@@ -2249,11 +2249,18 @@ static int tdx_handle_service(struct kvm_vcpu *vcpu)
 	service_id = tdvmcall_get_service_id(cmd_buf->guid);
 	switch (service_id) {
 	case TDVMCALL_SERVICE_ID_QUERY:
+		if (nvector)
+			goto err_vector;
 		tdx_handle_service_query(cmd_buf, resp_buf);
 		break;
 	case TDVMCALL_SERVICE_ID_MIGTD:
+		if (nvector)
+			goto err_vector;
 		need_block = tdx_handle_service_migtd(tdx, cmd_buf, resp_buf);
 		break;
+	case TDVMCALL_SERVICE_ID_VTPM:
+	case TDVMCALL_SERVICE_ID_VTPMTD:
+		goto userspace;
 	default:
 		resp_buf->status = TDVMCALL_SERVICE_S_UNSUPP;
 		pr_warn("%s: unsupported service type\n", __func__);
@@ -2268,6 +2275,16 @@ err_status:
 
 err_cmd:
 	return 1;
+err_vector:
+	kfree(cmd_buf);
+	kfree(resp_buf);
+	pr_warn("%s: interrupt not supported, nvector %lld\n",
+		__func__, nvector);
+	return 1;
+userspace:
+	kfree(cmd_buf);
+	kfree(resp_buf);
+	return tdx_vp_vmcall_to_user(vcpu);
 }
 
 static int handle_tdvmcall(struct kvm_vcpu *vcpu)

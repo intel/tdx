@@ -4,6 +4,7 @@
 
 struct tdx_mig_stream {
 	uint16_t idx;
+	uint32_t buf_list_pages;
 };
 
 struct tdx_mig_state {
@@ -74,10 +75,45 @@ static int tdx_mig_stream_get_attr(struct kvm_device *dev,
 	return -ENXIO;
 }
 
+static int tdx_mig_stream_set_tdx_mig_attr(struct tdx_mig_stream *stream,
+					   struct kvm_dev_tdx_mig_attr *attr)
+{
+	uint32_t req_pages = attr->buf_list_pages;
+	uint32_t min_pages = tdx_mig_caps.nonmem_state_pages;
+
+	if (req_pages > TDX_MIG_BUF_LIST_PAGES_MAX) {
+		stream->buf_list_pages = TDX_MIG_BUF_LIST_PAGES_MAX;
+		pr_warn("Cut the buf_list_npages to the max supported num\n");
+	} else if (req_pages < min_pages) {
+		stream->buf_list_pages = min_pages;
+	} else {
+		stream->buf_list_pages = req_pages;
+	}
+
+	return 0;
+}
+
 static int tdx_mig_stream_set_attr(struct kvm_device *dev,
 				   struct kvm_device_attr *attr)
 {
-	return -ENXIO;
+	struct tdx_mig_stream *stream = dev->private;
+	u64 __user *uaddr = (u64 __user *)(long)attr->addr;
+
+	switch (attr->group) {
+	case KVM_DEV_TDX_MIG_ATTR: {
+		struct kvm_dev_tdx_mig_attr tdx_mig_attr;
+
+		if (copy_from_user(&tdx_mig_attr, uaddr, sizeof(tdx_mig_attr)))
+			return -EFAULT;
+
+		if (tdx_mig_attr.version != KVM_DEV_TDX_MIG_ATTR_VERSION)
+			return -EINVAL;
+
+		return tdx_mig_stream_set_tdx_mig_attr(stream, &tdx_mig_attr);
+	}
+	default:
+		return -EINVAL;
+	}
 }
 
 static int tdx_mig_stream_mmap(struct kvm_device *dev,

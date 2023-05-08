@@ -40,12 +40,35 @@ struct tdx_mig_buf_list {
 	hpa_t hpa;
 };
 
+/*
+ * The page list specifies a list of 4KB pages to be used by the non-memory
+ * states export and import, i.e. TDH_EXPORT_STATE_* and TDH_IMPORT_STATE_*.
+ * Each entry is 64-bit and specifies the physical address of a 4KB buffer.
+ * The list itself is a 4KB page, so it can hold up to 512 entries.
+ */
+union tdx_mig_page_list_info {
+	uint64_t val;
+	struct {
+		uint64_t rsvd0		: 12;
+		uint64_t pfn		: 40;
+		uint64_t rsvd1		: 3;
+		uint64_t last_entry	: 9;
+	};
+};
+
+struct tdx_mig_page_list {
+	hpa_t *entries;
+	union tdx_mig_page_list_info info;
+};
+
 struct tdx_mig_stream {
 	uint16_t idx;
 	uint32_t buf_list_pages;
 	struct tdx_mig_mbmd mbmd;
 	/* List of buffers to export/import the TD private memory data */
 	struct tdx_mig_buf_list mem_buf_list;
+	/* List of buffers to export/miport the TD non-memory state data */
+	struct tdx_mig_page_list page_list;
 };
 
 struct tdx_mig_state {
@@ -251,6 +274,30 @@ static int tdx_mig_stream_buf_list_setup(struct tdx_mig_buf_list *buf_list,
 	return 0;
 }
 
+static int
+tdx_mig_stream_page_list_setup(struct tdx_mig_page_list *page_list,
+			       struct tdx_mig_buf_list *buf_list,
+			       uint32_t npages)
+{
+	struct page *page;
+	uint32_t i;
+
+	page = alloc_pages(GFP_KERNEL_ACCOUNT | __GFP_ZERO, 0);
+	if (!page)
+		return -ENOMEM;
+
+	page_list->entries = page_address(page);
+	page_list->info.pfn = page_to_pfn(page);
+
+	/* Reuse the buffers from the buffer list for pages list */
+	for (i = 0; i < npages; i++)
+		page_list->entries[i] = PFN_PHYS(buf_list->entries[i].pfn);
+
+	page_list->info.last_entry = npages - 1;
+
+	return 0;
+}
+
 static int tdx_mig_stream_setup(struct tdx_mig_stream *stream)
 {
 	int ret;
@@ -264,8 +311,16 @@ static int tdx_mig_stream_setup(struct tdx_mig_stream *stream)
 	if (ret)
 		goto err_mem_buf_list;
 
+	ret = tdx_mig_stream_page_list_setup(&stream->page_list,
+					     &stream->mem_buf_list,
+					     stream->buf_list_pages);
+	if (ret)
+		goto err_page_list;
+
 	return 0;
 
+err_page_list:
+	tdx_mig_stream_buf_list_cleanup(&stream->mem_buf_list);
 err_mem_buf_list:
 	free_page((unsigned long)stream->mbmd.data);
 err_mbmd:
@@ -384,6 +439,7 @@ static void tdx_mig_stream_release(struct kvm_device *dev)
 	atomic_dec(&mig_state->streams_created);
 	free_page((unsigned long)stream->mbmd.data);
 	tdx_mig_stream_buf_list_cleanup(&stream->mem_buf_list);
+	free_page((unsigned long)stream->page_list.entries);
 	kfree(stream);
 }
 

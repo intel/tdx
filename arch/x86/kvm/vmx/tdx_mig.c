@@ -98,6 +98,19 @@ struct tdx_mig_gpa_list {
 	union tdx_mig_gpa_list_info info;
 };
 
+/*
+ * A MAC list specifies a list of MACs over 4KB migrated pages and their GPA
+ * entries. It is used by TDH_EXPORT_MEM and TDH_IMPORT_MEM. Each entry is
+ * 128-bit containing a single AES-GMAC-256 of a migrated page. The list itself
+ * is a 4KB page, so it can hold up to 256 entries. To support the export and
+ * import of 512 pages, two such MAC lists are needed to be passed to the TDX
+ * module.
+ */
+struct tdx_mig_mac_list {
+	void *entries;
+	hpa_t hpa;
+};
+
 struct tdx_mig_stream {
 	uint16_t idx;
 	uint32_t buf_list_pages;
@@ -108,6 +121,8 @@ struct tdx_mig_stream {
 	struct tdx_mig_page_list page_list;
 	/* List of GPA entries used when export/import the TD private memory */
 	struct tdx_mig_gpa_list gpa_list;
+	/* List of MACs used when export/import the TD private memory */
+	struct tdx_mig_mac_list mac_list[2];
 };
 
 struct tdx_mig_state {
@@ -351,6 +366,20 @@ static int tdx_mig_stream_gpa_list_setup(struct tdx_mig_gpa_list *gpa_list)
 	return 0;
 }
 
+static int tdx_mig_stream_mac_list_setup(struct tdx_mig_mac_list *mac_list)
+{
+	struct page *page;
+
+	page = alloc_pages(GFP_KERNEL_ACCOUNT | __GFP_ZERO, 0);
+	if (!page)
+		return -ENOMEM;
+
+	mac_list->entries = page_address(page);
+	mac_list->hpa = page_to_phys(page);
+
+	return 0;
+}
+
 static int tdx_mig_stream_setup(struct tdx_mig_stream *stream)
 {
 	int ret;
@@ -374,7 +403,24 @@ static int tdx_mig_stream_setup(struct tdx_mig_stream *stream)
 	if (ret)
 		goto err_gpa_list;
 
+	ret = tdx_mig_stream_mac_list_setup(&stream->mac_list[0]);
+	if (ret)
+		goto err_mac_list0;
+	/*
+	 * The 2nd mac list is needed only when the buf list uses more than
+	 * 256 entries
+	 */
+	if (stream->buf_list_pages > 256) {
+		ret = tdx_mig_stream_mac_list_setup(&stream->mac_list[1]);
+		if (ret)
+			goto err_mac_list1;
+	}
+
 	return 0;
+err_mac_list1:
+	free_page((unsigned long)stream->mac_list[0].entries);
+err_mac_list0:
+	free_page((unsigned long)stream->gpa_list.entries);
 err_gpa_list:
 	free_page((unsigned long)stream->page_list.entries);
 err_page_list:
@@ -499,6 +545,14 @@ static void tdx_mig_stream_release(struct kvm_device *dev)
 	tdx_mig_stream_buf_list_cleanup(&stream->mem_buf_list);
 	free_page((unsigned long)stream->page_list.entries);
 	free_page((unsigned long)stream->gpa_list.entries);
+	free_page((unsigned long)stream->mac_list[0].entries);
+	/*
+	 * The 2nd mac list page is allocated conditionally when
+	 * stream->buf_list_pages is larger than 256.
+	 */
+	if (stream->mac_list[1].entries)
+		free_page((unsigned long)stream->mac_list[1].entries);
+
 	kfree(stream);
 }
 

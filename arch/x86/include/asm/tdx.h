@@ -38,6 +38,8 @@ struct ve_info {
 
 #ifdef CONFIG_INTEL_TDX_GUEST
 
+extern int tdx_notify_irq;
+
 void __init tdx_early_init(void);
 
 void tdx_get_ve_info(struct ve_info *ve);
@@ -51,6 +53,12 @@ bool tdx_early_handle_ve(struct pt_regs *regs);
 int tdx_mcall_get_report0(u8 *reportdata, u8 *tdreport);
 
 bool tdx_enc_status_changed_phys(phys_addr_t start, phys_addr_t end, bool enc);
+
+u64 tdx_mcall_verify_report(u8 *reportmac);
+
+int tdx_mcall_extend_rtmr(u8 *data, u8 index);
+
+int tdx_hcall_get_quote(void *tdquote, int size);
 
 #else
 

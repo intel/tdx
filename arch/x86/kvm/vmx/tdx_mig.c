@@ -61,6 +61,43 @@ struct tdx_mig_page_list {
 	union tdx_mig_page_list_info info;
 };
 
+union tdx_mig_gpa_list_entry {
+	uint64_t val;
+	struct{
+		uint64_t level          : 2;   // Bits 1:0  :  Mapping level
+		uint64_t pending        : 1;   // Bit 2     :  Page is pending
+		uint64_t reserved_0     : 4;   // Bits 6:3
+		uint64_t l2_map         : 3;   // Bits 9:7  :  L2 mapping flags
+		uint64_t mig_type       : 2;   // Bits 11:10:  Migration type
+		uint64_t gfn            : 40;  // Bits 51:12
+		uint64_t operation      : 2;   // Bits 53:52
+		uint64_t reserved_1     : 2;   // Bits 55:54
+		uint64_t status         : 5;   // Bits 56:52
+		uint64_t reserved_2     : 3;   // Bits 63:61
+	};
+};
+
+/*
+ * The GPA list specifies a list of GPAs to be used by TDH_EXPORT_MEM and
+ * TDH_IMPORT_MEM, TDH_EXPORT_BLOCKW, and TDH_EXPORT_RESTORE. The list itself
+ * is 4KB, so it can hold up to 512 such 64-bit entries.
+ */
+union tdx_mig_gpa_list_info {
+	uint64_t val;
+	struct {
+		uint64_t rsvd0		: 3;
+		uint64_t first_entry	: 9;
+		uint64_t pfn		: 40;
+		uint64_t rsvd1		: 3;
+		uint64_t last_entry	: 9;
+	};
+};
+
+struct tdx_mig_gpa_list {
+	union tdx_mig_gpa_list_entry *entries;
+	union tdx_mig_gpa_list_info info;
+};
+
 struct tdx_mig_stream {
 	uint16_t idx;
 	uint32_t buf_list_pages;
@@ -69,6 +106,8 @@ struct tdx_mig_stream {
 	struct tdx_mig_buf_list mem_buf_list;
 	/* List of buffers to export/miport the TD non-memory state data */
 	struct tdx_mig_page_list page_list;
+	/* List of GPA entries used when export/import the TD private memory */
+	struct tdx_mig_gpa_list gpa_list;
 };
 
 struct tdx_mig_state {
@@ -298,6 +337,20 @@ tdx_mig_stream_page_list_setup(struct tdx_mig_page_list *page_list,
 	return 0;
 }
 
+static int tdx_mig_stream_gpa_list_setup(struct tdx_mig_gpa_list *gpa_list)
+{
+	struct page *page;
+
+	page = alloc_page(GFP_KERNEL_ACCOUNT | __GFP_ZERO);
+	if (!page)
+		return -ENOMEM;
+
+	gpa_list->info.pfn = page_to_pfn(page);
+	gpa_list->entries = page_address(page);
+
+	return 0;
+}
+
 static int tdx_mig_stream_setup(struct tdx_mig_stream *stream)
 {
 	int ret;
@@ -317,8 +370,13 @@ static int tdx_mig_stream_setup(struct tdx_mig_stream *stream)
 	if (ret)
 		goto err_page_list;
 
-	return 0;
+	ret = tdx_mig_stream_gpa_list_setup(&stream->gpa_list);
+	if (ret)
+		goto err_gpa_list;
 
+	return 0;
+err_gpa_list:
+	free_page((unsigned long)stream->page_list.entries);
 err_page_list:
 	tdx_mig_stream_buf_list_cleanup(&stream->mem_buf_list);
 err_mem_buf_list:
@@ -440,6 +498,7 @@ static void tdx_mig_stream_release(struct kvm_device *dev)
 	free_page((unsigned long)stream->mbmd.data);
 	tdx_mig_stream_buf_list_cleanup(&stream->mem_buf_list);
 	free_page((unsigned long)stream->page_list.entries);
+	free_page((unsigned long)stream->gpa_list.entries);
 	kfree(stream);
 }
 

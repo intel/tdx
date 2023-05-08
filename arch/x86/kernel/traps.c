@@ -1432,6 +1432,8 @@ DEFINE_IDTENTRY(exc_virtualization_exception)
 {
 	struct ve_info ve;
 
+	inc_irq_stat(tdx_ve_count);
+
 	/*
 	 * NMIs/Machine-checks/Interrupts will be in a disabled state
 	 * till TDGETVEINFO TDCALL is executed. This ensures that VE

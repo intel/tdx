@@ -2,9 +2,27 @@
 #include <linux/anon_inodes.h>
 #include <linux/kvm_host.h>
 
+struct tdx_mig_mbmd_data {
+	__u16 size;
+	__u16 mig_version;
+	__u16 migs_index;
+	__u8  mb_type;
+	__u8  rsvd0;
+	__u32 mb_counter;
+	__u32 mig_epoch;
+	__u64 iv_counter;
+	__u8  type_specific_info[];
+} __packed;
+
+struct tdx_mig_mbmd {
+	struct tdx_mig_mbmd_data *data;
+	uint64_t addr_and_size;
+};
+
 struct tdx_mig_stream {
 	uint16_t idx;
 	uint32_t buf_list_pages;
+	struct tdx_mig_mbmd mbmd;
 };
 
 struct tdx_mig_state {
@@ -122,11 +140,38 @@ static int tdx_mig_stream_set_tdx_mig_attr(struct tdx_mig_stream *stream,
 	return 0;
 }
 
+static int tdx_mig_stream_mbmd_setup(struct tdx_mig_mbmd *mbmd)
+{
+	struct page *page;
+	unsigned long mbmd_size = PAGE_SIZE;
+	int order = get_order(mbmd_size);
+
+	page = alloc_pages(GFP_KERNEL_ACCOUNT | __GFP_ZERO, order);
+	if (!page)
+		return -ENOMEM;
+
+	mbmd->data = page_address(page);
+	/*
+	 * MBMD address and size format defined in TDX module ABI spec:
+	 * Bits 63:52 - size of the MBMD buffer
+	 * Bits 51:0  - host physical page frame number of the MBMD buffer
+	 */
+	mbmd->addr_and_size = page_to_phys(page) | (mbmd_size - 1) << 52;
+
+	return 0;
+}
+
+static int tdx_mig_stream_setup(struct tdx_mig_stream *stream)
+{
+	return tdx_mig_stream_mbmd_setup(&stream->mbmd);
+}
+
 static int tdx_mig_stream_set_attr(struct kvm_device *dev,
 				   struct kvm_device_attr *attr)
 {
 	struct tdx_mig_stream *stream = dev->private;
 	u64 __user *uaddr = (u64 __user *)(long)attr->addr;
+	int ret;
 
 	switch (attr->group) {
 	case KVM_DEV_TDX_MIG_ATTR: {
@@ -138,11 +183,18 @@ static int tdx_mig_stream_set_attr(struct kvm_device *dev,
 		if (tdx_mig_attr.version != KVM_DEV_TDX_MIG_ATTR_VERSION)
 			return -EINVAL;
 
-		return tdx_mig_stream_set_tdx_mig_attr(stream, &tdx_mig_attr);
+		ret = tdx_mig_stream_set_tdx_mig_attr(stream, &tdx_mig_attr);
+		if (ret)
+			break;
+
+		ret = tdx_mig_stream_setup(stream);
+		break;
 	}
 	default:
 		return -EINVAL;
 	}
+
+	return ret;
 }
 
 static int tdx_mig_stream_mmap(struct kvm_device *dev,
@@ -223,6 +275,7 @@ static void tdx_mig_stream_release(struct kvm_device *dev)
 	struct tdx_mig_stream *stream = dev->private;
 
 	atomic_dec(&mig_state->streams_created);
+	free_page((unsigned long)stream->mbmd.data);
 	kfree(stream);
 }
 

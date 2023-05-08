@@ -429,6 +429,47 @@ of the linear kernel memory area to a regular pointer.
 
 Portable drivers should avoid the use of ioremap_cache().
 
+ioremap_cache_shared()
+----------------------
+
+A version of ioremap_cache() that maps the I/O memory in a way that it can
+be shared with the host in a confidential guest platform. It is mainly used
+in platforms like Trusted Domain Extensions (TDX).
+
+
+ioremap_driver_hardened()
+-------------------------
+
+ioremap_driver_hardened() maps I/O memory so that it can be shared with the host
+in a confidential guest platform. It is mainly used in platforms like
+Trusted Domain Extensions (TDX).
+
+Drivers should not need to use this function directly, but instead use
+functions like pci_iomap_range(), which use it implicitly based on driver
+authorization.
+
+ioremap_driver_hardened_uc()
+----------------------------
+
+ioremap_driver_hardened_uc() is ioremap_uc() version the maps I/O memory
+so that it can be shared with the host in a confidential guest platform.
+It is mainly used in platforms like Trusted Domain Extensions (TDX).
+
+Drivers should not need to use this function directly, but instead use
+functions like devm_ioremap(), which use it implicitly based on driver
+authorization.
+
+ioremap_driver_hardened_wc()
+----------------------------
+
+ioremap_driver_hardened_wc() is ioremap_wc() version the maps I/O memory
+so that it can be shared with the host in a confidential guest platform.
+It is mainly used in platforms like Trusted Domain Extensions (TDX).
+
+Drivers should not need to use this function directly, but instead use
+functions like devm_ioremap(), which use it implicitly based on driver
+authorization.
+
 Architecture example
 --------------------
 

@@ -30,6 +30,7 @@
 #include <linux/jiffies.h>
 #include <linux/semaphore.h>
 #include <linux/security.h>
+#include <linux/cc_platform.h>
 
 #include <asm/io.h>
 #include <linux/uaccess.h>
@@ -307,21 +308,8 @@ static void acpi_unmap(acpi_physical_address pg_off, void __iomem *vaddr)
 		iounmap(vaddr);
 }
 
-/**
- * acpi_os_map_iomem - Get a virtual address for a given physical address range.
- * @phys: Start of the physical address range to map.
- * @size: Size of the physical address range to map.
- *
- * Look up the given physical address range in the list of existing ACPI memory
- * mappings.  If found, get a reference to it and return a pointer to it (its
- * virtual address).  If not found, map it, add it to that list and return a
- * pointer to it.
- *
- * During early init (when acpi_permanent_mmap has not been set yet) this
- * routine simply calls __acpi_map_table() to get the job done.
- */
-void __iomem __ref
-*acpi_os_map_iomem(acpi_physical_address phys, acpi_size size)
+static void __iomem __ref
+*__acpi_os_map_iomem(acpi_physical_address phys, acpi_size size, bool map_shared)
 {
 	struct acpi_ioremap *map;
 	void __iomem *virt;
@@ -352,7 +340,10 @@ void __iomem __ref
 
 	pg_off = round_down(phys, PAGE_SIZE);
 	pg_sz = round_up(phys + size, PAGE_SIZE) - pg_off;
-	virt = acpi_map(phys, size);
+	if (map_shared)
+		virt = ioremap_cache_shared(phys, size);
+	else
+		virt = acpi_map(phys, size);
 	if (!virt) {
 		mutex_unlock(&acpi_ioremap_lock);
 		kfree(map);
@@ -371,6 +362,25 @@ out:
 	mutex_unlock(&acpi_ioremap_lock);
 	return map->virt + (phys - map->phys);
 }
+
+/**
+ * acpi_os_map_iomem - Get a virtual address for a given physical address range.
+ * @phys: Start of the physical address range to map.
+ * @size: Size of the physical address range to map.
+ *
+ * Look up the given physical address range in the list of existing ACPI memory
+ * mappings.  If found, get a reference to it and return a pointer to it (its
+ * virtual address).  If not found, map it, add it to that list and return a
+ * pointer to it.
+ *
+ * During early init (when acpi_permanent_mmap has not been set yet) this
+ * routine simply calls __acpi_map_table() to get the job done.
+ */
+void __iomem __ref
+*acpi_os_map_iomem(acpi_physical_address phys, acpi_size size)
+{
+	return (void *)__acpi_os_map_iomem(phys, size, false);
+}
 EXPORT_SYMBOL_GPL(acpi_os_map_iomem);
 
 void *__ref acpi_os_map_memory(acpi_physical_address phys, acpi_size size)
@@ -378,6 +388,32 @@ void *__ref acpi_os_map_memory(acpi_physical_address phys, acpi_size size)
 	return (void *)acpi_os_map_iomem(phys, size);
 }
 EXPORT_SYMBOL_GPL(acpi_os_map_memory);
+
+/**
+ * acpi_os_map_memory_opregion - Get a virtual address for a given physical
+ * address range. This function is intended to be used only for AML operation
+ * regions. In a confidential computing guest such regions needs to be explicitly
+ * shared with the host to avoid breaking the communication. 
+ *
+ * @phys: Start of the physical address range to map.
+ * @size: Size of the physical address range to map.
+ *
+ * Look up the given physical address range in the list of existing ACPI memory
+ * mappings.  If found, get a reference to it and return a pointer to it (its
+ * virtual address).  If not found, map it, add it to that list and return a
+ * pointer to it.
+ *
+ * During early init (when acpi_permanent_mmap has not been set yet) this
+ * routine simply calls __acpi_map_table() to get the job done.
+ */
+void *__ref acpi_os_map_memory_opregion(acpi_physical_address phys, acpi_size size)
+{
+	if (!cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT))
+		return (void *)__acpi_os_map_iomem(phys, size, false);
+	else
+		return (void *)__acpi_os_map_iomem(phys, size, true);
+}
+EXPORT_SYMBOL_GPL(acpi_os_map_memory_opregion);
 
 static void acpi_os_map_remove(struct work_struct *work)
 {
@@ -1630,6 +1666,26 @@ static int __init acpi_no_static_ssdt_setup(char *s)
 }
 
 early_param("acpi_no_static_ssdt", acpi_no_static_ssdt_setup);
+
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_tbl_allow_setup
+ *
+ * PARAMETERS:  S           - Comma separated list of ACPI tables
+ *
+ * DESCRIPTION: Update the acpi_tbl_allow_list with list of platform
+ *		specific ACPI tables allow-list. Call it in early init
+ *		code (acpi_tbl_allow_list need to be updated before
+ *		ACPI tables are installed by OS).
+ *
+ ******************************************************************************/
+void acpi_tbl_allow_setup(char *s)
+{
+	char *name;
+
+	while ((name = strsep(&s, ",")))
+		acpi_tbl_allow_list[acpi_tbl_allow_len++] = name;
+}
 
 static int __init acpi_disable_return_repair(char *s)
 {

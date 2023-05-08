@@ -21,6 +21,7 @@
 #include <linux/pgtable.h>
 #include <linux/crc32.h>
 #include <linux/dma-direct.h>
+#include <linux/cc_platform.h>
 
 #include "internal.h"
 
@@ -727,6 +728,9 @@ int acpi_device_add(struct acpi_device *device)
 	acpi_store_pld_crc(device);
 
 	mutex_unlock(&acpi_device_lock);
+
+	if (cc_platform_has(CC_ATTR_GUEST_DEVICE_FILTER))
+		device->dev.authorized = arch_dev_authorized(&device->dev);
 
 	result = device_add(&device->dev);
 	if (result) {

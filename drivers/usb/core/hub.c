@@ -2628,10 +2628,10 @@ fail:
 int usb_deauthorize_device(struct usb_device *usb_dev)
 {
 	usb_lock_device(usb_dev);
-	if (usb_dev->authorized == 0)
+	if (!dev_is_authorized(&usb_dev->dev))
 		goto out_unauthorized;
 
-	usb_dev->authorized = 0;
+	dev_set_authorized(&usb_dev->dev, false);
 	usb_set_configuration(usb_dev, -1);
 
 out_unauthorized:
@@ -2645,7 +2645,7 @@ int usb_authorize_device(struct usb_device *usb_dev)
 	int result = 0, c;
 
 	usb_lock_device(usb_dev);
-	if (usb_dev->authorized == 1)
+	if (dev_is_authorized(&usb_dev->dev))
 		goto out_authorized;
 
 	result = usb_autoresume_device(usb_dev);
@@ -2664,7 +2664,7 @@ int usb_authorize_device(struct usb_device *usb_dev)
 		}
 	}
 
-	usb_dev->authorized = 1;
+	dev_set_authorized(&usb_dev->dev, true);
 	/* Choose and set the configuration.  This registers the interfaces
 	 * with the driver core and lets interface drivers bind to them.
 	 */

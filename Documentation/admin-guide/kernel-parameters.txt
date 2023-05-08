@@ -401,6 +401,17 @@
 	autoconf=	[IPV6]
 			See Documentation/networking/ipv6.rst.
 
+	authorize_allow_devs= [KNL]
+			Format: bus_name:dev_name
+			Override default authorization of given device.
+			Multiple devices can be specified in comma
+			separated list. Multiple bus/devices combinations
+			can be specified separated by semicolon. For example,
+			to allow vritio device and PCI device (Virtio NET),
+			use virtio:virtio0;pci:0x1af4:0x1000;. To allow all
+			devices in PCI bus use pci:ALL or to allow all bus
+			and devices use ALL:ALL.
+
 	apm=		[APM] Advanced Power Management
 			See header of arch/x86/kernel/apm_32.c.
 
@@ -2204,6 +2215,18 @@
 			1 - Bypass the IOMMU for DMA.
 			unset - Use value of CONFIG_IOMMU_DEFAULT_PASSTHROUGH.
 
+	ioremap_force_shared= [X86_64]
+			Force the kernel to use shared memory mappings which do
+			not use ioremap_driver_hardened() to opt-in to shared
+			mappings with the host. This feature is mainly used by
+			a confidential guest when enabling new drivers without
+			proper shared memory related changes. Please note that
+			this option might also allow other non explicitly enabled
+			drivers to interact with the host in protected guest,
+			which could cause other security risks. This option will
+			also cause BIOS data structures to be shared with the host,
+			which might open security holes.
+
 	io7=		[HW] IO7 for Marvel-based Alpha systems
 			See comment before marvel_specify_io7 in
 			arch/alpha/kernel/core_marvel.c.
@@ -3633,6 +3656,10 @@
 	noautogroup	Disable scheduler automatic task group creation.
 
 	nocache		[ARM]
+
+	noccfilter	[x86]
+			Disable Confidential computing (CC) guest filter
+			support.
 
 	no_console_suspend
 			[HW] Never suspend the console
@@ -6186,6 +6213,13 @@
 			"tcp_no_metrics_save" section for more details.
 
 	tdfx=		[HW,DRM]
+
+	tdx_allow_acpi= [X86,INTEL]
+			Override the TDX ACPI filter allowing ACPI tables
+			table. Multiple tables can be separated by comma.
+			For example tdx_allow_acpi=HPET to allow HPET.
+			Note that allowing unhardened drivers is likely
+			a security hole
 
 	test_suspend=	[SUSPEND]
 			Format: { "mem" | "standby" | "freeze" }[,N]

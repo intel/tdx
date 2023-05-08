@@ -40,9 +40,13 @@ struct ve_info {
 
 extern int tdx_notify_irq;
 
+bool tdx_debug_enabled(void);
+
 void __init tdx_early_init(void);
 
 void tdx_get_ve_info(struct ve_info *ve);
+
+void __init tdx_filter_init(void);
 
 bool tdx_handle_virt_exception(struct pt_regs *regs, struct ve_info *ve);
 
@@ -60,10 +64,13 @@ int tdx_mcall_extend_rtmr(u8 *data, u8 index);
 
 int tdx_hcall_get_quote(void *tdquote, int size);
 
+bool tdx_allowed_port(int port);
+
 #else
 
 static inline void tdx_early_init(void) { };
 static inline void tdx_safe_halt(void) { };
+static inline void tdx_filter_init(void) { };
 
 static inline bool tdx_early_handle_ve(struct pt_regs *regs) { return false; }
 

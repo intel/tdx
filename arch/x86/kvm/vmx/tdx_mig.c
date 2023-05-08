@@ -19,10 +19,33 @@ struct tdx_mig_mbmd {
 	uint64_t addr_and_size;
 };
 
+/*
+ * The buffer list specifies a list of 4KB pages to be used by TDH_EXPORT_MEM
+ * and TDH_IMPORT_MEM to export and import guest memory pages. Each entry
+ * is 64-bit and points to a physical address of a 4KB page used as buffer. The
+ * list itself is a 4KB page, so it can hold up to 512 entries.
+ */
+union tdx_mig_buf_list_entry {
+	uint64_t val;
+	struct {
+		uint64_t rsvd0		: 12;
+		uint64_t pfn		: 40;
+		uint64_t rsvd1		: 11;
+		uint64_t invalid	: 1;
+	};
+};
+
+struct tdx_mig_buf_list {
+	union tdx_mig_buf_list_entry *entries;
+	hpa_t hpa;
+};
+
 struct tdx_mig_stream {
 	uint16_t idx;
 	uint32_t buf_list_pages;
 	struct tdx_mig_mbmd mbmd;
+	/* List of buffers to export/import the TD private memory data */
+	struct tdx_mig_buf_list mem_buf_list;
 };
 
 struct tdx_mig_state {
@@ -161,9 +184,93 @@ static int tdx_mig_stream_mbmd_setup(struct tdx_mig_mbmd *mbmd)
 	return 0;
 }
 
+static void tdx_mig_stream_buf_list_cleanup(struct tdx_mig_buf_list *buf_list)
+{
+	int i;
+	kvm_pfn_t pfn;
+	struct page *page;
+
+	if (!buf_list->entries)
+		return;
+
+	for (i = 0; i < 512; i++) {
+		pfn = buf_list->entries[i].pfn;
+		if (!pfn)
+			break;
+		page = pfn_to_page(pfn);
+		__free_page(page);
+	}
+	free_page((unsigned long)buf_list->entries);
+}
+
+static int tdx_mig_stream_buf_list_alloc(struct tdx_mig_buf_list *buf_list)
+{
+	struct page *page;
+
+	/*
+	 * Allocate the buf list page, which has 512 entries pointing to up to
+	 * 512 pages used as buffers to export/import migration data.
+	 */
+	page = alloc_page(GFP_KERNEL_ACCOUNT | __GFP_ZERO);
+	if (!page)
+		return -ENOMEM;
+
+	buf_list->entries = page_address(page);
+	buf_list->hpa = page_to_phys(page);
+
+	return 0;
+}
+
+static int tdx_mig_stream_buf_list_setup(struct tdx_mig_buf_list *buf_list,
+					 uint32_t npages)
+{
+	int i;
+	struct page *page;
+
+	if (!npages) {
+		pr_err("Userspace should set_attr on the device first\n");
+		return -EINVAL;
+	}
+
+	if (tdx_mig_stream_buf_list_alloc(buf_list))
+		return -ENOMEM;
+
+	for (i = 0; i < npages; i++) {
+		page = alloc_page(GFP_KERNEL_ACCOUNT | __GFP_ZERO);
+		if (!page) {
+			tdx_mig_stream_buf_list_cleanup(buf_list);
+			return -ENOMEM;
+		}
+		buf_list->entries[i].pfn = page_to_pfn(page);
+	}
+
+	/* Mark unused entries as invalid */
+	for (i = npages; i < 512; i++)
+		buf_list->entries[i].invalid = true;
+
+	return 0;
+}
+
 static int tdx_mig_stream_setup(struct tdx_mig_stream *stream)
 {
-	return tdx_mig_stream_mbmd_setup(&stream->mbmd);
+	int ret;
+
+	ret = tdx_mig_stream_mbmd_setup(&stream->mbmd);
+	if (ret)
+		goto err_mbmd;
+
+	ret = tdx_mig_stream_buf_list_setup(&stream->mem_buf_list,
+					    stream->buf_list_pages);
+	if (ret)
+		goto err_mem_buf_list;
+
+	return 0;
+
+err_mem_buf_list:
+	free_page((unsigned long)stream->mbmd.data);
+err_mbmd:
+	pr_err("%s failed\n", __func__);
+	return ret;
 }
 
 static int tdx_mig_stream_set_attr(struct kvm_device *dev,
@@ -276,6 +383,7 @@ static void tdx_mig_stream_release(struct kvm_device *dev)
 
 	atomic_dec(&mig_state->streams_created);
 	free_page((unsigned long)stream->mbmd.data);
+	tdx_mig_stream_buf_list_cleanup(&stream->mem_buf_list);
 	kfree(stream);
 }
 

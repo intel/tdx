@@ -13,6 +13,8 @@
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/numa.h>
+#include <linux/random.h>
+#include <linux/virtio_anchor.h>
 #include <asm/coco.h>
 #include <asm/tdx.h>
 #include <asm/i8259.h>
@@ -426,6 +428,47 @@ static int write_msr(struct pt_regs *regs, struct ve_info *ve)
 	return ve_instr_len(ve);
 }
 
+/*
+ * TDX has context switched MSRs and emulated MSRs. The emulated MSRs
+ * normally trigger a #VE, but that is expensive, which can be avoided
+ * by doing a direct TDCALL. Unfortunately, this cannot be done for all
+ * because some MSRs are "context switched" and need WRMSR.
+ *
+ * The list for this is unfortunately quite long. To avoid maintaining
+ * very long switch statements just do a fast path for the few critical
+ * MSRs that need TDCALL, currently only TSC_DEADLINE.
+ *
+ * More can be added as needed.
+ *
+ * The others will be handled by the #VE handler as needed.
+ * See 18.1 "MSR virtualization" in the TDX Module EAS
+ */
+static bool tdx_fast_tdcall_path_msr(unsigned int msr)
+{
+	switch (msr) {
+	case MSR_IA32_TSC_DEADLINE:
+		return true;
+	default:
+		return false;
+
+	}
+}
+
+static void notrace tdx_write_msr(unsigned int msr, u32 low, u32 high)
+{
+	struct tdx_hypercall_args args = {
+		.r10 = TDX_HYPERCALL_STANDARD,
+		.r11 = hcall_func(EXIT_REASON_MSR_WRITE),
+		.r12 = msr,
+		.r13 = (u64)high << 32 | low,
+	};
+
+	if (tdx_fast_tdcall_path_msr(msr))
+		__tdx_hypercall(&args);
+	else
+		native_write_msr(msr, low, high);
+}
+
 static int handle_cpuid(struct pt_regs *regs, struct ve_info *ve)
 {
 	struct tdx_hypercall_args args = {
@@ -595,6 +638,102 @@ static int handle_mmio(struct pt_regs *regs, struct ve_info *ve)
 	memcpy(reg, &val, size);
 	return insn.length;
 }
+
+static unsigned long tdx_virt_mmio(int size, bool write, unsigned long vaddr,
+	unsigned long* val)
+{
+	pte_t* pte;
+	int level;
+
+	pte = lookup_address(vaddr, &level);
+	if (!pte)
+		return -EIO;
+
+	return write ? 
+		mmio_write(size,
+			(pte_pfn(*pte) << PAGE_SHIFT) +
+			(vaddr & ~page_level_mask(level)),
+			*val) :
+		mmio_read(size,
+			(pte_pfn(*pte) << PAGE_SHIFT) +
+			(vaddr & ~page_level_mask(level)),
+			val);
+}
+
+static unsigned char tdx_mmio_readb(void __iomem* addr)
+{
+	unsigned long val;
+
+	if (tdx_virt_mmio(1, false, (unsigned long)addr, &val))
+		return 0xff;
+	return val;
+}
+
+static unsigned short tdx_mmio_readw(void __iomem* addr)
+{
+	unsigned long val;
+
+	if (tdx_virt_mmio(2, false, (unsigned long)addr, &val))
+		return 0xffff;
+	return val;
+}
+
+static unsigned int tdx_mmio_readl(void __iomem* addr)
+{
+	unsigned long val;
+
+	if (tdx_virt_mmio(4, false, (unsigned long)addr, &val))
+		return 0xffffffff;
+	return val;
+}
+
+static unsigned long tdx_mmio_readq(void __iomem* addr)
+{
+	unsigned long val;
+
+	if (tdx_virt_mmio(8, false, (unsigned long)addr, &val))
+		return 0xffffffffffffffff;
+	return val;
+}
+
+static void tdx_mmio_writeb(unsigned char v, void __iomem* addr)
+{
+	unsigned long val = v;
+
+	tdx_virt_mmio(1, true, (unsigned long)addr, &val);
+}
+
+static void tdx_mmio_writew(unsigned short v, void __iomem* addr)
+{
+	unsigned long val = v;
+
+	tdx_virt_mmio(2, true, (unsigned long)addr, &val);
+}
+
+static void tdx_mmio_writel(unsigned int v, void __iomem* addr)
+{
+	unsigned long val = v;
+
+	tdx_virt_mmio(4, true, (unsigned long)addr, &val);
+}
+
+static void tdx_mmio_writeq(unsigned long v, void __iomem* addr)
+{
+	unsigned long val = v;
+
+	tdx_virt_mmio(8, true, (unsigned long)addr, &val);
+}
+
+static const struct iomap_mmio tdx_iomap_mmio = {
+	.ireadb = tdx_mmio_readb,
+	.ireadw = tdx_mmio_readw,
+	.ireadl = tdx_mmio_readl,
+	.ireadq = tdx_mmio_readq,
+	.iwriteb = tdx_mmio_writeb,
+	.iwritew = tdx_mmio_writew,
+	.iwritel = tdx_mmio_writel,
+	.iwriteq = tdx_mmio_writeq,
+};
 
 static bool handle_in(struct pt_regs *regs, int size, int port)
 {
@@ -793,6 +932,17 @@ bool tdx_handle_virt_exception(struct pt_regs *regs, struct ve_info *ve)
 	/* After successful #VE handling, move the IP */
 	regs->ip += insn_len;
 
+	/*
+	 * Single-stepping through an emulated instruction is
+	 * two-fold: handling the #VE and raising a #DB. The
+	 * former is taken care of above; this tells the #VE
+	 * trap handler to do the latter. #DB is raised after
+	 * the instruction has been executed; the IP also needs
+	 * to be advanced in this case.
+	 */
+	if (regs->flags & X86_EFLAGS_TF)
+		return false;
+
 	return true;
 }
 
@@ -852,6 +1002,35 @@ void __init tdx_early_init(void)
 	setup_clear_cpu_cap(X86_FEATURE_MCE);
 	setup_clear_cpu_cap(X86_FEATURE_MTRR);
 	setup_clear_cpu_cap(X86_FEATURE_TME);
+
+	/*
+	 * The only secure (monotonous) timer inside a TD guest
+	 * is the TSC. The TDX module does various checks on the TSC.
+	 * There are no other reliable fall back options. Also checking
+	 * against jiffies is very unreliable. So force the TSC reliable.
+	 */
+	setup_force_cpu_cap(X86_FEATURE_TSC_RELIABLE);
+
+	/*
+	 * In TDX relying on environmental noise like interrupt
+	 * timing alone is dubious, because it can be directly
+	 * controlled by a untrusted hypervisor. Make sure to
+	 * mix in the CPU hardware random number generator too.
+	 */
+	random_enable_trust_cpu();
+
+	iomap_mmio = &tdx_iomap_mmio;
+
+	/*
+	 * Make sure there is a panic if something goes wrong,
+	 * just in case it's some kind of host attack.
+	 */
+	panic_on_oops = 1;
+
+	/* Set restricted memory access for virtio. */
+	virtio_set_mem_acc_cb(virtio_require_restricted_mem_acc);
+
+	pv_ops.cpu.write_msr = tdx_write_msr;
 
 	cc_set_vendor(CC_VENDOR_INTEL);
 	tdx_parse_tdinfo(&cc_mask);

@@ -296,6 +296,14 @@ static uint32_t __init xen_platform_hvm(void)
 	uint32_t xen_domain = xen_cpuid_base();
 	struct x86_hyper_init *h = &x86_hyper_xen_hvm.init;
 
+	/*
+	 * Make sure a malicious hypervisor cannot fake being Xen through CPUID.
+	 * It cannot fake being Xen-PV because that would need a special entry
+	 * point.
+	 */
+	if (cc_platform_has(CC_ATTR_GUEST_CPUID_FILTER))
+		return 0;
+
 	if (xen_pv_domain())
 		return 0;
 

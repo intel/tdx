@@ -1559,23 +1559,24 @@ static void handle_control_message(struct virtio_device *vdev,
 				   struct ports_device *portdev,
 				   struct port_buffer *buf)
 {
-	struct virtio_console_control *cpkt;
+	struct virtio_console_control cpkt;
 	struct port *port;
 	size_t name_size;
 	int err;
 
-	cpkt = (struct virtio_console_control *)(buf->buf + buf->offset);
+	/* Keep a local copy of the control structure */
+	memcpy(&cpkt, buf->buf + buf->offset, sizeof(cpkt));
 
-	port = find_port_by_id(portdev, virtio32_to_cpu(vdev, cpkt->id));
+	port = find_port_by_id(portdev, virtio32_to_cpu(vdev, cpkt.id));
 	if (!port &&
-	    cpkt->event != cpu_to_virtio16(vdev, VIRTIO_CONSOLE_PORT_ADD)) {
+	    cpkt.event != cpu_to_virtio16(vdev, VIRTIO_CONSOLE_PORT_ADD)) {
 		/* No valid header at start of buffer.  Drop it. */
 		dev_dbg(&portdev->vdev->dev,
-			"Invalid index %u in control packet\n", cpkt->id);
+			"Invalid index %u in control packet\n", cpkt.id);
 		return;
 	}
 
-	switch (virtio16_to_cpu(vdev, cpkt->event)) {
+	switch (virtio16_to_cpu(vdev, cpkt.event)) {
 	case VIRTIO_CONSOLE_PORT_ADD:
 		if (port) {
 			dev_dbg(&portdev->vdev->dev,
@@ -1583,21 +1584,21 @@ static void handle_control_message(struct virtio_device *vdev,
 			send_control_msg(port, VIRTIO_CONSOLE_PORT_READY, 1);
 			break;
 		}
-		if (virtio32_to_cpu(vdev, cpkt->id) >=
+		if (virtio32_to_cpu(vdev, cpkt.id) >=
 		    portdev->max_nr_ports) {
 			dev_warn(&portdev->vdev->dev,
 				"Request for adding port with "
 				"out-of-bound id %u, max. supported id: %u\n",
-				cpkt->id, portdev->max_nr_ports - 1);
+				cpkt.id, portdev->max_nr_ports - 1);
 			break;
 		}
-		add_port(portdev, virtio32_to_cpu(vdev, cpkt->id));
+		add_port(portdev, virtio32_to_cpu(vdev, cpkt.id));
 		break;
 	case VIRTIO_CONSOLE_PORT_REMOVE:
 		unplug_port(port);
 		break;
 	case VIRTIO_CONSOLE_CONSOLE_PORT:
-		if (!cpkt->value)
+		if (!cpkt.value)
 			break;
 		if (is_console_port(port))
 			break;
@@ -1618,7 +1619,7 @@ static void handle_control_message(struct virtio_device *vdev,
 		if (!is_console_port(port))
 			break;
 
-		memcpy(&size, buf->buf + buf->offset + sizeof(*cpkt),
+		memcpy(&size, buf->buf + buf->offset + sizeof(cpkt),
 		       sizeof(size));
 		set_console_size(port, size.rows, size.cols);
 
@@ -1627,7 +1628,7 @@ static void handle_control_message(struct virtio_device *vdev,
 		break;
 	}
 	case VIRTIO_CONSOLE_PORT_OPEN:
-		port->host_connected = virtio16_to_cpu(vdev, cpkt->value);
+		port->host_connected = virtio16_to_cpu(vdev, cpkt.value);
 		wake_up_interruptible(&port->waitqueue);
 		/*
 		 * If the host port got closed and the host had any
@@ -1658,7 +1659,7 @@ static void handle_control_message(struct virtio_device *vdev,
 		 * Skip the size of the header and the cpkt to get the size
 		 * of the name that was sent
 		 */
-		name_size = buf->len - buf->offset - sizeof(*cpkt) + 1;
+		name_size = buf->len - buf->offset - sizeof(cpkt) + 1;
 
 		port->name = kmalloc(name_size, GFP_KERNEL);
 		if (!port->name) {
@@ -1666,7 +1667,7 @@ static void handle_control_message(struct virtio_device *vdev,
 				"Not enough space to store port name\n");
 			break;
 		}
-		strscpy(port->name, buf->buf + buf->offset + sizeof(*cpkt),
+		strscpy(port->name, buf->buf + buf->offset + sizeof(cpkt),
 			name_size);
 
 		/*

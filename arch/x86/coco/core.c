@@ -44,6 +44,10 @@ static bool intel_cc_platform_has(enum cc_attr attr)
 	case CC_ATTR_HOTPLUG_DISABLED:
 	case CC_ATTR_GUEST_MEM_ENCRYPT:
 	case CC_ATTR_MEM_ENCRYPT:
+	case CC_ATTR_GUEST_HARDENED:
+	case CC_ATTR_GUEST_SECURE_TIME:
+	case CC_ATTR_GUEST_CPUID_FILTER:
+	case CC_ATTR_GUEST_RAND_LOOP:
 		return true;
 	case CC_ATTR_GUEST_DEVICE_FILTER:
 		return cc_filter_status;

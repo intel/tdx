@@ -7,8 +7,10 @@
 #include <linux/cpufeature.h>
 #include <linux/export.h>
 #include <linux/io.h>
+#include <linux/pci.h>
 #include <asm/coco.h>
 #include <asm/tdx.h>
+#include <asm/i8259.h>
 #include <asm/vmx.h>
 #include <asm/insn.h>
 #include <asm/insn-eval.h>
@@ -737,6 +739,9 @@ void __init tdx_early_init(void)
 		return;
 
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
+	setup_clear_cpu_cap(X86_FEATURE_MCE);
+	setup_clear_cpu_cap(X86_FEATURE_MTRR);
+	setup_clear_cpu_cap(X86_FEATURE_TME);
 
 	cc_set_vendor(CC_VENDOR_INTEL);
 	tdx_parse_tdinfo(&cc_mask);
@@ -756,6 +761,11 @@ void __init tdx_early_init(void)
 	x86_platform.guest.enc_cache_flush_required = tdx_cache_flush_required;
 	x86_platform.guest.enc_tlb_flush_required   = tdx_tlb_flush_required;
 	x86_platform.guest.enc_status_change_finish = tdx_enc_status_changed;
+
+	legacy_pic = &null_legacy_pic;
+
+	pci_disable_early();
+	pci_disable_mmconf();
 
 	pr_info("Guest detected\n");
 }

@@ -952,7 +952,11 @@ static int restrictedmem_get_gfn_range(struct kvm_memory_slot *slot,
 				       struct kvm_gfn_range *range)
 {
 	pgoff_t start = max(start_orig, slot->restrictedmem.index);
-	pgoff_t end = min(end_orig, slot->restrictedmem.index + slot->npages - 1);
+	/*
+	 * restricted mem uses inclusive ranges. i.e. [start, end].
+	 * KVM callback assumes [start, end) as other KVM code.
+	 */
+	pgoff_t end = min(end_orig + 1, slot->restrictedmem.index + slot->npages - 1);
 
 	if (WARN_ON_ONCE(start > end)) {
 		pr_warn("%s: slot->id: %d, start: 0x%lx, end: 0x%lx, gfn_base: 0x%llx, fd_offset: 0x%lx, start_orig: 0x%lx\n",

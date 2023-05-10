@@ -1468,7 +1468,8 @@ static int tdp_mmu_merge_private_spt(struct kvm_vcpu *vcpu,
 			continue;
 		}
 
-		WARN_ON_ONCE(spte_to_pfn(child_iter.old_spte) != spte_to_pfn(new_spte) + i);
+		WARN_ON_ONCE(is_private_zapped_spte(old_spte) &&
+			     spte_to_pfn(child_iter.old_spte) != spte_to_pfn(new_spte) + i);
 		child_spte = make_huge_page_split_spte(kvm, new_spte, child_sp->role, i);
 		/*
 		 * Because other thread may have started to operate on this spte
@@ -1506,9 +1507,7 @@ static int tdp_mmu_merge_private_spt(struct kvm_vcpu *vcpu,
 	 */
 	if (ret) {
 		if (static_call(kvm_x86_unzap_private_spte)(kvm, gfn, level))
-			old_spte = SHADOW_NONPRESENT_VALUE |
-				(spte_to_pfn(old_spte) << PAGE_SHIFT) |
-				PT_PAGE_SIZE_MASK;
+			old_spte = __private_zapped_spte(old_spte);
 		goto out;
 	}
 

@@ -125,6 +125,15 @@ union tdx_mig_ept_info {
 	};
 };
 
+union tdx_mig_stream_info {
+	uint64_t val;
+	struct {
+		uint64_t index	: 16;
+		uint64_t rsvd	: 47;
+		uint64_t resume	: 1;
+	};
+};
+
 struct tdx_mig_stream {
 	uint16_t idx;
 	uint32_t buf_list_pages;
@@ -621,10 +630,60 @@ static int tdx_mig_stream_mmap(struct kvm_device *dev,
 	return 0;
 }
 
+static int tdx_mig_export_state_immutable(struct kvm_tdx *kvm_tdx,
+					  struct tdx_mig_stream *stream,
+					  uint64_t __user *data)
+{
+	struct tdx_mig_page_list *page_list = &stream->page_list;
+	union tdx_mig_stream_info stream_info = {.val = 0};
+	struct tdx_module_args out;
+	uint64_t err;
+
+	do {
+		err = tdh_export_state_immutable(kvm_tdx->tdr_pa,
+						 stream->mbmd.addr_and_size,
+						 page_list->info.val,
+						 stream_info.val,
+						 &out);
+		if (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
+			stream_info.resume = 1;
+	} while (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
+
+	if (err == TDX_SUCCESS) {
+		stream->idx = stream->mbmd.data->migs_index;
+		/* Tell userspace the num of exported 4KB pages */
+		if (copy_to_user(data, &out.rdx, sizeof(uint64_t)))
+			return -EFAULT;
+	} else {
+		pr_err("%s: failed, err=%llx\n", __func__, err);
+		return -EIO;
+	}
+
+	return 0;
+}
+
 static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 				 unsigned long arg)
 {
-	return -ENXIO;
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(dev->kvm);
+	struct tdx_mig_stream *stream = dev->private;
+	void __user *argp = (void __user *)arg;
+	struct kvm_tdx_cmd tdx_cmd;
+	int r;
+
+	if (copy_from_user(&tdx_cmd, argp, sizeof(struct kvm_tdx_cmd)))
+		return -EFAULT;
+
+	switch (tdx_cmd.id) {
+	case KVM_TDX_MIG_EXPORT_STATE_IMMUTABLE:
+		r = tdx_mig_export_state_immutable(kvm_tdx, stream,
+					(uint64_t __user *)tdx_cmd.data);
+		break;
+	default:
+		r = -EINVAL;
+	}
+
+	return r;
 }
 
 static int tdx_mig_do_stream_create(struct kvm_tdx *kvm_tdx,

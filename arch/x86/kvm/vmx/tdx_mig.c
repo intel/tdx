@@ -72,6 +72,7 @@ union tdx_mig_gpa_list_entry {
 		uint64_t gfn            : 40;  // Bits 51:12
 		uint64_t operation      : 2;   // Bits 53:52
 		uint64_t reserved_1     : 2;   // Bits 55:54
+#define GPA_LIST_S_SUCCESS	0
 		uint64_t status         : 5;   // Bits 56:52
 		uint64_t reserved_2     : 3;   // Bits 63:61
 	};
@@ -695,6 +696,80 @@ static int tdx_mig_import_state_immutable(struct kvm_tdx *kvm_tdx,
 	return kvm_prealloc_private_pages(&kvm_tdx->kvm, true);
 }
 
+static void tdx_mig_buf_list_set_valid(struct tdx_mig_buf_list *mem_buf_list,
+				       uint64_t num)
+{
+	int i;
+
+	for (i = 0; i < num; i++)
+		mem_buf_list->entries[i].invalid = false;
+
+	for (i = num; i < 512; i++) {
+		if (!mem_buf_list->entries[i].invalid)
+			mem_buf_list->entries[i].invalid = true;
+		else
+			break;
+	}
+}
+
+static int64_t tdx_mig_stream_export_mem(struct kvm_tdx *kvm_tdx,
+					 struct tdx_mig_stream *stream,
+					 uint64_t __user *data)
+{
+	struct tdx_mig_gpa_list *gpa_list = &stream->gpa_list;
+	struct tdx_mig_buf_list *mem_buf_list = &stream->mem_buf_list;
+	union tdx_mig_stream_info stream_info = {.val = 0};
+	struct tdx_module_args out;
+	uint64_t npages, err;
+
+	if (copy_from_user(&npages, (void __user *)data, sizeof(uint64_t)))
+		return -EFAULT;
+
+	if (npages > stream->buf_list_pages)
+		return -EINVAL;
+
+	/*
+	 * The gpa list page is shared to userspace to fill GPAs directly.
+	 * Only need to update the gpa_list info fields here.
+	 */
+	gpa_list->info.first_entry = 0;
+	gpa_list->info.last_entry = npages - 1;
+	tdx_mig_buf_list_set_valid(&stream->mem_buf_list, npages);
+
+	stream_info.index = stream->idx;
+	do {
+		err = tdh_export_mem(kvm_tdx->tdr_pa,
+				     stream->mbmd.addr_and_size,
+				     gpa_list->info.val,
+				     mem_buf_list->hpa,
+				     stream->mac_list[0].hpa,
+				     stream->mac_list[1].hpa,
+				     stream_info.val,
+				     &out);
+		if (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE) {
+			stream_info.resume = 1;
+			/* Update the gpa_list_info (mainly first_entry) */
+			gpa_list->info.val = out.rcx;
+		}
+	} while (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
+
+	if (seamcall_masked_status(err) == TDX_SUCCESS) {
+		/*
+		 * 1 for GPA list and 1 for MAC list
+		 * TODO: Improve by checking GPA list entries
+		 */
+		out.rdx = out.rdx - 2;
+		if (copy_to_user(data, &out.rdx, sizeof(uint64_t)))
+			return -EFAULT;
+	} else {
+		pr_err("%s: err=%llx, gfn=%llx\n",
+			__func__, err, (uint64_t)gpa_list->entries[0].gfn);
+		return -EIO;
+	}
+
+	return 0;
+}
+
 static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 				 unsigned long arg)
 {
@@ -714,6 +789,10 @@ static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 		break;
 	case KVM_TDX_MIG_IMPORT_STATE_IMMUTABLE:
 		r = tdx_mig_import_state_immutable(kvm_tdx, stream,
+					(uint64_t __user *)tdx_cmd.data);
+		break;
+	case KVM_TDX_MIG_EXPORT_MEM:
+		r = tdx_mig_stream_export_mem(kvm_tdx, stream,
 					(uint64_t __user *)tdx_cmd.data);
 		break;
 	default:

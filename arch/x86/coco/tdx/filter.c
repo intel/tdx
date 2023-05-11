@@ -74,7 +74,8 @@ static char *acpi_allow_hids[] = {
 /* List of PLATFORM HID allow list */
 static char *platform_allow_hids[] = {
 	"ACPI0013",
-	"tdx_guest"
+	"tdx_guest",
+	"tpm"
 };
 
 static struct authorize_node allow_list[] = {
@@ -314,7 +315,7 @@ void __init tdx_filter_init(void)
 		pr_debug("Device filter is overridden\n");
 	}
 
-	allowed = "XSDT,FACP,DSDT,FACS,APIC,SVKL,TDEL";
+	allowed = "XSDT,FACP,DSDT,FACS,APIC,SVKL,TDEL,TDTK";
 	if (cmdline_find_option(boot_command_line, "tdx_allow_acpi",
 				a_allowed, sizeof(a_allowed)) >= 0) {
 		add_taint(TAINT_CONF_NO_LOCKDOWN, LOCKDEP_STILL_OK);

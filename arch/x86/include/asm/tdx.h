@@ -38,9 +38,9 @@ struct ve_info {
 
 #ifdef CONFIG_INTEL_TDX_GUEST
 
-extern int tdx_notify_irq;
-
 bool tdx_debug_enabled(void);
+
+void __init tdx_early_init(void);
 
 void __init tdx_early_init(void);
 

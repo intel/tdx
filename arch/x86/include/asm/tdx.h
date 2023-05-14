@@ -58,6 +58,8 @@ int tdx_register_event_irq_cb(tdx_event_irq_cb_t handler, void *data);
 
 int tdx_unregister_event_irq_cb(tdx_event_irq_cb_t handler, void *data);
 
+int tdx_hcall_get_quote(u8 *buf, size_t size);
+
 #else
 
 static inline void tdx_early_init(void) { };

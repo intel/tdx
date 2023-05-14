@@ -40,6 +40,8 @@ struct ve_info {
 
 #ifdef CONFIG_INTEL_TDX_GUEST
 
+typedef int (*tdx_event_irq_cb_t)(void *);
+
 void __init tdx_early_init(void);
 
 void tdx_get_ve_info(struct ve_info *ve);
@@ -51,6 +53,10 @@ void tdx_safe_halt(void);
 bool tdx_early_handle_ve(struct pt_regs *regs);
 
 int tdx_mcall_get_report0(u8 *reportdata, u8 *tdreport);
+
+int tdx_register_event_irq_cb(tdx_event_irq_cb_t handler, void *data);
+
+int tdx_unregister_event_irq_cb(tdx_event_irq_cb_t handler, void *data);
 
 #else
 

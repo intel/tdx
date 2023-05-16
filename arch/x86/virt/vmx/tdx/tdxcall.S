@@ -93,6 +93,12 @@
 .if \host
 .Lseamcall\@:
 	seamcall
+
+.if \host && \ret && \saved
+.Lafter_seamcall:
+	nop
+.Lafter_nop:
+.endif
 	/*
 	 * SEAMCALL instruction is essentially a VMExit from VMX root
 	 * mode to SEAM VMX root mode.  VMfailInvalid (CF=1) indicates
@@ -226,5 +232,7 @@
 
 	_ASM_EXTABLE_FAULT(.Lseamcall\@, .Lseamcall_trap\@)
 .endif	/* \host */
-
+.if \host && \ret && \saved
+	_ASM_EXTABLE_TDX_MC(.Lafter_seamcall, .Lafter_nop)
+.endif
 .endm

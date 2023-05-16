@@ -1475,6 +1475,19 @@ noinstr void do_machine_check(struct pt_regs *regs)
 	 */
 	lmce = 1;
 
+	/*
+	 * If the machine check location has EX_TYPE_TDX_MC type fixup
+	 * handler, it's a #MC from TD guest. Skip handling here because the
+	 * context is not correct.
+	 *
+	 * KVM will call to here from tdx_handle_exit().
+	 */
+	instrumentation_begin();
+	if (ex_get_fixup_type(regs->ip) == EX_TYPE_TDX_MC &&
+	    fixup_exception(regs, X86_TRAP_MC, 0, 0))
+		return;
+	instrumentation_end();
+
 	this_cpu_inc(mce_exception_count);
 
 	mce_gather_info(&m, regs);

@@ -221,5 +221,8 @@ register unsigned long current_stack_pointer asm(_ASM_SP);
 #define _ASM_EXTABLE_FAULT(from, to)				\
 	_ASM_EXTABLE_TYPE(from, to, EX_TYPE_FAULT)
 
+#define _ASM_EXTABLE_TDX_MC(from, to)				\
+	_ASM_EXTABLE_TYPE(from, to, EX_TYPE_TDX_MC)
+
 #endif /* __KERNEL__ */
 #endif /* _ASM_X86_ASM_H */

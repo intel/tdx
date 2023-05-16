@@ -429,6 +429,10 @@ SYM_FUNC_START(__tdx_vcpu_run)
 .Lseamcall:
 	seamcall
 
+.Lafter_seamcall:
+	nop
+.Lafter_nop:
+
 	jc .Lvmfail_invalid
 
 	/* xor-swap (%rsp) and %rax */
@@ -518,6 +522,7 @@ SYM_FUNC_START(__tdx_vcpu_run)
 1:	ud2
 	/* Use FAULT version to know what fault happened. */
 	_ASM_EXTABLE_FAULT(.Lseamcall, .Lseamcall_faulted)
+	_ASM_EXTABLE_TDX_MC(.Lafter_seamcall, .Lafter_nop)
 
 SYM_FUNC_END(__tdx_vcpu_run)
 

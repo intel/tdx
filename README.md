@@ -6,7 +6,7 @@ git repository:
 https://github.com/intel/tdx
 
 recommended branch:
-- kvm-upstream-snapshot: a snapshot of kvm-upstream-workaround branch with 6.3 code base. **This branch can be used as host/guest kernel to launch TDX VM**, as TDX guest basic functionality is already upstreamed.
+- kvm-upstream-snapshot: a snapshot of kvm-upstream-workaround branch with 6.3 code base. **This branch can be used as host/guest kernel to launch TDX VM**, as TDX guest basic functionality is already upstreamed and this branch adds one related fix patch.
 
 Configurations:
 - CONFIG_INTEL_TDX_HOST=y: enable TDX KVM support.

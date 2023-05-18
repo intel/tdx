@@ -50,6 +50,8 @@
 #define TDVMCALL_SERVICE_TIMEOUT	6000
 #define TDVMCALL_TPM_RESP_INFLIGHT	0xFFFFFFFF
 
+#define TPM_TDVMCALL_MSG_HDR_SIZE       28
+
 #define size_from(type, mem) (sizeof(type) - offsetofend(type, mem))
 
 #define MSG_REQ_SIZE_FROM(mem) size_from(struct tdx_tpm_msg_req, mem)
@@ -249,6 +251,95 @@ static guid_t tpm_guid = GUID_INIT(0x64590793, 0x7852, 0x4e52, 0xbe, 0x45, 0xcd,
 static u8 tpm_atag[] = { 0xDE, 0xAD, 0xBE, 0xAF, 0xDE, 0xAD, 0xBA, 0xBE,
 			 0xCA, 0xFE, 0xBA, 0xBE, 0xDE, 0xAD, 0x2B, 0xAD};
 
+#ifdef DEBUG_DATA
+static void print_data(const char *title, const void *data, size_t len)
+{
+	pr_info("\n%s: len:%ld", title, len);
+	if (data)
+		print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 64, 1, data,
+			       len, false);
+}
+
+static void print_req_msg(const char *title, struct tdx_tpm_msg_req *req)
+{
+	pr_info("\n=================================================\n");
+	pr_info("%s size:%d\n", title, req->buf_len);
+
+	print_data("TDVMCALL Header:", req, TPM_TDVMCALL_MSG_HDR_SIZE);
+	print_data("SPDM Header:", &req->spdm, sizeof(req->spdm));
+	print_data("AAD Data:", &req->aad, sizeof(req->aad));
+	print_data("App Data header:", &req->app_data, sizeof(req->app_data));
+	if (req->aad.tlen >= sizeof(req->app_data)) {
+		u32 tlen = req->aad.tlen - sizeof(req->app_data);
+		u32 atag = req->aad.tlen - TDX_AEAD_AES_256_ATAG_LEN;
+		if (tlen < TDX_AEAD_AES_256_ATAG_LEN) {
+			pr_info("Missing ATAG info\n");
+			print_data("App Data:", req->app_data.data, tlen);
+		} else {
+			print_data("App Data:", req->app_data.data,
+				   tlen - TDX_AEAD_AES_256_ATAG_LEN);
+			print_data("Atag Data:", &req->app_data + atag,
+				   TDX_AEAD_AES_256_ATAG_LEN);
+		}
+	}
+	pr_info("\n=================================================\n");
+}
+
+static void print_resp_msg(const char *title, struct tdx_tpm_msg_resp *resp)
+{
+	pr_info("\n=================================================\n");
+	pr_info("%s size:%d\n", title, resp->buf_len);
+
+	print_data("TDVMCALL Header:", resp, TPM_TDVMCALL_MSG_HDR_SIZE);
+	print_data("SPDM Header:", &resp->spdm, sizeof(resp->spdm));
+	print_data("AAD Data:", &resp->aad, sizeof(resp->aad));
+	print_data("App Data header:", &resp->app_data, sizeof(resp->app_data));
+	if (resp->aad.tlen >= sizeof(resp->app_data)) {
+		u32 tlen = resp->aad.tlen - sizeof(resp->app_data);
+		u32 atag = resp->aad.tlen - TDX_AEAD_AES_256_ATAG_LEN;
+		if (tlen < TDX_AEAD_AES_256_ATAG_LEN) {
+			pr_info("Missing ATAG info\n");
+			print_data("App Data:", resp->app_data.data, tlen);
+		} else {
+			print_data("App Data:", resp->app_data.data,
+				   tlen - TDX_AEAD_AES_256_ATAG_LEN);
+			print_data("Atag Data:", &resp->app_data + atag,
+				   TDX_AEAD_AES_256_ATAG_LEN);
+		}
+	}
+
+	pr_info("\n=================================================\n");
+}
+
+static void print_sess_info(struct tdx_tpm_session *sess)
+{
+	pr_info("\n=================================================\n");
+	pr_info("Session Info:\n");
+	pr_info("Version:%d\n", sess->ver);
+	pr_info("Algorithm:%d\n", sess->algo);
+	pr_info("Session ID:%x\n", sess->sess_id);
+	pr_info("Send Crypto:\n");
+	pr_info("Seq No:%llx\n", sess->send_crypto.seq_no);
+	pr_info("IV Len:%d\n", sess->send_crypto.iv_len);
+	pr_info("Key Len:%d\n", sess->send_crypto.key_len);
+	pr_info("Atag Len:%d\n", sess->send_crypto.atag_len);
+	print_data("Init IV", sess->send_crypto.init_iv, sess->send_crypto.iv_len);
+	print_data("New IV", sess->send_crypto.new_iv, sess->send_crypto.iv_len);
+	print_data("Key", sess->send_crypto.key, sess->send_crypto.key_len);
+	print_data("Atag", sess->send_crypto.atag, sess->send_crypto.atag_len);
+	pr_info("\nRecv Crypto:\n");
+	pr_info("IV Len:%d\n", sess->send_crypto.iv_len);
+	pr_info("Key Len:%d\n", sess->send_crypto.key_len);
+	pr_info("Atag Len:%d\n", sess->send_crypto.atag_len);
+	pr_info("Seq No:%llx\n", sess->recv_crypto.seq_no);
+	print_data("Init IV", sess->recv_crypto.init_iv, sess->recv_crypto.iv_len);
+	print_data("New IV", sess->recv_crypto.new_iv, sess->recv_crypto.iv_len);
+	print_data("Key", sess->recv_crypto.key, sess->recv_crypto.key_len);
+	print_data("Atag", sess->recv_crypto.atag, sess->recv_crypto.atag_len);
+	pr_info("\n=================================================\n");
+}
+#endif
+
 /* Callback handler used in TDX VMM event notification */
 static int service_cb_handler(void *dev_id)
 {
@@ -374,6 +465,14 @@ static int tdx_tpm_send(struct tpm_chip *chip, u8 *buf, size_t len)
 	/* Use request seq_no to recalculate IV */
 	spdm_recalc_iv(crypto);
 
+#ifdef DEBUG_DATA
+	print_data("Send Msg: Buf data", buf, len);
+	print_data("Send Msg: Crypto Key", crypto->key, crypto->key_len);
+	print_data("Send Msg: Crypto Atag", crypto->atag, crypto->atag_len);
+	print_data("Send Msg: Crypto new IV", crypto->new_iv, crypto->iv_len);
+	print_req_msg("Send Msg: Req: Before enc", req);
+#endif
+
 	/* Encrypt the TPM SPDM message */
 	ret = enc_dec_msg(tdev, crypto, (u8 *)&req->aad, (u8 *)&req->app_data,
 			  (u8 *)&req->app_data, data_len, data_len, 1);
@@ -381,6 +480,10 @@ static int tdx_tpm_send(struct tpm_chip *chip, u8 *buf, size_t len)
 		dev_err(tdev->dev, "Send msg: encryption failed\n");
 		goto send_msg_failed;
 	}
+
+#ifdef DEBUG_DATA
+	print_req_msg("Send Msg: req: after enc", req);
+#endif
 
 	/* Increment the seq_no */
 	crypto->seq_no++;
@@ -479,6 +582,13 @@ static int tdx_tpm_recv(struct tpm_chip *chip, u8 *buf, size_t len)
 	/* Use request seq_no to recalculate IV */
 	spdm_recalc_iv(crypto);
 
+#ifdef DEBUG_DATA
+	print_data("Recv Msg: Crypto Key", crypto->key, crypto->key_len);
+	print_data("Recv Msg: Crypto Atag", crypto->atag, crypto->atag_len);
+	print_data("Recv Msg: Crypto new IV", crypto->new_iv, crypto->iv_len);
+	print_resp_msg("Recv Msg: Resp: Before dec", resp);
+#endif
+
 	ret = enc_dec_msg(tdev, crypto, (u8 *)&resp->aad, (u8 *)&resp->app_data,
 			  (u8 *)&resp->app_data, resp->aad.tlen - crypto->atag_len,
 			  resp->aad.tlen, 0);
@@ -486,6 +596,10 @@ static int tdx_tpm_recv(struct tpm_chip *chip, u8 *buf, size_t len)
 		dev_err(tdev->dev, "Recv msg: decryption failed %d\n", ret);
 		goto recv_msg_failed;
 	}
+
+#ifdef DEBUG_DATA
+	print_resp_msg("Recv Msg: Resp: After dec", resp);
+#endif
 
 	/* Increment the seq_no */
 	crypto->seq_no++;
@@ -669,6 +783,9 @@ unmap_addr:
 	iounmap(addr);
 put_table:
 	acpi_put_table((struct acpi_table_header *)tdtk);
+#ifdef DEBUG_DATA
+	print_sess_info(info);
+#endif
 	return ret;
 }
 

@@ -139,6 +139,10 @@ union tdx_mig_stream_info {
 		uint64_t rsvd	: 47;
 		uint64_t resume	: 1;
 	};
+	struct {
+		uint64_t rsvd1	  : 63;
+		uint64_t in_order : 1;
+	};
 };
 
 struct tdx_mig_stream {
@@ -1020,6 +1024,31 @@ static int tdx_mig_stream_import_mem(struct kvm_tdx *kvm_tdx,
 					    stream);
 }
 
+static int tdx_mig_export_track(struct kvm_tdx *kvm_tdx,
+				struct tdx_mig_stream *stream,
+				uint64_t __user *data)
+{
+	union tdx_mig_stream_info stream_info = {.val = 0};
+	uint64_t in_order, err;
+
+	if (copy_from_user(&in_order, (void __user *)data, sizeof(uint64_t)))
+		return -EFAULT;
+
+	/*
+	 * Set the in_order bit if userspace requests to generate a start
+	 * token by sending a non-0 value through tdx_cmd.data.
+	 */
+	stream_info.in_order = !!in_order;
+	err = tdh_export_track(kvm_tdx->tdr_pa,
+			       stream->mbmd.addr_and_size, stream_info.val);
+	if (err != TDX_SUCCESS) {
+		pr_err("%s: failed, err=%llx\n", __func__, err);
+		return -EIO;
+	}
+
+	return 0;
+}
+
 static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 				 unsigned long arg)
 {
@@ -1047,6 +1076,10 @@ static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 		break;
 	case KVM_TDX_MIG_IMPORT_MEM:
 		r = tdx_mig_stream_import_mem(kvm_tdx, stream,
+					(uint64_t __user *)tdx_cmd.data);
+		break;
+	case KVM_TDX_MIG_EXPORT_TRACK:
+		r = tdx_mig_export_track(kvm_tdx, stream,
 					(uint64_t __user *)tdx_cmd.data);
 		break;
 	default:

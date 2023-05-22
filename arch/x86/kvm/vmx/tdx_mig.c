@@ -19,6 +19,8 @@ struct tdx_mig_mbmd {
 	uint64_t addr_and_size;
 };
 
+#define TDX_MIG_EPOCH_START_TOKEN 0xffffffff
+
 /*
  * The buffer list specifies a list of 4KB pages to be used by TDH_EXPORT_MEM
  * and TDH_IMPORT_MEM to export and import guest memory pages. Each entry
@@ -1049,6 +1051,38 @@ static int tdx_mig_export_track(struct kvm_tdx *kvm_tdx,
 	return 0;
 }
 
+static inline bool
+tdx_mig_epoch_is_start_token(struct tdx_mig_mbmd_data *data)
+{
+	return data->mig_epoch == TDX_MIG_EPOCH_START_TOKEN;
+}
+
+static int tdx_mig_import_track(struct kvm_tdx *kvm_tdx,
+				struct tdx_mig_stream *stream)
+{
+	union tdx_mig_stream_info stream_info = {.val = 0};
+	uint64_t err;
+
+	err = tdh_import_track(kvm_tdx->tdr_pa,
+			       stream->mbmd.addr_and_size, stream_info.val);
+	if (err != TDX_SUCCESS) {
+		pr_err("tdh_import_track failed, err=%llx\n", err);
+		return -EIO;
+	}
+
+	if (tdx_mig_epoch_is_start_token(stream->mbmd.data)) {
+		err = tdh_import_commit(kvm_tdx->tdr_pa);
+		if (err != TDX_SUCCESS) {
+			pr_err("tdh_import_commit failed, err=%llx\n", err);
+			return -EIO;
+		}
+
+		kvm_tdx->finalized = true;
+	}
+
+	return 0;
+}
+
 static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 				 unsigned long arg)
 {
@@ -1081,6 +1115,9 @@ static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 	case KVM_TDX_MIG_EXPORT_TRACK:
 		r = tdx_mig_export_track(kvm_tdx, stream,
 					(uint64_t __user *)tdx_cmd.data);
+		break;
+	case KVM_TDX_MIG_IMPORT_TRACK:
+		r = tdx_mig_import_track(kvm_tdx, stream);
 		break;
 	default:
 		r = -EINVAL;

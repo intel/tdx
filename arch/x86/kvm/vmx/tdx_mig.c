@@ -1312,6 +1312,22 @@ static int tdx_mig_export_abort(struct kvm_tdx *kvm_tdx,
 	return kvm_tdp_mmu_restore_private_pages(&kvm_tdx->kvm);
 }
 
+static int tdx_mig_import_end(struct kvm_tdx *kvm_tdx)
+{
+	uint64_t err;
+
+	err = tdh_import_end(kvm_tdx->tdr_pa);
+	if (err != TDX_SUCCESS) {
+		pr_err("%s: failed, err=%llx\n", __func__, err);
+		return -EIO;
+	}
+
+	pr_info("migration flow is done, userspace pid %d\n",
+		kvm_tdx->kvm.userspace_pid);
+
+	return 0;
+}
+
 static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 				 unsigned long arg)
 {
@@ -1370,6 +1386,9 @@ static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 	case KVM_TDX_MIG_EXPORT_ABORT:
 		r = tdx_mig_export_abort(kvm_tdx, stream,
 					 (uint64_t __user *)tdx_cmd.data);
+		break;
+	case KVM_TDX_MIG_IMPORT_END:
+		r = tdx_mig_import_end(kvm_tdx);
 		break;
 	default:
 		r = -EINVAL;

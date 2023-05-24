@@ -547,6 +547,9 @@ void tdx_vm_free(struct kvm *kvm)
 
 	free_page((unsigned long)__va(kvm_tdx->tdr_pa));
 	kvm_tdx->tdr_pa = 0;
+
+	kfree(kvm_tdx->cpuid);
+	kvm_tdx->cpuid = NULL;
 }
 
 static int tdx_do_tdh_mng_key_config(void *param)
@@ -658,6 +661,39 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	tdx->pi_desc.nv = POSTED_INTR_VECTOR;
 	tdx->pi_desc.sn = 1;
 
+	return 0;
+}
+
+int tdx_vcpu_check_cpuid(struct kvm_vcpu *vcpu, struct kvm_cpuid_entry2 *e2, int nent)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
+	int i;
+
+	/*
+	 * Simple check that new cpuid is consistent with created one.
+	 * For simplicity, only trivial check.  Don't try comprehensive checks
+	 * with the cpuid virtualization table in the TDX module spec.
+	 */
+	for (i = 0; i < tdx_info->num_cpuid_config; i++) {
+		const struct kvm_tdx_cpuid_config *c = &tdx_info->cpuid_configs[i];
+		u32 index = c->sub_leaf == KVM_TDX_CPUID_NO_SUBLEAF ? 0 : c->sub_leaf;
+		const struct kvm_cpuid_entry2 *old =
+			kvm_find_cpuid_entry2(kvm_tdx->cpuid, kvm_tdx->cpuid_nent,
+					      c->leaf, index);
+		const struct kvm_cpuid_entry2 *new = kvm_find_cpuid_entry2(e2, nent,
+									   c->leaf, index);
+
+		if (!!old != !!new)
+			return -EINVAL;
+		if (!old && !new)
+			continue;
+
+		if ((old->eax ^ new->eax) & c->eax ||
+		    (old->ebx ^ new->ebx) & c->ebx ||
+		    (old->ecx ^ new->ecx) & c->ecx ||
+		    (old->edx ^ new->edx) & c->edx)
+			return -EINVAL;
+	}
 	return 0;
 }
 
@@ -2205,9 +2241,10 @@ static int setup_tdparams_eptp_controls(struct kvm_cpuid2 *cpuid,
 	return 0;
 }
 
-static void setup_tdparams_cpuids(struct kvm_cpuid2 *cpuid,
+static void setup_tdparams_cpuids(struct kvm *kvm, struct kvm_cpuid2 *cpuid,
 				  struct td_params *td_params)
 {
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	int i;
 
 	/*
@@ -2215,6 +2252,7 @@ static void setup_tdparams_cpuids(struct kvm_cpuid2 *cpuid,
 	 * be same to the one of struct tdsysinfo.{num_cpuid_config, cpuid_configs}
 	 * It's assumed that td_params was zeroed.
 	 */
+	kvm_tdx->cpuid_nent = 0;
 	for (i = 0; i < tdx_info->num_cpuid_config; i++) {
 		const struct kvm_tdx_cpuid_config *c = &tdx_info->cpuid_configs[i];
 		/* KVM_TDX_CPUID_NO_SUBLEAF means index = 0. */
@@ -2237,6 +2275,10 @@ static void setup_tdparams_cpuids(struct kvm_cpuid2 *cpuid,
 		value->ebx = entry->ebx & c->ebx;
 		value->ecx = entry->ecx & c->ecx;
 		value->edx = entry->edx & c->edx;
+
+		/* Remember the setting to check for KVM_SET_CPUID2. */
+		kvm_tdx->cpuid[kvm_tdx->cpuid_nent] = *entry;
+		kvm_tdx->cpuid_nent++;
 	}
 }
 
@@ -2324,7 +2366,7 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 	ret = setup_tdparams_eptp_controls(cpuid, td_params);
 	if (ret)
 		return ret;
-	setup_tdparams_cpuids(cpuid, td_params);
+	setup_tdparams_cpuids(kvm, cpuid, td_params);
 	ret = setup_tdparams_xfam(cpuid, td_params);
 	if (ret)
 		return ret;
@@ -2548,11 +2590,18 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	if (cmd->flags)
 		return -EINVAL;
 
-	init_vm = kzalloc(sizeof(*init_vm) +
-			  sizeof(init_vm->cpuid.entries[0]) * KVM_MAX_CPUID_ENTRIES,
-			  GFP_KERNEL);
-	if (!init_vm)
+	WARN_ON_ONCE(kvm_tdx->cpuid);
+	kvm_tdx->cpuid = kzalloc(flex_array_size(init_vm, cpuid.entries, KVM_MAX_CPUID_ENTRIES),
+				 GFP_KERNEL);
+	if (!kvm_tdx->cpuid)
 		return -ENOMEM;
+
+	init_vm = kzalloc(struct_size(init_vm, cpuid.entries, KVM_MAX_CPUID_ENTRIES),
+			  GFP_KERNEL);
+	if (!init_vm) {
+		ret = -ENOMEM;
+		goto out;
+	}
 	if (copy_from_user(init_vm, (void __user *)cmd->data, sizeof(*init_vm))) {
 		ret = -EFAULT;
 		goto out;
@@ -2602,6 +2651,11 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 
 out:
 	/* kfree() accepts NULL. */
+	if (ret) {
+		kfree(kvm_tdx->cpuid);
+		kvm_tdx->cpuid = NULL;
+		kvm_tdx->cpuid_nent = 0;
+	}
 	kfree(init_vm);
 	kfree(td_params);
 	return ret;

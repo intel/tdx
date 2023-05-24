@@ -416,6 +416,9 @@ static int kvm_set_cpuid(struct kvm_vcpu *vcpu, struct kvm_cpuid_entry2 *e2,
 	r = kvm_check_cpuid(vcpu, e2, nent);
 	if (r)
 		return r;
+	r = static_call(kvm_x86_vcpu_check_cpuid)(vcpu, e2, nent);
+	if (r)
+		return r;
 
 	kvfree(vcpu->arch.cpuid_entries);
 	vcpu->arch.cpuid_entries = e2;
@@ -1363,6 +1366,13 @@ out_free:
 	kvfree(array.entries);
 	return r;
 }
+
+struct kvm_cpuid_entry2 *__kvm_find_cpuid_entry2(
+	struct kvm_cpuid_entry2 *entries, int nent, u32 function, u64 index)
+{
+	return cpuid_entry2_find(entries, nent, function, index);
+}
+EXPORT_SYMBOL_GPL(__kvm_find_cpuid_entry2);
 
 struct kvm_cpuid_entry2 *kvm_find_cpuid_entry2( struct kvm_cpuid2 *cpuid,
 						u32 function, u32 index)

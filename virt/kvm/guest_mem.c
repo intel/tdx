@@ -119,9 +119,11 @@ static void kvm_gmem_invalidate_begin(struct kvm *kvm, struct kvm_gmem *gmem,
 			.flags = KVM_GFN_RANGE_FLAGS_GMEM,
 		};
 
-		if (WARN_ON_ONCE(start < slot->gmem.index ||
-				 end > slot->gmem.index + slot->npages))
+		if ((start < slot->gmem.index ||
+		     end > slot->gmem.index + slot->npages)) {
+			WARN_ON_ONCE(!(start == 0 && end == -1ul));
 			continue;
+		}
 
 		kvm_mmu_invalidate_range_add(kvm, gfn_range.start, gfn_range.end);
 

@@ -122,6 +122,12 @@ static void kvm_gmem_invalidate_begin(struct kvm *kvm, struct kvm_gmem *gmem,
 			.may_block = true,
 		};
 
+		if ((start < slot->gmem.index ||
+		     end > slot->gmem.index + slot->npages)) {
+			WARN_ON_ONCE(!(start == 0 && end == -1ul));
+			continue;
+		}
+
 		kvm_mmu_invalidate_range_add(kvm, gfn_range.start, gfn_range.end);
 
 		flush |= kvm_unmap_gfn_range(kvm, &gfn_range);

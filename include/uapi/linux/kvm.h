@@ -245,14 +245,42 @@ struct kvm_tdx_exit {
 	union {
 		struct kvm_tdx_vmcall {
 			/*
+			 * RAX(bit 0), RCX(bit 1) and RSP(bit 4) are reserved.
+			 * RAX(bit 0): TDG.VP.VMCALL status code.
+			 * RCX(bit 1): bitmap for used registers.
+			 * RSP(bit 4): the caller stack.
+			 */
+#define TDX_VMCALL_REG_MASK_RBX	BIT_ULL(2)
+#define TDX_VMCALL_REG_MASK_RDX	BIT_ULL(3)
+#define TDX_VMCALL_REG_MASK_RBP	BIT_ULL(5)
+#define TDX_VMCALL_REG_MASK_RSI	BIT_ULL(6)
+#define TDX_VMCALL_REG_MASK_RDI	BIT_ULL(7)
+#define TDX_VMCALL_REG_MASK_R8	BIT_ULL(8)
+#define TDX_VMCALL_REG_MASK_R9	BIT_ULL(9)
+#define TDX_VMCALL_REG_MASK_R10	BIT_ULL(10)
+#define TDX_VMCALL_REG_MASK_R11	BIT_ULL(11)
+#define TDX_VMCALL_REG_MASK_R12	BIT_ULL(12)
+#define TDX_VMCALL_REG_MASK_R13	BIT_ULL(13)
+#define TDX_VMCALL_REG_MASK_R14	BIT_ULL(14)
+#define TDX_VMCALL_REG_MASK_R15	BIT_ULL(15)
+			union {
+				__u64 in_rcx;
+				__u64 reg_mask;
+			};
+
+			/*
 			 * Guest-Host-Communication Interface for TDX spec
 			 * defines the ABI for TDG.VP.VMCALL.
 			 */
-
 			/* Input parameters: guest -> VMM */
-			__u64 type;		/* r10 */
-			__u64 subfunction;	/* r11 */
-			__u64 reg_mask;		/* rcx */
+			union {
+				__u64 in_r10;
+				__u64 type;
+			};
+			union {
+				__u64 in_r11;
+				__u64 subfunction;
+			};
 			/*
 			 * Subfunction specific.
 			 * Registers are used in this order to pass input
@@ -268,9 +296,13 @@ struct kvm_tdx_exit {
 			__u64 in_r8;
 			__u64 in_r9;
 			__u64 in_rdx;
+			__u64 in_rbp;
 
 			/* Output parameters: VMM -> guest */
-			__u64 status_code;	/* r10 */
+			union {
+				__u64 out_r10;
+				__u64 status_code;
+			};
 			/*
 			 * Subfunction specific.
 			 * Registers are used in this order to output return
@@ -287,6 +319,7 @@ struct kvm_tdx_exit {
 			__u64 out_r8;
 			__u64 out_r9;
 			__u64 out_rdx;
+			__u64 out_rbp;
 		} vmcall;
 	} u;
 };

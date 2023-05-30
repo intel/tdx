@@ -2174,7 +2174,7 @@ static void tdx_track(struct kvm *kvm)
 		 */
 		err = tdh_mem_track(kvm_tdx->tdr_pa);
 	} while (unlikely(err == TDX_PREVIOUS_TLB_EPOCH_BUSY ||
-			  (err & TDX_SEAMCALL_STATUS_MASK) == TDX_OPERAND_BUSY));
+			  (seamcall_masked_status(err) == TDX_OPERAND_BUSY));
 
 	/* Release remote vcpu waiting for TDH.MEM.TRACK in tdx_flush_tlb(). */
 	atomic_dec(&kvm_tdx->tdh_mem_track);
@@ -3585,7 +3585,7 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 	}
 
 	err = tdh_mng_init(kvm_tdx->tdr_pa, __pa(td_params), &out);
-	if ((err & TDX_SEAMCALL_STATUS_MASK) == TDX_OPERAND_INVALID) {
+	if (seamcall_masked_status(err) == TDX_OPERAND_INVALID) {
 		/*
 		 * Because a user gives operands, don't warn.
 		 * Return a hint to the user because it's sometimes hard for the

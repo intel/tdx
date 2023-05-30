@@ -5,6 +5,8 @@
 #define __KVM_X86_TDX_ERRNO_H
 
 #define TDX_SEAMCALL_STATUS_MASK		0xFFFFFFFF00000000ULL
+/* Get the basic status with masking the lower operand ID bits */
+#define seamcall_masked_status(s) (s & TDX_SEAMCALL_STATUS_MASK)
 
 /*
  * TDX SEAMCALL Status Codes (returned in RAX)

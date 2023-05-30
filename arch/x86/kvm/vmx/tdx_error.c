@@ -168,14 +168,14 @@ static const char *tdx_error_name(u64 error_code)
 		BUILD_NAME(TDX_EPT_ENTRY_STATE_INCORRECT),
 	};
 
-	return tdx_find_name(error_code & TDX_SEAMCALL_STATUS_MASK,
+	return tdx_find_name(seamcall_masked_status(error_code),
 			names, ARRAY_SIZE(names),
 			"Unknown SEAMCALL status code");
 }
 
 static bool tdx_has_operand_id(u64 error_code)
 {
-	switch (error_code & TDX_SEAMCALL_STATUS_MASK) {
+	switch (seamcall_masked_status(error_code)) {
 	case TDX_OPERAND_INVALID:
 	case TDX_OPERAND_ADDR_RANGE_ERROR:
 	case TDX_OPERAND_BUSY:
@@ -275,7 +275,7 @@ void pr_tdx_error(u64 op, u64 error_code, const struct tdx_module_args *out)
 		return;
 	}
 
-	switch (error_code & TDX_SEAMCALL_STATUS_MASK) {
+	switch (seamcall_masked_status(error_code)) {
 	case TDX_EPT_WALK_FAILED:
 	case TDX_EPT_ENTRY_STATE_INCORRECT: {
 		union tdx_sept_entry entry = {

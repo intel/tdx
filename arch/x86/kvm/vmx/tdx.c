@@ -261,15 +261,7 @@ static int __tdx_reclaim_page(hpa_t pa, enum pg_level level,
 	struct tdx_module_args out;
 	u64 err;
 
-	do {
-		err = tdh_phymem_page_reclaim(pa, &out);
-		/*
-		 * TDH.PHYMEM.PAGE.RECLAIM is allowed only when TD is shutdown.
-		 * state.  i.e. destructing TD.
-		 * TDH.PHYMEM.PAGE.RECLAIM requires TDR and target page.
-		 * Because we're destructing TD, it's rare to contend with TDR.
-		 */
-	} while (unlikely(err == (TDX_OPERAND_BUSY | TDX_OPERAND_ID_RCX)));
+	err = tdh_phymem_page_reclaim(pa, &out);
 	if (WARN_ON_ONCE(err)) {
 		pr_err("%s:%d:%s pa 0x%llx level %d hkid 0x%x do_wb %d\n",
 		       __FILE__, __LINE__, __func__,
@@ -2052,10 +2044,8 @@ static int tdx_sept_merge_private_spt(struct kvm *kvm, gfn_t gfn,
 	 * TDH.MEM.PAGE.PROMOTE frees the Secure-EPT page for the lower level.
 	 * Flush cache for reuse.
 	 */
-	do {
-		err = tdh_phymem_page_wbinvd(set_hkid_to_hpa(__pa(private_spt),
-							     to_kvm_tdx(kvm)->hkid));
-	} while (unlikely(err == (TDX_OPERAND_BUSY | TDX_OPERAND_ID_RCX)));
+	err = tdh_phymem_page_wbinvd(set_hkid_to_hpa(__pa(private_spt),
+                                 to_kvm_tdx(kvm)->hkid));
 	if (WARN_ON_ONCE(err)) {
 		pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
 		trace_kvm_tdx_page_promote(kvm_tdx->tdr_pa, gfn,
@@ -2137,14 +2127,11 @@ static void tdx_track(struct kvm *kvm)
 	 */
 	kvm_make_all_cpus_request(kvm, KVM_REQ_TLB_FLUSH & ~KVM_REQUEST_WAIT);
 
-	do {
-		/*
-		 * kvm_flush_remote_tlbs() doesn't allow to return error and
-		 * retry.
-		 */
-		err = tdh_mem_track(kvm_tdx->tdr_pa);
-	} while (unlikely(err == TDX_PREVIOUS_TLB_EPOCH_BUSY ||
-			  (seamcall_masked_status(err) == TDX_OPERAND_BUSY));
+	/*
+	 * kvm_flush_remote_tlbs() doesn't allow to return error and
+	 * retry.
+	 */
+	err = tdh_mem_track(kvm_tdx->tdr_pa);
 
 	/* Release remote vcpu waiting for TDH.MEM.TRACK in tdx_flush_tlb(). */
 	atomic_dec(&kvm_tdx->tdh_mem_track);
@@ -3744,16 +3731,7 @@ void tdx_gmem_invalidate(struct kvm *kvm, kvm_pfn_t start, kvm_pfn_t end)
 		u64 err;
 
 		for (pa = s_hkid; pa < e_hkid; pa += PAGE_SIZE) {
-			do {
-				/*
-				 * TDX_OPERAND_BUSY can happen on locking PAMT
-				 * entry.  Because this page was removed above,
-				 * other thread shouldn't be repeatedly
-				 * operating on this page.  Simple retry should
-				 * work.
-				 */
-				err = tdh_phymem_page_wbinvd(pa);
-			} while (unlikely(err == (TDX_OPERAND_BUSY | TDX_OPERAND_ID_RCX)));
+			err = tdh_phymem_page_wbinvd(pa);
 			if (KVM_BUG_ON(err, kvm)) {
 				hpa_t tmp;
 

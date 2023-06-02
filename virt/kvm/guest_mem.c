@@ -110,17 +110,15 @@ static void kvm_gmem_invalidate_begin(struct kvm *kvm, struct kvm_gmem *gmem,
 	kvm_mmu_invalidate_begin(kvm);
 
 	xa_for_each_range(&gmem->bindings, index, slot, start, end - 1) {
+		pgoff_t index_start = max(slot->gmem.index, start);
+		pgoff_t index_end = min(slot->gmem.index + slot->npages, end);
 		struct kvm_gfn_range gfn_range = {
-			.start = slot->base_gfn + start - slot->gmem.index,
-			.end = slot->base_gfn + min(end - slot->gmem.index, slot->npages),
+			.start = slot->base_gfn + index_start - slot->gmem.index,
+			.end = slot->base_gfn + index_end - slot->gmem.index,
 			.slot = slot,
 			.pte = __pte(0),
 			.may_block = true,
 		};
-
-		if (WARN_ON_ONCE(start < slot->gmem.index ||
-				 end > slot->gmem.index + slot->npages))
-			continue;
 
 		kvm_mmu_invalidate_range_add(kvm, gfn_range.start, gfn_range.end);
 

@@ -998,6 +998,8 @@ static void tdx_switch_perf_msrs(struct kvm_vcpu *vcpu)
 
 static noinstr void tdx_vcpu_enter_exit(struct vcpu_tdx *tdx)
 {
+	u64 err, retries = 0;
+
 	/*
 	 * Avoid section mismatch with to_tdx() with KVM_VM_BUG().  The caller
 	 * should call to_tdx().
@@ -1041,8 +1043,16 @@ static noinstr void tdx_vcpu_enter_exit(struct vcpu_tdx *tdx)
 	 * which means TDG.VP.VMCALL.
 	 */
 	vcpu->arch.regs[VCPU_REGS_RCX] = tdx->tdvpr_pa;
-	tdx->exit_reason.full = __seamcall_saved_ret(TDH_VP_ENTER,
-						     (struct tdx_module_args*)vcpu->arch.regs);
+	do {
+		tdx->exit_reason.full = __seamcall_saved_ret(TDH_VP_ENTER,
+							     (struct tdx_module_args*)vcpu->arch.regs);
+		err = seamcall_masked_status(tdx->exit_reason.full);
+		if (retries++ > TDX_SEAMCALL_RETRY_MAX) {
+			KVM_BUG_ON(err, vcpu->kvm);
+			pr_tdx_error(TDH_VP_ENTER, err, NULL);
+			break;
+		}
+	} while (err == TDX_OPERAND_BUSY);
 	WARN_ON_ONCE(!kvm_rebooting &&
 		     (tdx->exit_reason.full & TDX_SW_ERROR) == TDX_SW_ERROR);
 

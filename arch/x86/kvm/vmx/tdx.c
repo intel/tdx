@@ -1052,7 +1052,8 @@ static noinstr void tdx_vcpu_enter_exit(struct vcpu_tdx *tdx)
 			pr_tdx_error(TDH_VP_ENTER, err, NULL);
 			break;
 		}
-	} while (err == TDX_OPERAND_BUSY);
+	} while (err == TDX_OPERAND_BUSY ||
+		 err == TDX_OPERAND_BUSY_HOST_PRIORITY);
 	WARN_ON_ONCE(!kvm_rebooting &&
 		     (tdx->exit_reason.full & TDX_SW_ERROR) == TDX_SW_ERROR);
 

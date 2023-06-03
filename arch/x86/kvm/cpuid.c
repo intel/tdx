@@ -123,6 +123,7 @@ static int kvm_check_cpuid(struct kvm_vcpu *vcpu,
 {
 	struct kvm_cpuid_entry2 *best;
 	u64 xfeatures;
+	int r;
 
 	/*
 	 * The existing code assumes virtual address is 48-bit or 57-bit in the
@@ -150,7 +151,10 @@ static int kvm_check_cpuid(struct kvm_vcpu *vcpu,
 	if (!xfeatures)
 		return 0;
 
-	return fpu_enable_guest_xfd_features(&vcpu->arch.guest_fpu, xfeatures);
+	r = fpu_enable_guest_xfd_features(&vcpu->arch.guest_fpu, xfeatures);
+	if (r)
+		return r;
+	return static_call(kvm_x86_vcpu_check_cpuid)(vcpu, entries, nent);
 }
 
 /* Check whether the supplied CPUID data is equal to what is already set for the vCPU. */

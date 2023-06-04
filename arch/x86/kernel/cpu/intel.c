@@ -1552,3 +1552,24 @@ u8 get_this_hybrid_cpu_type(void)
 
 	return cpuid_eax(0x0000001a) >> X86_HYBRID_CPU_TYPE_ID_SHIFT;
 }
+
+/*
+ * These CPUs have an erratum.  A partial write from non-TD
+ * software (e.g. via MOVNTI variants or UC/WC mapping) to TDX
+ * private memory poisons that memory, and a subsequent read of
+ * that memory triggers #MC.
+ */
+static const struct x86_cpu_id tdx_pw_mce_cpu_ids[] __initconst = {
+	X86_MATCH_INTEL_FAM6_MODEL(SAPPHIRERAPIDS_X, NULL),
+	X86_MATCH_INTEL_FAM6_MODEL(EMERALDRAPIDS_X, NULL),
+	{ }
+};
+
+static int __init tdx_erratum_detect(void)
+{
+	if (x86_match_cpu(tdx_pw_mce_cpu_ids))
+		setup_force_cpu_bug(X86_BUG_TDX_PW_MCE);
+
+	return 0;
+}
+early_initcall(tdx_erratum_detect);

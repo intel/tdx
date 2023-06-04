@@ -15,6 +15,7 @@
 #include <linux/smp.h>
 #include <asm/msr-index.h>
 #include <asm/msr.h>
+#include <asm/archrandom.h>
 #include <asm/tdx.h>
 #include "tdx.h"
 
@@ -32,12 +33,23 @@ static int __always_unused seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
 				    u64 *seamcall_ret,
 				    struct tdx_module_output *out)
 {
+	int cpu, retry = RDRAND_RETRY_LOOPS;
 	u64 sret;
-	int cpu;
 
 	/* Need a stable CPU id for printing error message */
 	cpu = get_cpu();
-	sret = __seamcall(fn, rcx, rdx, r8, r9, out);
+
+	/*
+	 * Certain SEAMCALL leaf functions may return error due to
+	 * running out of entropy, in which case the SEAMCALL should
+	 * be retried.  Handle this in SEAMCALL common function.
+	 *
+	 * Mimic rdrand_long() retry behavior.
+	 */
+	do {
+		sret = __seamcall(fn, rcx, rdx, r8, r9, out);
+	} while (sret == TDX_RND_NO_ENTROPY && --retry);
+
 	put_cpu();
 
 	/* Save SEAMCALL return code if the caller wants it */

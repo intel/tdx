@@ -28,6 +28,12 @@
 #define TDH_SYS_KEY_CONFIG	31
 #define TDH_SYS_TDMR_INIT	36
 
+#define TDH_PHYMEM_PAGE_RDMD	24
+
+/* TDX page types */
+#define	PT_NDA		0x0
+#define	PT_RSVD		0x1
+
 struct cmr_info {
 	u64	base;
 	u64	size;

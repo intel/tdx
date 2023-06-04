@@ -720,6 +720,7 @@ void native_machine_shutdown(void)
 
 #ifdef CONFIG_X86_64
 	x86_platform.iommu_shutdown();
+	x86_platform.memory_shutdown();
 #endif
 }
 

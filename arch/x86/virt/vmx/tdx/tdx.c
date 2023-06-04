@@ -587,6 +587,14 @@ static int tdmr_set_up_pamt(struct tdmr_info *tdmr,
 		tdmr_pamt_base += pamt_size[pgsz];
 	}
 
+	/*
+	 * tdx_memory_shutdown() also reads TDMR's PAMT during
+	 * kexec() or reboot, which could happen at anytime, even
+	 * during this particular code.  Make sure pamt_4k_base
+	 * is firstly set otherwise tdx_memory_shutdown() may
+	 * get an invalid PAMT base when it sees a valid number
+	 * of PAMT pages.
+	 */
 	tdmr->pamt_4k_base = pamt_base[TDX_PS_4K];
 	tdmr->pamt_4k_size = pamt_size[TDX_PS_4K];
 	tdmr->pamt_2m_base = pamt_base[TDX_PS_2M];
@@ -1318,6 +1326,46 @@ static struct notifier_block tdx_memory_nb = {
 	.notifier_call = tdx_memory_notifier,
 };
 
+static void tdx_memory_shutdown(void)
+{
+	/*
+	 * Convert all TDX private pages back to normal if the platform
+	 * has "partial write machine check" erratum.
+	 *
+	 * For now there's no existing infrastructure to tell whether
+	 * a page is TDX private memory.  Using SEAMCALL to query TDX
+	 * module isn't feasible either because: 1) VMX has been turned
+	 * off by reaching here so SEAMCALL cannot be made; 2) Even
+	 * SEAMCALL can be made the result from TDX module may not be
+	 * accurate (e.g., remote CPU can be stopped while the kernel
+	 * is in the middle of reclaiming one TDX private page and doing
+	 * MOVDIR64B).
+	 *
+	 * One solution could be just converting all memory pages, but
+	 * this may bring non-trivial latency on large memory systems
+	 * (especially when the number of TDX private pages is small).
+	 * Looks eventually the kernel should track TDX private pages and
+	 * only convert these.
+	 *
+	 * Also, not all pages are mapped as writable in direct mapping,
+	 * thus it's problematic to do so.  It can be done by switching
+	 * to the identical mapping page table built for kexec(), which
+	 * maps all pages as writable, but the complexity looks overkill.
+	 *
+	 * Thus instead of doing something dramatic to convert all pages,
+	 * only convert PAMTs for now as for now TDX private pages can
+	 * only be PAMT.  Converting TDX guest private pages and Secure
+	 * EPT pages can be added later when the kernel has a proper way
+	 * to track these pages.
+	 *
+	 * All other cpus are already dead, thus it's safe to read TDMRs
+	 * to find PAMTs w/o holding any kind of locking here.
+	 */
+	WARN_ON_ONCE(num_online_cpus() != 1);
+
+	tdmrs_reset_pamt_all(&tdx_tdmr_list);
+}
+
 static int __init tdx_init(void)
 {
 	u32 tdx_keyid_start, nr_tdx_keyids;
@@ -1355,6 +1403,15 @@ static int __init tdx_init(void)
 	tdx_global_keyid = tdx_keyid_start;
 	tdx_guest_keyid_start = ++tdx_keyid_start;
 	tdx_nr_guest_keyids = --nr_tdx_keyids;
+
+	/*
+	 * On the platform with erratum all TDX private pages need to
+	 * be converted back to normal before rebooting (warm reset) or
+	 * before kexec() booting to the new kernel, otherwise the (new)
+	 * kernel may get unexpected SRAR machine check exception.
+	 */
+	if (boot_cpu_has_bug(X86_BUG_TDX_PW_MCE))
+		x86_platform.memory_shutdown = tdx_memory_shutdown;
 
 	return 0;
 no_tdx:

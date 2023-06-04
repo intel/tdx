@@ -4,6 +4,23 @@
 
 #include <linux/types.h>
 
+/*
+ * This file contains both macros and data structures defined by the TDX
+ * architecture and Linux defined software data structures and functions.
+ * The two should not be mixed together for better readability.  The
+ * architectural definitions come first.
+ */
+
+/*
+ * TDX SEAMCALL error codes
+ */
+#define TDX_RND_NO_ENTROPY	0x8000020300000000ULL
+
+/*
+ * Do not put any hardware-defined TDX structure representations below
+ * this comment!
+ */
+
 struct tdx_module_output;
 u64 __seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
 	       struct tdx_module_output *out);

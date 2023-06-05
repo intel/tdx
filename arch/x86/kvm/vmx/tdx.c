@@ -105,6 +105,36 @@ struct tdvmcall_service {
 	uint8_t  data[0];
 };
 
+enum tdvmcall_service_id {
+	TDVMCALL_SERVICE_ID_QUERY = 0,
+
+	TDVMCALL_SERVICE_ID_MAX,
+};
+
+static guid_t tdvmcall_service_ids[TDVMCALL_SERVICE_ID_MAX] __read_mostly = {
+	[TDVMCALL_SERVICE_ID_QUERY]	= GUID_INIT(0xfb6fc5e1, 0x3378, 0x4acb,
+						    0x89, 0x64, 0xfa, 0x5e,
+						    0xe4, 0x3b, 0x9c, 0x8a),
+};
+
+enum tdvmcall_service_status {
+	TDVMCALL_SERVICE_S_RETURNED = 0x0,
+
+	TDVMCALL_SERVICE_S_UNSUPP = 0xFFFFFFFE,
+};
+
+struct tdvmcall_service_query {
+#define TDVMCALL_SERVICE_QUERY_VERSION	0
+	uint8_t version;
+#define TDVMCALL_SERVICE_CMD_QUERY	0
+	uint8_t cmd;
+#define TDVMCALL_SERVICE_QUERY_S_SUPPORTED	0
+#define TDVMCALL_SERVICE_QUERY_S_UNSUPPORTED	1
+	uint8_t status;
+	uint8_t rsvd;
+	guid_t  guid;
+};
+
 static inline void
 tdx_binding_slot_set_state(struct tdx_binding_slot *slot,
 			   enum tdx_binding_slot_state state)
@@ -1797,6 +1827,47 @@ static void tdvmcall_status_copy_and_free(struct tdvmcall_service *h_buf,
 	kfree(h_buf);
 }
 
+static enum tdvmcall_service_id tdvmcall_get_service_id(guid_t guid)
+{
+	enum tdvmcall_service_id id;
+
+	for (id = 0; id < TDVMCALL_SERVICE_ID_MAX; id++) {
+		if (guid_equal(&guid, &tdvmcall_service_ids[id]))
+			break;
+	}
+
+	return id;
+}
+
+static void tdx_handle_service_query(struct tdvmcall_service *cmd_hdr,
+				     struct tdvmcall_service *resp_hdr)
+{
+	struct tdvmcall_service_query *cmd_query =
+			(struct tdvmcall_service_query *)cmd_hdr->data;
+	struct tdvmcall_service_query *resp_query =
+			(struct tdvmcall_service_query *)resp_hdr->data;
+	enum tdvmcall_service_id service_id;
+
+	resp_query->version = TDVMCALL_SERVICE_QUERY_VERSION;
+	if (cmd_query->version != resp_query->version ||
+	    cmd_query->cmd != TDVMCALL_SERVICE_CMD_QUERY) {
+		pr_warn("%s: queried cmd not supported\n", __func__);
+		resp_hdr->status = TDVMCALL_SERVICE_S_UNSUPP;
+	}
+
+	service_id = tdvmcall_get_service_id(cmd_query->guid);
+	if (service_id == TDVMCALL_SERVICE_ID_MAX)
+		resp_query->status = TDVMCALL_SERVICE_QUERY_S_UNSUPPORTED;
+	else
+		resp_query->status = TDVMCALL_SERVICE_QUERY_S_SUPPORTED;
+
+	resp_query->cmd = cmd_query->cmd;
+	import_guid(&resp_query->guid, cmd_query->guid.b);
+
+	resp_hdr->length += sizeof(struct tdvmcall_service_query);
+	resp_hdr->status = TDVMCALL_SERVICE_S_RETURNED;
+}
+
 static int tdx_handle_service(struct kvm_vcpu *vcpu)
 {
 	struct kvm *kvm = vcpu->kvm;
@@ -1806,6 +1877,7 @@ static int tdx_handle_service(struct kvm_vcpu *vcpu)
 			~gfn_to_gpa(kvm_gfn_shared_mask(kvm));
 	uint64_t nvector = tdvmcall_a2_read(vcpu);
 	struct tdvmcall_service *cmd_buf, *resp_buf;
+	enum tdvmcall_service_id service_id;
 
 	if (nvector) {
 		pr_warn("%s: interrupt not supported, nvector %lld\n",
@@ -1828,6 +1900,16 @@ static int tdx_handle_service(struct kvm_vcpu *vcpu)
 	if (!resp_buf)
 		goto err_status;
 	resp_buf->length = sizeof(struct tdvmcall_service);
+
+	service_id = tdvmcall_get_service_id(cmd_buf->guid);
+	switch (service_id) {
+	case TDVMCALL_SERVICE_ID_QUERY:
+		tdx_handle_service_query(cmd_buf, resp_buf);
+		break;
+	default:
+		resp_buf->status = TDVMCALL_SERVICE_S_UNSUPP;
+		pr_warn("%s: unsupported service type\n", __func__);
+	}
 
 	/* Update the guest status buf and free the host buf */
 	tdvmcall_status_copy_and_free(resp_buf, vcpu, resp_gpa);

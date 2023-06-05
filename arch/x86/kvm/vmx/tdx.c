@@ -4079,6 +4079,56 @@ static int tdx_servtd_bind(struct kvm *usertd_kvm, struct kvm_tdx_cmd *cmd)
 
 }
 
+static void tdx_notify_servtd(struct kvm_tdx *tdx)
+{
+	struct kvm *kvm;
+	struct kvm_vcpu *vcpu;
+	unsigned long i;
+
+	kvm = &tdx->kvm;
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		if (vcpu->arch.mp_state == KVM_MP_STATE_HALTED) {
+			vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
+			kvm_vcpu_kick(vcpu);
+		}
+	}
+}
+
+static int tdx_set_migration_info(struct kvm *kvm,
+				  struct kvm_tdx_cmd *cmd)
+{
+	struct kvm_tdx *servtd_tdx;
+	struct kvm_tdx *usertd_tdx = to_kvm_tdx(kvm);
+	struct kvm_tdx_set_migration_info info;
+	struct tdx_binding_slot *slot;
+	struct tdx_binding_slot_migtd *migtd_data;
+
+	if (copy_from_user(&info, (void __user *)cmd->data,
+			   sizeof(struct kvm_tdx_set_migration_info)))
+		return -EFAULT;
+
+	if (cmd->flags ||
+	    info.version != KVM_TDX_SET_MIGRATION_INFO_VERSION)
+		return -EINVAL;
+
+	slot = &usertd_tdx->binding_slots[KVM_TDX_SERVTD_TYPE_MIGTD];
+	servtd_tdx = slot->servtd_tdx;
+	if (!servtd_tdx)
+		return -ENOENT;
+
+	migtd_data = &slot->migtd_data;
+	spin_lock(&servtd_tdx->binding_slot_lock);
+
+	migtd_data->vsock_port = info.vsock_port;
+	migtd_data->is_src = info.is_src;
+	tdx_binding_slot_set_state(slot, TDX_BINDING_SLOT_STATE_PREMIG_WAIT);
+
+	spin_unlock(&servtd_tdx->binding_slot_lock);
+
+	tdx_notify_servtd(servtd_tdx);
+	return 0;
+}
+
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 {
 	struct kvm_tdx_cmd tdx_cmd;
@@ -4109,6 +4159,9 @@ int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 		break;
 	case KVM_TDX_SERVTD_BIND:
 		r = tdx_servtd_bind(kvm, &tdx_cmd);
+		break;
+	case KVM_TDX_SET_MIGRATION_INFO:
+		r = tdx_set_migration_info(kvm, &tdx_cmd);
 		break;
 	default:
 		r = -EINVAL;

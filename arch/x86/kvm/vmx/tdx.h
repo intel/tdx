@@ -8,6 +8,13 @@
 #include "pmu_intel.h"
 #include "tdx_ops.h"
 
+struct tdx_binding_slot_migtd {
+	/* Is migration source VM */
+	uint8_t	 is_src;
+	/* vsock port for MigTD to connect to host */
+	uint32_t vsock_port;
+};
+
 enum tdx_binding_slot_state {
 	/* Slot is available for a new user */
 	TDX_BINDING_SLOT_STATE_INIT = 0,
@@ -15,6 +22,8 @@ enum tdx_binding_slot_state {
 	TDX_BINDING_SLOT_STATE_PREBOUND = 1,
 	/* Slot is used, and a servtd instance is bound */
 	TDX_BINDING_SLOT_STATE_BOUND = 2,
+	/* Slot is used, and holds all the info. Ready for pre-migration */
+	TDX_BINDING_SLOT_STATE_PREMIG_WAIT = 3,
 
 	TDX_BINDING_SLOT_STATE_UNKNOWN
 };
@@ -29,6 +38,11 @@ struct tdx_binding_slot {
 	uint16_t req_id;
 	/* The servtd that the slot is bound to */
 	struct kvm_tdx *servtd_tdx;
+	/*
+	 * Data specific to MigTD.
+	 * Futher type specific data can be added with union.
+	 */
+	struct tdx_binding_slot_migtd migtd_data;
 };
 
 #define SERVTD_SLOTS_MAX 32

@@ -4826,16 +4826,25 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 		tdvpx_pa[i] = __pa(va);
 	}
 
+	tdx->tdvpr_pa = tdvpr_pa;
+	tdx->tdvpx_pa = tdvpx_pa;
+
+	/*
+	 * Keep the tdvpr and tdvpx pages allocated above, but adding them to
+	 * the TDX module and the TDH_VP_CREATE seamcall require TD to be
+	 * initialized.
+	 */
+	if (!kvm_tdx->td_initialized)
+		return 0;
+
 	err = tdh_vp_create(kvm_tdx->tdr_pa, tdvpr_pa);
 	if (KVM_BUG_ON(err, vcpu->kvm)) {
 		ret = -EIO;
 		pr_tdx_error(TDH_VP_CREATE, err, NULL);
 		goto free_tdvpx;
 	}
-	tdx->tdvpr_pa = tdvpr_pa;
 	tdx_account_ctl_page(vcpu->kvm);
 
-	tdx->tdvpx_pa = tdvpx_pa;
 	for (i = 0; i < tdx_info.nr_tdvpx_pages; i++) {
 		err = tdh_vp_addcx(tdx->tdvpr_pa, tdvpx_pa[i]);
 		if (KVM_BUG_ON(err, vcpu->kvm)) {

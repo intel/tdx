@@ -610,6 +610,59 @@ free_hkid:
 	tdx_hkid_free(kvm_tdx);
 }
 
+static void tdx_binding_slots_cleanup(struct kvm_tdx *kvm_tdx)
+{
+	struct tdx_binding_slot *slot;
+	struct kvm_tdx *servtd_tdx;
+	uint16_t req_id;
+	int i;
+
+	/* Being a user TD, disconnect from the related servtds */
+	for (i = 0; i < KVM_TDX_SERVTD_TYPE_MAX; i++) {
+		slot = &kvm_tdx->binding_slots[i];
+		servtd_tdx = slot->servtd_tdx;
+		if (!servtd_tdx)
+			continue;
+		spin_lock(&servtd_tdx->binding_slot_lock);
+		req_id = slot->req_id;
+		/*
+		 * Sanity check: servtd should have the slot pointer
+		 * to this slot.
+		 */
+		if (servtd_tdx->usertd_binding_slots[req_id] != slot) {
+			pr_err("%s: unexpected slot %d pointer\n",
+				__func__, i);
+				continue;
+		}
+		servtd_tdx->usertd_binding_slots[req_id] = NULL;
+		spin_unlock(&servtd_tdx->binding_slot_lock);
+	}
+
+	/* Being a service TD, disconnect from the related user TDs */
+	spin_lock(&kvm_tdx->binding_slot_lock);
+	for (i = 0; i < SERVTD_SLOTS_MAX; i++) {
+		slot = kvm_tdx->usertd_binding_slots[i];
+		if (!slot)
+			continue;
+
+		/*
+		 * Only need to NULL the servtd_tdx field. Other fileds are
+		 * still valid for later migration process to reference, e.g.
+		 * migtd_data.is_src to indicate if this is a source TD. This
+		 * allows the user TD to be migrated to the destination after
+		 * the MigTD is destroyed.
+		 *
+		 * The live migration could be initiated much later after
+		 * pre-migration is done, there is no need to keep MigTD
+		 * running. The slot's state will be reset to INIT when a new
+		 * MigTD is bound, e.g. in order to change the migration
+		 * destination.
+		 */
+		slot->servtd_tdx = NULL;
+	}
+	spin_unlock(&kvm_tdx->binding_slot_lock);
+}
+
 static void tdx_vm_free_tdcs(struct kvm_tdx *kvm_tdx)
 {
 	int i;
@@ -659,6 +712,8 @@ void __tdx_vm_free(struct kvm *kvm)
 	/* Can't reclaim or free TD pages if teardown failed. */
 	if (is_hkid_assigned(kvm_tdx))
 		return;
+
+	tdx_binding_slots_cleanup(kvm_tdx);
 
 	tdx_vm_free_tdcs(kvm_tdx);
 	tdx_vm_free_tdr(kvm_tdx);

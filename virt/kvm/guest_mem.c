@@ -290,43 +290,13 @@ static long kvm_gmem_fallocate(struct file *file, int mode, loff_t offset,
 
 static int kvm_gmem_release(struct inode *inode, struct file *file)
 {
-	struct kvm_gmem *gmem = inode->i_mapping->private_data;
-	struct kvm_memory_slot *slot;
-	struct kvm *kvm = gmem->kvm;
-	unsigned long index;
-
 	/*
-	 * Prevent concurrent attempts to *unbind* a memslot.  This is the last
-	 * reference to the file and thus no new bindings can be created, but
-	 * deferencing the slot for existing bindings needs to be protected
-	 * against memslot updates, specifically so that unbind doesn't race
-	 * and free the memslot (kvm_gmem_get_file() will return NULL).
+	 * This is called when the last reference to the file is released. Only
+	 * clean up file-related stuff. struct kvm_gmem is also referred to in
+	 * the inode, so clean that up in kvm_gmem_evict_inode().
 	 */
-	mutex_lock(&kvm->slots_lock);
-
-	xa_for_each(&gmem->bindings, index, slot)
-		rcu_assign_pointer(slot->gmem.file, NULL);
-
-	synchronize_rcu();
-
-	/*
-	 * All in-flight operations are gone and new bindings can be created.
-	 * Free the backing memory, and more importantly, zap all SPTEs that
-	 * pointed at this file.
-	 */
-	kvm_gmem_invalidate_begin(kvm, gmem, 0, -1ul);
-	kvm_gmem_issue_arch_invalidate(gmem->kvm, file, 0, -1ul);
-	truncate_inode_pages_final(file->f_mapping);
-	kvm_gmem_invalidate_end(kvm, gmem, 0, -1ul);
-
-	mutex_unlock(&kvm->slots_lock);
-
-	WARN_ON_ONCE(!(mapping_empty(file->f_mapping)));
-
-	xa_destroy(&gmem->bindings);
-	kfree(gmem);
-
-	kvm_put_kvm(kvm);
+	file->f_mapping = NULL;
+	file->private_data = NULL;
 
 	return 0;
 }
@@ -647,10 +617,77 @@ int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
 }
 EXPORT_SYMBOL_GPL(kvm_gmem_get_pfn);
 
+static void kvm_gmem_evict_inode(struct inode *inode)
+{
+	struct kvm_gmem *gmem = inode->i_mapping->private_data;
+	struct kvm_memory_slot *slot;
+	struct kvm *kvm;
+	unsigned long index;
+
+	/*
+	 * If iput() was called before inode is completely set up due to some
+	 * error in kvm_gmem_create_inode(), gmem will be NULL.
+	 */
+	if (!gmem)
+		goto basic_cleanup;
+
+	kvm = gmem->kvm;
+
+	/*
+	 * Prevent concurrent attempts to *unbind* a memslot.  This is the last
+	 * reference to the file and thus no new bindings can be created, but
+	 * deferencing the slot for existing bindings needs to be protected
+	 * against memslot updates, specifically so that unbind doesn't race
+	 * and free the memslot (kvm_gmem_get_file() will return NULL).
+	 */
+	mutex_lock(&kvm->slots_lock);
+
+	xa_for_each(&gmem->bindings, index, slot)
+		rcu_assign_pointer(slot->gmem.file, NULL);
+
+	synchronize_rcu();
+
+	/*
+	 * All in-flight operations are gone and new bindings can be created.
+	 * Free the backing memory, and more importantly, zap all SPTEs that
+	 * pointed at this file.
+	 */
+	kvm_gmem_invalidate_begin(kvm, gmem, 0, -1ul);
+	kvm_gmem_issue_arch_invalidate(gmem->kvm, /* FIXME: file */NULL, 0, -1ul);
+	truncate_inode_pages_final(inode->i_mapping);
+	kvm_gmem_invalidate_end(kvm, gmem, 0, -1ul);
+
+	mutex_unlock(&kvm->slots_lock);
+
+	WARN_ON_ONCE(!(mapping_empty(inode->i_mapping)));
+
+	xa_destroy(&gmem->bindings);
+	kfree(gmem);
+
+	kvm_put_kvm(kvm);
+
+basic_cleanup:
+	clear_inode(inode);
+}
+
+static const struct super_operations kvm_gmem_super_operations = {
+	/*
+	 * TODO update statfs handler for kvm_gmem. What should the statfs
+	 * handler return?
+	 */
+	.statfs		= simple_statfs,
+	.evict_inode	= kvm_gmem_evict_inode,
+};
+
 static int kvm_gmem_init_fs_context(struct fs_context *fc)
 {
+	struct pseudo_fs_context *ctx;
+
 	if (!init_pseudo(fc, GUEST_MEMORY_MAGIC))
 		return -ENOMEM;
+
+	ctx = fc->fs_private;
+	ctx->ops = &kvm_gmem_super_operations;
 
 	return 0;
 }

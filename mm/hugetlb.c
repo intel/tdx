@@ -7026,9 +7026,9 @@ out_err:
  * Returns 0 on success.
  */
 long hugetlb_unreserve_pages(struct hstate *h, struct hugepage_subpool *spool,
-			     struct inode *inode, long start, long end, long freed)
+			     struct resv_map *resv_map, struct inode *inode,
+			     long start, long end, long freed)
 {
-	struct resv_map *resv_map = inode_resv_map(inode);
 	long chg = 0;
 	long gbl_reserve;
 

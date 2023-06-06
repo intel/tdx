@@ -162,7 +162,8 @@ bool hugetlb_reserve_pages(struct hstate *h, struct hugepage_subpool *spool,
 			   struct vm_area_struct *vma,
 			   vm_flags_t vm_flags);
 long hugetlb_unreserve_pages(struct hstate *h, struct hugepage_subpool *spool,
-			     struct inode *inode, long start, long end, long freed);
+			     struct resv_map *resv_map, struct inode *inode,
+			     long start, long end, long freed);
 bool isolate_hugetlb(struct folio *folio, struct list_head *list);
 int get_hwpoison_hugetlb_folio(struct folio *folio, bool *hugetlb, bool unpoison);
 int get_huge_page_for_hwpoison(unsigned long pfn, int flags,
@@ -270,6 +271,7 @@ void hugetlb_zero_partial_page(struct hstate *h, struct address_space *mapping,
 
 void remove_mapping_hugepages(struct address_space *mapping,
 			      struct hstate *h, struct hugepage_subpool *spool,
+			      struct resv_map *resv_map,
 			      struct inode *inode, loff_t lstart, loff_t lend);
 void remove_inode_hugepages(struct inode *inode, loff_t lstart, loff_t lend);
 
@@ -483,7 +485,7 @@ static inline void hugetlb_zero_partial_page(
 
 static inline void remove_mapping_hugepages(
 	struct address_space *mapping, struct hstate *h, struct hugepage_subpool *spool,
-	struct inode *inode, loff_t lstart, loff_t lend) {}
+	struct resv_map *resv_map, struct inode *inode, loff_t lstart, loff_t lend) {}
 static inline void remove_inode_hugepages(struct inode *inode, loff_t lstart, loff_t lend) {}
 
 #endif /* !CONFIG_HUGETLB_PAGE */

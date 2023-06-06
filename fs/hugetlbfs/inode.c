@@ -560,8 +560,8 @@ hugetlb_vmdelete_list(struct rb_root_cached *root, pgoff_t start, pgoff_t end,
  */
 static bool remove_mapping_single_folio(
 	struct address_space *mapping, struct folio *folio, pgoff_t index,
-	struct hstate *h, struct hugepage_subpool *spool, struct inode *inode,
-	bool truncate_op)
+	struct hstate *h, struct hugepage_subpool *spool, struct resv_map *resv_map,
+	struct inode *inode, bool truncate_op)
 {
 	bool ret = false;
 
@@ -586,7 +586,8 @@ static bool remove_mapping_single_folio(
 	hugetlb_delete_from_page_cache(folio);
 	ret = true;
 	if (!truncate_op) {
-		if (unlikely(hugetlb_unreserve_pages(h, spool, inode, index, index + 1, 1)))
+		if (unlikely(hugetlb_unreserve_pages(h, spool, resv_map,
+						     inode, index, index + 1, 1)))
 			hugetlb_fix_reserve_counts(h, spool);
 	}
 
@@ -623,6 +624,7 @@ static bool remove_mapping_single_folio(
  */
 void remove_mapping_hugepages(struct address_space *mapping,
 			      struct hstate *h, struct hugepage_subpool *spool,
+			      struct resv_map *resv_map,
 			      struct inode *inode, loff_t lstart, loff_t lend)
 {
 	const pgoff_t start = lstart >> huge_page_shift(h);
@@ -647,7 +649,7 @@ void remove_mapping_hugepages(struct address_space *mapping,
 			 * Remove folio that was part of folio_batch.
 			 */
 			if (remove_mapping_single_folio(mapping, folio, index,
-							h, spool, inode, truncate_op))
+							h, spool, resv_map, inode, truncate_op))
 				freed++;
 
 			mutex_unlock(&hugetlb_fault_mutex_table[hash]);
@@ -657,7 +659,8 @@ void remove_mapping_hugepages(struct address_space *mapping,
 	}
 
 	if (truncate_op)
-		(void)hugetlb_unreserve_pages(h, spool, inode, start, LONG_MAX, freed);
+		(void)hugetlb_unreserve_pages(h, spool, resv_map, inode,
+					      start, LONG_MAX, freed);
 }
 
 void remove_inode_hugepages(struct inode *inode, loff_t lstart, loff_t lend)
@@ -665,8 +668,9 @@ void remove_inode_hugepages(struct inode *inode, loff_t lstart, loff_t lend)
 	struct address_space *mapping = &inode->i_data;
 	struct hstate *h = hstate_inode(inode);
 	struct hugepage_subpool *spool = subpool_inode(inode);
+	struct resv_map *resv_map = inode_resv_map(inode);
 
-	return remove_mapping_hugepages(mapping, h, spool, inode, lstart, lend);
+	return remove_mapping_hugepages(mapping, h, spool, resv_map, inode, lstart, lend);
 }
 
 static void hugetlbfs_evict_inode(struct inode *inode)

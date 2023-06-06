@@ -164,7 +164,7 @@ static int hugetlbfs_file_mmap(struct file *file, struct vm_area_struct *vma)
 	file_accessed(file);
 
 	ret = -ENOMEM;
-	if (!hugetlb_reserve_pages(inode,
+	if (!hugetlb_reserve_pages(h, subpool_inode(inode), inode,
 				vma->vm_pgoff >> huge_page_order(h),
 				len >> huge_page_shift(h), vma,
 				vma->vm_flags))
@@ -550,14 +550,18 @@ hugetlb_vmdelete_list(struct rb_root_cached *root, pgoff_t start, pgoff_t end,
 	}
 }
 
-/*
+/**
+ * Remove folio from page_cache and userspace mappings. Also unreserves pages,
+ * updating hstate @h, subpool @spool (if not NULL), @inode block info and
+ * @inode's resv_map (if not NULL).
+ *
  * Called with hugetlb fault mutex held.
  * Returns true if page was actually removed, false otherwise.
  */
-static bool remove_inode_single_folio(struct hstate *h, struct inode *inode,
-					struct address_space *mapping,
-					struct folio *folio, pgoff_t index,
-					bool truncate_op)
+static bool remove_mapping_single_folio(
+	struct address_space *mapping, struct folio *folio, pgoff_t index,
+	struct hstate *h, struct hugepage_subpool *spool, struct inode *inode,
+	bool truncate_op)
 {
 	bool ret = false;
 
@@ -582,9 +586,8 @@ static bool remove_inode_single_folio(struct hstate *h, struct inode *inode,
 	hugetlb_delete_from_page_cache(folio);
 	ret = true;
 	if (!truncate_op) {
-		if (unlikely(hugetlb_unreserve_pages(inode, index,
-							index + 1, 1)))
-			hugetlb_fix_reserve_counts(inode);
+		if (unlikely(hugetlb_unreserve_pages(h, spool, inode, index, index + 1, 1)))
+			hugetlb_fix_reserve_counts(h, spool);
 	}
 
 	folio_unlock(folio);
@@ -592,7 +595,14 @@ static bool remove_inode_single_folio(struct hstate *h, struct inode *inode,
 }
 
 /*
- * remove_inode_hugepages handles two distinct cases: truncation and hole
+ * Remove hugetlb page mappings from @mapping between offsets [@lstart, @lend).
+ * Also updates reservations in:
+ * + hstate @h (required)
+ * + subpool @spool (can be NULL)
+ * + resv_map in @inode (can be NULL)
+ * and updates blocks in @inode (required)
+ *
+ * remove_mapping_hugepages handles two distinct cases: truncation and hole
  * punch.  There are subtle differences in operation for each case.
  *
  * truncation is indicated by end of range being LLONG_MAX
@@ -611,10 +621,10 @@ static bool remove_inode_single_folio(struct hstate *h, struct inode *inode,
  * Note: If the passed end of range value is beyond the end of file, but
  * not LLONG_MAX this routine still performs a hole punch operation.
  */
-void remove_inode_hugepages(struct inode *inode, loff_t lstart, loff_t lend)
+void remove_mapping_hugepages(struct address_space *mapping,
+			      struct hstate *h, struct hugepage_subpool *spool,
+			      struct inode *inode, loff_t lstart, loff_t lend)
 {
-	struct hstate *h = hstate_inode(inode);
-	struct address_space *mapping = &inode->i_data;
 	const pgoff_t start = lstart >> huge_page_shift(h);
 	const pgoff_t end = lend >> huge_page_shift(h);
 	struct folio_batch fbatch;
@@ -636,8 +646,8 @@ void remove_inode_hugepages(struct inode *inode, loff_t lstart, loff_t lend)
 			/*
 			 * Remove folio that was part of folio_batch.
 			 */
-			if (remove_inode_single_folio(h, inode, mapping, folio,
-							index, truncate_op))
+			if (remove_mapping_single_folio(mapping, folio, index,
+							h, spool, inode, truncate_op))
 				freed++;
 
 			mutex_unlock(&hugetlb_fault_mutex_table[hash]);
@@ -647,7 +657,16 @@ void remove_inode_hugepages(struct inode *inode, loff_t lstart, loff_t lend)
 	}
 
 	if (truncate_op)
-		(void)hugetlb_unreserve_pages(inode, start, LONG_MAX, freed);
+		(void)hugetlb_unreserve_pages(h, spool, inode, start, LONG_MAX, freed);
+}
+
+void remove_inode_hugepages(struct inode *inode, loff_t lstart, loff_t lend)
+{
+	struct address_space *mapping = &inode->i_data;
+	struct hstate *h = hstate_inode(inode);
+	struct hugepage_subpool *spool = subpool_inode(inode);
+
+	return remove_mapping_hugepages(mapping, h, spool, inode, lstart, lend);
 }
 
 static void hugetlbfs_evict_inode(struct inode *inode)
@@ -1543,6 +1562,7 @@ struct file *hugetlb_file_setup(const char *name, size_t size,
 	struct vfsmount *mnt;
 	int hstate_idx;
 	struct file *file;
+	struct hstate *h;
 
 	hstate_idx = get_hstate_idx(page_size_log);
 	if (hstate_idx < 0)
@@ -1573,9 +1593,10 @@ struct file *hugetlb_file_setup(const char *name, size_t size,
 	inode->i_size = size;
 	clear_nlink(inode);
 
-	if (!hugetlb_reserve_pages(inode, 0,
-			size >> huge_page_shift(hstate_inode(inode)), NULL,
-			acctflag))
+	h = hstate_inode(inode);
+	if (!hugetlb_reserve_pages(h, subpool_inode(inode), inode, 0,
+				   size >> huge_page_shift(h), NULL,
+				   acctflag))
 		file = ERR_PTR(-ENOMEM);
 	else
 		file = alloc_file_pseudo(inode, mnt, name, O_RDWR,

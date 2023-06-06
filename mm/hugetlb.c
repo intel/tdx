@@ -247,11 +247,6 @@ static long hugepage_subpool_put_pages(struct hugepage_subpool *spool,
 	return ret;
 }
 
-static inline struct hugepage_subpool *subpool_inode(struct inode *inode)
-{
-	return HUGETLBFS_SB(inode->i_sb)->spool;
-}
-
 static inline struct hugepage_subpool *subpool_vma(struct vm_area_struct *vma)
 {
 	return subpool_inode(file_inode(vma->vm_file));
@@ -898,16 +893,13 @@ retry:
  * appear as a "reserved" entry instead of simply dangling with incorrect
  * counts.
  */
-void hugetlb_fix_reserve_counts(struct inode *inode)
+void hugetlb_fix_reserve_counts(struct hstate *h, struct hugepage_subpool *spool)
 {
-	struct hugepage_subpool *spool = subpool_inode(inode);
 	long rsv_adjust;
 	bool reserved = false;
 
 	rsv_adjust = hugepage_subpool_get_pages(spool, 1);
 	if (rsv_adjust > 0) {
-		struct hstate *h = hstate_inode(inode);
-
 		if (!hugetlb_acct_memory(h, 1))
 			reserved = true;
 	} else if (!rsv_adjust) {
@@ -6834,15 +6826,22 @@ long hugetlb_change_protection(struct vm_area_struct *vma,
 	return pages > 0 ? (pages << h->order) : pages;
 }
 
-/* Return true if reservation was successful, false otherwise.  */
-bool hugetlb_reserve_pages(struct inode *inode,
-					long from, long to,
-					struct vm_area_struct *vma,
-					vm_flags_t vm_flags)
+/**
+ * Reserves pages between vma indices @from and @to by handling accounting in:
+ * + hstate @h (required)
+ * + subpool @spool (can be NULL)
+ * + @inode (required if @vma is NULL)
+ *
+ * Will setup resv_map in @vma if necessary.
+ * Return true if reservation was successful, false otherwise.
+ */
+bool hugetlb_reserve_pages(struct hstate *h, struct hugepage_subpool *spool,
+			   struct inode *inode,
+			   long from, long to,
+			   struct vm_area_struct *vma,
+			   vm_flags_t vm_flags)
 {
 	long chg = -1, add = -1;
-	struct hstate *h = hstate_inode(inode);
-	struct hugepage_subpool *spool = subpool_inode(inode);
 	struct resv_map *resv_map;
 	struct hugetlb_cgroup *h_cg = NULL;
 	long gbl_reserve, regions_needed = 0;
@@ -6993,13 +6992,23 @@ out_err:
 	return false;
 }
 
-long hugetlb_unreserve_pages(struct inode *inode, long start, long end,
-								long freed)
+/**
+ * Unreserves pages between vma indices @start and @end by handling accounting
+ * in:
+ * + hstate @h (required)
+ * + subpool @spool (can be NULL)
+ * + @inode (required)
+ * + resv_map in @inode (can be NULL)
+ *
+ * @freed is the number of pages freed, for updating inode->i_blocks.
+ *
+ * Returns 0 on success.
+ */
+long hugetlb_unreserve_pages(struct hstate *h, struct hugepage_subpool *spool,
+			     struct inode *inode, long start, long end, long freed)
 {
-	struct hstate *h = hstate_inode(inode);
 	struct resv_map *resv_map = inode_resv_map(inode);
 	long chg = 0;
-	struct hugepage_subpool *spool = subpool_inode(inode);
 	long gbl_reserve;
 
 	/*

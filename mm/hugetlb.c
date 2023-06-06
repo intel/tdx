@@ -2806,15 +2806,10 @@ static long resv_map_del_reservation(struct resv_map *resv, pgoff_t resv_index,
  *
  * In case 2, simply undo reserve map modifications done by alloc_hugetlb_folio.
  */
-void restore_reserve_on_error(struct hstate *h, struct vm_area_struct *vma,
-			unsigned long address, struct folio *folio)
+void restore_reserve_on_error(struct resv_map *resv, pgoff_t resv_index,
+			      bool may_share, struct folio *folio)
 {
-	long rc;
-	struct resv_map *resv = vma_resv_map(vma);
-	pgoff_t resv_index = vma_hugecache_offset(h, vma, address);
-	bool may_share = vma->vm_flags & VM_MAYSHARE;
-
-	rc = resv_map_needs_reservation(resv, resv_index, may_share);
+	long rc = resv_map_needs_reservation(resv, resv_index, may_share);
 
 	if (folio_test_hugetlb_restore_reserve(folio)) {
 		if (unlikely(rc < 0))
@@ -2866,7 +2861,7 @@ void restore_reserve_on_error(struct hstate *h, struct vm_area_struct *vma,
 			 * For shared mappings, no entry in the map indicates
 			 * no reservation.  We are done.
 			 */
-			if (!(vma->vm_flags & VM_MAYSHARE))
+			if (!may_share)
 				/*
 				 * For private mappings, no entry indicates
 				 * a reservation is present.  Since we can
@@ -2882,6 +2877,16 @@ void restore_reserve_on_error(struct hstate *h, struct vm_area_struct *vma,
 			 */
 			 resv_map_end_reservation(resv, resv_index, may_share);
 	}
+}
+
+void restore_reserve_on_error_vma(struct hstate *h, struct vm_area_struct *vma,
+				  unsigned long address, struct folio *folio)
+{
+	struct resv_map *resv = vma_resv_map(vma);
+	pgoff_t resv_index = vma_hugecache_offset(h, vma, address);
+	bool may_share = vma->vm_flags & VM_MAYSHARE;
+
+	restore_reserve_on_error(resv, resv_index, may_share, folio);
 }
 
 /*
@@ -5162,8 +5167,8 @@ again:
 				spin_lock_nested(src_ptl, SINGLE_DEPTH_NESTING);
 				entry = huge_ptep_get(src_pte);
 				if (!pte_same(src_pte_old, entry)) {
-					restore_reserve_on_error(h, dst_vma, addr,
-								new_folio);
+					restore_reserve_on_error_vma(h, dst_vma, addr,
+								     new_folio);
 					folio_put(new_folio);
 					/* huge_ptep of dst_pte won't change as in child */
 					goto again;
@@ -5714,7 +5719,7 @@ out_release_all:
 	 * unshare)
 	 */
 	if (new_folio != old_folio)
-		restore_reserve_on_error(h, vma, haddr, new_folio);
+		restore_reserve_on_error_vma(h, vma, haddr, new_folio);
 	folio_put(new_folio);
 out_release_old:
 	folio_put(old_folio);
@@ -5932,7 +5937,7 @@ static vm_fault_t hugetlb_no_page(struct mm_struct *mm,
 				 * to the page cache. So it's safe to call
 				 * restore_reserve_on_error() here.
 				 */
-				restore_reserve_on_error(h, vma, haddr, folio);
+				restore_reserve_on_error_vma(h, vma, haddr, folio);
 				folio_put(folio);
 				goto out;
 			}
@@ -6037,7 +6042,7 @@ backout:
 	spin_unlock(ptl);
 backout_unlocked:
 	if (new_folio && !new_pagecache_folio)
-		restore_reserve_on_error(h, vma, haddr, folio);
+		restore_reserve_on_error_vma(h, vma, haddr, folio);
 
 	folio_unlock(folio);
 	folio_put(folio);
@@ -6305,7 +6310,7 @@ int hugetlb_mfill_atomic_pte(pte_t *dst_pte,
 			/* Free the allocated folio which may have
 			 * consumed a reservation.
 			 */
-			restore_reserve_on_error(h, dst_vma, dst_addr, folio);
+			restore_reserve_on_error_vma(h, dst_vma, dst_addr, folio);
 			folio_put(folio);
 
 			/* Allocate a temporary folio to hold the copied
@@ -6437,7 +6442,7 @@ out_release_unlock:
 		folio_unlock(folio);
 out_release_nounlock:
 	if (!folio_in_pagecache)
-		restore_reserve_on_error(h, dst_vma, dst_addr, folio);
+		restore_reserve_on_error_vma(h, dst_vma, dst_addr, folio);
 	folio_put(folio);
 	goto out;
 }

@@ -764,8 +764,10 @@ int hugetlb_filemap_add_folio(struct address_space *mapping, struct hstate *h,
 			      struct folio *folio, pgoff_t idx);
 int hugetlb_add_to_page_cache(struct folio *folio, struct address_space *mapping,
 			pgoff_t idx);
-void restore_reserve_on_error(struct hstate *h, struct vm_area_struct *vma,
-				unsigned long address, struct folio *folio);
+void restore_reserve_on_error(struct resv_map *resv, pgoff_t resv_index,
+			      bool may_share, struct folio *folio);
+void restore_reserve_on_error_vma(struct hstate *h, struct vm_area_struct *vma,
+				  unsigned long address, struct folio *folio);
 
 /* arch callback */
 int __init __alloc_bootmem_huge_page(struct hstate *h, int nid);

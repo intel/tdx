@@ -3004,7 +3004,7 @@ int isolate_or_dissolve_huge_page(struct page *page, struct list_head *list)
 }
 
 struct folio *alloc_hugetlb_folio_from_subpool(
-	struct hugepage_subpool *spool, struct hstate *h,
+	struct hugepage_subpool *spool, struct hstate *h, struct resv_map *resv,
 	struct vm_area_struct *vma, unsigned long addr, int avoid_reserve)
 {
 	struct folio *folio;
@@ -3014,7 +3014,6 @@ struct folio *alloc_hugetlb_folio_from_subpool(
 	struct hugetlb_cgroup *h_cg = NULL;
 	bool deferred_reserve;
 
-	struct resv_map *resv = vma_resv_map(vma);
 	pgoff_t resv_index = vma_hugecache_offset(h, vma, addr);
 	bool may_share = vma->vm_flags & VM_MAYSHARE;
 
@@ -3142,8 +3141,9 @@ struct folio *alloc_hugetlb_folio(struct vm_area_struct *vma,
 {
 	struct hugepage_subpool *spool = subpool_vma(vma);
 	struct hstate *h = hstate_vma(vma);
+	struct resv_map *resv = vma_resv_map(vma);
 
-	return alloc_hugetlb_folio_from_subpool(spool, h, vma, addr, avoid_reserve);
+	return alloc_hugetlb_folio_from_subpool(spool, h, resv, vma, addr, avoid_reserve);
 }
 
 int alloc_bootmem_huge_page(struct hstate *h, int nid)

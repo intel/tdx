@@ -771,7 +771,7 @@ struct huge_bootmem_page {
 
 int isolate_or_dissolve_huge_page(struct page *page, struct list_head *list);
 struct folio *alloc_hugetlb_folio_from_subpool(
-	struct hugepage_subpool *spool, struct hstate *h,
+	struct hugepage_subpool *spool, struct hstate *h, struct resv_map *resv,
 	struct vm_area_struct *vma, unsigned long addr, int avoid_reserve);
 struct folio *alloc_hugetlb_folio(struct vm_area_struct *vma,
 				unsigned long addr, int avoid_reserve);

@@ -2348,6 +2348,14 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 
 void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int pgd_level)
 {
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
+
+	if (!kvm_tdx->td_initialized) {
+		vcpu->load_mmu_pgd_pending = true;
+		return;
+	}
+
+	vcpu->load_mmu_pgd_pending = false;
 	td_vmcs_write64(to_tdx(vcpu), SHARED_EPT_POINTER, root_hpa & PAGE_MASK);
 }
 

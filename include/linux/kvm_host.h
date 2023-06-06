@@ -384,6 +384,7 @@ struct kvm_vcpu {
 #endif
 	bool preempted;
 	bool ready;
+	bool load_mmu_pgd_pending;
 	struct kvm_vcpu_arch arch;
 	struct kvm_vcpu_stat stat;
 	char stats_id[KVM_STATS_NAME_SIZE];

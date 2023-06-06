@@ -6120,6 +6120,15 @@ out:
 }
 EXPORT_SYMBOL(kvm_mmu_load);
 
+void kvm_mmu_load_pending_pgd(struct kvm_vcpu *vcpu)
+{
+	if (!vcpu->load_mmu_pgd_pending)
+		return;
+
+	kvm_mmu_load_pgd(vcpu);
+}
+EXPORT_SYMBOL_GPL(kvm_mmu_load_pending_pgd);
+
 static void __kvm_mmu_unload(struct kvm_vcpu *vcpu, u32 roots_to_free)
 {
 	struct kvm *kvm = vcpu->kvm;

@@ -8,6 +8,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <limits.h>
+#include <linux/kvm.h>
 #include <stdlib.h>
 #include <time.h>
 #include <sys/stat.h>
@@ -287,6 +288,34 @@ const struct vm_mem_backing_src_alias *vm_mem_backing_src_alias(uint32_t i)
 	return &aliases[i];
 }
 
+const struct vm_mem_backing_src_alias *vm_pmem_backing_src_alias(uint32_t i)
+{
+	static const struct vm_mem_backing_src_alias aliases[] = {
+		[VM_PMEM_SRC_GMEM] = {
+			.name = "pmem_gmem",
+			.flag = 0,
+		},
+		[VM_PMEM_SRC_HUGETLB] = {
+			.name = "pmem_hugetlb",
+			.flag = KVM_GUEST_MEMFD_HUGETLB,
+		},
+		[VM_PMEM_SRC_HUGETLB_2MB] = {
+			.name = "pmem_hugetlb_2mb",
+			.flag = KVM_GUEST_MEMFD_HUGETLB | KVM_GUEST_MEMFD_HUGE_2MB,
+		},
+		[VM_PMEM_SRC_HUGETLB_1GB] = {
+			.name = "pmem_hugetlb_1gb",
+			.flag = KVM_GUEST_MEMFD_HUGETLB | KVM_GUEST_MEMFD_HUGE_1GB,
+		},
+	};
+	_Static_assert(ARRAY_SIZE(aliases) == NUM_PMEM_SRC_TYPES,
+		       "Missing new backing private mem src types?");
+
+	TEST_ASSERT(i < NUM_PMEM_SRC_TYPES, "Private mem backing src type ID %d too big", i);
+
+	return &aliases[i];
+}
+
 #define MAP_HUGE_PAGE_SIZE(x) (1ULL << ((x >> MAP_HUGE_SHIFT) & MAP_HUGE_MASK))
 
 size_t get_backing_src_pagesz(uint32_t i)
@@ -301,6 +330,20 @@ size_t get_backing_src_pagesz(uint32_t i)
 		return get_trans_hugepagesz();
 	case VM_MEM_SRC_ANONYMOUS_HUGETLB:
 	case VM_MEM_SRC_SHARED_HUGETLB:
+		return get_def_hugetlb_pagesz();
+	default:
+		return MAP_HUGE_PAGE_SIZE(flag);
+	}
+}
+
+size_t get_pmem_backing_src_pagesz(uint32_t i)
+{
+	uint32_t flag = vm_pmem_backing_src_alias(i)->flag;
+
+	switch (i) {
+	case VM_PMEM_SRC_GMEM:
+		return getpagesize();
+	case VM_PMEM_SRC_HUGETLB:
 		return get_def_hugetlb_pagesz();
 	default:
 		return MAP_HUGE_PAGE_SIZE(flag);
@@ -340,6 +383,37 @@ enum vm_mem_backing_src_type parse_backing_src_type(const char *type_name)
 
 	print_available_backing_src_types("");
 	TEST_FAIL("Unknown backing src type: %s", type_name);
+	return -1;
+}
+
+static void print_available_pmem_backing_src_types(const char *prefix)
+{
+	int i;
+
+	printf("%sAvailable private mem backing src types:\n", prefix);
+
+	for (i = 0; i < NUM_PMEM_SRC_TYPES; i++)
+		printf("%s    %s\n", prefix, vm_pmem_backing_src_alias(i)->name);
+}
+
+void pmem_backing_src_help(const char *flag)
+{
+	printf(" %s: specify the type of memory that should be used to\n"
+	       "     back guest private memory. (default: %s)\n",
+	       flag, vm_pmem_backing_src_alias(DEFAULT_VM_MEM_SRC)->name);
+	print_available_pmem_backing_src_types("     ");
+}
+
+enum vm_pmem_backing_src_type parse_pmem_backing_src_type(const char *type_name)
+{
+	int i;
+
+	for (i = 0; i < NUM_SRC_TYPES; i++)
+		if (!strcmp(type_name, vm_pmem_backing_src_alias(i)->name))
+			return i;
+
+	print_available_pmem_backing_src_types("");
+	TEST_FAIL("Unknown private mem backing src type: %s", type_name);
 	return -1;
 }
 

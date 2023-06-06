@@ -5737,11 +5737,10 @@ static bool hugetlbfs_pagecache_present(struct hstate *h,
 	return true;
 }
 
-int hugetlb_add_to_page_cache(struct folio *folio, struct address_space *mapping,
-			   pgoff_t idx)
+int hugetlb_filemap_add_folio(struct address_space *mapping, struct hstate *h,
+			      struct folio *folio, pgoff_t idx)
 {
 	struct inode *inode = mapping->host;
-	struct hstate *h = hstate_inode(inode);
 	int err;
 
 	__folio_set_locked(folio);
@@ -5763,6 +5762,14 @@ int hugetlb_add_to_page_cache(struct folio *folio, struct address_space *mapping
 	inode->i_blocks += blocks_per_huge_page(h);
 	spin_unlock(&inode->i_lock);
 	return 0;
+}
+
+int hugetlb_add_to_page_cache(struct folio *folio, struct address_space *mapping,
+			      pgoff_t idx)
+{
+	struct hstate *h = hstate_inode(mapping->host);
+
+	return hugetlb_filemap_add_folio(mapping, h, folio, idx);
 }
 
 static inline vm_fault_t hugetlb_handle_userfault(struct vm_area_struct *vma,

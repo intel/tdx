@@ -2,6 +2,9 @@
 #include <linux/anon_inodes.h>
 #include <linux/kvm_host.h>
 
+struct tdx_mig_state {
+};
+
 struct tdx_mig_capabilities {
 	uint32_t max_migs;
 	uint32_t nonmem_state_pages;
@@ -82,6 +85,29 @@ static int tdx_mig_stream_create(struct kvm_device *dev, u32 type)
 
 static void tdx_mig_stream_release(struct kvm_device *dev)
 {
+}
+
+static int tdx_mig_state_create(struct kvm_tdx *kvm_tdx)
+{
+	struct tdx_mig_state *mig_state = kvm_tdx->mig_state;
+
+	mig_state = kzalloc(sizeof(struct tdx_mig_state), GFP_KERNEL_ACCOUNT);
+	if (!mig_state)
+		return -ENOMEM;
+
+	kvm_tdx->mig_state = mig_state;
+	return 0;
+}
+
+static void tdx_mig_state_destroy(struct kvm_tdx *kvm_tdx)
+{
+	struct tdx_mig_state *mig_state = kvm_tdx->mig_state;
+
+	if (!mig_state)
+		return;
+
+	kfree(mig_state);
+	kvm_tdx->mig_state = NULL;
 }
 
 static struct kvm_device_ops kvm_tdx_mig_stream_ops = {

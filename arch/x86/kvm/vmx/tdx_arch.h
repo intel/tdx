@@ -137,6 +137,7 @@ struct tdx_cpuid_value {
 } __packed;
 
 #define TDX_TD_ATTRIBUTE_DEBUG		BIT_ULL(0)
+#define TDX_TD_ATTRIBUTE_MIG		BIT_ULL(29)
 #define TDX_TD_ATTRIBUTE_PKS		BIT_ULL(30)
 #define TDX_TD_ATTRIBUTE_KL		BIT_ULL(31)
 #define TDX_TD_ATTRIBUTE_PERFMON	BIT_ULL(63)

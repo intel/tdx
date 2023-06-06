@@ -723,6 +723,7 @@ void __tdx_vm_free(struct kvm *kvm)
 		return;
 
 	tdx_binding_slots_cleanup(kvm_tdx);
+	tdx_mig_state_destroy(kvm_tdx);
 
 	tdx_vm_free_tdcs(kvm_tdx);
 	tdx_vm_free_tdr(kvm_tdx);
@@ -4201,6 +4202,12 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 
 	kvm_tdx->attributes = td_params->attributes;
 	kvm_tdx->xfam = td_params->xfam;
+
+	if ((td_params->attributes & TDX_TD_ATTRIBUTE_MIG) &&
+	    tdx_mig_state_create(to_kvm_tdx(kvm))) {
+		pr_warn("Failed to create mig state\n");
+		return -ENOMEM;
+	}
 
 	if (td_params->exec_controls & TDX_EXEC_CONTROL_MAX_GPAW)
 		kvm->arch.gfn_shared_mask = gpa_to_gfn(BIT_ULL(51));

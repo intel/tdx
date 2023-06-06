@@ -19,6 +19,7 @@
 #include <linux/secretmem.h>
 #include <linux/set_memory.h>
 #include <linux/sched/signal.h>
+#include <linux/hugetlb.h>
 
 #include <uapi/linux/magic.h>
 
@@ -30,6 +31,11 @@ struct kvm_gmem {
 	struct kvm *kvm;
 	u64 flags;
 	struct xarray bindings;
+	struct {
+		struct hstate *h;
+		struct hugepage_subpool *spool;
+		struct resv_map *resv_map;
+	} hugetlb;
 };
 
 static loff_t kvm_gmem_get_size(struct file *file)
@@ -389,6 +395,46 @@ static const struct inode_operations kvm_gmem_iops = {
 	.setattr	= kvm_gmem_setattr,
 };
 
+static int kvm_gmem_hugetlb_setup(struct inode *inode, struct kvm_gmem *gmem,
+				  loff_t size, u64 flags)
+{
+	int page_size_log;
+	int hstate_idx;
+	long hpages;
+	struct resv_map *resv_map;
+	struct hugepage_subpool *spool;
+	struct hstate *h;
+
+	page_size_log = (flags >> KVM_GUEST_MEMFD_HUGE_SHIFT) & KVM_GUEST_MEMFD_HUGE_MASK;
+	hstate_idx = get_hstate_idx(page_size_log);
+	if (hstate_idx < 0)
+		return -ENOENT;
+
+	h = &hstates[hstate_idx];
+	/* Round up to accommodate size requests that don't align with huge pages */
+	hpages = round_up(size, huge_page_size(h)) >> huge_page_shift(h);
+	spool = hugepage_new_subpool(h, hpages, hpages);
+	if (!spool)
+		goto out;
+
+	resv_map = resv_map_alloc();
+	if (!resv_map)
+		goto out_subpool;
+
+	inode->i_blkbits = huge_page_shift(h);
+
+	gmem->hugetlb.h = h;
+	gmem->hugetlb.spool = spool;
+	gmem->hugetlb.resv_map = resv_map;
+
+	return 0;
+
+out_subpool:
+	kfree(spool);
+out:
+	return -ENOMEM;
+}
+
 static struct inode *kvm_gmem_create_inode(struct kvm *kvm, loff_t size, u64 flags,
 					   struct vfsmount *mnt)
 {
@@ -411,6 +457,12 @@ static struct inode *kvm_gmem_create_inode(struct kvm *kvm, loff_t size, u64 fla
 	if (!gmem)
 		goto err_inode;
 
+	if (flags & KVM_GUEST_MEMFD_HUGETLB) {
+		err = kvm_gmem_hugetlb_setup(inode, gmem, size, flags);
+		if (err)
+			goto err_gmem;
+	}
+
 	xa_init(&gmem->bindings);
 
 	kvm_get_kvm(kvm);
@@ -428,6 +480,8 @@ static struct inode *kvm_gmem_create_inode(struct kvm *kvm, loff_t size, u64 fla
 
 	return inode;
 
+err_gmem:
+	kfree(gmem);
 err_inode:
 	iput(inode);
 	return ERR_PTR(err);
@@ -457,6 +511,8 @@ static struct file *kvm_gmem_create_file(struct kvm *kvm, loff_t size, u64 flags
 	return file;
 }
 
+#define KVM_GUEST_MEMFD_ALL_FLAGS (KVM_GUEST_MEMFD_HUGE_PMD | KVM_GUEST_MEMFD_HUGETLB)
+
 int kvm_gmem_create(struct kvm *kvm, struct kvm_create_guest_memfd *gmem)
 {
 	int fd;
@@ -467,8 +523,15 @@ int kvm_gmem_create(struct kvm *kvm, struct kvm_create_guest_memfd *gmem)
 	if (size < 0 || !PAGE_ALIGNED(size))
 		return -EINVAL;
 
-	if (flags & ~KVM_GUEST_MEMFD_HUGE_PMD)
-		return -EINVAL;
+	if (!(flags & KVM_GUEST_MEMFD_HUGETLB)) {
+		if (flags & ~(unsigned int)KVM_GUEST_MEMFD_ALL_FLAGS)
+			return -EINVAL;
+	} else {
+		/* Allow huge page size encoding in flags. */
+		if (flags & ~(unsigned int)(KVM_GUEST_MEMFD_ALL_FLAGS |
+				(KVM_GUEST_MEMFD_HUGE_MASK << KVM_GUEST_MEMFD_HUGE_SHIFT)))
+			return -EINVAL;
+	}
 
 	if (flags & KVM_GUEST_MEMFD_HUGE_PMD) {
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
@@ -654,7 +717,17 @@ static void kvm_gmem_evict_inode(struct inode *inode)
 	 */
 	kvm_gmem_invalidate_begin(kvm, gmem, 0, -1ul);
 	kvm_gmem_issue_arch_invalidate(gmem->kvm, /* FIXME: file */NULL, 0, -1ul);
-	truncate_inode_pages_final(inode->i_mapping);
+	if (gmem->flags & KVM_GUEST_MEMFD_HUGETLB) {
+		truncate_inode_pages_final_prepare(inode->i_mapping);
+		remove_mapping_hugepages(
+			inode->i_mapping, gmem->hugetlb.h, gmem->hugetlb.spool,
+			gmem->hugetlb.resv_map, inode, 0, LLONG_MAX);
+
+		resv_map_release(&gmem->hugetlb.resv_map->refs);
+		hugepage_put_subpool(gmem->hugetlb.spool);
+	} else {
+		truncate_inode_pages_final(inode->i_mapping);
+	}
 	kvm_gmem_invalidate_end(kvm, gmem, 0, -1ul);
 
 	mutex_unlock(&kvm->slots_lock);
@@ -678,6 +751,24 @@ static const struct super_operations kvm_gmem_super_operations = {
 	.statfs		= simple_statfs,
 	.evict_inode	= kvm_gmem_evict_inode,
 };
+
+bool kvm_gmem_check_alignment(const struct kvm_userspace_memory_region2 *mem)
+{
+	size_t page_size;
+
+	if (mem->flags & KVM_GUEST_MEMFD_HUGETLB) {
+		size_t page_size_log = ((mem->flags >> KVM_GUEST_MEMFD_HUGE_SHIFT)
+					& KVM_GUEST_MEMFD_HUGE_MASK);
+		page_size = 1UL << page_size_log;
+	} else if (mem->flags & KVM_GUEST_MEMFD_HUGE_PMD) {
+		page_size = HPAGE_PMD_SIZE;
+	} else {
+		page_size = PAGE_SIZE;
+	}
+
+	return (IS_ALIGNED(mem->gmem_offset, page_size) &&
+		IS_ALIGNED(mem->memory_size, page_size));
+}
 
 static int kvm_gmem_init_fs_context(struct fs_context *fc)
 {

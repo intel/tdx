@@ -13,6 +13,7 @@
 #include <linux/compiler.h>
 #include <linux/ioctl.h>
 #include <asm/kvm.h>
+#include <asm-generic/hugetlb_encode.h>
 
 #define KVM_API_VERSION 12
 
@@ -2391,6 +2392,30 @@ struct kvm_memory_attributes {
 #define KVM_CREATE_GUEST_MEMFD	_IOWR(KVMIO,  0xd4, struct kvm_create_guest_memfd)
 
 #define KVM_GUEST_MEMFD_HUGE_PMD		(1ULL << 0)
+#define KVM_GUEST_MEMFD_HUGETLB			(1ULL << 1)
+
+/*
+ * Huge page size encoding when KVM_GUEST_MEMFD_HUGETLB is specified, and a huge
+ * page size other than the default is desired.  See hugetlb_encode.h.  All
+ * known huge page size encodings are provided here.  It is the responsibility
+ * of the application to know which sizes are supported on the running system.
+ * See mmap(2) man page for details.
+ */
+#define KVM_GUEST_MEMFD_HUGE_SHIFT	HUGETLB_FLAG_ENCODE_SHIFT
+#define KVM_GUEST_MEMFD_HUGE_MASK	HUGETLB_FLAG_ENCODE_MASK
+
+#define KVM_GUEST_MEMFD_HUGE_64KB	HUGETLB_FLAG_ENCODE_64KB
+#define KVM_GUEST_MEMFD_HUGE_512KB	HUGETLB_FLAG_ENCODE_512KB
+#define KVM_GUEST_MEMFD_HUGE_1MB	HUGETLB_FLAG_ENCODE_1MB
+#define KVM_GUEST_MEMFD_HUGE_2MB	HUGETLB_FLAG_ENCODE_2MB
+#define KVM_GUEST_MEMFD_HUGE_8MB	HUGETLB_FLAG_ENCODE_8MB
+#define KVM_GUEST_MEMFD_HUGE_16MB	HUGETLB_FLAG_ENCODE_16MB
+#define KVM_GUEST_MEMFD_HUGE_32MB	HUGETLB_FLAG_ENCODE_32MB
+#define KVM_GUEST_MEMFD_HUGE_256MB	HUGETLB_FLAG_ENCODE_256MB
+#define KVM_GUEST_MEMFD_HUGE_512MB	HUGETLB_FLAG_ENCODE_512MB
+#define KVM_GUEST_MEMFD_HUGE_1GB	HUGETLB_FLAG_ENCODE_1GB
+#define KVM_GUEST_MEMFD_HUGE_2GB	HUGETLB_FLAG_ENCODE_2GB
+#define KVM_GUEST_MEMFD_HUGE_16GB	HUGETLB_FLAG_ENCODE_16GB
 
 struct kvm_create_guest_memfd {
 	__u64 size;

@@ -90,20 +90,14 @@ static void test_fallocate(int fd, size_t page_size, size_t total_size)
 	TEST_ASSERT(!ret, "fallocate to restore punched hole should succeed");
 }
 
-
-int main(int argc, char *argv[])
+void test_guest_mem(struct kvm_vm *vm, uint32_t flags, size_t page_size)
 {
-	size_t page_size;
-	size_t total_size;
 	int fd;
-	struct kvm_vm *vm;
+	size_t total_size;
 
-	page_size = getpagesize();
 	total_size = page_size * 4;
 
-	vm = vm_create_barebones();
-
-	fd = vm_create_guest_memfd(vm, total_size, 0);
+	fd = vm_create_guest_memfd(vm, total_size, flags);
 
 	test_file_read_write(fd);
 	test_mmap(fd, page_size);
@@ -111,4 +105,25 @@ int main(int argc, char *argv[])
 	test_fallocate(fd, page_size, total_size);
 
 	close(fd);
+}
+
+int main(int argc, char *argv[])
+{
+	struct kvm_vm *vm = vm_create_barebones();
+
+	printf("Test guest mem 4K\n");
+	test_guest_mem(vm, 0, getpagesize());
+	printf("        PASSED\n");
+
+	printf("Test guest mem hugetlb 2M\n");
+	test_guest_mem(
+		vm, KVM_GUEST_MEMFD_HUGETLB | KVM_GUEST_MEMFD_HUGE_2MB, 2UL << 20);
+	printf("        PASSED\n");
+
+	printf("Test guest mem hugetlb 1G\n");
+	test_guest_mem(
+		vm, KVM_GUEST_MEMFD_HUGETLB | KVM_GUEST_MEMFD_HUGE_1GB, 1UL << 30);
+	printf("        PASSED\n");
+
+	return 0;
 }

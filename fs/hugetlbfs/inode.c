@@ -688,29 +688,6 @@ static void hugetlb_vmtruncate(struct inode *inode, loff_t offset)
 	remove_inode_hugepages(inode, offset, LLONG_MAX);
 }
 
-static void hugetlbfs_zero_partial_page(struct hstate *h,
-					struct address_space *mapping,
-					loff_t start,
-					loff_t end)
-{
-	pgoff_t idx = start >> huge_page_shift(h);
-	struct folio *folio;
-
-	folio = filemap_lock_folio(mapping, idx);
-	if (IS_ERR(folio))
-		return;
-
-	start = start & ~huge_page_mask(h);
-	end = end & ~huge_page_mask(h);
-	if (!end)
-		end = huge_page_size(h);
-
-	folio_zero_segment(folio, (size_t)start, (size_t)end);
-
-	folio_unlock(folio);
-	folio_put(folio);
-}
-
 static long hugetlbfs_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 {
 	struct hugetlbfs_inode_info *info = HUGETLBFS_I(inode);
@@ -737,7 +714,7 @@ static long hugetlbfs_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 
 	/* If range starts before first full page, zero partial page. */
 	if (offset < hole_start)
-		hugetlbfs_zero_partial_page(h, mapping,
+		hugetlb_zero_partial_page(h, mapping,
 				offset, min(offset + len, hole_start));
 
 	/* Unmap users of full pages in the hole. */
@@ -750,7 +727,7 @@ static long hugetlbfs_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 
 	/* If range extends beyond last full page, zero partial page. */
 	if ((offset + len) > hole_end && (offset + len) > hole_start)
-		hugetlbfs_zero_partial_page(h, mapping,
+		hugetlb_zero_partial_page(h, mapping,
 				hole_end, offset + len);
 
 	i_mmap_unlock_write(mapping);

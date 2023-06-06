@@ -866,6 +866,15 @@ static inline int hstate_index(struct hstate *h)
 	return h - hstates;
 }
 
+static inline int get_hstate_idx(int page_size_log)
+{
+	struct hstate *h = hstate_sizelog(page_size_log);
+
+	if (!h)
+		return -1;
+	return hstate_index(h);
+}
+
 extern int dissolve_free_huge_page(struct page *page);
 extern int dissolve_free_huge_pages(unsigned long start_pfn,
 				    unsigned long end_pfn);
@@ -1123,6 +1132,11 @@ static inline unsigned hstate_index_to_shift(unsigned index)
 }
 
 static inline int hstate_index(struct hstate *h)
+{
+	return 0;
+}
+
+static inline int get_hstate_idx(int page_size_log)
 {
 	return 0;
 }

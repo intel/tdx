@@ -1555,15 +1555,6 @@ static int can_do_hugetlb_shm(void)
 	return capable(CAP_IPC_LOCK) || in_group_p(shm_group);
 }
 
-static int get_hstate_idx(int page_size_log)
-{
-	struct hstate *h = hstate_sizelog(page_size_log);
-
-	if (!h)
-		return -1;
-	return hstate_index(h);
-}
-
 /*
  * Note that size should be aligned to proper hugepage size in caller side,
  * otherwise hugetlb_reserve_pages reserves one less hugepages than intended.

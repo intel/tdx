@@ -785,6 +785,9 @@ static int private_spte_change_flags(struct kvm *kvm, gfn_t gfn, u64 old_spte,
 							(gfn_t *)&gfn, 1);
 	}
 
+	/* Write unblock should have been handled by the fast page fault */
+	WARN_ON_ONCE(!was_writable && is_writable);
+
 	return 0;
 }
 
@@ -2676,13 +2679,11 @@ u64 *kvm_tdp_mmu_fast_pf_get_last_sptep(struct kvm_vcpu *vcpu, u64 addr,
 {
 	struct tdp_iter iter;
 	struct kvm_mmu *mmu = vcpu->arch.mmu;
-	gfn_t gfn = addr >> PAGE_SHIFT;
+	bool is_private = kvm_is_private_gpa(vcpu->kvm, addr);
+	gfn_t gfn = gpa_to_gfn(addr) & ~kvm_gfn_shared_mask(vcpu->kvm);
 	tdp_ptep_t sptep = NULL;
 
-	/* fast page fault for private GPA isn't supported. */
-	WARN_ON_ONCE(kvm_is_private_gpa(vcpu->kvm, addr));
-
-	tdp_mmu_for_each_pte(iter, mmu, false, gfn, gfn + 1) {
+	tdp_mmu_for_each_pte(iter, mmu, is_private, gfn, gfn + 1) {
 		*spte = iter.old_spte;
 		sptep = iter.sptep;
 	}

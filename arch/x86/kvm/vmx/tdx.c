@@ -856,8 +856,6 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	vcpu->arch.cr4_guest_owned_bits = -1ul;
 	vcpu->arch.root_mmu.no_prefetch = true;
 
-	vcpu->arch.tsc_offset = to_kvm_tdx(vcpu->kvm)->tsc_offset;
-	vcpu->arch.l1_tsc_offset = vcpu->arch.tsc_offset;
 	vcpu->arch.guest_state_protected =
 		!(to_kvm_tdx(vcpu->kvm)->attributes & TDX_TD_ATTRIBUTE_DEBUG);
 
@@ -5013,6 +5011,8 @@ static void tdx_td_vcpu_post_init(struct vcpu_tdx *tdx)
 				 CPU_BASED_MOV_DR_EXITING);
 	}
 
+	vcpu->arch.tsc_offset = to_kvm_tdx(vcpu->kvm)->tsc_offset;
+	vcpu->arch.l1_tsc_offset = vcpu->arch.tsc_offset;
 	vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
 	tdx->initialized = true;
 }

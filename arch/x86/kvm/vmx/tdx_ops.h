@@ -6,6 +6,7 @@
 
 #include <linux/compiler.h>
 
+#include <asm/archrandom.h>
 #include <asm/cacheflush.h>
 #include <asm/asm.h>
 #include <asm/kvm_host.h>
@@ -17,25 +18,30 @@
 static inline u64 tdx_seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
 			       struct tdx_module_args *out)
 {
+	int retry;
 	u64 ret;
 
-	if (out) {
-		*out = (struct tdx_module_args) {
-			.rcx = rcx,
-			.rdx = rdx,
-			.r8 = r8,
-			.r9 = r9,
-		};
-		ret = __seamcall_ret(op, out);
-	} else {
-		struct tdx_module_args args = {
-			.rcx = rcx,
-			.rdx = rdx,
-			.r8 = r8,
-			.r9 = r9,
-		};
-		ret = __seamcall(op, &args);
-	}
+	/* Mimic the existing rdrand_long() to retry RDRAND_RETRY_LOOPS times. */
+	retry = RDRAND_RETRY_LOOPS;
+	do {
+		if (out) {
+			*out = (struct tdx_module_args) {
+				.rcx = rcx,
+				.rdx = rdx,
+				.r8 = r8,
+				.r9 = r9,
+			};
+			ret = __seamcall_ret(op, out);
+		} else {
+			struct tdx_module_args args = {
+				.rcx = rcx,
+				.rdx = rdx,
+				.r8 = r8,
+				.r9 = r9,
+			};
+			ret = __seamcall(op, &args);
+		}
+	} while (unlikely(ret == TDX_RND_NO_ENTROPY) && --retry);
 	if (unlikely(ret == TDX_SEAMCALL_UD)) {
 		/*
 		 * SEAMCALLs fail with TDX_SEAMCALL_UD returned when VMX is off.

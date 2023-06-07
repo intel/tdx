@@ -4817,6 +4817,38 @@ out:
 	return r;
 }
 
+static int tdx_td_vcpu_setup(struct kvm_vcpu *vcpu)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	unsigned long *tdvpx_pa = tdx->tdvpx_pa;
+	int i;
+	u64 err;
+
+	err = tdh_vp_create(kvm_tdx->tdr_pa, tdx->tdvpr_pa);
+	if (KVM_BUG_ON(err, vcpu->kvm)) {
+		pr_tdx_error(TDH_VP_CREATE, err, NULL);
+		return -EIO;
+	}
+	tdx_account_ctl_page(vcpu->kvm);
+
+	for (i = 0; i < tdx_info.nr_tdvpx_pages; i++) {
+		err = tdh_vp_addcx(tdx->tdvpr_pa, tdvpx_pa[i]);
+		if (KVM_BUG_ON(err, vcpu->kvm)) {
+			pr_tdx_error(TDH_VP_ADDCX, err, NULL);
+			for (; i < tdx_info.nr_tdvpx_pages; i++) {
+				free_page((unsigned long)__va(tdvpx_pa[i]));
+				tdvpx_pa[i] = 0;
+			}
+			/* vcpu_free method frees TDVPX and TDR donated to TDX */
+			return -EIO;
+		}
+		tdx_account_ctl_page(vcpu->kvm);
+	}
+
+	return 0;
+}
+
 /* VMM can pass one 64bit auxiliary data to vcpu via RCX for guest BIOS. */
 static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 {
@@ -4866,27 +4898,9 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 	if (!kvm_tdx->td_initialized)
 		return 0;
 
-	err = tdh_vp_create(kvm_tdx->tdr_pa, tdvpr_pa);
-	if (KVM_BUG_ON(err, vcpu->kvm)) {
-		ret = -EIO;
-		pr_tdx_error(TDH_VP_CREATE, err, NULL);
+	ret = tdx_td_vcpu_setup(vcpu);
+	if (ret)
 		goto free_tdvpx;
-	}
-	tdx_account_ctl_page(vcpu->kvm);
-
-	for (i = 0; i < tdx_info.nr_tdvpx_pages; i++) {
-		err = tdh_vp_addcx(tdx->tdvpr_pa, tdvpx_pa[i]);
-		if (KVM_BUG_ON(err, vcpu->kvm)) {
-			pr_tdx_error(TDH_VP_ADDCX, err, NULL);
-			for (; i < tdx_info.nr_tdvpx_pages; i++) {
-				free_page((unsigned long)__va(tdvpx_pa[i]));
-				tdvpx_pa[i] = 0;
-			}
-			/* vcpu_free method frees TDVPX and TDR donated to TDX */
-			return -EIO;
-		}
-		tdx_account_ctl_page(vcpu->kvm);
-	}
 
 	err = tdh_vp_init(tdx->tdvpr_pa, vcpu_rcx);
 	if (KVM_BUG_ON(err, vcpu->kvm)) {

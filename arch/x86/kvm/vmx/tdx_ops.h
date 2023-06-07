@@ -6,6 +6,7 @@
 
 #include <linux/compiler.h>
 
+#include <asm/archrandom.h>
 #include <asm/cacheflush.h>
 #include <asm/asm.h>
 #include <asm/kvm_host.h>
@@ -17,14 +18,20 @@
 static inline u64 tdx_seamcall(u64 op, struct tdx_module_args *in,
 			       struct tdx_module_args *out)
 {
+	struct tdx_module_args args;
+	int retry;
 	u64 ret;
 
-	if (out) {
+	if (!out)
+		out = &args;
+
+	/* Mimic the existing rdrand_long() to retry RDRAND_RETRY_LOOPS times. */
+	retry = RDRAND_RETRY_LOOPS;
+	do {
+		/* As __seamcall_ret() overwrites out, init out on each loop. */
 		*out = *in;
 		ret = __seamcall_ret(op, out);
-	} else
-		ret = __seamcall(op, in);
-
+	} while (unlikely(ret == TDX_RND_NO_ENTROPY) && --retry);
 	if (unlikely(ret == TDX_SEAMCALL_UD)) {
 		/*
 		 * SEAMCALLs fail with TDX_SEAMCALL_UD returned when VMX is off.

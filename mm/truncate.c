@@ -472,6 +472,7 @@ void truncate_inode_pages_final_prepare(struct address_space *mapping)
 		xa_unlock_irq(&mapping->i_pages);
 	}
 }
+EXPORT_SYMBOL_GPL(truncate_inode_pages_final_prepare);
 
 /**
  * truncate_inode_pages_final - truncate *all* pages before inode dies

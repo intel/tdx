@@ -662,6 +662,7 @@ void remove_mapping_hugepages(struct address_space *mapping,
 		(void)hugetlb_unreserve_pages(h, spool, resv_map, inode,
 					      start, LONG_MAX, freed);
 }
+EXPORT_SYMBOL_GPL(remove_mapping_hugepages);
 
 void remove_inode_hugepages(struct inode *inode, loff_t lstart, loff_t lend)
 {

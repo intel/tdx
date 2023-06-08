@@ -5952,6 +5952,7 @@ void clear_huge_page(struct page *page,
 
 	process_huge_page(addr_hint, pages_per_huge_page, clear_subpage, page);
 }
+EXPORT_SYMBOL_GPL(clear_huge_page);
 
 static int copy_user_gigantic_page(struct folio *dst, struct folio *src,
 				     unsigned long addr,

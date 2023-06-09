@@ -147,6 +147,9 @@ static long kvm_gmem_punch_hole(struct file *file, loff_t offset, loff_t len)
 	pgoff_t end = (offset + len) >> PAGE_SHIFT;
 	struct kvm *kvm = gmem->kvm;
 
+	if (!PAGE_ALIGNED(offset) || !PAGE_ALIGNED(len))
+		return 0;
+
 	/*
 	 * Bindings must stable across invalidation to ensure the start+end
 	 * are balanced.

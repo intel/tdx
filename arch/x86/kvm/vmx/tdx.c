@@ -1026,6 +1026,8 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	if (!(kvm_tdx->attributes & TDX_TD_ATTRIBUTE_PERFMON) &&
 		td_profile_allowed(kvm_tdx))
 		tdx_switch_perf_msrs(vcpu);
+	if (kvm_tdx->attributes & XFEATURE_MASK_LBR)
+		intel_pmu_lbr_xsaves();
 
 	/*
 	 * Before 1.0.3.3, TDH.VP.ENTER has special environment requirements
@@ -1044,6 +1046,8 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	tdx_restore_host_xsave_state(vcpu);
 	tdx->host_state_need_restore = true;
 
+	if (kvm_tdx->attributes & XFEATURE_MASK_LBR)
+		intel_pmu_lbr_xrstors();
 	/*
 	 * See the comments above for intel_pmu_save() for why
 	 * always do PMU context switch here
@@ -3141,12 +3145,15 @@ static int setup_tdparams_xfam(struct kvm_cpuid2 *cpuid, struct td_params *td_pa
 		(kvm_caps.supported_xss | XFEATURE_MASK_PT | TDX_TD_XFAM_CET);
 
 	td_params->xfam = guest_supported_xcr0 | guest_supported_xss;
-	if (td_params->xfam & XFEATURE_MASK_LBR) {
+	if (td_params->xfam & XFEATURE_MASK_LBR &&
+	    !boot_cpu_has(X86_FEATURE_ARCH_LBR)) {
 		/*
 		 * TODO: once KVM supports LBR(save/restore LBR related
-		 * registers around TDENTER), remove this guard.
+		 * registers around TDENTER) without xsaves/srstors, remove
+		 * this guard.
 		 */
-#define MSG_LBR	"TD doesn't support LBR yet. KVM needs to save/restore IA32_LBR_DEPTH properly.\n"
+#define MSG_LBR	\
+	"LBR in TD without arch_lbr isn't supported yet. KVM needs to save/restore IA32_LBR_DEPTH properly.\n"
 		pr_warn(MSG_LBR);
 		return -EOPNOTSUPP;
 	}
@@ -4414,6 +4421,7 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	x86_ops->mem_enc_read_memory = tdx_read_guest_memory;
 	x86_ops->mem_enc_write_memory = tdx_write_guest_memory;
 
+	intel_reserve_lbr_buffers();
 	return 0;
 
 out:
@@ -4426,6 +4434,7 @@ out:
 
 void tdx_hardware_unsetup(void)
 {
+	intel_release_lbr_buffers();
 	/* kfree accepts NULL. */
 	kfree(tdx_mng_key_config_lock);
 	misc_cg_set_capacity(MISC_CG_RES_TDX, 0);

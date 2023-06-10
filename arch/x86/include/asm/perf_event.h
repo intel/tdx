@@ -579,7 +579,8 @@ static inline void x86_perf_get_lbr(struct x86_pmu_lbr *lbr)
  extern void intel_pt_handle_vmx(int on);
  extern void intel_pmu_save(void);
  extern void intel_pmu_restore(void);
-
+ extern void intel_pmu_lbr_xsaves(void);
+ extern void intel_pmu_lbr_xrstors(void);
 #else
 static inline void intel_pt_handle_vmx(int on)
 {
@@ -593,7 +594,15 @@ static inline void intel_pmu_save(void)
 static inline void intel_pmu_restore(void)
 {
 }
+static inline void intel_pmu_lbr_xrstors(void)
+{
+}
+static inline void intel_pmu_lbr_xsaves(void)
+{
+}
 #endif
+void intel_reserve_lbr_buffers(void);
+void intel_release_lbr_buffers(void);
 
 #if defined(CONFIG_PERF_EVENTS) && defined(CONFIG_CPU_SUP_AMD)
  extern void amd_pmu_enable_virt(void);

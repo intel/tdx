@@ -392,6 +392,38 @@ set_ext_hw_attr(struct hw_perf_event *hwc, struct perf_event *event)
 	return x86_pmu_extra_regs(val, event);
 }
 
+static int lbr_buffers_refcount;
+
+static void __intel_reserve_lbr_buffers(void)
+{
+	if (!lbr_buffers_refcount)
+		reserve_lbr_buffers();
+	lbr_buffers_refcount++;
+}
+
+static void __intel_release_lbr_buffers(void)
+{
+	lbr_buffers_refcount--;
+	if (!lbr_buffers_refcount)
+		release_lbr_buffers();
+}
+
+void intel_reserve_lbr_buffers(void)
+{
+	mutex_lock(&pmc_reserve_mutex);
+	__intel_reserve_lbr_buffers();
+	mutex_unlock(&pmc_reserve_mutex);
+}
+EXPORT_SYMBOL_GPL(intel_reserve_lbr_buffers);
+
+void intel_release_lbr_buffers(void)
+{
+	mutex_lock(&pmc_reserve_mutex);
+	__intel_release_lbr_buffers();
+	mutex_unlock(&pmc_reserve_mutex);
+}
+EXPORT_SYMBOL_GPL(intel_release_lbr_buffers);
+
 int x86_reserve_hardware(void)
 {
 	int err = 0;
@@ -403,7 +435,7 @@ int x86_reserve_hardware(void)
 				err = -EBUSY;
 			} else {
 				reserve_ds_buffers();
-				reserve_lbr_buffers();
+				__intel_reserve_lbr_buffers();
 			}
 		}
 		if (!err)
@@ -419,7 +451,7 @@ void x86_release_hardware(void)
 	if (atomic_dec_and_mutex_lock(&pmc_refcount, &pmc_reserve_mutex)) {
 		release_pmc_hardware();
 		release_ds_buffers();
-		release_lbr_buffers();
+		__intel_release_lbr_buffers();
 		mutex_unlock(&pmc_reserve_mutex);
 	}
 }

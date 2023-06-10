@@ -656,6 +656,32 @@ void reserve_lbr_buffers(void)
 	}
 }
 
+void intel_pmu_lbr_xsaves(void)
+{
+	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
+	struct x86_perf_task_context_arch_lbr_xsave *xsave = cpuc->lbr_xsave;
+
+	if (!cpuc->lbr_users)
+		return;
+	if (WARN_ON_ONCE(!xsave))
+		return;
+	xsaves(&xsave->xsave, XFEATURE_MASK_LBR);
+}
+EXPORT_SYMBOL_GPL(intel_pmu_lbr_xsaves);
+
+void intel_pmu_lbr_xrstors(void)
+{
+	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
+	struct x86_perf_task_context_arch_lbr_xsave *xsave = cpuc->lbr_xsave;
+
+	if (!cpuc->lbr_users)
+		return;
+	if (WARN_ON_ONCE(!xsave))
+		return;
+	xrstors(&xsave->xsave, XFEATURE_MASK_LBR);
+}
+EXPORT_SYMBOL_GPL(intel_pmu_lbr_xrstors);
+
 void intel_pmu_lbr_del(struct perf_event *event)
 {
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);

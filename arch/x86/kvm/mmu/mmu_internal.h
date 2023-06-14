@@ -200,10 +200,10 @@ struct kvm_page_fault {
 	const bool present;
 	const bool rsvd;
 	const bool user;
+	const bool private;
 
 	/* Derived from mmu and global state.  */
 	const bool is_tdp;
-	const bool is_private;
 	const bool nx_huge_page_workaround_enabled;
 
 	/*
@@ -282,6 +282,18 @@ enum {
 	RET_PF_SPURIOUS,
 };
 
+static inline bool kvm_is_fault_private(struct kvm *kvm, gpa_t gpa, u64 error_code)
+{
+	/*
+	 * This is racy with mmu_seq.  If we hit a race, it would result in a
+	 * spurious KVM_EXIT_MEMORY_FAULT.
+	 */
+	if (kvm->arch.vm_type == KVM_X86_PROTECTED_VM)
+		return kvm_mem_is_private(kvm, gpa_to_gfn(gpa));
+
+	return error_code & PFERR_GUEST_ENC_MASK;
+}
+
 static inline int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 					u64 err, bool prefetch, int *emulation_type)
 {
@@ -293,6 +305,7 @@ static inline int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 		.present = err & PFERR_PRESENT_MASK,
 		.rsvd = err & PFERR_RSVD_MASK,
 		.user = err & PFERR_USER_MASK,
+		.private = kvm_is_fault_private(vcpu->kvm, cr2_or_gpa, err),
 		.prefetch = prefetch,
 		.is_tdp = likely(vcpu->arch.mmu->page_fault == kvm_tdp_page_fault),
 		.nx_huge_page_workaround_enabled =
@@ -301,7 +314,6 @@ static inline int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 		.max_level = KVM_MAX_HUGEPAGE_LEVEL,
 		.req_level = PG_LEVEL_4K,
 		.goal_level = PG_LEVEL_4K,
-		.is_private = kvm_mem_is_private(vcpu->kvm, cr2_or_gpa >> PAGE_SHIFT),
 	};
 	int r;
 

@@ -3235,7 +3235,7 @@ void kvm_mmu_hugepage_adjust(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 	 */
 	fault->req_level = __kvm_mmu_max_mapping_level(vcpu->kvm, slot,
 						       fault->gfn, fault->max_level,
-						       fault->is_private);
+						       fault->private);
 	if (fault->req_level == PG_LEVEL_4K || fault->huge_page_disallowed)
 		return;
 
@@ -4335,7 +4335,7 @@ static int kvm_do_memory_fault_exit(struct kvm_vcpu *vcpu,
 				    struct kvm_page_fault *fault)
 {
 	vcpu->run->exit_reason = KVM_EXIT_MEMORY_FAULT;
-	if (fault->is_private)
+	if (fault->private)
 		vcpu->run->memory.flags = KVM_MEMORY_EXIT_FLAG_PRIVATE;
 	else
 		vcpu->run->memory.flags = 0;
@@ -4393,10 +4393,14 @@ static int __kvm_faultin_pfn(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 			return RET_PF_EMULATE;
 	}
 
-	if (fault->is_private != kvm_mem_is_private(vcpu->kvm, fault->gfn))
-		return kvm_do_memory_fault_exit(vcpu, fault);
+	if (fault->private != kvm_mem_is_private(vcpu->kvm, fault->gfn)) {
+		if (vcpu->kvm->arch.vm_type == KVM_X86_PROTECTED_VM)
+			return RET_PF_RETRY;
+		else
+			return kvm_do_memory_fault_exit(vcpu, fault);
+	}
 
-	if (fault->is_private)
+	if (fault->private)
 		return kvm_faultin_pfn_private(vcpu, fault);
 
 	async = false;

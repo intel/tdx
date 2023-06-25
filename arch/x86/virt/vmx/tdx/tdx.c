@@ -51,6 +51,8 @@ static LIST_HEAD(tdx_memlist);
 
 static struct tdmr_info_list tdx_tdmr_list;
 
+static atomic_t tdx_may_has_private_mem;
+
 /*
  * Wrapper of __seamcall() to convert SEAMCALL leaf function error code
  * to kernel error code.  @seamcall_ret and @out contain the SEAMCALL
@@ -1113,6 +1115,17 @@ static int init_tdx_module(void)
 	 */
 	wbinvd_on_all_cpus();
 
+	/*
+	 * Starting from this point the system may have TDX private
+	 * memory.  Make it globally visible so tdx_reset_memory() only
+	 * reads TDMRs/PAMTs when they are stable.
+	 *
+	 * Note using atomic_inc_return() to provide the explicit memory
+	 * ordering isn't mandatory here as the WBINVD above already
+	 * does that.  Compiler barrier isn't needed here either.
+	 */
+	atomic_inc_return(&tdx_may_has_private_mem);
+
 	/* Config the key of global KeyID on all packages */
 	ret = config_global_keyid();
 	if (ret)
@@ -1154,6 +1167,15 @@ out_reset_pamts:
 	 * as suggested by the TDX spec.
 	 */
 	tdmrs_reset_pamt_all(&tdx_tdmr_list);
+	/*
+	 * No more TDX private pages now, and PAMTs/TDMRs are
+	 * going to be freed.  Make this globally visible so
+	 * tdx_reset_memory() can read stable TDMRs/PAMTs.
+	 *
+	 * Note atomic_dec_return(), which is an atomic RMW with
+	 * return value, always enforces the memory barrier.
+	 */
+	atomic_dec_return(&tdx_may_has_private_mem);
 out_free_pamts:
 	tdmrs_free_pamt_all(&tdx_tdmr_list);
 out_free_tdmrs:
@@ -1228,6 +1250,63 @@ int tdx_enable(void)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(tdx_enable);
+
+/*
+ * Convert TDX private pages back to normal on platforms with
+ * "partial write machine check" erratum.
+ *
+ * Called from machine_kexec() before booting to the new kernel.
+ */
+void tdx_reset_memory(void)
+{
+	if (!platform_tdx_enabled())
+		return;
+
+	/*
+	 * Kernel read/write to TDX private memory doesn't
+	 * cause machine check on hardware w/o this erratum.
+	 */
+	if (!boot_cpu_has_bug(X86_BUG_TDX_PW_MCE))
+		return;
+
+	/* Called from kexec() when only rebooting cpu is alive */
+	WARN_ON_ONCE(num_online_cpus() != 1);
+
+	if (!atomic_read(&tdx_may_has_private_mem))
+		return;
+
+	/*
+	 * Ideally it's better to cover all types of TDX private pages,
+	 * but there's no existing infrastructure to tell whether a page
+	 * is TDX private memory or not.  Using SEAMCALL to query TDX
+	 * module isn't feasible either because: 1) VMX has been turned
+	 * off by reaching here so SEAMCALL cannot be made; 2) Even
+	 * SEAMCALL can be made the result from TDX module may not be
+	 * accurate (e.g., remote CPU can be stopped while the kernel
+	 * is in the middle of reclaiming one TDX private page and doing
+	 * MOVDIR64B).
+	 *
+	 * One solution could be just converting all memory pages, but
+	 * this may bring non-trivial latency on large memory systems
+	 * (especially when the number of TDX private pages is small).
+	 * So even with this temporary solution, eventually the kernel
+	 * should only convert TDX private pages.
+	 *
+	 * Also, not all pages are mapped as writable in direct mapping,
+	 * thus it's problematic to do so.  It can be done by switching
+	 * to the identical mapping table for kexec() or a new page table
+	 * which maps all pages as writable, but the complexity looks
+	 * overkill.
+	 *
+	 * Thus instead of doing something dramatic to convert all pages,
+	 * only convert PAMTs as for now TDX private pages can only be
+	 * PAMT.
+	 *
+	 * All other cpus are already dead.  TDMRs/PAMTs are stable when
+	 * @tdx_may_has_private_mem reads true.
+	 */
+	tdmrs_reset_pamt_all(&tdx_tdmr_list);
+}
 
 static int __init record_keyid_partitioning(u32 *tdx_keyid_start,
 					    u32 *nr_tdx_keyids)

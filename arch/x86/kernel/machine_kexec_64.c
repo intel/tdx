@@ -28,6 +28,7 @@
 #include <asm/setup.h>
 #include <asm/set_memory.h>
 #include <asm/cpu.h>
+#include <asm/tdx.h>
 
 #ifdef CONFIG_ACPI
 /*
@@ -301,9 +302,24 @@ void machine_kexec(struct kimage *image)
 	void *control_page;
 	int save_ftrace_enabled;
 
+	/*
+	 * For platforms with TDX "partial write machine check" erratum,
+	 * all TDX private pages need to be converted back to normal
+	 * before booting to the new kernel, otherwise the new kernel
+	 * may get unexpected machine check.
+	 *
+	 * But skip this when preserve_context is on.  The second kernel
+	 * shouldn't write to the first kernel's memory anyway.  Skipping
+	 * this also avoids killing TDX in the first kernel, which would
+	 * require more complicated handling.
+	 */
 #ifdef CONFIG_KEXEC_JUMP
 	if (image->preserve_context)
 		save_processor_state();
+	else
+		tdx_reset_memory();
+#else
+	tdx_reset_memory();
 #endif
 
 	save_ftrace_enabled = __ftrace_enabled_save();

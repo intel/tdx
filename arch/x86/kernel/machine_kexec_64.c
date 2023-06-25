@@ -28,6 +28,7 @@
 #include <asm/setup.h>
 #include <asm/set_memory.h>
 #include <asm/cpu.h>
+#include <asm/tdx.h>
 
 #ifdef CONFIG_ACPI
 /*
@@ -300,6 +301,14 @@ void machine_kexec(struct kimage *image)
 	unsigned long page_list[PAGES_NR];
 	void *control_page;
 	int save_ftrace_enabled;
+
+	/*
+	 * On the platform with "partial write machine check" erratum,
+	 * all TDX private pages need to be converted back to normal
+	 * before booting to the new kernel, otherwise the new kernel
+	 * may get unexpected machine check.
+	 */
+	tdx_reset_memory();
 
 #ifdef CONFIG_KEXEC_JUMP
 	if (image->preserve_context)

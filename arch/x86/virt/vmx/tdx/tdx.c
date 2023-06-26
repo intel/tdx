@@ -49,6 +49,8 @@ static DEFINE_MUTEX(tdx_module_lock);
 /* All TDX-usable memory regions.  Protected by mem_hotplug_lock. */
 static LIST_HEAD(tdx_memlist);
 
+static struct tdmr_info_list tdx_tdmr_list;
+
 /*
  * Wrapper of __seamcall() to convert SEAMCALL leaf function error code
  * to kernel error code.  @seamcall_ret and @out contain the SEAMCALL
@@ -1047,7 +1049,6 @@ static int init_tdmrs(struct tdmr_info_list *tdmr_list)
 static int init_tdx_module(void)
 {
 	struct tdsysinfo_struct *sysinfo;
-	struct tdmr_info_list tdmr_list;
 	struct cmr_info *cmr_array;
 	int ret;
 
@@ -1088,17 +1089,17 @@ static int init_tdx_module(void)
 		goto out_put_tdxmem;
 
 	/* Allocate enough space for constructing TDMRs */
-	ret = alloc_tdmr_list(&tdmr_list, sysinfo);
+	ret = alloc_tdmr_list(&tdx_tdmr_list, sysinfo);
 	if (ret)
 		goto out_free_tdxmem;
 
 	/* Cover all TDX-usable memory regions in TDMRs */
-	ret = construct_tdmrs(&tdx_memlist, &tdmr_list, sysinfo);
+	ret = construct_tdmrs(&tdx_memlist, &tdx_tdmr_list, sysinfo);
 	if (ret)
 		goto out_free_tdmrs;
 
 	/* Pass the TDMRs and the global KeyID to the TDX module */
-	ret = config_tdx_module(&tdmr_list, tdx_global_keyid);
+	ret = config_tdx_module(&tdx_tdmr_list, tdx_global_keyid);
 	if (ret)
 		goto out_free_pamts;
 
@@ -1118,51 +1119,50 @@ static int init_tdx_module(void)
 		goto out_reset_pamts;
 
 	/* Initialize TDMRs to complete the TDX module initialization */
-	ret = init_tdmrs(&tdmr_list);
-out_reset_pamts:
-	if (ret) {
-		/*
-		 * Part of PAMTs may already have been initialized by the
-		 * TDX module.  Flush cache before returning PAMTs back
-		 * to the kernel.
-		 */
-		wbinvd_on_all_cpus();
-		/*
-		 * According to the TDX hardware spec, if the platform
-		 * doesn't have the "partial write machine check"
-		 * erratum, any kernel read/write will never cause #MC
-		 * in kernel space, thus it's OK to not convert PAMTs
-		 * back to normal.  But do the conversion anyway here
-		 * as suggested by the TDX spec.
-		 */
-		tdmrs_reset_pamt_all(&tdmr_list);
-	}
-out_free_pamts:
+	ret = init_tdmrs(&tdx_tdmr_list);
 	if (ret)
-		tdmrs_free_pamt_all(&tdmr_list);
-	else
-		pr_info("%lu KBs allocated for PAMT.\n",
-				tdmrs_count_pamt_kb(&tdmr_list));
-out_free_tdmrs:
-	/*
-	 * Always free the buffer of TDMRs as they are only used during
-	 * module initialization.
-	 */
-	free_tdmr_list(&tdmr_list);
-out_free_tdxmem:
-	if (ret)
-		free_tdx_memlist(&tdx_memlist);
-out_put_tdxmem:
+		goto out_reset_pamts;
+
+	pr_info("%lu KBs allocated for PAMT.\n",
+			tdmrs_count_pamt_kb(&tdx_tdmr_list));
+
 	/*
 	 * @tdx_memlist is written here and read at memory hotplug time.
 	 * Lock out memory hotplug code while building it.
 	 */
 	put_online_mems();
-out:
 	/*
 	 * For now both @sysinfo and @cmr_array are only used during
 	 * module initialization, so always free them.
 	 */
+	free_page((unsigned long)sysinfo);
+
+	return 0;
+out_reset_pamts:
+	/*
+	 * Part of PAMTs may already have been initialized by the
+	 * TDX module.  Flush cache before returning PAMTs back
+	 * to the kernel.
+	 */
+	wbinvd_on_all_cpus();
+	/*
+	 * According to the TDX hardware spec, if the platform
+	 * doesn't have the "partial write machine check"
+	 * erratum, any kernel read/write will never cause #MC
+	 * in kernel space, thus it's OK to not convert PAMTs
+	 * back to normal.  But do the conversion anyway here
+	 * as suggested by the TDX spec.
+	 */
+	tdmrs_reset_pamt_all(&tdx_tdmr_list);
+out_free_pamts:
+	tdmrs_free_pamt_all(&tdx_tdmr_list);
+out_free_tdmrs:
+	free_tdmr_list(&tdx_tdmr_list);
+out_free_tdxmem:
+	free_tdx_memlist(&tdx_memlist);
+out_put_tdxmem:
+	put_online_mems();
+out:
 	free_page((unsigned long)sysinfo);
 	return ret;
 }

@@ -10,6 +10,8 @@
 #include <asm/ptrace.h>
 #include <asm/shared/tdx.h>
 
+#include <asm/trapnr.h>
+
 /*
  * SW-defined error codes.
  *
@@ -19,6 +21,9 @@
 #define TDX_ERROR			_BITUL(63)
 #define TDX_SW_ERROR			(TDX_ERROR | GENMASK_ULL(47, 40))
 #define TDX_SEAMCALL_VMFAILINVALID	(TDX_SW_ERROR | _UL(0xFFFF0000))
+
+#define TDX_SEAMCALL_GP			(TDX_SW_ERROR | X86_TRAP_GP)
+#define TDX_SEAMCALL_UD			(TDX_SW_ERROR | X86_TRAP_UD)
 
 #ifndef __ASSEMBLY__
 

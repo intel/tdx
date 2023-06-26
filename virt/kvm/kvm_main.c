@@ -2426,6 +2426,7 @@ static int kvm_vm_ioctl_set_mem_attributes(struct kvm *kvm,
 	gfn_t start, end;
 	unsigned long i;
 	void *entry;
+	int err = 0;
 
 	/* flags is currently not used. */
 	if (attrs->flags)
@@ -2450,14 +2451,17 @@ static int kvm_vm_ioctl_set_mem_attributes(struct kvm *kvm,
 	KVM_MMU_UNLOCK(kvm);
 
 	for (i = start; i < end; i++) {
-		if (xa_err(xa_store(&kvm->mem_attr_array, i, entry,
-				    GFP_KERNEL_ACCOUNT)))
+		err = xa_err(xa_store(&kvm->mem_attr_array, i, entry,
+				      GFP_KERNEL_ACCOUNT));
+		if (err)
 			break;
 	}
 
 	KVM_MMU_LOCK(kvm);
-	if (i > start)
+	if (i > start) {
+		err = 0;
 		kvm_mem_attrs_changed(kvm, attrs->attributes, start, i);
+	}
 	kvm_mmu_invalidate_end(kvm);
 	KVM_MMU_UNLOCK(kvm);
 
@@ -2466,7 +2470,7 @@ static int kvm_vm_ioctl_set_mem_attributes(struct kvm *kvm,
 	attrs->address = i << PAGE_SHIFT;
 	attrs->size = (end - i) << PAGE_SHIFT;
 
-	return 0;
+	return err;
 }
 #endif /* CONFIG_KVM_GENERIC_MEMORY_ATTRIBUTES */
 

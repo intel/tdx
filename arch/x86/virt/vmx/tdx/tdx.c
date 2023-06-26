@@ -93,6 +93,13 @@ static int __always_unused seamcall(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
 	case TDX_SEAMCALL_VMFAILINVALID:
 		pr_err_once("module is not loaded.\n");
 		return -ENODEV;
+	case TDX_SEAMCALL_GP:
+		pr_err_once("not enabled by BIOS.\n");
+		return -ENODEV;
+	case TDX_SEAMCALL_UD:
+		pr_err_once("SEAMCALL failed: CPU %d is not in VMX operation.\n",
+				cpu);
+		return -EINVAL;
 	default:
 		pr_err_once("SEAMCALL failed: CPU %d: leaf %llu, error 0x%llx.\n",
 				cpu, fn, sret);

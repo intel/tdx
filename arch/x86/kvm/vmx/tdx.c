@@ -2160,6 +2160,24 @@ int tdx_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 		 */
 		msr->data = 0;
 		return 0;
+	case MSR_MTRRdefType:
+		/*
+		 * FIXME: Xen convention to disable guest MTRR:
+		 * The guest kernel pretends as if MTRR isn't available when
+		 * CPUID.MTRR = 1 (MTRR available) and MTRRdefType.enable = 0
+		 * (MTRRs disabled) as BIOS hand-off state. Which is deviation
+		 * from SDM.  MTRRdefType.enable = 0 means all memory access is
+		 * UC according to the SDM.
+		 *
+		 * The TD guest kernel has to disable MTRR otherwise it tries
+		 * program MTRRs to disable caching. CR4.CD=1 results in the
+		 * unexpected #VE and the guest kernel panic.  As workaround,
+		 * utilize the Xen convention in the guest kernel.
+		 * E(MTRR enable)=0, FE(fixed range MTRR enable)=0,
+		 * default memory type=WB
+		 */
+		msr->data = MTRR_TYPE_WRBACK;
+		return 0;
 	default:
 		if (tdx_has_emulated_msr(msr->index, false))
 			return kvm_get_msr_common(vcpu, msr);

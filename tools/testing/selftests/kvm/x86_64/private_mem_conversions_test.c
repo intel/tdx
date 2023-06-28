@@ -227,7 +227,7 @@ static void *__test_mem_conversions(void *__vcpu)
 			/* In all cases, the host should observe the shared data. */
 			memcmp_h(hva, uc.args[3], size);
 
-			/* For shared, write the new patter to guest memory. */
+			/* For shared, write the new pattern to guest memory. */
 			if (uc.args[0] == SYNC_SHARED)
 				memset(hva, uc.args[4], size);
 			break;

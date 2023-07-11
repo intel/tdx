@@ -12,6 +12,7 @@
 #include <linux/init.h>
 #include <linux/errno.h>
 #include <linux/printk.h>
+#include <linux/smp.h>
 #include <asm/msr-index.h>
 #include <asm/msr.h>
 #include <asm/tdx.h>
@@ -19,6 +20,39 @@
 static u32 tdx_global_keyid __ro_after_init;
 static u32 tdx_guest_keyid_start __ro_after_init;
 static u32 tdx_nr_guest_keyids __ro_after_init;
+
+/*
+ * Wrapper of __seamcall() to convert SEAMCALL leaf function error code
+ * to kernel error code.  @seamcall_ret and @out contain the SEAMCALL
+ * leaf function return code and the additional output respectively if
+ * not NULL.
+ */
+static int __always_unused seamcall(u64 fn, struct tdx_module_args *args)
+{
+	u64 sret;
+	int cpu;
+
+	/* Need a stable CPU id for printing error message */
+	cpu = get_cpu();
+	sret = __seamcall_ret(fn, args);
+	put_cpu();
+
+	switch (sret) {
+	case 0:
+		/* SEAMCALL was successful */
+		return 0;
+	case TDX_SEAMCALL_VMFAILINVALID:
+		pr_err_once("module is not loaded.\n");
+		return -ENODEV;
+	default:
+		pr_err_once("SEAMCALL failed: CPU %d: leaf %llu, error 0x%llx.\n",
+				cpu, fn, sret);
+		pr_err_once("additional output: rcx 0x%llx, rdx 0x%llx, r8 0x%llx, r9 0x%llx, r10 0x%llx, r11 0x%llx.\n",
+				args->rcx, args->rdx, args->r8,
+				args->r9, args->r10, args->r11);
+		return -EIO;
+	}
+}
 
 static int __init record_keyid_partitioning(u32 *tdx_keyid_start,
 					    u32 *nr_tdx_keyids)

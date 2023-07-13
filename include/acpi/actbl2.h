@@ -29,6 +29,7 @@
 #define ACPI_SIG_BDAT           "BDAT"	/* BIOS Data ACPI Table */
 #define ACPI_SIG_CCEL           "CCEL"	/* CC Event Log Table */
 #define ACPI_SIG_CDAT           "CDAT"	/* Coherent Device Attribute Table */
+#define ACPI_SIG_DIFT           "DIFT"	/* Device ID Filter Table */
 #define ACPI_SIG_IORT           "IORT"	/* IO Remapping Table */
 #define ACPI_SIG_IVRS           "IVRS"	/* I/O Virtualization Reporting Structure */
 #define ACPI_SIG_LPIT           "LPIT"	/* Low Power Idle Table */
@@ -369,6 +370,36 @@ struct acpi_table_ccel {
 	u16 reserved;
 	u64 log_area_minimum_length;
 	u64 log_area_start_address;
+};
+
+/*******************************************************************************
+ *
+ * DIFT - Device ID Filter Table
+ *
+ ******************************************************************************/
+
+struct acpi_table_dift {
+	struct acpi_table_header header;	/* Common ACPI table header */
+	u32 reserved;				/* Must be zero */
+};
+
+enum acpi_dift_type {
+	ACPI_DIFT_TYPE_PCI = 0,
+};
+
+struct acpi_dift_device {
+	struct acpi_subtable_header header;	/* Common ACPI subtable header */
+	u16 reserved;		/* Must be zero */
+	u32 segment_group;	/* Segment Group Number or 0xFFFFFFFF for any */
+	u16 bus;		/* Bus Number           or 0xFFFF for any */
+	u8 slot;		/* Device Number        or 0xFF for any */
+	u8 function;		/* Function Number      or 0xFF for any */
+	u16 vendor;		/* Vendor ID            or 0xFFFF for any */
+	u16 device;		/* Device ID            or 0xFFFF for any */
+	u16 subvendor;		/* Subsystem Vendor ID  or 0xFFFF for any */
+	u16 subdevice;		/* Subsystem Device ID  or 0xFFFF for any */
+	u32 class_code;		/* 3-byte Class Code */
+	u32 class_mask;		/* Mask which bytes, if any, of the Class Code to match */
 };
 
 /*******************************************************************************

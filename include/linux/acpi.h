@@ -1531,6 +1531,18 @@ extern int acpi_ffh_address_space_arch_handler(acpi_integer *value,
 static inline void acpi_init_ffh(void) { }
 #endif
 
+#ifdef CONFIG_ACPI_DIFT
+void acpi_dift_init(void);
+int acpi_pci_device_filter(struct pci_dev *dev);
+#else
+static inline void acpi_dift_init(void) { }
+struct pci_dev;
+static inline int acpi_pci_device_filter(struct pci_dev *dev)
+{
+	return 0;
+}
+#endif
+
 #ifdef CONFIG_ACPI
 extern void acpi_device_notify(struct device *dev);
 extern void acpi_device_notify_remove(struct device *dev);

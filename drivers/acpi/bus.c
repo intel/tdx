@@ -1409,6 +1409,7 @@ static int __init acpi_init(void)
 	}
 	acpi_init_ffh();
 
+	acpi_dift_init();
 	pci_mmcfg_late_init();
 	acpi_arm_init();
 	acpi_viot_early_init();

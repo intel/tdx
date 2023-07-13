@@ -594,6 +594,22 @@ config ACPI_PRMT
 	  substantially increase computational overhead related to the
 	  initialization of some server systems.
 
+config ACPI_DIFT
+	bool "ACPI Device ID Filter Table Support"
+	depends on PCI
+	default y
+	help
+	  Device ID Filter Table (DIFT) provides a list of device IDs
+	  that the system will use.
+
+	  The purpose of the DIFT is to reduce the kernel attack surface. It
+	  provides a way to identify the devices at boot time so that device
+	  enumeration can be filtered early.
+
+	  DIFT supports only PCI devices.
+
+	  If you are unsure what to do, do not enable this option.
+
 endif	# ACPI
 
 config X86_PM_TIMER

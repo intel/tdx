@@ -114,6 +114,18 @@ static inline void acpiphp_remove_slots(struct pci_bus *bus) { }
 static inline void acpiphp_check_host_bridge(struct acpi_device *adev) { }
 #endif
 
+#ifdef CONFIG_ACPI_DIFT
+struct dift_pci_id {
+	struct list_head node;
+	u32 domain; /* Segment Group */
+	u16 bus;
+	u8 slot;
+	u8 function;
+	struct pci_device_id id;
+};
+bool pci_acpi_dift_match(struct dift_pci_id *id, struct pci_dev *dev);
+#endif
+
 extern const guid_t pci_acpi_dsm_guid;
 
 /* _DSM Definitions for PCI */

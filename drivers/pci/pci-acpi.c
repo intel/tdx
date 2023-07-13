@@ -105,6 +105,26 @@ int acpi_get_rc_resources(struct device *dev, const char *hid, u16 segment,
 }
 #endif
 
+#ifdef CONFIG_ACPI_DIFT
+bool pci_acpi_dift_match(struct dift_pci_id *id, struct pci_dev *dev)
+{
+	if (id->domain != PCI_ANY_ID && id->domain != pci_domain_nr(dev->bus))
+		return false;
+
+	if (id->bus != (u16)PCI_ANY_ID && id->bus != dev->bus->number)
+		return false;
+
+	if (id->slot != (u8)PCI_ANY_ID && id->slot != PCI_SLOT(dev->devfn))
+		return false;
+
+	if (id->function != (u8)PCI_ANY_ID &&
+	    id->function != PCI_FUNC(dev->devfn))
+		return false;
+
+	return pci_match_one_device(&id->id, dev);
+}
+#endif
+
 phys_addr_t acpi_pci_root_get_mcfg_addr(acpi_handle handle)
 {
 	acpi_status status = AE_NOT_EXIST;

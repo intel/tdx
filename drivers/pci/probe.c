@@ -1868,6 +1868,10 @@ int pci_setup_device(struct pci_dev *dev)
 	dev->revision = class & 0xff;
 	dev->class = class >> 8;		    /* upper 3 bytes */
 
+	err = acpi_pci_device_filter(dev);
+	if (err)
+		return err;
+
 	if (pci_early_dump)
 		early_dump_pci_device(dev);
 

@@ -14,8 +14,6 @@ static inline __init void hv_init_evmcs(void) {}
 static inline void hv_reset_evmcs(void) {}
 #endif /* IS_ENABLED(CONFIG_HYPERV) */
 
-DECLARE_PER_CPU(struct list_head, loaded_vmcss_on_cpu);
-
 bool kvm_is_vmx_supported(void);
 int __init vmx_init(void);
 void vmx_exit(void);

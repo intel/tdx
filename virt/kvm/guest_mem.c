@@ -278,10 +278,12 @@ void __weak kvm_arch_gmem_invalidate(struct kvm *kvm, kvm_pfn_t start, kvm_pfn_t
 }
 
 /* Handle arch-specific hooks needed before releasing guarded pages. */
-static void kvm_gmem_issue_arch_invalidate(struct kvm *kvm, struct file *file,
+static void kvm_gmem_issue_arch_invalidate(struct kvm *kvm,
+					   struct inode *inode,
+					   struct address_space *mapping,
 					   pgoff_t start, pgoff_t end)
 {
-	pgoff_t file_end = i_size_read(file_inode(file)) >> PAGE_SHIFT;
+	pgoff_t file_end = i_size_read(inode) >> PAGE_SHIFT;
 	pgoff_t index = start;
 
 	end = min(end, file_end);
@@ -292,8 +294,7 @@ static void kvm_gmem_issue_arch_invalidate(struct kvm *kvm, struct file *file,
 		struct page *page;
 		kvm_pfn_t pfn;
 
-		folio = __filemap_get_folio(file->f_mapping, index,
-					    FGP_LOCK, 0);
+		folio = __filemap_get_folio(mapping, index, FGP_LOCK, 0);
 		if (IS_ERR(folio) || !folio) {
 			index++;
 			continue;
@@ -371,7 +372,8 @@ static long kvm_gmem_punch_hole(struct file *file, loff_t offset, loff_t len)
 
 	kvm_gmem_invalidate_begin(kvm, gmem, start, end);
 
-	kvm_gmem_issue_arch_invalidate(kvm, file, start, end);
+	kvm_gmem_issue_arch_invalidate(kvm, file_inode(file), file->f_mapping,
+				       start, end);
 	if (gmem->flags & KVM_GUEST_MEMFD_HUGETLB)
 		kvm_gmem_hugetlb_truncate_range(file_inode(file), offset, len);
 	else
@@ -888,7 +890,8 @@ static void kvm_gmem_evict_inode(struct inode *inode)
 	 * pointed at this file.
 	 */
 	kvm_gmem_invalidate_begin(kvm, gmem, 0, -1ul);
-	kvm_gmem_issue_arch_invalidate(gmem->kvm, /* FIXME: file */NULL, 0, -1ul);
+	kvm_gmem_issue_arch_invalidate(gmem->kvm, inode, inode->i_mapping,
+				       0, -1ul);
 	if (gmem->flags & KVM_GUEST_MEMFD_HUGETLB) {
 		truncate_inode_pages_final_prepare(inode->i_mapping);
 		remove_mapping_hugepages(

@@ -42,6 +42,8 @@
 #define TDH_VP_WR			43
 #define TDH_SYS_LP_SHUTDOWN		44
 
+#define TD_EXIT_OTHER_SMI_IS_MSMI	BIT(1)
+
 /* TDX control structure (TDR/TDCS/TDVPS) field access codes */
 #define TDX_NON_ARCH			BIT_ULL(63)
 #define TDX_CLASS_SHIFT			56

@@ -180,11 +180,11 @@ static int __init vt_init(void)
 	 */
 	hv_init_evmcs();
 
-	r = kvm_x86_vendor_init(&vt_init_ops);
-	if (r)
-		return r;
-
 	r = vmx_init();
+	if (r)
+		goto err_vmx_init;
+
+	r = kvm_x86_vendor_init(&vt_init_ops);
 	if (r)
 		goto err_vmx_init;
 
@@ -201,9 +201,9 @@ static int __init vt_init(void)
 	return 0;
 
 err_kvm_init:
-	vmx_exit();
-err_vmx_init:
 	kvm_x86_vendor_exit();
+err_vmx_init:
+	vmx_exit();
 	return r;
 }
 module_init(vt_init);

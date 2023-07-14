@@ -477,7 +477,7 @@ DEFINE_PER_CPU(struct vmcs *, current_vmcs);
  * We maintain a per-CPU linked-list of VMCS loaded on that CPU. This is needed
  * when a CPU is brought down, and we need to VMCLEAR all VMCSs loaded on it.
  */
-DEFINE_PER_CPU(struct list_head, loaded_vmcss_on_cpu);
+static DEFINE_PER_CPU(struct list_head, loaded_vmcss_on_cpu);
 
 static DECLARE_BITMAP(vmx_vpid_bitmap, VMX_NR_VPIDS);
 static DEFINE_SPINLOCK(vmx_vpid_lock);
@@ -8528,8 +8528,10 @@ int __init vmx_init(void)
 	if (r)
 		return r;
 
-	for_each_possible_cpu(cpu)
+	for_each_possible_cpu(cpu) {
+		INIT_LIST_HEAD(&per_cpu(loaded_vmcss_on_cpu, cpu));
 		pi_init_cpu(cpu);
+	}
 
 	cpu_emergency_register_virt_callback(vmx_emergency_disable);
 

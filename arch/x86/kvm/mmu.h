@@ -174,6 +174,9 @@ static inline void kvm_mmu_refresh_passthrough_bits(struct kvm_vcpu *vcpu,
 	__kvm_mmu_refresh_passthrough_bits(vcpu, mmu);
 }
 
+/* For set_memory_attributes() callback. */
+bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range);
+
 /*
  * Check if a given access (described through the I/D, W/R and U/S bits of a
  * page fault error code pfec) causes a permission fault with the given PTE

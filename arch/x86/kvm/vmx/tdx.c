@@ -1193,6 +1193,11 @@ void tdx_flush_tlb_current(struct kvm_vcpu *vcpu)
 	tdx_track(to_kvm_tdx(vcpu->kvm));
 }
 
+bool tdx_set_memory_attributes(struct kvm *kvm, struct kvm_gfn_range *range)
+{
+	return kvm_unmap_gfn_range(kvm, range);
+}
+
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 {
 	struct kvm_tdx_cmd tdx_cmd;

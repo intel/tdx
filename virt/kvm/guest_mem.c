@@ -150,7 +150,7 @@ static void kvm_gmem_issue_arch_invalidate(struct kvm *kvm, struct file *file,
 
 		folio = __filemap_get_folio(file->f_mapping, index,
 					    FGP_LOCK, 0);
-		if (!folio) {
+		if (IS_ERR(folio) || !folio) {
 			index++;
 			continue;
 		}

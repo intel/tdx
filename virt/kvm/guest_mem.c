@@ -53,7 +53,7 @@ static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index)
 	struct folio *folio;
 
 	folio = kvm_gmem_get_huge_folio(inode, index);
-	if (!folio) {
+	if (IS_ERR_OR_NULL(folio)) {
 		folio = filemap_grab_folio(inode->i_mapping, index);
 		if (!folio)
 			return NULL;

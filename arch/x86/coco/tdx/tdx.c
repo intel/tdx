@@ -12,8 +12,10 @@
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/numa.h>
+#include <linux/pci.h>
 #include <asm/coco.h>
 #include <asm/tdx.h>
+#include <asm/i8259.h>
 #include <asm/vmx.h>
 #include <asm/insn.h>
 #include <asm/insn-eval.h>
@@ -931,6 +933,9 @@ void __init tdx_early_init(void)
 		return;
 
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
+	setup_clear_cpu_cap(X86_FEATURE_MCE);
+	setup_clear_cpu_cap(X86_FEATURE_MTRR);
+	setup_clear_cpu_cap(X86_FEATURE_TME);
 
 	cc_vendor = CC_VENDOR_INTEL;
 	tdx_parse_tdinfo(&cc_mask);
@@ -982,6 +987,11 @@ void __init tdx_early_init(void)
 	 * Until that is in place, disable parallel bringup for TDX.
 	 */
 	x86_cpuinit.parallel_bringup = false;
+
+	legacy_pic = &null_legacy_pic;
+
+	pci_disable_early();
+	pci_disable_mmconf();
 
 	pr_info("Guest detected\n");
 }

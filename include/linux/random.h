@@ -161,4 +161,6 @@ int random_online_cpu(unsigned int cpu);
 extern const struct file_operations random_fops, urandom_fops;
 #endif
 
+void random_enable_trust_cpu(void);
+
 #endif /* _LINUX_RANDOM_H */

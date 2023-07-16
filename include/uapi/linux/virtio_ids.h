@@ -81,4 +81,13 @@
 #define VIRTIO_TRANS_ID_RNG		0x1005 /* transitional virtio rng */
 #define VIRTIO_TRANS_ID_9P		0x1009 /* transitional virtio 9p console */
 
+/*
+ * Virtio IDS (for PCI rev ID > 1)
+ */
+#define VIRTIO1_ID_NET			0x1041 /* transitional virtio net */
+#define VIRTIO1_ID_BLOCK		0x1042 /* transitional virtio block */
+#define VIRTIO1_ID_CONSOLE		0x1043 /* transitional virtio console */
+#define VIRTIO1_ID_9P			0x1049 /* transitional virtio 9p console */
+#define VIRTIO1_ID_VSOCK		0x1053 /* transitional virtio vsock transport */
+
 #endif /* _LINUX_VIRTIO_IDS_H */

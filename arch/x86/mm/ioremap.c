@@ -27,6 +27,7 @@
 #include <asm/pgalloc.h>
 #include <asm/memtype.h>
 #include <asm/setup.h>
+#include <asm/cmdline.h>
 
 #include "physaddr.h"
 
@@ -167,6 +168,17 @@ static void __ioremap_check_mem(resource_size_t addr, unsigned long size,
 }
 
 /*
+ * Normally only drivers that are hardened for use in confidential guests
+ * force shared mappings. But if device filtering is disabled other
+ * devices can be loaded, and these need shared mappings too. This
+ * variable is set to true if these filters are disabled.
+ *
+ * Note this has some side effects, e.g. various BIOS tables
+ * get shared too which is risky.
+ */
+bool ioremap_force_shared;
+
+/*
  * Remap an arbitrary physical address space into the kernel virtual
  * address space. It transparently creates kernel huge I/O mapping when
  * the physical address is aligned by a huge page size (1GB or 2MB) and
@@ -182,7 +194,8 @@ static void __ioremap_check_mem(resource_size_t addr, unsigned long size,
  */
 static void __iomem *
 __ioremap_caller(resource_size_t phys_addr, unsigned long size,
-		 enum page_cache_mode pcm, void *caller, bool encrypted)
+		 enum page_cache_mode pcm, void *caller, bool encrypted,
+		 bool shared)
 {
 	unsigned long offset, vaddr;
 	resource_size_t last_addr;
@@ -261,7 +274,7 @@ __ioremap_caller(resource_size_t phys_addr, unsigned long size,
 	prot = PAGE_KERNEL_IO;
 	if ((io_desc.flags & IORES_MAP_ENCRYPTED) || encrypted)
 		prot = pgprot_encrypted(prot);
-	else
+	else if (shared || ioremap_force_shared)
 		prot = pgprot_decrypted(prot);
 
 	switch (pcm) {
@@ -353,7 +366,8 @@ void __iomem *ioremap(resource_size_t phys_addr, unsigned long size)
 	enum page_cache_mode pcm = _PAGE_CACHE_MODE_UC_MINUS;
 
 	return __ioremap_caller(phys_addr, size, pcm,
-				__builtin_return_address(0), false);
+				__builtin_return_address(0), false,
+				false);
 }
 EXPORT_SYMBOL(ioremap);
 
@@ -386,7 +400,8 @@ void __iomem *ioremap_uc(resource_size_t phys_addr, unsigned long size)
 	enum page_cache_mode pcm = _PAGE_CACHE_MODE_UC;
 
 	return __ioremap_caller(phys_addr, size, pcm,
-				__builtin_return_address(0), false);
+				__builtin_return_address(0), false,
+				false);
 }
 EXPORT_SYMBOL_GPL(ioremap_uc);
 
@@ -403,9 +418,73 @@ EXPORT_SYMBOL_GPL(ioremap_uc);
 void __iomem *ioremap_wc(resource_size_t phys_addr, unsigned long size)
 {
 	return __ioremap_caller(phys_addr, size, _PAGE_CACHE_MODE_WC,
-					__builtin_return_address(0), false);
+					__builtin_return_address(0), false,
+					false);
 }
 EXPORT_SYMBOL(ioremap_wc);
+
+/**
+ * ioremap_driver_hardened - map memory into CPU space shared with host
+ * @phys_addr:	bus address of the memory
+ * @size:	size of the resource to map
+ *
+ * This version of ioremap ensures that the memory is marked shared
+ * with the host when it used by a hardened driver.
+ * This is useful for confidential guests.
+ *
+ * Note that drivers should not use this function directly, but use
+ * pci_iomap_range() et.al.
+ *
+ * Must be freed with iounmap.
+ */
+void __iomem *ioremap_driver_hardened(resource_size_t phys_addr, unsigned long size)
+{
+	return __ioremap_caller(phys_addr, size, _PAGE_CACHE_MODE_UC,
+			__builtin_return_address(0), false, true);
+}
+EXPORT_SYMBOL(ioremap_driver_hardened);
+
+/**
+ * ioremap_driver_hardened_uc - map memory into CPU space shared with host
+ * @phys_addr:	bus address of the memory
+ * @size:	size of the resource to map
+ *
+ * This version of ioremap behaves like ioremap_uc, but ensures that the
+ * memory is marked shared with the host when it used by a hardened driver.
+ * This is useful for confidential guests.
+ *
+ * Note that drivers should not use this function directly, but use
+ * pci_iomap_range(), devm_ioremap* et.al.
+ *
+ * Must be freed with iounmap.
+ */
+void __iomem *ioremap_driver_hardened_uc(resource_size_t phys_addr, unsigned long size)
+{
+	return __ioremap_caller(phys_addr, size, _PAGE_CACHE_MODE_UC,
+			__builtin_return_address(0), false, true);
+}
+EXPORT_SYMBOL(ioremap_driver_hardened_uc);
+
+/**
+ * ioremap_driver_hardened_wc - map memory into CPU space shared with host
+ * @phys_addr:	bus address of the memory
+ * @size:	size of the resource to map
+ *
+ * This version of ioremap behaves like ioremap_wc, but ensures that the
+ * memory is marked shared with the host when it used by a hardened driver.
+ * This is useful for confidential guests.
+ *
+ * Note that drivers should not use this function directly, but use
+ * pci_iomap_range(), devm_ioremap* et.al.
+ *
+ * Must be freed with iounmap.
+ */
+void __iomem *ioremap_driver_hardened_wc(resource_size_t phys_addr, unsigned long size)
+{
+	return __ioremap_caller(phys_addr, size, _PAGE_CACHE_MODE_WC,
+			__builtin_return_address(0), false, true);
+}
+EXPORT_SYMBOL(ioremap_driver_hardened_wc);
 
 /**
  * ioremap_wt	-	map memory into CPU space write through
@@ -420,30 +499,38 @@ EXPORT_SYMBOL(ioremap_wc);
 void __iomem *ioremap_wt(resource_size_t phys_addr, unsigned long size)
 {
 	return __ioremap_caller(phys_addr, size, _PAGE_CACHE_MODE_WT,
-					__builtin_return_address(0), false);
+					__builtin_return_address(0), false,
+					false);
 }
 EXPORT_SYMBOL(ioremap_wt);
 
 void __iomem *ioremap_encrypted(resource_size_t phys_addr, unsigned long size)
 {
 	return __ioremap_caller(phys_addr, size, _PAGE_CACHE_MODE_WB,
-				__builtin_return_address(0), true);
+				__builtin_return_address(0), true, false);
 }
 EXPORT_SYMBOL(ioremap_encrypted);
 
 void __iomem *ioremap_cache(resource_size_t phys_addr, unsigned long size)
 {
 	return __ioremap_caller(phys_addr, size, _PAGE_CACHE_MODE_WB,
-				__builtin_return_address(0), false);
+				__builtin_return_address(0), false, false);
 }
 EXPORT_SYMBOL(ioremap_cache);
+
+void __iomem *ioremap_cache_shared(resource_size_t phys_addr, unsigned long size)
+{
+	return __ioremap_caller(phys_addr, size, _PAGE_CACHE_MODE_WB,
+				__builtin_return_address(0), false, true);
+}
+EXPORT_SYMBOL(ioremap_cache_shared);
 
 void __iomem *ioremap_prot(resource_size_t phys_addr, unsigned long size,
 				unsigned long prot_val)
 {
 	return __ioremap_caller(phys_addr, size,
 				pgprot2cachemode(__pgprot(prot_val)),
-				__builtin_return_address(0), false);
+				__builtin_return_address(0), false, false);
 }
 EXPORT_SYMBOL(ioremap_prot);
 
@@ -883,6 +970,11 @@ void __init early_ioremap_init(void)
 #else
 	WARN_ON((fix_to_virt(0) + PAGE_SIZE) & ((1 << PMD_SHIFT) - 1));
 #endif
+
+	/* Parse cmdline params for ioremap_force_shared */
+	if (cmdline_find_option_bool(boot_command_line,
+				     "ioremap_force_shared"))
+		ioremap_force_shared = 1;
 
 	early_ioremap_setup();
 

@@ -16,6 +16,8 @@ extern enum cc_vendor cc_vendor;
 void cc_set_mask(u64 mask);
 u64 cc_mkenc(u64 val);
 u64 cc_mkdec(u64 val);
+void cc_set_filter_status(bool status);
+bool cc_filter_enabled(void);
 #else
 static inline u64 cc_mkenc(u64 val)
 {

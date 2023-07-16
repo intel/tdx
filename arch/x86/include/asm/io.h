@@ -325,6 +325,22 @@ extern void __iomem *ioremap_wc(resource_size_t offset, unsigned long size);
 extern void __iomem *ioremap_wt(resource_size_t offset, unsigned long size);
 #define ioremap_wt ioremap_wt
 
+extern void __iomem *ioremap_driver_hardened(resource_size_t offset,
+					 unsigned long size);
+#define ioremap_driver_hardened ioremap_driver_hardened
+
+extern void __iomem *ioremap_cache_shared(resource_size_t offset,
+					 unsigned long size);
+#define ioremap_cache_shared ioremap_cache_shared
+
+extern void __iomem *ioremap_driver_hardened_uc(resource_size_t offset,
+                     unsigned long size);
+#define ioremap_driver_hardened_uc ioremap_driver_hardened_uc
+
+extern void __iomem *ioremap_driver_hardened_wc(resource_size_t offset,
+                     unsigned long size);
+#define ioremap_driver_hardened_wc ioremap_driver_hardened_wc
+
 extern bool is_early_ioremap_ptep(pte_t *ptep);
 
 #define IO_SPACE_LIMIT 0xffff
@@ -363,6 +379,8 @@ static inline bool phys_mem_access_encrypted(unsigned long phys_addr,
 	return true;
 }
 #endif
+
+extern bool ioremap_force_shared;
 
 /**
  * iosubmit_cmds512 - copy data to single MMIO location, in 512-bit units

@@ -96,6 +96,15 @@ static enum {
 	TD_PROFILE_DISABLE,
 } td_profile_state;
 
+/* GHCI spec */
+struct tdvmcall_service {
+	guid_t   guid;
+	/* Length of the hdr and payload */
+	uint32_t length;
+	uint32_t status;
+	uint8_t  data[0];
+};
+
 static inline void
 tdx_binding_slot_set_state(struct tdx_binding_slot *slot,
 			   enum tdx_binding_slot_state state)
@@ -1732,6 +1741,102 @@ static int tdx_get_td_vm_call_info(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static struct tdvmcall_service *tdvmcall_servbuf_alloc(struct kvm_vcpu *vcpu,
+						       gpa_t gpa)
+{
+	uint32_t length;
+	gfn_t gfn = gpa_to_gfn(gpa);
+	struct tdvmcall_service __user *g_buf, *h_buf;
+
+	if (!PAGE_ALIGNED(gpa)) {
+		pr_err("%s: gpa=%llx not page aligned\n", __func__, gpa);
+		return NULL;
+	}
+
+	g_buf = (struct tdvmcall_service *)kvm_vcpu_gfn_to_hva(vcpu, gfn);
+	if (kvm_is_error_hva((unsigned long)g_buf)) {
+		pr_err("%s: Not a valid buf\n", __func__);
+		return NULL;
+	}
+	if (g_buf && get_user(length, &g_buf->length)) {
+		pr_err("%s: failed to get length\n", __func__);
+		return NULL;
+	}
+
+	if (!length) {
+		pr_err("%s: length being 0 isn't valid\n", __func__);
+		return NULL;
+	}
+
+	/* The status field by default is TDX_VMCALL_SERVICE_S_RETURNED */
+	h_buf = kzalloc(PAGE_SIZE, GFP_KERNEL_ACCOUNT);
+	if (!h_buf)
+		return NULL;
+
+	if (copy_from_user(h_buf, g_buf, length)) {
+		pr_err("%s: failed to copy\n", __func__);
+		kfree(h_buf);
+		return NULL;
+	}
+
+	return h_buf;
+}
+
+static void tdvmcall_status_copy_and_free(struct tdvmcall_service *h_buf,
+					  struct kvm_vcpu *vcpu, gpa_t gpa)
+{
+	gfn_t gfn;
+	struct tdvmcall_service __user *g_buf;
+
+	gfn = gpa_to_gfn(gpa);
+	g_buf = (struct tdvmcall_service *)kvm_vcpu_gfn_to_hva(vcpu, gfn);
+	if (copy_to_user(g_buf, h_buf, h_buf->length)) {
+		/* Guest sees TDVMCALL_SERVICE_S_RSVD in status */
+		pr_err("%s: failed to update the guest buffer\n", __func__);
+	}
+	kfree(h_buf);
+}
+
+static int tdx_handle_service(struct kvm_vcpu *vcpu)
+{
+	struct kvm *kvm = vcpu->kvm;
+	gpa_t cmd_gpa = tdvmcall_a0_read(vcpu) &
+			~gfn_to_gpa(kvm_gfn_shared_mask(kvm));
+	gpa_t resp_gpa = tdvmcall_a1_read(vcpu) &
+			~gfn_to_gpa(kvm_gfn_shared_mask(kvm));
+	uint64_t nvector = tdvmcall_a2_read(vcpu);
+	struct tdvmcall_service *cmd_buf, *resp_buf;
+
+	if (nvector) {
+		pr_warn("%s: interrupt not supported, nvector %lld\n",
+			__func__, nvector);
+		tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
+		goto err_cmd;
+	}
+
+	if (kvm_mem_is_private(kvm, gpa_to_gfn(cmd_gpa)) ||
+	    kvm_mem_is_private(kvm, gpa_to_gfn(resp_gpa))) {
+		pr_warn("%s: cmd or resp buffer is private\n", __func__);
+		tdvmcall_set_return_code(vcpu, TDG_VP_VMCALL_INVALID_OPERAND);
+		goto err_cmd;
+	}
+
+	cmd_buf = tdvmcall_servbuf_alloc(vcpu, cmd_gpa);
+	if (!cmd_buf)
+		goto err_cmd;
+	resp_buf = tdvmcall_servbuf_alloc(vcpu, resp_gpa);
+	if (!resp_buf)
+		goto err_status;
+	resp_buf->length = sizeof(struct tdvmcall_service);
+
+	/* Update the guest status buf and free the host buf */
+	tdvmcall_status_copy_and_free(resp_buf, vcpu, resp_gpa);
+err_status:
+	kfree(cmd_buf);
+err_cmd:
+	return 1;
+}
+
 static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 {
 	int r;
@@ -1765,6 +1870,9 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 		break;
 	case TDG_VP_VMCALL_GET_TD_VM_CALL_INFO:
 		r = tdx_get_td_vm_call_info(vcpu);
+		break;
+	case TDG_VP_VMCALL_SERVICE:
+		r = tdx_handle_service(vcpu);
 		break;
 	default:
 		/*

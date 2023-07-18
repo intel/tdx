@@ -127,36 +127,6 @@ static inline void tdx_set_page_present_level(hpa_t addr, enum pg_level pg_level
 		set_direct_map_default_noflush(pfn_to_page((addr >> PAGE_SHIFT) + i));
 }
 
-/*
- * TDX module acquires its internal lock for resources.  It doesn't spin to get
- * locks because of its restrictions of allowed execution time.  Instead, it
- * returns TDX_OPERAND_BUSY with an operand id.
- *
- * Multiple VCPUs can operate on SEPT.  Also with zero-step attack mitigation,
- * TDH.VP.ENTER may rarely acquire SEPT lock and release it when zero-step
- * attack is suspected.  It results in TDX_OPERAND_BUSY | TDX_OPERAND_ID_SEPT
- * with TDH.MEM.* operation.  Note: TDH.MEM.TRACK is an exception.
- *
- * Because TDP MMU uses read lock for scalability, spin lock around SEAMCALL
- * spoils TDP MMU effort.  Retry several times with the assumption that SEPT
- * lock contention is rare.  But don't loop forever to avoid lockup.  Let TDP
- * MMU retry.
- */
-#define TDX_ERROR_SEPT_BUSY    (TDX_OPERAND_BUSY | TDX_OPERAND_ID_SEPT)
-
-static inline u64 tdx_seamcall_sept(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
-				    struct tdx_module_args *out)
-{
-#define SEAMCALL_RETRY_MAX     16
-	int retry = SEAMCALL_RETRY_MAX;
-	u64 ret;
-
-	do {
-		ret = tdx_seamcall(op, rcx, rdx, r8, r9, out);
-	} while (ret == TDX_ERROR_SEPT_BUSY && retry-- > 0);
-	return ret;
-}
-
 static inline u64 tdh_mng_addcx(hpa_t tdr, hpa_t addr)
 {
 	u64 r;
@@ -174,7 +144,7 @@ static inline u64 tdh_mem_page_add(hpa_t tdr, gpa_t gpa, int level, hpa_t hpa,
 	u64 r;
 
 	tdx_clflush_page(hpa, tdx_sept_level_to_pg_level(level));
-	r = tdx_seamcall_sept(TDH_MEM_PAGE_ADD, gpa | level, tdr, hpa, source, out);
+	r = tdx_seamcall(TDH_MEM_PAGE_ADD, gpa | level, tdr, hpa, source, out);
 	if (!r)
 		tdx_set_page_np_level(hpa, level);
 	return r;
@@ -186,7 +156,7 @@ static inline u64 tdh_mem_sept_add(hpa_t tdr, gpa_t gpa, int level, hpa_t page,
 	u64 r;
 
 	tdx_clflush_page(page, PG_LEVEL_4K);
-	r = tdx_seamcall_sept(TDH_MEM_SEPT_ADD, gpa | level, tdr, page, 0, out);
+	r = tdx_seamcall(TDH_MEM_SEPT_ADD, gpa | level, tdr, page, 0, out);
 	if (!r)
 		tdx_set_page_np(page);
 	return r;
@@ -195,14 +165,14 @@ static inline u64 tdh_mem_sept_add(hpa_t tdr, gpa_t gpa, int level, hpa_t page,
 static inline u64 tdh_mem_sept_rd(hpa_t tdr, gpa_t gpa, int level,
 				  struct tdx_module_args *out)
 {
-	return tdx_seamcall_sept(TDH_MEM_SEPT_RD, gpa | level, tdr, 0, 0, out);
+	return tdx_seamcall(TDH_MEM_SEPT_RD, gpa | level, tdr, 0, 0, out);
 }
 
 
 static inline u64 tdh_mem_sept_remove(hpa_t tdr, gpa_t gpa, int level,
 				      struct tdx_module_args *out)
 {
-	return tdx_seamcall_sept(TDH_MEM_SEPT_REMOVE, gpa | level, tdr, 0, 0, out);
+	return tdx_seamcall(TDH_MEM_SEPT_REMOVE, gpa | level, tdr, 0, 0, out);
 }
 
 static inline u64 tdh_vp_addcx(hpa_t tdvpr, hpa_t addr)
@@ -220,7 +190,7 @@ static inline u64 tdh_mem_page_relocate(hpa_t tdr, gpa_t gpa, hpa_t hpa,
 					struct tdx_module_args *out)
 {
 	tdx_clflush_page(hpa, PG_LEVEL_4K);
-	return tdx_seamcall_sept(TDH_MEM_PAGE_RELOCATE, gpa, tdr, hpa, 0, out);
+	return tdx_seamcall(TDH_MEM_PAGE_RELOCATE, gpa, tdr, hpa, 0, out);
 }
 
 static inline u64 tdh_mem_page_aug(hpa_t tdr, gpa_t gpa, int level, hpa_t hpa,
@@ -229,7 +199,7 @@ static inline u64 tdh_mem_page_aug(hpa_t tdr, gpa_t gpa, int level, hpa_t hpa,
 	u64 r;
 
 	tdx_clflush_page(hpa, tdx_sept_level_to_pg_level(level));
-	r = tdx_seamcall_sept(TDH_MEM_PAGE_AUG, gpa | level, tdr, hpa, 0, out);
+	r = tdx_seamcall(TDH_MEM_PAGE_AUG, gpa | level, tdr, hpa, 0, out);
 	if (!r)
 		tdx_set_page_np_level(hpa, level);
 	return r;
@@ -238,7 +208,7 @@ static inline u64 tdh_mem_page_aug(hpa_t tdr, gpa_t gpa, int level, hpa_t hpa,
 static inline u64 tdh_mem_range_block(hpa_t tdr, gpa_t gpa, int level,
 				      struct tdx_module_args *out)
 {
-	return tdx_seamcall_sept(TDH_MEM_RANGE_BLOCK, gpa | level, tdr, 0, 0, out);
+	return tdx_seamcall(TDH_MEM_RANGE_BLOCK, gpa | level, tdr, 0, 0, out);
 }
 
 static inline u64 tdh_mng_key_config(hpa_t tdr)
@@ -289,7 +259,7 @@ static inline u64 tdh_mem_page_demote(hpa_t tdr, gpa_t gpa, int level, hpa_t pag
 	u64 r;
 
 	tdx_clflush_page(page, PG_LEVEL_4K);
-	r = tdx_seamcall_sept(TDH_MEM_PAGE_DEMOTE, gpa | level, tdr, page, 0, out);
+	r = tdx_seamcall(TDH_MEM_PAGE_DEMOTE, gpa | level, tdr, page, 0, out);
 	if (!r)
 		tdx_set_page_np(page);
 	return r;
@@ -298,7 +268,7 @@ static inline u64 tdh_mem_page_demote(hpa_t tdr, gpa_t gpa, int level, hpa_t pag
 static inline u64 tdh_mem_page_promote(hpa_t tdr, gpa_t gpa, int level,
 				       struct tdx_module_args *out)
 {
-	return tdx_seamcall_sept(TDH_MEM_PAGE_PROMOTE, gpa | level, tdr, 0, 0, out);
+	return tdx_seamcall(TDH_MEM_PAGE_PROMOTE, gpa | level, tdr, 0, 0, out);
 }
 
 static inline u64 tdh_mr_extend(hpa_t tdr, gpa_t gpa,
@@ -358,7 +328,7 @@ static inline u64 tdh_phymem_page_reclaim(hpa_t page,
 static inline u64 tdh_mem_page_remove(hpa_t tdr, gpa_t gpa, int level,
 				      struct tdx_module_args *out)
 {
-	return tdx_seamcall_sept(TDH_MEM_PAGE_REMOVE, gpa | level, tdr, 0, 0, out);
+	return tdx_seamcall(TDH_MEM_PAGE_REMOVE, gpa | level, tdr, 0, 0, out);
 }
 
 static inline u64 tdh_sys_lp_shutdown(void)
@@ -374,7 +344,7 @@ static inline u64 tdh_mem_track(hpa_t tdr)
 static inline u64 tdh_mem_range_unblock(hpa_t tdr, gpa_t gpa, int level,
 					struct tdx_module_args *out)
 {
-	return tdx_seamcall_sept(TDH_MEM_RANGE_UNBLOCK, gpa | level, tdr, 0, 0, out);
+	return tdx_seamcall(TDH_MEM_RANGE_UNBLOCK, gpa | level, tdr, 0, 0, out);
 }
 
 static inline u64 tdh_phymem_cache_wb(bool resume)

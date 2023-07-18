@@ -22,11 +22,8 @@
 static inline u64 tdx_seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
 			       struct tdx_module_args *out)
 {
-	int retry;
-	u64 ret;
+	u64 ret, retries = 0;
 
-	/* Mimic the existing rdrand_long() to retry RDRAND_RETRY_LOOPS times. */
-	retry = RDRAND_RETRY_LOOPS;
 	do {
 		if (out) {
 			*out = (struct tdx_module_args) {
@@ -45,19 +42,28 @@ static inline u64 tdx_seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
 			};
 			ret = __seamcall(op, &args);
 		}
-	} while (unlikely(ret == TDX_RND_NO_ENTROPY) && --retry);
-	if (unlikely(ret == TDX_SEAMCALL_UD)) {
-		/*
-		 * SEAMCALLs fail with TDX_SEAMCALL_UD returned when VMX is off.
-		 * This can happen when the host gets rebooted or live
-		 * updated. In this case, the instruction execution is ignored
-		 * as KVM is shut down, so the error code is suppressed. Other
-		 * than this, the error is unexpected and the execution can't
-		 * continue as the TDX features reply on VMX to be on.
-		 */
-		kvm_spurious_fault();
-		return 0;
-	}
+		if (unlikely(ret == TDX_SEAMCALL_UD)) {
+			/*
+			 * SEAMCALLs fail with TDX_SEAMCALL_UD returned when VMX is off.
+			 * This can happen when the host gets rebooted or live
+			 * updated. In this case, the instruction execution is ignored
+			 * as KVM is shut down, so the error code is suppressed. Other
+			 * than this, the error is unexpected and the execution can't
+			 * continue as the TDX features reply on VMX to be on.
+			 */
+			kvm_spurious_fault();
+			return 0;
+		}
+		if (!ret ||
+		    ret == TDX_VCPU_ASSOCIATED ||
+		    ret == TDX_VCPU_NOT_ASSOCIATED ||
+		    ret == TDX_INTERRUPTED_RESUMABLE)
+			return ret;
+
+		if (retries++ > TDX_SEAMCALL_RETRY_MAX)
+			break;
+	} while (TDX_SEAMCALL_ERR_RECOVERABLE(ret));
+
 	return ret;
 }
 

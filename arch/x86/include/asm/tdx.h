@@ -24,6 +24,18 @@
 #define TDX_SEAMCALL_GP			(TDX_SW_ERROR | X86_TRAP_GP)
 #define TDX_SEAMCALL_UD			(TDX_SW_ERROR | X86_TRAP_UD)
 
+#define TDX_NON_RECOVERABLE_BIT		62
+/*
+ * Error with the non-recoverable bit cleared indicates that the error is
+ * likely recoverable (e.g. due to lock busy in TDX module), and the seamcall
+ * can be retried.
+ */
+#define TDX_SEAMCALL_ERR_RECOVERABLE(err) \
+	(err >> TDX_NON_RECOVERABLE_BIT == 0x2)
+
+/* The max number of seamcall retries */
+#define TDX_SEAMCALL_RETRY_MAX	10000
+
 #ifndef __ASSEMBLY__
 
 /*

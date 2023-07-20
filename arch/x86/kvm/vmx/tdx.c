@@ -4825,7 +4825,7 @@ static int tdx_migrate_from(struct kvm *dst, struct kvm *src)
 				goto abort;
 			}
 
-			if (src_slot->gmem.index != dst_slot->gmem.index) {
+			if (src_slot->gmem.pgoff != dst_slot->gmem.pgoff) {
 				pr_warn("Private memslots points to the restricted file at different offsets\n");
 				rcu_read_unlock();
 				goto abort;

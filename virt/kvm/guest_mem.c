@@ -231,8 +231,6 @@ static int kvm_gmem_release(struct inode *inode, struct file *file)
 	struct kvm *kvm = gmem->kvm;
 	unsigned long index;
 
-	filemap_invalidate_lock(inode->i_mapping);
-
 	/*
 	 * Prevent concurrent attempts to *unbind* a memslot.  This is the last
 	 * reference to the file and thus no new bindings can be created, but
@@ -241,6 +239,8 @@ static int kvm_gmem_release(struct inode *inode, struct file *file)
 	 * and free the memslot (kvm_gmem_get_file() will return NULL).
 	 */
 	mutex_lock(&kvm->slots_lock);
+
+	filemap_invalidate_lock(inode->i_mapping);
 
 	xa_for_each(&gmem->bindings, index, slot)
 		rcu_assign_pointer(slot->gmem.file, NULL);
@@ -255,11 +255,11 @@ static int kvm_gmem_release(struct inode *inode, struct file *file)
 	kvm_gmem_invalidate_begin(gmem, 0, -1ul);
 	kvm_gmem_invalidate_end(gmem, 0, -1ul);
 
-	mutex_unlock(&kvm->slots_lock);
-
 	list_del(&gmem->entry);
 
 	filemap_invalidate_unlock(inode->i_mapping);
+
+	mutex_unlock(&kvm->slots_lock);
 
 	xa_destroy(&gmem->bindings);
 	kfree(gmem);

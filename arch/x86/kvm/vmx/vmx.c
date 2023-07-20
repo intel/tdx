@@ -8115,12 +8115,185 @@ void vmx_hardware_unsetup(void)
 	free_kvm_area();
 }
 
+#define VMX_REQUIRED_APICV_INHIBITS				\
+	(BIT(APICV_INHIBIT_REASON_DISABLE)|			\
+	 BIT(APICV_INHIBIT_REASON_ABSENT) |			\
+	 BIT(APICV_INHIBIT_REASON_HYPERV) |			\
+	 BIT(APICV_INHIBIT_REASON_BLOCKIRQ) |			\
+	 BIT(APICV_INHIBIT_REASON_PHYSICAL_ID_ALIASED) |	\
+	 BIT(APICV_INHIBIT_REASON_APIC_ID_MODIFIED) |		\
+	 BIT(APICV_INHIBIT_REASON_APIC_BASE_MODIFIED) |		\
+	 BIT(APICV_INHIBIT_REASON_TDX))
+
 void vmx_vm_destroy(struct kvm *kvm)
 {
 	struct kvm_vmx *kvm_vmx = to_kvm_vmx(kvm);
 
 	free_pages((unsigned long)kvm_vmx->pid_table, vmx_get_pid_table_order(kvm));
 }
+
+struct kvm_x86_ops vt_x86_ops __initdata = {
+	.name = KBUILD_MODNAME,
+
+	.check_processor_compatibility = vmx_check_processor_compat,
+
+	.hardware_unsetup = vt_hardware_unsetup,
+	.offline_cpu = tdx_offline_cpu,
+
+	.hardware_enable = vt_hardware_enable,
+	.hardware_disable = vt_hardware_disable,
+	.has_emulated_msr = vt_has_emulated_msr,
+
+	.is_vm_type_supported = vt_is_vm_type_supported,
+	.max_vcpus = vt_max_vcpus,
+	.vm_size = sizeof(struct kvm_vmx),
+	.vm_enable_cap = vt_vm_enable_cap,
+	.vm_init = vt_vm_init,
+	.flush_shadow_all_private = vt_flush_shadow_all_private,
+	.vm_destroy = vt_vm_destroy,
+	.vm_free = vt_vm_free,
+
+	.vcpu_precreate = vt_vcpu_precreate,
+	.vcpu_create = vt_vcpu_create,
+	.vcpu_free = vt_vcpu_free,
+	.vcpu_reset = vt_vcpu_reset,
+
+	.prepare_switch_to_guest = vt_prepare_switch_to_guest,
+	.vcpu_load = vt_vcpu_load,
+	.vcpu_put = vt_vcpu_put,
+
+	.update_exception_bitmap = vt_update_exception_bitmap,
+	.get_msr_feature = vmx_get_msr_feature,
+	.get_msr = vt_get_msr,
+	.set_msr = vt_set_msr,
+	.get_segment_base = vt_get_segment_base,
+	.get_segment = vt_get_segment,
+	.set_segment = vt_set_segment,
+	.get_cpl = vt_get_cpl,
+	.get_cs_db_l_bits = vt_get_cs_db_l_bits,
+	.is_valid_cr0 = vt_is_valid_cr0,
+	.set_cr0 = vt_set_cr0,
+	.is_valid_cr4 = vt_is_valid_cr4,
+	.set_cr4 = vt_set_cr4,
+	.set_efer = vt_set_efer,
+	.get_idt = vt_get_idt,
+	.set_idt = vt_set_idt,
+	.get_gdt = vt_get_gdt,
+	.set_gdt = vt_set_gdt,
+	.set_dr7 = vt_set_dr7,
+	.sync_dirty_debug_regs = vt_sync_dirty_debug_regs,
+	.load_guest_debug_regs = vt_load_guest_debug_regs,
+	.cache_reg = vt_cache_reg,
+	.get_rflags = vt_get_rflags,
+	.set_rflags = vt_set_rflags,
+	.get_if_flag = vt_get_if_flag,
+	.get_cr2 = vt_get_cr2,
+	.get_xcr = vt_get_xcr,
+
+	.flush_tlb_all = vt_flush_tlb_all,
+	.flush_tlb_current = vt_flush_tlb_current,
+	.flush_tlb_gva = vt_flush_tlb_gva,
+	.flush_tlb_guest = vt_flush_tlb_guest,
+
+	.vcpu_pre_run = vt_vcpu_pre_run,
+	.vcpu_run = vt_vcpu_run,
+	.handle_exit = vt_handle_exit,
+	.skip_emulated_instruction = vt_skip_emulated_instruction,
+	.update_emulated_instruction = vmx_update_emulated_instruction,
+	.set_interrupt_shadow = vt_set_interrupt_shadow,
+	.get_interrupt_shadow = vt_get_interrupt_shadow,
+	.patch_hypercall = vt_patch_hypercall,
+	.inject_irq = vt_inject_irq,
+	.inject_nmi = vt_inject_nmi,
+	.inject_exception = vt_inject_exception,
+	.cancel_injection = vt_cancel_injection,
+	.interrupt_allowed = vt_interrupt_allowed,
+	.nmi_allowed = vt_nmi_allowed,
+	.get_nmi_mask = vt_get_nmi_mask,
+	.set_nmi_mask = vt_set_nmi_mask,
+	.enable_nmi_window = vt_enable_nmi_window,
+	.enable_irq_window = vt_enable_irq_window,
+	.update_cr8_intercept = vt_update_cr8_intercept,
+	.set_virtual_apic_mode = vt_set_virtual_apic_mode,
+	.set_apic_access_page_addr = vt_set_apic_access_page_addr,
+	.refresh_apicv_exec_ctrl = vt_refresh_apicv_exec_ctrl,
+	.load_eoi_exitmap = vt_load_eoi_exitmap,
+	.apicv_post_state_restore = vt_apicv_post_state_restore,
+	.required_apicv_inhibits = VMX_REQUIRED_APICV_INHIBITS,
+	.hwapic_irr_update = vt_hwapic_irr_update,
+	.hwapic_isr_update = vt_hwapic_isr_update,
+	.guest_apic_has_interrupt = vt_guest_apic_has_interrupt,
+	.sync_pir_to_irr = vt_sync_pir_to_irr,
+	.deliver_interrupt = vt_deliver_interrupt,
+	.dy_apicv_has_pending_interrupt = pi_has_pending_interrupt,
+	.protected_apic_has_interrupt = vt_protected_apic_has_interrupt,
+
+	.set_tss_addr = vt_set_tss_addr,
+	.set_identity_map_addr = vt_set_identity_map_addr,
+	.get_mt_mask = vt_get_mt_mask,
+
+	.get_exit_info = vt_get_exit_info,
+
+	.vcpu_check_cpuid = vt_vcpu_check_cpuid,
+	.vcpu_after_set_cpuid = vt_vcpu_after_set_cpuid,
+
+	.has_wbinvd_exit = cpu_has_vmx_wbinvd_exit,
+
+	.get_l2_tsc_offset = vt_get_l2_tsc_offset,
+	.get_l2_tsc_multiplier = vt_get_l2_tsc_multiplier,
+	.write_tsc_offset = vt_write_tsc_offset,
+	.write_tsc_multiplier = vt_write_tsc_multiplier,
+
+	.load_mmu_pgd = vt_load_mmu_pgd,
+
+	.check_intercept = vt_check_intercept,
+	.handle_exit_irqoff = vt_handle_exit_irqoff,
+
+	.request_immediate_exit = vt_request_immediate_exit,
+
+	.sched_in = vt_sched_in,
+
+	.cpu_dirty_log_size = PML_ENTITY_NUM,
+	.update_cpu_dirty_logging = vt_update_cpu_dirty_logging,
+
+	.nested_ops = &vmx_nested_ops,
+
+	.pi_update_irte = vmx_pi_update_irte,
+	.pi_start_assignment = vmx_pi_start_assignment,
+
+#ifdef CONFIG_X86_64
+	.set_hv_timer = vt_set_hv_timer,
+	.cancel_hv_timer = vt_cancel_hv_timer,
+#endif
+
+	.setup_mce = vt_setup_mce,
+
+#ifdef CONFIG_KVM_SMM
+	.smi_allowed = vt_smi_allowed,
+	.enter_smm = vt_enter_smm,
+	.leave_smm = vt_leave_smm,
+	.enable_smi_window = vt_enable_smi_window,
+#endif
+
+	.can_emulate_instruction = vt_can_emulate_instruction,
+	.apic_init_signal_blocked = vt_apic_init_signal_blocked,
+	.migrate_timers = vmx_migrate_timers,
+
+	.msr_filter_changed = vt_msr_filter_changed,
+	.complete_emulated_msr = kvm_complete_insn_gp,
+
+	.vcpu_deliver_sipi_vector = vt_vcpu_deliver_sipi_vector,
+	.vcpu_deliver_init = vt_vcpu_deliver_init,
+
+#ifdef CONFIG_KVM_PRIVATE_MEM
+	.gmem_invalidate = vt_gmem_invalidate,
+#endif
+
+	.mem_enc_ioctl = vt_mem_enc_ioctl,
+	.vcpu_mem_enc_ioctl = vt_vcpu_mem_enc_ioctl,
+
+	.vm_move_enc_context_from = vt_move_enc_context_from,
+};
 
 static unsigned int vmx_handle_intel_pt_intr(void)
 {

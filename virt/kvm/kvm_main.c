@@ -920,9 +920,16 @@ static void kvm_mmu_notifier_release(struct mmu_notifier *mn,
 	struct kvm *kvm = mmu_notifier_to_kvm(mn);
 	int idx;
 
+	/*
+	 * Avoide race with kvm_gmem_release().
+	 * This function is called via mmu notifier, mmu_release().
+	 * kvm_gmem_release() is called via fput() on process exit.
+	 */
+	mutex_lock(&kvm->slots_lock);
 	idx = srcu_read_lock(&kvm->srcu);
 	kvm_flush_shadow_all(kvm);
 	srcu_read_unlock(&kvm->srcu, idx);
+	mutex_unlock(&kvm->slots_lock);
 }
 
 static const struct mmu_notifier_ops kvm_mmu_notifier_ops = {

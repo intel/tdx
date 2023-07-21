@@ -70,6 +70,9 @@ static void __used common(void)
 	BLANK();
 	OFFSET(TDX_MODULE_rcx, tdx_module_args, rcx);
 	OFFSET(TDX_MODULE_rdx, tdx_module_args, rdx);
+	OFFSET(TDX_MODULE_rbx, tdx_module_args, rbx);
+	OFFSET(TDX_MODULE_rsi, tdx_module_args, rsi);
+	OFFSET(TDX_MODULE_rdi, tdx_module_args, rdi);
 	OFFSET(TDX_MODULE_r8,  tdx_module_args, r8);
 	OFFSET(TDX_MODULE_r9,  tdx_module_args, r9);
 	OFFSET(TDX_MODULE_r10, tdx_module_args, r10);
@@ -78,9 +81,6 @@ static void __used common(void)
 	OFFSET(TDX_MODULE_r13, tdx_module_args, r13);
 	OFFSET(TDX_MODULE_r14, tdx_module_args, r14);
 	OFFSET(TDX_MODULE_r15, tdx_module_args, r15);
-	OFFSET(TDX_MODULE_rbx, tdx_module_args, rbx);
-	OFFSET(TDX_MODULE_rdi, tdx_module_args, rdi);
-	OFFSET(TDX_MODULE_rsi, tdx_module_args, rsi);
 
 	BLANK();
 	OFFSET(BP_scratch, boot_params, scratch);

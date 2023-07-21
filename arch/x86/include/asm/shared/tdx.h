@@ -59,24 +59,31 @@
  * Used in __tdcall*() to gather the input/output registers' values of the
  * TDCALL instruction when requesting services from the TDX module. This is a
  * software only structure and not part of the TDX module/VMM ABI
+ *
+ * Note those *_unused are not used by the TDX_MODULE_CALL assembly.
+ * The layout of this structure also matches KVM's kvm_vcpu_arch::regs[]
+ * layout, which follows the "register index" order of x86 GPRs.  KVM
+ * then can simply type cast kvm_vcpu_arch::regs[] to this structure to
+ * avoid the extra memory copy between two structures when making
+ * TDH.VP.ENTER SEAMCALL.
  */
 struct tdx_module_args {
-	/* callee-clobbered */
+	u64 rax_unused;
 	u64 rcx;
 	u64 rdx;
+	u64 rbx;
+	u64 rsp_unused;
+	u64 rbp_unused;
+	u64 rsi;
+	u64 rdi;
 	u64 r8;
 	u64 r9;
-	/* extra callee-clobbered */
 	u64 r10;
 	u64 r11;
-	/* callee-saved + rdi/rsi */
 	u64 r12;
 	u64 r13;
 	u64 r14;
 	u64 r15;
-	u64 rbx;
-	u64 rdi;
-	u64 rsi;
 };
 
 /* Used to communicate with the TDX module */

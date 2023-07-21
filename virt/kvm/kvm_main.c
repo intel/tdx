@@ -6319,7 +6319,6 @@ int kvm_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module)
 	kvm_preempt_ops.sched_out = kvm_sched_out;
 
 	kvm_init_debug();
-	kvm_gmem_init();
 
 	r = kvm_vfio_ops_init();
 	if (WARN_ON_ONCE(r))

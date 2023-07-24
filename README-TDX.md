@@ -7,3 +7,4 @@ List the merged patches related to TDX for ease of tracking.
 2. TDX guest.
 3. TDX 1.5 common part (LFE-105)
 4. TDX MWAIT/TSX support (LFE-113)
+5. TDX vTPM kernel part (LFE-7259)

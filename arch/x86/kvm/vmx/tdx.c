@@ -1973,7 +1973,9 @@ static int tdx_sept_split_private_spt(struct kvm *kvm, gfn_t gfn,
 	u64 err;
 
 	/* See comment in tdx_sept_set_private_spte() */
-	err = tdh_mem_page_demote(kvm_tdx->tdr_pa, gpa, tdx_level, hpa, &out);
+	do {
+		err = tdh_mem_page_demote(kvm_tdx->tdr_pa, gpa, tdx_level, hpa, &out);
+	} while (err == TDX_INTERRUPTED_RESTARTABLE);
 	if (unlikely(err == TDX_ERROR_SEPT_BUSY))
 		return -EAGAIN;
 	if (KVM_BUG_ON(err, kvm)) {
@@ -1995,7 +1997,9 @@ static int tdx_sept_merge_private_spt(struct kvm *kvm, gfn_t gfn,
 	u64 err;
 
 	/* See comment in tdx_sept_set_private_spte() */
-	err = tdh_mem_page_promote(kvm_tdx->tdr_pa, gpa, tdx_level, &out);
+	do {
+		err = tdh_mem_page_promote(kvm_tdx->tdr_pa, gpa, tdx_level, &out);
+	} while (err == TDX_INTERRUPTED_RESTARTABLE);
 	if (unlikely(err == TDX_ERROR_SEPT_BUSY))
 		return -EAGAIN;
 	if (unlikely(err == (TDX_EPT_INVALID_PROMOTE_CONDITIONS |

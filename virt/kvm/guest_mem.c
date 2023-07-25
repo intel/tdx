@@ -134,10 +134,10 @@ void __weak kvm_arch_gmem_invalidate(struct kvm *kvm, kvm_pfn_t start, kvm_pfn_t
 }
 
 /* Handle arch-specific hooks needed before releasing guarded pages. */
-static void kvm_gmem_issue_arch_invalidate(struct kvm *kvm, struct file *file,
+static void kvm_gmem_issue_arch_invalidate(struct kvm *kvm, struct inode *inode,
 					   pgoff_t start, pgoff_t end)
 {
-	pgoff_t file_end = i_size_read(file_inode(file)) >> PAGE_SHIFT;
+	pgoff_t file_end = i_size_read(inode) >> PAGE_SHIFT;
 	pgoff_t index = start;
 
 	end = min(end, file_end);
@@ -148,7 +148,7 @@ static void kvm_gmem_issue_arch_invalidate(struct kvm *kvm, struct file *file,
 		struct page *page;
 		kvm_pfn_t pfn;
 
-		folio = __filemap_get_folio(file->f_mapping, index,
+		folio = __filemap_get_folio(inode->i_mapping, index,
 					    FGP_LOCK, 0);
 		if (IS_ERR(folio) || !folio) {
 			index++;
@@ -185,7 +185,7 @@ static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 	list_for_each_entry(gmem, gmem_list, entry)
 		kvm_gmem_invalidate_begin(gmem, start, end);
 
-	kvm_gmem_issue_arch_invalidate(kvm, file, start, end);
+	kvm_gmem_issue_arch_invalidate(gmem->kvm, inode, start, end);
 	truncate_inode_pages_range(inode->i_mapping, offset, offset + len - 1);
 
 	list_for_each_entry(gmem, gmem_list, entry)
@@ -296,7 +296,7 @@ static int kvm_gmem_release(struct inode *inode, struct file *file)
 	 * memory, as its lifetime is associated with the inode, not the file.
 	 */
 	kvm_gmem_invalidate_begin(gmem, 0, -1ul);
-	kvm_gmem_issue_arch_invalidate(gmem->kvm, file, 0, -1ul);
+	kvm_gmem_issue_arch_invalidate(gmem->kvm, file_inode(file), 0, -1ul);
 	kvm_gmem_invalidate_end(gmem, 0, -1ul);
 
 	mutex_unlock(&kvm->slots_lock);

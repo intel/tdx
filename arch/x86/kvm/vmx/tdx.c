@@ -3332,7 +3332,8 @@ int tdx_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 		msr->data = MTRR_TYPE_WRBACK;
 		return 0;
 	default:
-		if (tdx_has_emulated_msr(msr->index, false))
+		if (msr->host_initiated ||
+		    tdx_has_emulated_msr(msr->index, false))
 			return kvm_get_msr_common(vcpu, msr);
 		return 1;
 	}
@@ -3360,11 +3361,13 @@ int tdx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 		 * (E, FE) = (0, *): disable all MTRRs.  all physical memory
 		 *                   is UC
 		 */
-		if (msr->data != ((1 << 11) | MTRR_TYPE_WRBACK))
+		if (!msr->host_initiated &&
+		    msr->data != ((1 << 11) | MTRR_TYPE_WRBACK))
 			return 1;
 		return kvm_set_msr_common(vcpu, msr);
 	default:
-		if (tdx_has_emulated_msr(msr->index, true))
+		if (msr->host_initiated ||
+		    tdx_has_emulated_msr(msr->index, true))
 			return kvm_set_msr_common(vcpu, msr);
 		return 1;
 	}

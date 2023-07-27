@@ -7,6 +7,7 @@
 #include <linux/linkage.h>
 #include <linux/bits.h>
 #include <linux/errno.h>
+#include <linux/export.h>
 
 #include "../../virt/vmx/tdx/tdxcall.S"
 
@@ -225,6 +226,7 @@ SYM_FUNC_END(__tdx_module_call)
 SYM_FUNC_START(__tdx_hypercall)
 	TDX_HYPERCALL ret=0
 SYM_FUNC_END(__tdx_hypercall)
+EXPORT_SYMBOL(__tdx_hypercall)
 
 /*
  *

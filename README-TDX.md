@@ -9,3 +9,4 @@ List the merged patches related to TDX for ease of tracking.
 4. TDX MWAIT/TSX support (LFE-113)
 5. TDX vTPM kernel part (LFE-7259)
 6. Allow CCEL ACPI table (https://hsdes.intel.com/appstore/article/#/15013318560)
+7. swiotlb enhancment (LFE-111)

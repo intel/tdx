@@ -95,6 +95,79 @@ void accept_memory(phys_addr_t start, phys_addr_t end)
 	spin_unlock_irqrestore(&unaccepted_memory_lock, flags);
 }
 
+bool unaccept_memory(phys_addr_t start, phys_addr_t end)
+{
+	struct efi_unaccepted_memory *unaccepted;
+	unsigned long range_start, range_end;
+	unsigned long flags;
+	u64 unit_size;
+	int accepted = 0;
+
+	unaccepted = efi_get_unaccepted_table();
+	if (!unaccepted)
+		return false;
+
+	unit_size = unaccepted->unit_size;
+
+	/* refuse unaligned requests */
+	if (start % unit_size || end % unit_size)
+		return false;
+
+	/*
+	 * refuse to unaccept ranges outside the range tracked by the
+	 * unaccepted table
+	 */
+	if (start < unaccepted->phys_base)
+		return false;
+
+	/* Translate to offsets from the beginning of the bitmap */
+	start -= unaccepted->phys_base;
+	end -= unaccepted->phys_base;
+
+	/* Make sure not to overrun the bitmap */
+	if (end > unaccepted->size * unit_size * BITS_PER_BYTE)
+		return false;
+
+	range_start = start / unit_size;
+
+	spin_lock_irqsave(&unaccepted_memory_lock, flags);
+	for_each_clear_bitrange_from(range_start, range_end, unaccepted->bitmap,
+				     DIV_ROUND_UP(end, unit_size)) {
+		unsigned long phys_start, phys_end;
+		unsigned long len = range_end - range_start;
+
+		phys_start = range_start * unit_size + unaccepted->phys_base;
+		phys_end = range_end * unit_size + unaccepted->phys_base;
+
+		arch_unaccept_memory(phys_start, phys_end);
+		accepted += len;
+		pr_err("IO TLB: found %lx-%lx accepted\n", phys_start, phys_end);
+		bitmap_set(unaccepted->bitmap, range_start, len);
+	}
+
+	/*
+	 * To avoid load_unaligned_zeropad() stepping into unaccepted memory,
+	 * the next 2MB page of the memory range supplied to accept_memory()
+	 * may be accepted.
+	 *
+	 * But if the next 2MB page is unaccepted because it is converted to
+	 * shared directly, trying to accept it would block shared accesses.
+	 * Some failure is observed because the first 2MB page of swiotlb pool
+	 * is converted to private at runtime when kernel tries to accept the
+	 * preceding 2MB page.
+	 *
+	 * Mark the first page as accepted to avoid it being accepted due to
+	 * the quirk of accept_memory().
+	 */
+	bitmap_clear(unaccepted->bitmap, start / unit_size, 1);
+
+	spin_unlock_irqrestore(&unaccepted_memory_lock, flags);
+
+	pr_err("IO TLB: %llx-%llx unaccepted %d\n",
+	       start + unaccepted->phys_base, end + unaccepted->phys_base, accepted);
+	return true;
+}
+
 bool range_contains_unaccepted_memory(phys_addr_t start, phys_addr_t end)
 {
 	struct efi_unaccepted_memory *unaccepted;

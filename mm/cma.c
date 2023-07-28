@@ -337,7 +337,7 @@ int __init cma_declare_contiguous_nid(phys_addr_t base,
 		if (!memblock_bottom_up() && memblock_end >= SZ_4G + size) {
 			memblock_set_bottom_up(true);
 			addr = memblock_alloc_range_nid(size, alignment, SZ_4G,
-							limit, nid, true);
+							limit, nid, true, true);
 			memblock_set_bottom_up(false);
 		}
 #endif
@@ -350,13 +350,13 @@ int __init cma_declare_contiguous_nid(phys_addr_t base,
 		 */
 		if (!addr && base < highmem_start && limit > highmem_start) {
 			addr = memblock_alloc_range_nid(size, alignment,
-					highmem_start, limit, nid, true);
+					highmem_start, limit, nid, true, true);
 			limit = highmem_start;
 		}
 
 		if (!addr) {
 			addr = memblock_alloc_range_nid(size, alignment, base,
-					limit, nid, true);
+					limit, nid, true, true);
 			if (!addr) {
 				ret = -ENOMEM;
 				goto err;

@@ -18,4 +18,9 @@ static inline bool force_dma_unencrypted(struct device *dev)
 int set_memory_encrypted(unsigned long addr, int numpages);
 int set_memory_decrypted(unsigned long addr, int numpages);
 
+static inline int set_memory_decrypted_noflush(unsigned long addr, int numpages)
+{
+	set_memory_decrypted(addr, numpages);
+}
+
 #endif /* _ASM_POWERPC_MEM_ENCRYPT_H */

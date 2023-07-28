@@ -4047,6 +4047,7 @@ madvise_set_anon_name(struct mm_struct *mm, unsigned long start,
 
 bool range_contains_unaccepted_memory(phys_addr_t start, phys_addr_t end);
 void accept_memory(phys_addr_t start, phys_addr_t end);
+bool unaccept_memory(phys_addr_t start, phys_addr_t end);
 
 #else
 
@@ -4058,6 +4059,11 @@ static inline bool range_contains_unaccepted_memory(phys_addr_t start,
 
 static inline void accept_memory(phys_addr_t start, phys_addr_t end)
 {
+}
+
+static inline bool unaccept_memory(phys_addr_t start, phys_addr_t end)
+{
+	return false;
 }
 
 #endif

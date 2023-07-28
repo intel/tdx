@@ -2134,7 +2134,7 @@ int set_memory_global(unsigned long addr, int numpages)
  * __set_memory_enc_pgtable() is used for the hypervisors that get
  * informed about "encryption" status via page tables.
  */
-static int __set_memory_enc_pgtable(unsigned long addr, int numpages, bool enc)
+static int __set_memory_enc_pgtable(unsigned long addr, int numpages, bool enc, bool flush)
 {
 	pgprot_t empty = __pgprot(0);
 	struct cpa_data cpa;
@@ -2156,7 +2156,7 @@ static int __set_memory_enc_pgtable(unsigned long addr, int numpages, bool enc)
 	vm_unmap_aliases();
 
 	/* Flush the caches as needed before changing the encryption attribute. */
-	if (x86_platform.guest.enc_tlb_flush_required(enc))
+	if (flush && x86_platform.guest.enc_tlb_flush_required(enc))
 		cpa_flush(&cpa, x86_platform.guest.enc_cache_flush_required());
 
 	/* Notify hypervisor that we are about to set/clr encryption attribute. */
@@ -2183,25 +2183,31 @@ static int __set_memory_enc_pgtable(unsigned long addr, int numpages, bool enc)
 	return ret;
 }
 
-static int __set_memory_enc_dec(unsigned long addr, int numpages, bool enc)
+static int __set_memory_enc_dec(unsigned long addr, int numpages, bool enc, bool flush)
 {
 	if (cc_platform_has(CC_ATTR_MEM_ENCRYPT))
-		return __set_memory_enc_pgtable(addr, numpages, enc);
+		return __set_memory_enc_pgtable(addr, numpages, enc, flush);
 
 	return 0;
 }
 
 int set_memory_encrypted(unsigned long addr, int numpages)
 {
-	return __set_memory_enc_dec(addr, numpages, true);
+	return __set_memory_enc_dec(addr, numpages, true, true);
 }
 EXPORT_SYMBOL_GPL(set_memory_encrypted);
 
 int set_memory_decrypted(unsigned long addr, int numpages)
 {
-	return __set_memory_enc_dec(addr, numpages, false);
+	return __set_memory_enc_dec(addr, numpages, false, true);
 }
 EXPORT_SYMBOL_GPL(set_memory_decrypted);
+
+int set_memory_decrypted_noflush(unsigned long addr, int numpages)
+{
+	return __set_memory_enc_dec(addr, numpages, false, false);
+}
+EXPORT_SYMBOL_GPL(set_memory_decrypted_noflush);
 
 int set_pages_uc(struct page *page, int numpages)
 {

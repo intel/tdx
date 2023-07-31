@@ -52,6 +52,10 @@ bool tdx_early_handle_ve(struct pt_regs *regs);
 
 int tdx_mcall_get_report0(u8 *reportdata, u8 *tdreport);
 
+int tdx_alloc_event_irq(void);
+
+void tdx_free_event_irq(int);
+
 #else
 
 static inline void tdx_early_init(void) { };

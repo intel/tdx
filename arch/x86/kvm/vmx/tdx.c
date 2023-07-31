@@ -1553,6 +1553,7 @@ static int tdx_sept_page_aug(struct kvm *kvm, gfn_t gfn,
 	}
 
 	tdx_account_td_pages(kvm, level);
+	trace_kvm_tdx_page_add(kvm_tdx->tdr_pa, gfn, pfn, level);
 	return 0;
 }
 
@@ -1609,6 +1610,7 @@ static int tdx_sept_page_add(struct kvm *kvm, gfn_t gfn,
 		tdx_measure_page(kvm_tdx, gpa, KVM_HPAGE_SIZE(level));
 
 	tdx_account_td_pages(kvm, level);
+	trace_kvm_tdx_page_add(kvm_tdx->tdr_pa, gfn, pfn, level);
 	return 0;
 
 }
@@ -1667,6 +1669,7 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		tdx_set_page_present_level(hpa, level);
 		tdx_unpin(kvm, gfn, pfn, level);
 		tdx_unaccount_td_pages(kvm, level);
+		trace_kvm_tdx_page_remove(kvm_tdx->tdr_pa, gfn, pfn, level);
 		return 0;
 	}
 
@@ -1705,6 +1708,7 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		hpa += PAGE_SIZE;
 	}
 	tdx_unaccount_td_pages(kvm, level);
+	trace_kvm_tdx_page_remove(kvm_tdx->tdr_pa, gfn, pfn, level);
 	return r;
 }
 
@@ -1750,6 +1754,7 @@ static int tdx_sept_link_private_spt(struct kvm *kvm, gfn_t gfn,
 
 	/* level is for parent's. */
 	tdx_account_sept_page(kvm, level - 1);
+	trace_kvm_tdx_sept_add(kvm_tdx->tdr_pa, gfn, hpa >> PAGE_SHIFT, level - 1);
 	return 0;
 }
 
@@ -1767,14 +1772,19 @@ static int tdx_sept_split_private_spt(struct kvm *kvm, gfn_t gfn,
 	do {
 		err = tdh_mem_page_demote(kvm_tdx->tdr_pa, gpa, tdx_level, hpa, &out);
 	} while (err == TDX_INTERRUPTED_RESTARTABLE);
-	if (unlikely(err == TDX_ERROR_SEPT_BUSY))
+	if (unlikely(err == TDX_ERROR_SEPT_BUSY)) {
+		trace_kvm_tdx_page_demote(kvm_tdx->tdr_pa, gfn, hpa >> PAGE_SHIFT,
+					  level, -EAGAIN);
 		return -EAGAIN;
+	}
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_MEM_PAGE_DEMOTE, err, &out);
+		trace_kvm_tdx_page_demote(kvm_tdx->tdr_pa, gfn, hpa >> PAGE_SHIFT, level, -EIO);
 		return -EIO;
 	}
 
-	tdx_account_sept_page(kvm, level);
+	tdx_account_sept_page(kvm, level - 1);
+	trace_kvm_tdx_page_demote(kvm_tdx->tdr_pa, gfn, hpa >> PAGE_SHIFT, level, 0);
 	return 0;
 }
 
@@ -1791,17 +1801,25 @@ static int tdx_sept_merge_private_spt(struct kvm *kvm, gfn_t gfn,
 	do {
 		err = tdh_mem_page_promote(kvm_tdx->tdr_pa, gpa, tdx_level, &out);
 	} while (err == TDX_INTERRUPTED_RESTARTABLE);
-	if (unlikely(err == TDX_ERROR_SEPT_BUSY))
+	if (unlikely(err == TDX_ERROR_SEPT_BUSY)) {
+		trace_kvm_tdx_page_promote(kvm_tdx->tdr_pa, gfn,
+					   __pa(private_spt) >> PAGE_SHIFT, level, -EAGAIN);
 		return -EAGAIN;
+	}
 	if (unlikely(err == (TDX_EPT_INVALID_PROMOTE_CONDITIONS |
-			     TDX_OPERAND_ID_RCX)))
+			     TDX_OPERAND_ID_RCX))) {
 		/*
 		 * Some pages are accepted, some pending.  Need to wait for TD
 		 * to accept all pages.  Tell it the caller.
 		 */
+		trace_kvm_tdx_page_promote(kvm_tdx->tdr_pa, gfn,
+					   __pa(private_spt) >> PAGE_SHIFT, level, -EAGAIN);
 		return -EAGAIN;
+	}
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_MEM_PAGE_PROMOTE, err, &out);
+		trace_kvm_tdx_page_promote(kvm_tdx->tdr_pa, gfn,
+					   __pa(private_spt) >> PAGE_SHIFT, level, -EIO);
 		return -EIO;
 	}
 	WARN_ON_ONCE(out.rcx != __pa(private_spt));
@@ -1816,12 +1834,16 @@ static int tdx_sept_merge_private_spt(struct kvm *kvm, gfn_t gfn,
 	} while (unlikely(err == (TDX_OPERAND_BUSY | TDX_OPERAND_ID_RCX)));
 	if (WARN_ON_ONCE(err)) {
 		pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
+		trace_kvm_tdx_page_promote(kvm_tdx->tdr_pa, gfn,
+					   __pa(private_spt) >> PAGE_SHIFT, level, -EIO);
 		return -EIO;
 	}
 
 	tdx_set_page_present(__pa(private_spt));
 	tdx_clear_page(__pa(private_spt), PAGE_SIZE);
 	tdx_unaccount_sept_page(kvm, level - 1);
+	trace_kvm_tdx_page_promote(kvm_tdx->tdr_pa, gfn,
+				   __pa(private_spt) >> PAGE_SHIFT, level, 0);
 	return 0;
 }
 
@@ -1989,8 +2011,11 @@ static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 		int r;
 
 		r = tdx_reclaim_page(__pa(private_spt), PG_LEVEL_4K);
-		if (!r)
+		if (!r) {
 			tdx_unaccount_sept_page(kvm, level);
+			trace_kvm_tdx_sept_remove(kvm_tdx->tdr_pa, gfn,
+						  __pa(private_spt) >> PAGE_SHIFT, level);
+		}
 		return r;
 	}
 
@@ -2033,6 +2058,8 @@ static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 	}
 	tdx_set_page_present(__pa(private_spt));
 	tdx_clear_page(__pa(private_spt), PAGE_SIZE);
+	trace_kvm_tdx_sept_remove(kvm_tdx->tdr_pa, gfn,
+				  __pa(private_spt) >> PAGE_SHIFT, level);
 	return 0;
 }
 

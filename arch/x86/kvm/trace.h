@@ -255,6 +255,136 @@ TRACE_EVENT(kvm_tdx_hypercall_done,
 		  __entry->rdx)
 );
 
+TRACE_EVENT(kvm_tdx_sept_add,
+	TP_PROTO(u64 tdr, u64 gfn, u64 pfn, unsigned int level),
+	TP_ARGS(tdr, gfn, pfn, level),
+
+	TP_STRUCT__entry(
+		__field(	u64,		tdr)
+		__field(	u64,		gfn)
+		__field(	u64,		pfn)
+		__field(	unsigned int,	level)
+	),
+	TP_fast_assign(
+		__entry->tdr   = tdr;
+		__entry->gfn   = gfn;
+		__entry->pfn   = pfn;
+		__entry->level = level;
+	),
+
+	TP_printk("tdr %llx gfn 0x%016llx pfn 0x%016llx level %d",
+		  __entry->tdr, __entry->gfn, __entry->pfn, __entry->level)
+);
+
+TRACE_EVENT(kvm_tdx_sept_remove,
+	TP_PROTO(u64 tdr, u64 gfn, u64 pfn, unsigned int level),
+	TP_ARGS(tdr, gfn, pfn, level),
+
+	TP_STRUCT__entry(
+		__field(	u64,		tdr)
+		__field(	u64,		gfn)
+		__field(	u64,		pfn)
+		__field(	unsigned int,	level)
+	),
+	TP_fast_assign(
+		__entry->tdr   = tdr;
+		__entry->gfn   = gfn;
+		__entry->pfn   = pfn;
+		__entry->level = level;
+	),
+
+	TP_printk("tdr %llx gfn 0x%016llx pfn 0x%016llx level %d",
+		  __entry->tdr, __entry->gfn, __entry->pfn, __entry->level)
+);
+
+TRACE_EVENT(kvm_tdx_page_add,
+	TP_PROTO(u64 tdr, u64 gfn, u64 pfn, unsigned int level),
+	TP_ARGS(tdr, gfn, pfn, level),
+
+	TP_STRUCT__entry(
+		__field(	u64,		tdr)
+		__field(	u64,		gfn)
+		__field(	u64,		pfn)
+		__field(	unsigned int,	level)
+	),
+	TP_fast_assign(
+		__entry->tdr   = tdr;
+		__entry->gfn   = gfn;
+		__entry->pfn   = pfn;
+		__entry->level = level;
+	),
+
+	TP_printk("tdr %llx gfn 0x%016llx pfn 0x%016llx level %d",
+		  __entry->tdr, __entry->gfn, __entry->pfn, __entry->level)
+);
+
+TRACE_EVENT(kvm_tdx_page_remove,
+	TP_PROTO(u64 tdr, u64 gfn, u64 pfn, unsigned int level),
+	TP_ARGS(tdr, gfn, pfn, level),
+
+	TP_STRUCT__entry(
+		__field(	u64,		tdr)
+		__field(	u64,		gfn)
+		__field(	u64,		pfn)
+		__field(	unsigned int,	level)
+	),
+	TP_fast_assign(
+		__entry->tdr   = tdr;
+		__entry->gfn   = gfn;
+		__entry->pfn   = pfn;
+		__entry->level = level;
+	),
+
+	TP_printk("tdr %llx gfn 0x%016llx pfn 0x%016llx level %d",
+		  __entry->tdr, __entry->gfn, __entry->pfn, __entry->level)
+);
+
+TRACE_EVENT(kvm_tdx_page_promote,
+	TP_PROTO(u64 tdr, u64 gfn, u64 pfn, unsigned int level, int ret),
+	TP_ARGS(tdr, gfn, pfn, level, ret),
+
+	TP_STRUCT__entry(
+		__field(	u64,		tdr)
+		__field(	u64,		gfn)
+		__field(	u64,		pfn)
+		__field(	unsigned int,	level)
+		__field(	int,		ret)
+	),
+	TP_fast_assign(
+		__entry->tdr   = tdr;
+		__entry->gfn   = gfn;
+		__entry->pfn   = pfn;
+		__entry->level = level;
+		__entry->ret   = ret;
+	),
+
+	TP_printk("tdr %llx gfn 0x%016llx pfn 0x%016llx level %d ret %d",
+		  __entry->tdr, __entry->gfn, __entry->pfn, __entry->level, ret)
+);
+
+TRACE_EVENT(kvm_tdx_page_demote,
+	TP_PROTO(u64 tdr, u64 gfn, u64 pfn, unsigned int level, int ret),
+	TP_ARGS(tdr, gfn, pfn, level, ret),
+
+	TP_STRUCT__entry(
+		__field(	u64,		tdr)
+		__field(	u64,		gfn)
+		__field(	u64,		pfn)
+		__field(	unsigned int,	level)
+		__field(	int,		ret)
+	),
+	TP_fast_assign(
+		__entry->tdr   = tdr;
+		__entry->gfn   = gfn;
+		__entry->pfn   = pfn;
+		__entry->level = level;
+		__entry->ret = ret;
+	),
+
+	TP_printk("tdr %llx gfn 0x%016llx pfn 0x%016llx level %d ret %d",
+		  __entry->tdr, __entry->gfn, __entry->pfn, __entry->level, __entry->ret)
+);
+
 /*
  * Tracepoint for PIO.
  */

@@ -1922,7 +1922,7 @@ static struct tdvmcall_service *tdvmcall_servbuf_alloc(struct kvm_vcpu *vcpu,
 	}
 
 	/* The status field by default is TDX_VMCALL_SERVICE_S_RETURNED */
-	h_buf = kzalloc(PAGE_SIZE, GFP_KERNEL_ACCOUNT);
+	h_buf = kzalloc(max_t(size_t, length, PAGE_SIZE), GFP_KERNEL_ACCOUNT);
 	if (!h_buf)
 		return NULL;
 

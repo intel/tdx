@@ -1484,13 +1484,13 @@ static int tdp_mmu_merge_private_spt(struct kvm_vcpu *vcpu,
 				     struct tdp_iter *iter, u64 new_spte)
 {
 	u64 *sptep = rcu_dereference(iter->sptep);
+	u64 old_spte = iter->old_spte;
 	struct kvm_mmu_page *child_sp;
 	struct kvm *kvm = vcpu->kvm;
 	struct tdp_iter child_iter;
 	bool ret_pf_retry = false;
 	int level = iter->level;
 	gfn_t gfn = iter->gfn;
-	u64 old_spte = *sptep;
 	tdp_ptep_t child_pt;
 	u64 child_spte;
 	int ret = 0;
@@ -1593,6 +1593,7 @@ static int tdp_mmu_merge_private_spt(struct kvm_vcpu *vcpu,
 	}
 
 	/* Unfreeze spte. */
+	iter->old_spte = new_spte;
 	__kvm_tdp_mmu_write_spte(sptep, new_spte);
 
 	/*
@@ -1604,6 +1605,7 @@ static int tdp_mmu_merge_private_spt(struct kvm_vcpu *vcpu,
 	return -EAGAIN;
 
 out:
+	iter->old_spte = old_spte;
 	__kvm_tdp_mmu_write_spte(sptep, old_spte);
 	return ret;
 }

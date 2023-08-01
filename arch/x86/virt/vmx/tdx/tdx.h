@@ -20,6 +20,7 @@
 #define TDH_SYS_KEY_CONFIG	31
 #define TDH_SYS_INFO		32
 #define TDH_SYS_INIT		33
+#define TDH_SYS_RD		34
 #define TDH_SYS_LP_INIT		35
 #define TDH_SYS_TDMR_INIT	36
 #define TDH_SYS_CONFIG		45
@@ -61,6 +62,11 @@ struct tdmr_info {
 	 */
 	DECLARE_FLEX_ARRAY(struct tdmr_reserved_area, reserved_areas);
 } __packed __aligned(TDMR_INFO_ALIGNMENT);
+
+/*
+ * TDX module metadata identifiers
+ */
+#define TDX_MD_FEATURES0			0x0A00000300000008
 
 /*
  * Do not put any hardware-defined TDX structure representations below

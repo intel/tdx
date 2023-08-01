@@ -46,6 +46,7 @@ u32 tdx_global_keyid __ro_after_init;
 EXPORT_SYMBOL_GPL(tdx_global_keyid);
 static u32 tdx_guest_keyid_start __ro_after_init;
 static u32 tdx_nr_guest_keyids __ro_after_init;
+static u64 tdx_features0;
 
 static bool tdx_global_initialized;
 static DEFINE_RAW_SPINLOCK(tdx_global_init_lock);
@@ -312,6 +313,18 @@ static int __tdx_get_sysinfo(struct tdsysinfo_struct *sysinfo,
 		sysinfo->attributes,	sysinfo->vendor_id,
 		sysinfo->major_version, sysinfo->minor_version,
 		sysinfo->build_date,	sysinfo->build_num);
+
+	struct tdx_module_args args0 = {
+		.rcx = 0,
+		.rdx = TDX_MD_FEATURES0,
+	};
+
+	ret = seamcall(TDH_SYS_RD, &args0);
+	if (!ret)
+		tdx_features0 = args0.r8;
+	else
+		tdx_features0 = 0;
+	pr_info("TDX module: features0: %llx\n", tdx_features0);
 
 	/* R9 contains the actual entries written to the CMR array. */
 	print_cmrs(cmr_array, args.r9);

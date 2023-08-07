@@ -713,11 +713,11 @@ static void tdmr_do_pamt_func(struct tdmr_info *tdmr,
 	(*pamt_func)(pamt_base, pamt_size);
 }
 
-void pamt_free_contig_range(unsigned long pfn, unsigned long npages)
+void pamt_free_contig_range(unsigned long base, unsigned long size)
 {
 	if (IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
-		set_memory_p((unsigned long)pfn_to_kaddr(pfn), npages);
-	free_contig_range(pfn, npages);
+		set_memory_p((unsigned long)__va(base), size >> PAGE_SHIFT);
+	free_contig_range(base >> PAGE_SHIFT, size >> PAGE_SHIFT);
 }
 
 static void tdmr_free_pamt(struct tdmr_info *tdmr)
@@ -753,10 +753,10 @@ err:
 	return ret;
 }
 
-static void set_tdx_pages_p(unsigned long pfn, unsigned long npages)
+static void set_tdx_pages_p(unsigned long base, unsigned long size)
 {
 	if (IS_ENABLED(CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT))
-		set_memory_p((unsigned long)pfn_to_kaddr(pfn), npages);
+		set_memory_p((unsigned long)__va(base), size >> PAGE_SHIFT);
 }
 
 static int tdx_reboot_notifier(struct notifier_block *nb,

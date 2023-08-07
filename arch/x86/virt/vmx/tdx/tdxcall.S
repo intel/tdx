@@ -43,7 +43,12 @@
  * TDH.EXPORT.MEM.
  */
 .macro TDX_MODULE_CALL host:req ret=0 saved=0
+.if \host && \ret && \saved
+	pushq	%rbp
+	movq	%rsp, %rbp
+.else
 	FRAME_BEGIN
+.endif
 
 	/* Move Leaf ID to RAX */
 	mov %rdi, %rax
@@ -187,7 +192,11 @@
 	popq	%rbx
 .endif	/* \saved */
 
+.if \host && \ret && \saved
+	popq	%rbp
+.else
 	FRAME_END
+.endif
 	RET
 
 .if \host

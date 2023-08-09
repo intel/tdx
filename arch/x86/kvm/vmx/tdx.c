@@ -1546,6 +1546,8 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 		goto teardown;
 	}
 
+	kvm_set_apicv_inhibit(kvm, APICV_INHIBIT_REASON_TDX);
+
 	return 0;
 
 	/*
@@ -1931,6 +1933,7 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 		return -EIO;
 	}
 
+	vcpu->arch.apic->apicv_active = false;
 	vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
 
 	return 0;

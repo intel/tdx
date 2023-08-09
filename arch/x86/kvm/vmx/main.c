@@ -867,7 +867,7 @@ static void vt_set_apic_access_page_addr(struct kvm_vcpu *vcpu)
 
 static void vt_refresh_apicv_exec_ctrl(struct kvm_vcpu *vcpu)
 {
-	if (WARN_ON_ONCE(is_td_vcpu(vcpu)))
+	if (is_td_vcpu(vcpu))
 		return;
 
 	vmx_refresh_apicv_exec_ctrl(vcpu);
@@ -1001,7 +1001,8 @@ static int vt_vcpu_mem_enc_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 	 BIT(APICV_INHIBIT_REASON_BLOCKIRQ) |			\
 	 BIT(APICV_INHIBIT_REASON_PHYSICAL_ID_ALIASED) |	\
 	 BIT(APICV_INHIBIT_REASON_APIC_ID_MODIFIED) |		\
-	 BIT(APICV_INHIBIT_REASON_APIC_BASE_MODIFIED))
+	 BIT(APICV_INHIBIT_REASON_APIC_BASE_MODIFIED) |		\
+	 BIT(APICV_INHIBIT_REASON_TDX))
 
 struct kvm_x86_ops vt_x86_ops __initdata = {
 	.name = KBUILD_MODNAME,

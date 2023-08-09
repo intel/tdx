@@ -362,6 +362,8 @@ struct kvm_page_fault {
 	 */
 	bool huge_page_disallowed;
 
+	bool nonleaf;
+
 	/*
 	 * Maximum page size that can be created for this fault; input to
 	 * FNAME(fetch), direct_map() and kvm_tdp_mmu_map().

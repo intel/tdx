@@ -1822,8 +1822,9 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 
 	raw_gfn = gpa_to_gfn(fault->addr);
 
-	if (is_error_noslot_pfn(fault->pfn) ||
-	    !kvm_pfn_to_refcounted_page(fault->pfn)) {
+	if (!fault->nonleaf &&
+	    (is_error_noslot_pfn(fault->pfn) ||
+	    !kvm_pfn_to_refcounted_page(fault->pfn))) {
 		if (is_private) {
 			rcu_read_unlock();
 			return -EFAULT;
@@ -1900,8 +1901,10 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	goto retry;
 
 map_target_level:
-	ret = tdp_mmu_map_handle_target_level(vcpu, fault, &iter);
-
+	if (!fault->nonleaf)
+		ret = tdp_mmu_map_handle_target_level(vcpu, fault, &iter);
+	else
+		ret = RET_PF_FIXED;
 retry:
 	rcu_read_unlock();
 	return ret;

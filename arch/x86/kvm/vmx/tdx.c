@@ -4476,7 +4476,7 @@ static int tdx_init_mem_region(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 		error_code |= (PG_LEVEL_4K << PFERR_LEVEL_START_BIT) &
 			PFERR_LEVEL_MASK;
 		ret = kvm_mmu_map_tdp_page(vcpu, region.gpa, error_code,
-					   PG_LEVEL_4K);
+					   PG_LEVEL_4K, false);
 		put_page(page);
 		if (ret)
 			break;

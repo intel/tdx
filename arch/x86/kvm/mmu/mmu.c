@@ -3418,7 +3418,7 @@ void kvm_mmu_hugepage_adjust(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 	if (unlikely(fault->max_level == PG_LEVEL_4K))
 		return;
 
-	if (is_error_noslot_pfn(fault->pfn))
+	if (!fault->nonleaf && is_error_noslot_pfn(fault->pfn))
 		return;
 
 	if (kvm_slot_dirty_track_enabled(slot))
@@ -5108,7 +5108,7 @@ int kvm_tdp_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 }
 
 int kvm_mmu_map_tdp_page(struct kvm_vcpu *vcpu, gpa_t gpa, u64 error_code,
-			 int max_level)
+			 int max_level, bool nonleaf)
 {
 	int r;
 	struct kvm_page_fault fault = (struct kvm_page_fault) {
@@ -5123,6 +5123,7 @@ int kvm_mmu_map_tdp_page(struct kvm_vcpu *vcpu, gpa_t gpa, u64 error_code,
 		.is_tdp = true,
 		.is_private = error_code & PFERR_GUEST_ENC_MASK,
 		.nx_huge_page_workaround_enabled = is_nx_huge_page_enabled(vcpu->kvm),
+		.nonleaf = nonleaf,
 	};
 
 	WARN_ON_ONCE(!vcpu->arch.mmu->root_role.direct);
@@ -5137,15 +5138,27 @@ int kvm_mmu_map_tdp_page(struct kvm_vcpu *vcpu, gpa_t gpa, u64 error_code,
 	fault.req_level = PG_LEVEL_4K;
 	fault.goal_level = PG_LEVEL_4K;
 
-#ifdef CONFIG_X86_64
-	if (tdp_mmu_enabled)
-		r = kvm_tdp_mmu_page_fault(vcpu, &fault);
-	else
-#endif
-		r = direct_page_fault(vcpu, &fault);
+	if (nonleaf) {
+		#ifdef CONFIG_X86_64
+		WARN_ON_ONCE(!tdp_mmu_enabled);
+		/*
+		 * Pre-allocation for page tables is performed before the guest
+		 * is running. No need to take mmu locks and allocate the pfn
+		 * of the target leaf level.
+		 */
+		r = kvm_tdp_mmu_map(vcpu, &fault);
+		#endif
+	} else {
+		#ifdef CONFIG_X86_64
+		if (tdp_mmu_enabled)
+			r = kvm_tdp_mmu_page_fault(vcpu, &fault);
+		else
+		#endif
+			r = direct_page_fault(vcpu, &fault);
 
-	if (is_error_noslot_pfn(fault.pfn) || vcpu->kvm->vm_bugged)
-		return -EFAULT;
+		if (is_error_noslot_pfn(fault.pfn) || vcpu->kvm->vm_bugged)
+			return -EFAULT;
+	}
 
 	switch (r) {
 	case RET_PF_RETRY:
@@ -5164,6 +5177,120 @@ int kvm_mmu_map_tdp_page(struct kvm_vcpu *vcpu, gpa_t gpa, u64 error_code,
 	}
 }
 EXPORT_SYMBOL_GPL(kvm_mmu_map_tdp_page);
+
+static int kvm_slot_prealloc_set_mem_attributes(struct kvm *kvm,
+						struct kvm_gfn_range *gfn_range)
+{
+	int i, r;
+	void *entry;
+	gfn_t start = gfn_range->start;
+	gfn_t end = gfn_range->end;
+	unsigned long attributes = gfn_range->arg.attributes;
+
+	for (i = start; i < end; i++) {
+		r = xa_reserve(&kvm->mem_attr_array, i, GFP_KERNEL_ACCOUNT);
+		if (r)
+			return r;
+	}
+
+	entry = attributes ? xa_mk_value(attributes) : NULL;
+	for (i = start; i < end; i++) {
+		r = xa_err(xa_store(&kvm->mem_attr_array, i, entry,
+				    GFP_KERNEL_ACCOUNT));
+		KVM_BUG_ON(r, kvm);
+	}
+
+	kvm_arch_post_set_memory_attributes(kvm, gfn_range);
+
+	return 0;
+}
+
+static int
+kvm_slot_prealloc_private_pages(struct kvm *kvm,
+				struct kvm_memory_slot *memslot, bool nonleaf)
+{
+	int idx, ret = 0;
+	struct kvm_vcpu *vcpu = kvm_get_vcpu(kvm, 0);
+	unsigned long npages = memslot->npages;
+	struct kvm_gfn_range gfn_range = {
+		.slot = memslot,
+		.start = memslot->base_gfn,
+		.end = memslot->base_gfn + npages,
+		.arg.attributes = KVM_MEMORY_ATTRIBUTE_PRIVATE,
+		.only_private = false,
+		.only_shared = false,
+		.may_block = true,
+	};
+	gpa_t gpa = gfn_to_gpa(memslot->base_gfn);
+	uint64_t error_code = PFERR_WRITE_MASK | PFERR_GUEST_ENC_MASK;
+
+	if (mutex_lock_killable(&vcpu->mutex))
+		return -EINTR;
+
+	vcpu_load(vcpu);
+	idx = srcu_read_lock(&kvm->srcu);
+
+	kvm_mmu_reload(vcpu);
+
+	ret = kvm_slot_prealloc_set_mem_attributes(kvm, &gfn_range);
+	if (ret)
+		return ret;
+
+	while (npages) {
+		if (signal_pending(current)) {
+			ret = -ERESTARTSYS;
+			break;
+		}
+
+		if (need_resched())
+			cond_resched();
+		ret = kvm_mmu_map_tdp_page(vcpu, gpa, error_code,
+					   PG_LEVEL_4K, nonleaf);
+		if (ret || kvm->vm_bugged) {
+			pr_err("%s: failed, ret=%d, vm_bugged=%d\n",
+				__func__, ret, kvm->vm_bugged);
+			ret = -EFAULT;
+			break;
+		}
+
+		gpa += PAGE_SIZE;
+		npages--;
+	}
+	if (!ret) {
+		gfn_range.arg.attributes = 0;
+		ret = kvm_slot_prealloc_set_mem_attributes(kvm, &gfn_range);
+	}
+
+	srcu_read_unlock(&kvm->srcu, idx);
+	vcpu_put(vcpu);
+
+	mutex_unlock(&vcpu->mutex);
+
+	return ret;
+}
+
+#ifdef CONFIG_KVM_PRIVATE_MEM
+int kvm_prealloc_private_pages(struct kvm *kvm, bool nonleaf)
+{
+	struct kvm_memory_slot *memslot;
+	struct kvm_memslots *slots = kvm_memslots(kvm);
+	int bkt, ret = 0;
+
+	kvm_for_each_memslot(memslot, bkt, slots) {
+		if (!(memslot->flags & KVM_MEM_PRIVATE))
+			continue;
+
+		ret = kvm_slot_prealloc_private_pages(kvm, memslot, nonleaf);
+		if (ret) {
+			pr_err("%s: failed\n", __func__);
+			break;
+		}
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(kvm_prealloc_private_pages);
+#endif
 
 static void nonpaging_init_context(struct kvm_mmu *context)
 {
@@ -8049,9 +8176,6 @@ bool kvm_arch_post_set_memory_attributes(struct kvm *kvm,
 	unsigned long attrs = range->arg.attributes;
 	struct kvm_memory_slot *slot = range->slot;
 	int level;
-
-	lockdep_assert_held_write(&kvm->mmu_lock);
-	lockdep_assert_held(&kvm->slots_lock);
 
 	/*
 	 * KVM x86 currently only supports KVM_MEMORY_ATTRIBUTE_PRIVATE, skip

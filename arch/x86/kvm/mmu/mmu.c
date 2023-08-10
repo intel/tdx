@@ -5070,6 +5070,12 @@ static int kvm_tdp_mmu_page_fault(struct kvm_vcpu *vcpu,
 	if (r != RET_PF_CONTINUE)
 		return r;
 
+	if (fault->slot && fault->is_private) {
+		int i;
+
+		for (i = 0; i < KVM_PAGES_PER_HPAGE(fault->max_level); i++)
+			kvm_mmu_split_direct_map(pfn_to_page(fault->pfn + i));
+	}
 	r = RET_PF_RETRY;
 	read_lock(&vcpu->kvm->mmu_lock);
 
@@ -7122,6 +7128,8 @@ static int topup_split_caches(struct kvm *kvm)
 	 */
 	const int capacity = SPLIT_DESC_CACHE_MIN_NR_OBJECTS +
 			     KVM_ARCH_NR_OBJS_PER_MEMORY_CACHE;
+	struct kvm_mmu_memory_cache *mc;
+	int start, end, i;
 	int r;
 
 	lockdep_assert_held(&kvm->slots_lock);
@@ -7139,7 +7147,13 @@ static int topup_split_caches(struct kvm *kvm)
 	if (r)
 		return r;
 
-	return kvm_mmu_topup_memory_cache(&kvm->arch.split_private_spt_cache, 1);
+	mc = &kvm->arch.split_private_spt_cache;
+	start = kvm_mmu_memory_cache_nr_free_objects(mc);
+	r = kvm_mmu_topup_memory_cache(mc, KVM_MAX_HUGEPAGE_LEVEL);
+	end = kvm_mmu_memory_cache_nr_free_objects(mc);
+	for (i = start; i < end; i++)
+		kvm_mmu_split_direct_map(virt_to_page(mc->objects[i]));
+	return r;
 }
 
 static struct kvm_mmu_page *shadow_mmu_get_sp_for_split(struct kvm *kvm, u64 *huge_sptep)

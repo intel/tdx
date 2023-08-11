@@ -34,6 +34,7 @@
 #define TDH_PHYMEM_PAGE_RECLAIM		28
 #define TDH_MEM_PAGE_REMOVE		29
 #define TDH_MEM_SEPT_REMOVE		30
+#define TDH_SYS_RD			34
 #define TDH_MEM_TRACK			38
 #define TDH_MEM_RANGE_UNBLOCK		39
 #define TDH_PHYMEM_CACHE_WB		40
@@ -165,6 +166,14 @@ struct td_params {
 #define TDX_EXEC_CONTROL_MAX_GPAW      BIT_ULL(0)
 
 /*
+ * TDH.VP.ENTER, TDG.VP.VMCALL preserves RBP
+ * 0: RBP can be used for TDG.VP.VMCALL input. RBP is clobbered.
+ * 1: RBP can't be used for TDG.VP.VMCALL input. RBP is preserved.
+ */
+#define TDX_CONTROL_FLAG_NO_BRP_MOD	BIT_ULL(1)
+
+
+/*
  * TDX requires the frequency to be defined in units of 25MHz, which is the
  * frequency of the core crystal clock on TDX-capable platforms, i.e. the TDX
  * module can only program frequencies that are multiples of 25MHz.  The
@@ -214,6 +223,31 @@ union tdx_sept_level_state {
 		u64 reserved0	:  5;
 		u64 state	:  8;
 		u64 reserved1	: 48;
+	};
+	u64 raw;
+};
+
+#define TDX_MD_CLASS_GLOBAL_VERSION		8
+
+#define TDX_MD_FID_GLOBAL_FEATURES0		0x0A00000300000008
+
+/* FIXME: Once the bit is determined, replace this with the correct value. */
+#define TDX_MD_FID_GLBOAL_FEATURES0_NO_BRP_MOD	BIT_ULL(63)
+
+union tdx_md_field_id {
+	struct {
+		u64 field			: 24;
+		u64 reserved0			: 8;
+		u64 element_size		: 2;
+		u64 last_element_in_field	: 4;
+		u64 reserved1			: 3;
+		u64 inc_size			: 1;
+		u64 write_mask_valid		: 1;
+		u64 context			: 3;
+		u64 reserved2			: 1;
+		u64 class			: 6;
+		u64 reserved3			: 1;
+		u64 non_arch			: 1;
 	};
 	u64 raw;
 };

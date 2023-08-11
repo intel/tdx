@@ -2339,6 +2339,8 @@ static int setup_tdparams_eptp_controls(struct kvm_cpuid2 *cpuid,
 		td_params->eptp_controls |= VMX_EPTP_PWL_4;
 	}
 
+	td_params->exec_controls |= TDX_CONTROL_FLAG_NO_RBP_MOD;
+
 	return 0;
 }
 
@@ -3126,9 +3128,10 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 static int __init tdx_module_setup(void)
 {
 	u16 tdcs_base_size, tdvps_base_size;
+	bool no_rbp_mod = false;
 	u16 num_cpuid_config;
 	u64 data, err;
-	int ret;
+	int ret = 0;
 	u32 i;
 
 #define MD_FID_OFFSET(field, member)					\
@@ -3217,11 +3220,28 @@ static int __init tdx_module_setup(void)
 	 */
 	tdx_info->nr_tdvpx_pages = tdvps_base_size / PAGE_SIZE - 1;
 
+	/*
+	 * Make TDH.VP.ENTER preserve RBP so that the stack unwinder
+	 * always work around it.  Query the feature.
+	 */
+	err = tdh_sys_rd64(TDX_MD_FID_GLOBAL_FEATURES0, &data);
+	if (err)
+		goto error_sys_rd;
+	if (data & TDX_MD_FID_GLBOAL_FEATURES0_NO_RBP_MOD)
+		no_rbp_mod = true;
+
+	if (!no_rbp_mod && !IS_ENABLED(CONFIG_FRAME_POINTER)) {
+		pr_err("Unsupported version of TDX module. Consider upgrade.\n");
+		ret = -EOPNOTSUPP;
+		goto error;
+	}
+
 	return 0;
 
 error_sys_rd:
        ret = -EIO;
        pr_tdx_error(TDH_SYS_RD, err, NULL);
+error:
        /* kfree() accepts NULL. */
        kfree(tdx_info);
        return ret;

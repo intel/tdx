@@ -94,6 +94,7 @@ static int tdx_md_read(struct tdx_md_map *maps, int nr_maps)
 }
 
 struct tdx_info {
+	u64 features0;
 	u64 attributes_fixed0;
 	u64 attributes_fixed1;
 	u64 xfam_fixed0;
@@ -2396,6 +2397,8 @@ static int setup_tdparams_eptp_controls(struct kvm_cpuid2 *cpuid,
 		td_params->eptp_controls |= VMX_EPTP_PWL_4;
 	}
 
+	td_params->exec_controls |= TDX_CONTROL_FLAG_NO_RBP_MOD;
+
 	return 0;
 }
 
@@ -3194,7 +3197,8 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 static int __init tdx_module_setup(void)
 {
 	u16 num_cpuid_config, tdcs_base_size, tdvps_base_size;
-	int ret;
+	bool no_rbp_mod;
+	int ret = 0;
 	u32 i;
 
 	struct tdx_md_map mds[] = {
@@ -3207,6 +3211,7 @@ static int __init tdx_module_setup(void)
 	TD_SYSINFO_MAP(_field_id, struct tdx_info, _member)
 
 	struct tdx_metadata_field_mapping tdx_info_md[] = {
+		TDX_INFO_MAP(FEATURES0, features0),
 		TDX_INFO_MAP(ATTRS_FIXED0, attributes_fixed0),
 		TDX_INFO_MAP(ATTRS_FIXED1, attributes_fixed1),
 		TDX_INFO_MAP(XFAM_FIXED0, xfam_fixed0),
@@ -3262,10 +3267,22 @@ static int __init tdx_module_setup(void)
 	 */
 	tdx_info->nr_tdvpx_pages = tdvps_base_size / PAGE_SIZE - 1;
 
+	/*
+	 * Make TDH.VP.ENTER preserve RBP so that the stack unwinder
+	 * always work around it.  Query the feature.
+	 */
+	no_rbp_mod = tdx_info->features0 & MD_FIELD_ID_FEATURES0_NO_RBP_MOD;
+	if (!no_rbp_mod && !IS_ENABLED(CONFIG_FRAME_POINTER)) {
+		pr_err("Too old version of TDX module. Consider upgrade.\n");
+		ret = -EOPNOTSUPP;
+		goto error;
+	}
+
 	return 0;
 
 error_sys_rd:
 	ret = -EIO;
+error:
 	/* kfree() accepts NULL. */
 	kfree(tdx_info);
 	return ret;

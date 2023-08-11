@@ -2153,6 +2153,8 @@ static int setup_tdparams_eptp_controls(struct kvm_cpuid2 *cpuid,
 		td_params->eptp_controls |= VMX_EPTP_PWL_4;
 	}
 
+	td_params->exec_controls |= TDX_CONTROL_FLAG_NO_BRP_MOD;
+
 	return 0;
 }
 
@@ -2935,7 +2937,10 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 static int __init tdx_module_setup(void)
 {
 	const struct tdsysinfo_struct *tdsysinfo;
+	struct tdx_module_args out;
+	bool no_rbp_mod = false;
 	int ret = 0;
+	u64 err;
 
 	BUILD_BUG_ON(sizeof(*tdsysinfo) > TDSYSINFO_STRUCT_SIZE);
 	BUILD_BUG_ON(TDX_MAX_NR_CPUID_CONFIGS != 37);
@@ -2947,6 +2952,23 @@ static int __init tdx_module_setup(void)
 	}
 
 	tdsysinfo = tdx_get_sysinfo();
+
+	/*
+	 * Make TDH.VP.ENTER preserve RBP so that the stack unwinder
+	 * always work around it.  Query the feature.
+	 */
+	if (tdsysinfo->sys_rd) {
+		err = tdh_sys_rd(TDX_MD_FID_GLOBAL_FEATURES0, &out);
+		if (!err && (out.r8 & TDX_MD_FID_GLBOAL_FEATURES0_NO_BRP_MOD)) {
+			no_rbp_mod = true;
+		}
+	}
+
+	if (!no_rbp_mod) {
+		pr_err("Unsupported version of TDX module. Consider upgrade.\n");
+		return -EOPNOTSUPP;
+	}
+
 	WARN_ON(tdsysinfo->num_cpuid_config > TDX_MAX_NR_CPUID_CONFIGS);
 	tdx_info = (struct tdx_info) {
 		.nr_tdcs_pages = tdsysinfo->tdcs_base_size / PAGE_SIZE,

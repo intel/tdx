@@ -264,4 +264,9 @@ static inline u64 tdh_vp_wr(hpa_t tdvpr, u64 field, u64 val, u64 mask,
 	return tdx_seamcall(TDH_VP_WR, tdvpr, field, val, mask, out);
 }
 
+static inline u64 tdh_sys_rd(u64 field, struct tdx_module_args *out)
+{
+	return tdx_seamcall(TDH_SYS_RD, 0, field, 0, 0, out);
+}
+
 #endif /* __KVM_X86_TDX_OPS_H */

@@ -141,7 +141,8 @@ struct tdsysinfo_struct {
 	u16	build_num;
 	u16	minor_version;
 	u16	major_version;
-	u8	reserved0[14];
+	u8	sys_rd;
+	u8	reserved0[13];
 	/* Memory Info */
 	u16	max_tdmrs;
 	u16	max_reserved_per_tdmr;

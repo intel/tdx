@@ -55,6 +55,7 @@ int tdx_vm_enable_cap(struct kvm *kvm, struct kvm_enable_cap *cap)
 }
 
 struct tdx_info {
+	u64 no_rbp_mod;
 	u8 nr_tdcs_pages;
 	u8 nr_tdvpx_pages;
 };
@@ -2249,7 +2250,7 @@ static int setup_tdparams_eptp_controls(struct kvm_cpuid2 *cpuid,
 		td_params->eptp_controls |= VMX_EPTP_PWL_4;
 	}
 
-	td_params->exec_controls |= TDX_CONTROL_FLAG_NO_BRP_MOD;
+	td_params->exec_controls |= tdx_info.no_rbp_mod;
 
 	return 0;
 }
@@ -3065,13 +3066,21 @@ static int __init tdx_module_setup(void)
 			no_rbp_mod = true;
 	}
 
-	if (!no_rbp_mod && !IS_ENABLED(CONFIG_FRAME_POINTER)) {
-		pr_err("Unsupported version of TDX module. Consider upgrade.\n");
-		return -EOPNOTSUPP;
+	if (!no_rbp_mod) {
+		/*
+		 * WORKAROUND: __seamcall_saved_ret is modified so that it
+		 * unconditionally saves/restores RBP.  We don't have to check
+		 * CONFIG_FRAME_POINTER.
+		 */
+		if (0 && !IS_ENABLED(CONFIG_FRAME_POINTER)) {
+			pr_err("Unsupported version of TDX module. Consider upgrade.\n");
+			return -EOPNOTSUPP;
+		}
 	}
 
 	WARN_ON(tdsysinfo->num_cpuid_config > TDX_MAX_NR_CPUID_CONFIGS);
 	tdx_info = (struct tdx_info) {
+		.no_rbp_mod = no_rbp_mod ? TDX_CONTROL_FLAG_NO_BRP_MOD : 0,
 		.nr_tdcs_pages = tdsysinfo->tdcs_base_size / PAGE_SIZE,
 		/*
 		 * TDVPS = TDVPR(4K page) + TDVPX(multiple 4K pages).

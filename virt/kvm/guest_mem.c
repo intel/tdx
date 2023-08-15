@@ -479,7 +479,7 @@ int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
 
 	file = fget(fd);
 	if (!file)
-		return -EINVAL;
+		return -EBADF;
 
 	if (file->f_op != &kvm_gmem_fops)
 		goto err;

@@ -227,8 +227,8 @@ static void tdx_clear_page(unsigned long page_pa, int size)
 	__mb();
 }
 
-static int tdx_reclaim_page(hpa_t pa, enum pg_level level,
-			    bool do_wb, u16 hkid)
+static int __tdx_reclaim_page(hpa_t pa, enum pg_level level,
+			      bool do_wb, u16 hkid)
 {
 	struct tdx_module_args out;
 	u64 err;
@@ -265,6 +265,14 @@ static int tdx_reclaim_page(hpa_t pa, enum pg_level level,
 	return 0;
 }
 
+static int tdx_reclaim_page(hpa_t pa, bool do_wb, u16 hkid)
+{
+	int r = __tdx_reclaim_page(pa, PG_LEVEL_4K, do_wb, hkid);
+
+	tdx_clear_page(pa, PAGE_SIZE);
+	return r;
+}
+
 static void tdx_reclaim_td_page(unsigned long td_page_pa)
 {
 	WARN_ON_ONCE(!td_page_pa);
@@ -275,7 +283,7 @@ static void tdx_reclaim_td_page(unsigned long td_page_pa)
 	 * was already flushed by TDH.PHYMEM.CACHE.WB before here, So
 	 * cache doesn't need to be flushed again.
 	 */
-	if (tdx_reclaim_page(td_page_pa, PG_LEVEL_4K, false, 0))
+	if (tdx_reclaim_page(td_page_pa, false, 0))
 		/*
 		 * Leak the page on failure:
 		 * tdx_reclaim_page() returns an error if and only if there's an
@@ -483,7 +491,7 @@ void tdx_vm_free(struct kvm *kvm)
 	 * while operating on TD (Especially reclaiming TDCS).  Cache flush with
 	 * TDX global HKID is needed.
 	 */
-	if (tdx_reclaim_page(kvm_tdx->tdr_pa, PG_LEVEL_4K, true, tdx_global_keyid))
+	if (tdx_reclaim_page(kvm_tdx->tdr_pa, true, tdx_global_keyid))
 		return;
 
 	free_page((unsigned long)__va(kvm_tdx->tdr_pa));
@@ -1526,7 +1534,6 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 	struct tdx_module_args out;
 	gpa_t gpa = gfn_to_gpa(gfn);
 	hpa_t hpa = pfn_to_hpa(pfn);
-	hpa_t hpa_with_hkid;
 	int r = 0;
 	u64 err;
 	int i;
@@ -1536,7 +1543,7 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		 * The HKID assigned to this TD was already freed and cache
 		 * was already flushed. We don't have to flush again.
 		 */
-		err = tdx_reclaim_page(hpa, level, false, 0);
+		err = __tdx_reclaim_page(hpa, level, false, 0);
 		if (KVM_BUG_ON(err, kvm))
 			return -EIO;
 		tdx_unpin(kvm, gfn, pfn, level);
@@ -1557,23 +1564,7 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 	}
 
 	for (i = 0; i < KVM_PAGES_PER_HPAGE(level); i++) {
-		hpa_with_hkid = set_hkid_to_hpa(hpa, (u16)kvm_tdx->hkid);
-		do {
-			/*
-			 * TDX_OPERAND_BUSY can happen on locking PAMT entry.
-			 * Because this page was removed above, other thread
-			 * shouldn't be repeatedly operating on this page.
-			 * Simple retry should work.
-			 */
-			err = tdh_phymem_page_wbinvd(hpa_with_hkid);
-		} while (unlikely(err == (TDX_OPERAND_BUSY | TDX_OPERAND_ID_RCX)));
-		if (KVM_BUG_ON(err, kvm)) {
-			pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
-			r = -EIO;
-		} else {
-			tdx_clear_page(hpa, PAGE_SIZE);
-			tdx_unpin(kvm, gfn + i, pfn + i, PG_LEVEL_4K);
-		}
+		tdx_unpin(kvm, gfn + i, pfn + i, PG_LEVEL_4K);
 		hpa += PAGE_SIZE;
 	}
 	return r;
@@ -1785,7 +1776,7 @@ static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 	 * already flushed. We don't have to flush again.
 	 */
 	if (!is_hkid_assigned(kvm_tdx))
-		return tdx_reclaim_page(__pa(private_spt), PG_LEVEL_4K, false, 0);
+		return tdx_reclaim_page(__pa(private_spt), false, 0);
 
 	/*
 	 * Inefficient. But this is only called for deleting memslot
@@ -2834,6 +2825,55 @@ void tdx_flush_tlb_current(struct kvm_vcpu *vcpu)
 	 * As it isn't performance critical, keep this function simple.
 	 */
 	tdx_track(to_kvm_tdx(vcpu->kvm));
+}
+
+void tdx_gmem_invalidate(struct kvm *kvm, kvm_pfn_t start, kvm_pfn_t end)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	hpa_t s = pfn_to_hpa(start);
+	hpa_t e = pfn_to_hpa(end);
+	hpa_t pa;
+
+	if (is_hkid_assigned(kvm_tdx)) {
+		hpa_t s_hkid = set_hkid_to_hpa(s, (u16)kvm_tdx->hkid);
+		hpa_t e_hkid = set_hkid_to_hpa(e, (u16)kvm_tdx->hkid);
+		hpa_t hpa_hkid;
+		u64 err;
+
+		for (hpa_hkid = s_hkid; pa < e_hkid; pa += PAGE_SIZE) {
+			do {
+				/*
+				 * TDX_OPERAND_BUSY can happen on locking PAMT
+				 * entry.  Because this page was removed above,
+				 * other thread shouldn't be repeatedly
+				 * operating on this page.  Simple retry should
+				 * work.
+				 */
+				err = tdh_phymem_page_wbinvd(hpa_hkid);
+			} while (unlikely(err == (TDX_OPERAND_BUSY | TDX_OPERAND_ID_RCX)));
+			if (KVM_BUG_ON(err, kvm)) {
+				pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
+				/* Leak the page as cache might be in-coherent. */
+				pa = hpa_hkid & ((1ULL << boot_cpu_data.x86_phys_bits) - 1);
+				get_page(pfn_to_page(PHYS_PFN(pa)));
+			}
+		}
+	}
+
+	pa = s;
+	while (pa < e) {
+		const hpa_t hpage_size = KVM_HPAGE_SIZE(PG_LEVEL_2M);
+		enum pg_level level = PG_LEVEL_4K;
+		hpa_t size = PAGE_SIZE;
+
+		if (!(pa % hpage_size) && pa + hpage_size <= end) {
+			level = PG_LEVEL_2M;
+			size = hpage_size;
+		}
+
+		tdx_clear_page(pa, size);
+		pa += size;
+	}
 }
 
 #define TDX_SEPT_PFERR	(PFERR_WRITE_MASK | PFERR_GUEST_ENC_MASK)

@@ -999,6 +999,14 @@ static void vt_setup_mce(struct kvm_vcpu *vcpu)
 	vmx_setup_mce(vcpu);
 }
 
+#ifdef CONFIG_KVM_PRIVATE_MEM
+static void vt_gmem_invalidate(struct kvm *kvm, kvm_pfn_t start, kvm_pfn_t end)
+{
+	if (is_td(kvm))
+		tdx_gmem_invalidate(kvm, start, end);
+}
+#endif
+
 static int vt_mem_enc_ioctl(struct kvm *kvm, void __user *argp)
 {
 	if (!is_td(kvm))
@@ -1174,6 +1182,10 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 
 	.vcpu_deliver_sipi_vector = vt_vcpu_deliver_sipi_vector,
 	.vcpu_deliver_init = vt_vcpu_deliver_init,
+
+#ifdef CONFIG_KVM_PRIVATE_MEM
+	.gmem_invalidate = vt_gmem_invalidate,
+#endif
 
 	.mem_enc_ioctl = vt_mem_enc_ioctl,
 	.vcpu_mem_enc_ioctl = vt_vcpu_mem_enc_ioctl,

@@ -594,12 +594,36 @@ struct kvm_memory_slot {
 	u16 as_id;
 
 #ifdef CONFIG_KVM_PRIVATE_MEM
+#ifdef CONFIG_KVM_GENERIC_MMU_NOTIFIER
+	struct file *file;
+#endif
+	/* Private guest_mem */
 	struct {
 		struct file __rcu *file;
 		pgoff_t pgoff;
 	} gmem;
 #endif
 };
+
+static inline int kvm_memslot_gmem_fget(struct kvm_memory_slot *memslot, int fd)
+{
+#if defined(CONFIG_KVM_PRIVATE_MEM) && defined(CONFIG_KVM_GENERIC_MMU_NOTIFIER)
+	memslot->file = fget(fd);
+	if (!memslot->file)
+		return -EBADF;
+#endif
+	return 0;
+}
+
+static inline void kvm_memslot_gmem_fput(struct kvm_memory_slot *memslot)
+{
+#if defined(CONFIG_KVM_PRIVATE_MEM) && defined(CONFIG_KVM_GENERIC_MMU_NOTIFIER)
+	if (memslot->file) {
+		fput(memslot->file);
+		memslot->file = NULL;
+	}
+#endif
+}
 
 static inline bool kvm_slot_can_be_private(const struct kvm_memory_slot *slot)
 {

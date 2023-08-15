@@ -926,6 +926,7 @@ static void kvm_mmu_notifier_release(struct mmu_notifier *mn,
 {
 	struct kvm *kvm = mmu_notifier_to_kvm(mn);
 	int idx;
+	int i;
 
 	/*
 	 * Avoide race with kvm_gmem_release().
@@ -936,6 +937,18 @@ static void kvm_mmu_notifier_release(struct mmu_notifier *mn,
 	idx = srcu_read_lock(&kvm->srcu);
 	kvm_flush_shadow_all(kvm);
 	srcu_read_unlock(&kvm->srcu, idx);
+
+	/* Break circular reference count: kvm->gmem, gmem->kvm. */
+	for (i = 0; i < kvm_arch_nr_memslot_as_ids(kvm); i++) {
+		struct kvm_memslots *slots = __kvm_memslots(kvm, i);
+		struct kvm_memory_slot *memslot;
+		struct hlist_node *tmp;
+		int bkt;
+
+		hash_for_each_safe(slots->id_hash, bkt, tmp, memslot, id_node[slots->node_idx])
+			kvm_memslot_gmem_fput(memslot);
+	}
+
 	mutex_unlock(&kvm->slots_lock);
 }
 
@@ -1008,8 +1021,10 @@ static void kvm_destroy_dirty_bitmap(struct kvm_memory_slot *memslot)
 /* This does not remove the slot from struct kvm_memslots data structures */
 static void kvm_free_memslot(struct kvm *kvm, struct kvm_memory_slot *slot)
 {
-	if (slot->flags & KVM_MEM_PRIVATE)
+	if (slot->flags & KVM_MEM_PRIVATE) {
 		kvm_gmem_unbind(slot);
+		kvm_memslot_gmem_fput(slot);
+	}
 
 	kvm_destroy_dirty_bitmap(slot);
 
@@ -1734,6 +1749,8 @@ static void kvm_commit_memory_region(struct kvm *kvm,
 		if (old->dirty_bitmap && !new->dirty_bitmap)
 			kvm_destroy_dirty_bitmap(old);
 
+		kvm_memslot_gmem_fput(old);
+
 		/*
 		 * The final quirk.  Free the detached, old slot, but only its
 		 * memory, not any metadata.  Metadata, including arch specific
@@ -2088,6 +2105,9 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	new->flags = mem->flags;
 	new->userspace_addr = mem->userspace_addr;
 	if (mem->flags & KVM_MEM_PRIVATE) {
+		r = kvm_memslot_gmem_fget(new, mem->gmem_fd);
+		if (r)
+			goto out;
 		r = kvm_gmem_bind(kvm, new, mem->gmem_fd, mem->gmem_offset);
 		if (r)
 			goto out;
@@ -2103,6 +2123,7 @@ out_restricted:
 	if (mem->flags & KVM_MEM_PRIVATE)
 		kvm_gmem_unbind(new);
 out:
+	kvm_memslot_gmem_fput(new);
 	kfree(new);
 	return r;
 }

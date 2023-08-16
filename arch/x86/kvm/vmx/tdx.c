@@ -2500,7 +2500,7 @@ static int tdx_get_capabilities(struct kvm_tdx_cmd *cmd)
 	struct kvm_tdx_capabilities __user *user_caps;
 	const struct tdsysinfo_struct *tdsysinfo;
 	struct kvm_tdx_capabilities *caps = NULL;
-	int ret;
+	int ret = 0;
 
 	BUILD_BUG_ON(sizeof(struct kvm_tdx_cpuid_config) !=
 		     sizeof(struct tdx_cpuid_config));

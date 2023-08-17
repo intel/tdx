@@ -1776,6 +1776,8 @@ static int tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn,
 static void tdx_track(struct kvm *kvm)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct kvm_vcpu *vcpu;
+	unsigned long i;
 	u64 err;
 
 	KVM_BUG_ON(!is_hkid_assigned(kvm_tdx), kvm);
@@ -1788,14 +1790,15 @@ static void tdx_track(struct kvm *kvm)
 	 * the counter.  The counter is used instead of bool because multiple
 	 * TDH_MEM_TRACK() can be issued concurrently by multiple vcpus.
 	 */
+	atomic_inc(&kvm_tdx->doing_track);
 	atomic_inc(&kvm_tdx->tdh_mem_track);
 	smp_store_release(&kvm_tdx->has_range_blocked, false);
 
 	/*
-	 * KVM_REQ_TLB_FLUSH waits for the empty IPI handler, ack_flush(), with
-	 * KVM_REQUEST_WAIT.
+	 * Don't wait for other vcpus with the empty IPI handler.  Instead,
+	 * Synchronize after tdh_mem_track() to reduce synchronization time.
 	 */
-	kvm_make_all_cpus_request(kvm, KVM_REQ_TLB_FLUSH);
+	kvm_make_all_cpus_request(kvm, KVM_REQ_TLB_FLUSH & ~KVM_REQUEST_WAIT);
 
 	do {
 		/*
@@ -1803,10 +1806,32 @@ static void tdx_track(struct kvm *kvm)
 		 * retry.
 		 */
 		err = tdh_mem_track(kvm_tdx->tdr_pa);
-	} while (unlikely((err & TDX_SEAMCALL_STATUS_MASK) == TDX_OPERAND_BUSY));
+	} while (unlikely(err == TDX_PREVIOUS_TLB_EPOCH_BUSY ||
+			  (err & TDX_SEAMCALL_STATUS_MASK) == TDX_OPERAND_BUSY));
 
 	/* Release remote vcpu waiting for TDH.MEM.TRACK in tdx_flush_tlb(). */
 	atomic_dec(&kvm_tdx->tdh_mem_track);
+
+	/*
+	 * Avoid TDX_TLB_TRACKING_NOT_DONE on the following Secure-EPT operation
+	 * by waiting here for all other vcpus to go through TDExit once or not
+	 * running TD guest.  The alternative is loop on
+	 * TDX_TLB_TRACKING_NOT_DONE with Secure-EPT operation.  But if we hit
+	 * problem with tlb shoot down, debug will be very difficult.  So we
+	 * don't choose the loop option.
+	 */
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		int mode;
+
+		/* If vcpu == current vcpu, vcpu->mode == OUTSIDE_GUEST_MODE */
+		mode = smp_load_acquire(&vcpu->mode);
+		while ((mode == IN_GUEST_MODE || mode == EXITING_GUEST_MODE) &&
+		       kvm_test_request(KVM_REQ_TLB_FLUSH, vcpu)) {
+			cpu_relax();
+			mode = smp_load_acquire(&vcpu->mode);
+		}
+	}
+	atomic_dec(&kvm_tdx->doing_track);
 
 	if (KVM_BUG_ON(err, kvm))
 		pr_tdx_error(TDH_MEM_TRACK, err, NULL);
@@ -1924,7 +1949,7 @@ static int tdx_sept_remove_private_spte(struct kvm *kvm, gfn_t gfn,
 	 */
 	if (is_hkid_assigned(kvm_tdx) &&
 	    (smp_load_acquire(&kvm_tdx->has_range_blocked) ||
-	     atomic_read(&kvm_tdx->tdh_mem_track)))
+	     atomic_read(&kvm_tdx->doing_track)))
 		tdx_track(kvm);
 
 	return tdx_sept_drop_private_spte(kvm, gfn, level, pfn);

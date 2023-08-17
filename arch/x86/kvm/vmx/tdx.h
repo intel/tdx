@@ -38,6 +38,7 @@ struct kvm_tdx {
 
 	/* TDP MMU */
 	bool has_range_blocked;
+	atomic_t doing_track;
 
 	/*
 	 * For KVM_SET_CPUID to check consistency. Remember the one passed to

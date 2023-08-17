@@ -1156,18 +1156,19 @@ static int tdp_mmu_split_huge_page(struct kvm *kvm, struct tdp_iter *iter,
  */
 static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 			      gfn_t start, gfn_t end, bool can_yield, bool flush,
-			      bool zap_private)
+			      enum tdp_zap_private zap_private)
 {
 	bool is_private = is_private_sp(root);
 	struct kvm_mmu_page *split_sp = NULL;
 	struct tdp_iter iter;
+	u64 new_spte;
 
 	end = min(end, tdp_mmu_max_gfn_exclusive());
 
 	lockdep_assert_held_write(&kvm->mmu_lock);
-	WARN_ON_ONCE(zap_private && !is_private);
+	WARN_ON_ONCE(zap_private != ZAP_PRIVATE_SKIP && !is_private);
 
-	if (!zap_private && is_private)
+	if (zap_private == ZAP_PRIVATE_SKIP && is_private)
 		return flush;
 
 	/*
@@ -1241,12 +1242,16 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 			}
 		}
 
-		if (!zap_private && is_private_zapped_spte(iter.old_spte))
+		if ((zap_private == ZAP_PRIVATE_SKIP ||
+		     zap_private == ZAP_PRIVATE_BLOCK) &&
+		    is_private_zapped_spte(iter.old_spte))
 			continue;
 
-		tdp_mmu_iter_set_spte(kvm, &iter,
-				      zap_private ? SHADOW_NONPRESENT_VALUE :
-				      private_zapped_spte(kvm, &iter));
+		if (zap_private == ZAP_PRIVATE_REMOVE)
+			new_spte = SHADOW_NONPRESENT_VALUE;
+		else
+			new_spte = private_zapped_spte(kvm, &iter);
+		tdp_mmu_iter_set_spte(kvm, &iter, new_spte);
 		flush = true;
 	}
 
@@ -1277,13 +1282,14 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
  * more SPTEs were zapped since the MMU lock was last acquired.
  */
 bool kvm_tdp_mmu_zap_leafs(struct kvm *kvm, int as_id, gfn_t start, gfn_t end,
-			   bool can_yield, bool flush, bool zap_private)
+			   bool can_yield, bool flush, enum tdp_zap_private zap_private)
 {
 	struct kvm_mmu_page *root;
 
-	for_each_tdp_mmu_root_yield_safe(kvm, root, as_id)
+	for_each_tdp_mmu_root_yield_safe(kvm, root, as_id) {
 		flush = tdp_mmu_zap_leafs(kvm, root, start, end, can_yield, flush,
-					  zap_private && is_private_sp(root));
+					  is_private_sp(root) ? zap_private : ZAP_PRIVATE_SKIP);
+	}
 
 	return flush;
 }
@@ -1793,15 +1799,28 @@ retry:
 bool kvm_tdp_mmu_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range,
 				 bool flush)
 {
-	bool zap_private = false;
+	enum tdp_zap_private zap_private = ZAP_PRIVATE_SKIP;
 
 	if (kvm_gfn_shared_mask(kvm)) {
-		if (!range->only_private && !range->only_shared)
-			/* attributes change */
-			zap_private = !(range->arg.attributes &
-					KVM_MEMORY_ATTRIBUTE_PRIVATE);
-		else
-			zap_private = range->only_private;
+		if (!range->only_private && !range->only_shared) {
+			/* memory attributes change */
+			if (range->arg.attributes & KVM_MEMORY_ATTRIBUTE_PRIVATE)
+				zap_private = ZAP_PRIVATE_SKIP;
+			else
+				zap_private = ZAP_PRIVATE_BLOCK;
+		} else if (range->only_private && !range->only_shared) {
+			/* gmem invalidation */
+			zap_private = ZAP_PRIVATE_REMOVE;
+		} else if (range->only_private && range->only_shared) {
+			/* memory slot deletion or movement */
+			zap_private = ZAP_PRIVATE_REMOVE;
+		} else {
+			/*
+			 * !range->only_private && range->only_shared
+			 * mmu notifier
+			 */
+			zap_private = ZAP_PRIVATE_SKIP;
+		}
 	}
 
 	return kvm_tdp_mmu_zap_leafs(kvm, range->slot->as_id, range->start,

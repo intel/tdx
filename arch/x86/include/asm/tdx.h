@@ -24,6 +24,11 @@
 #define TDX_SEAMCALL_GP			(TDX_SW_ERROR | X86_TRAP_GP)
 #define TDX_SEAMCALL_UD			(TDX_SW_ERROR | X86_TRAP_UD)
 
+/*
+ * TDX module SEAMCALL leaf function error codes
+ */
+#define TDX_RND_NO_ENTROPY	0x8000020300000000ULL
+
 #ifndef __ASSEMBLY__
 
 /*
@@ -81,6 +86,28 @@ static inline long tdx_kvm_hypercall(unsigned int nr, unsigned long p1,
 u64 __seamcall(u64 fn, struct tdx_module_args *args);
 u64 __seamcall_ret(u64 fn, struct tdx_module_args *args);
 u64 __seamcall_saved_ret(u64 fn, struct tdx_module_args *args);
+
+#include <asm/archrandom.h>
+
+#define SEAMCALL_NO_ENTROPY_RETRY(__seamcall_func, __fn, __args)	\
+({									\
+	int ___retry = RDRAND_RETRY_LOOPS;				\
+	u64 ___sret;							\
+									\
+	do {								\
+		___sret = __seamcall_func((__fn), (__args));		\
+	} while (___sret == TDX_RND_NO_ENTROPY && --___retry);		\
+	___sret;							\
+})
+
+#define seamcall(__fn, __args)						\
+	SEAMCALL_NO_ENTROPY_RETRY(__seamcall, (__fn), (__args))
+
+#define seamcall_ret(__fn, __args)					\
+	SEAMCALL_NO_ENTROPY_RETRY(__seamcall_ret, (__fn), (__args))
+
+#define seamcall_saved_ret(__fn, __args)				\
+	SEAMCALL_NO_ENTROPY_RETRY(__seamcall_saved_ret, (__fn), (__args))
 
 bool platform_tdx_enabled(void);
 #else

@@ -455,4 +455,14 @@ static inline u64 tdh_export_unblockw(hpa_t tdr,
 			    out);
 }
 
+static inline u64 tdh_export_state_immutable(hpa_t tdr,
+					     u64 mbmd_info,
+					     u64 page_list_info,
+					     u64 mig_stream_info,
+					     struct tdx_module_args *out)
+{
+	return tdx_seamcall(TDH_EXPORT_STATE_IMMUTABLE, tdr, 0, mbmd_info,
+			    page_list_info, mig_stream_info, 0, out);
+}
+
 #endif /* __KVM_X86_TDX_OPS_H */

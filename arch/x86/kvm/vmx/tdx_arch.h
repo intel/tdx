@@ -284,4 +284,7 @@ union tdx_md_field_id {
 /* FIXME: Once the bit is determined, replace this with the correct value. */
 #define TDX_MD_FID_GLBOAL_FEATURES0_NO_BRP_MOD	BIT_ULL(63)
 
+/* The field id used to access the metadata (defined in the TDX ABI spec) */
+#define TDX_MD_FID_SERVTD_MAX_SERVTDS		0xA100000100000000
+
 #endif /* __KVM_X86_TDX_ARCH_H */

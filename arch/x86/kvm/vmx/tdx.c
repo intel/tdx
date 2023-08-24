@@ -62,6 +62,7 @@ struct tdx_info {
 	u64 no_rbp_mod;
 	u8 nr_tdcs_pages;
 	u8 nr_tdvpx_pages;
+	u32 max_servtds;
 };
 
 /* Info about the TDX module. */
@@ -4289,6 +4290,18 @@ static int __init tdx_module_setup(void)
 
 	pr_info("nr_tdcs %d nr_tdvpx %d\n",
 		tdx_info.nr_tdcs_pages, tdx_info.nr_tdvpx_pages);
+
+	err = tdh_sys_rd(TDX_MD_FID_SERVTD_MAX_SERVTDS, &out);
+	/*
+	 * If error happens, it isn't critical and no need to fail the entire
+	 * tdx setup. Only servtd binding (which is optional) won't be allowed
+	 * later, as we keep max_servtds being 0.
+	 */
+	if (err == TDX_SUCCESS)
+		tdx_info.max_servtds = out.r8;
+	pr_info("tdx: max servtds supported per user TD is %d\n",
+		tdx_info.max_servtds);
+
 	return 0;
 }
 

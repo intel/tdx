@@ -1101,7 +1101,7 @@ static int tdx_mig_export_state_td(struct kvm_tdx *kvm_tdx,
 				   uint64_t __user *data)
 {
 	union tdx_mig_stream_info stream_info = {.val = 0};
-	struct tdx_module_output out;
+	struct tdx_module_args out;
 	uint64_t err;
 
 	do {

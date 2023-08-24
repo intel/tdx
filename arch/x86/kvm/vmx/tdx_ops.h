@@ -588,4 +588,9 @@ static inline u64 tdh_export_restore(hpa_t tdr,
 			    out);
 }
 
+static inline u64 tdh_import_end(hpa_t tdr)
+{
+	return tdx_seamcall(TDH_IMPORT_END, tdr, 0, 0, 0, 0, 0, NULL);
+}
+
 #endif /* __KVM_X86_TDX_OPS_H */

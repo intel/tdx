@@ -134,6 +134,7 @@ struct tdx_mig_state {
 	 * reclaimed from TDX when TD is torn down.
 	 */
 	hpa_t *migsc_paddrs;
+	struct tdx_mig_gpa_list blockw_gpa_list;
 };
 
 struct tdx_mig_capabilities {
@@ -144,6 +145,8 @@ struct tdx_mig_capabilities {
 static struct tdx_mig_capabilities tdx_mig_caps;
 
 static void tdx_reclaim_td_page(unsigned long td_page_pa);
+
+static bool tdx_is_migration_source(struct kvm_tdx *kvm_tdx);
 
 static int tdx_mig_capabilities_setup(void)
 {
@@ -562,6 +565,24 @@ static int tdx_mig_do_stream_create(struct kvm_tdx *kvm_tdx,
 	return 0;
 }
 
+static int tdx_mig_session_init(struct kvm_tdx *kvm_tdx)
+{
+	struct tdx_mig_state *mig_state = kvm_tdx->mig_state;
+	struct tdx_mig_gpa_list *blockw_gpa_list = &mig_state->blockw_gpa_list;
+	int ret = 0;
+
+	if (tdx_is_migration_source(kvm_tdx))
+		ret = tdx_mig_stream_gpa_list_setup(blockw_gpa_list);
+
+	return ret;
+}
+
+static void tdx_mig_session_exit(struct tdx_mig_state *mig_state)
+{
+	if (mig_state->blockw_gpa_list.entries)
+		free_page((unsigned long)mig_state->blockw_gpa_list.entries);
+}
+
 static int tdx_mig_stream_create(struct kvm_device *dev, u32 type)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(dev->kvm);
@@ -576,15 +597,24 @@ static int tdx_mig_stream_create(struct kvm_device *dev, u32 type)
 	dev->private = stream;
 	stream->idx = atomic_inc_return(&mig_state->streams_created) - 1;
 
-	ret = tdx_mig_do_stream_create(kvm_tdx, stream,
-				       &mig_state->migsc_paddrs[stream->idx]);
-	if (ret) {
-		atomic_dec(&mig_state->streams_created);
-		kfree(stream);
-		return ret;
+	if (!stream->idx) {
+		ret = tdx_mig_session_init(kvm_tdx);
+		if (ret)
+			goto err_mig_session_init;
 	}
 
+	ret = tdx_mig_do_stream_create(kvm_tdx, stream,
+				       &mig_state->migsc_paddrs[stream->idx]);
+	if (ret)
+		goto err_stream_create;
+
 	return 0;
+err_stream_create:
+	tdx_mig_session_exit(mig_state);
+err_mig_session_init:
+	atomic_dec(&mig_state->streams_created);
+	kfree(stream);
+	return ret;
 }
 
 static void tdx_mig_stream_release(struct kvm_device *dev)
@@ -607,6 +637,9 @@ static void tdx_mig_stream_release(struct kvm_device *dev)
 		free_page((unsigned long)stream->mac_list[1].entries);
 
 	kfree(stream);
+
+	if (!atomic_read(&mig_state->streams_created))
+		tdx_mig_session_exit(mig_state);
 }
 
 static int tdx_mig_state_create(struct kvm_tdx *kvm_tdx)

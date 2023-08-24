@@ -4690,6 +4690,14 @@ static void tdx_notify_servtd(struct kvm_tdx *tdx)
 	}
 }
 
+static bool tdx_is_migration_source(struct kvm_tdx *kvm_tdx)
+{
+	struct tdx_binding_slot *slot =
+			&kvm_tdx->binding_slots[KVM_TDX_SERVTD_TYPE_MIGTD];
+
+	return slot->migtd_data.is_src;
+}
+
 static int tdx_set_migration_info(struct kvm *kvm,
 				  struct kvm_tdx_cmd *cmd)
 {

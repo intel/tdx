@@ -19,8 +19,9 @@
 #include "tdx_arch.h"
 #include "x86.h"
 
-static inline u64 tdx_seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
-			       u64 r10, u64 r11, struct tdx_module_args *out)
+static inline u64 __tdx_seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
+			         u64 r10, u64 r11, u64 r12, u64 r13, u64 r14,
+				 struct tdx_module_args *out, bool need_saved)
 {
 	u64 ret, retries = 0;
 
@@ -34,8 +35,20 @@ static inline u64 tdx_seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
 				.r10 = r10,
 				.r11 = r11,
 			};
-			ret = __seamcall_ret(op, out);
+			if (need_saved) {
+				out->r12 = r12;
+				out->r13 = r13;
+				out->r14 = r14;
+				ret = __seamcall_saved_ret(op, out);
+			} else {
+				ret = __seamcall_ret(op, out);
+			}
 		} else {
+			/*
+			 * Currently, all the APIs that use non-volatile
+			 * registers are required to provide @out.
+			 */
+			WARN_ON_ONCE(need_saved);
 			struct tdx_module_args args = {
 				.rcx = rcx,
 				.rdx = rdx,
@@ -69,6 +82,21 @@ static inline u64 tdx_seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
 	} while (TDX_SEAMCALL_ERR_RECOVERABLE(ret));
 
 	return ret;
+}
+
+static inline u64 tdx_seamcall(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
+			       u64 r10, u64 r11, struct tdx_module_args *out)
+{
+	return __tdx_seamcall(op, rcx, rdx, r8, r9, r10, r11, 0, 0, 0, out,
+			      false);
+}
+
+static inline u64 tdx_seamcall_saved(u64 op, u64 rcx, u64 rdx, u64 r8, u64 r9,
+				     u64 r10, u64 r11, u64 r12, u64 r13, u64 r14,
+				     struct tdx_module_args *out)
+{
+	return __tdx_seamcall(op, rcx, rdx, r8, r9, r10, r11, r12, r13, r14,
+			      out, true);
 }
 
 #ifdef CONFIG_INTEL_TDX_HOST

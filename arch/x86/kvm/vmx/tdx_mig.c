@@ -162,6 +162,7 @@ struct tdx_mig_state {
 	/* Backward stream used on migration abort during post-copy */
 	struct tdx_mig_stream backward_stream;
 	hpa_t backward_migsc_paddr;
+	bool bugged;
 };
 
 struct tdx_mig_capabilities {
@@ -265,6 +266,7 @@ static void tdx_write_block_private_pages(struct kvm *kvm, gfn_t *gfns,
 						TDX_INTERRUPTED_RESUMABLE);
 
 		if (seamcall_masked_status(err) != TDX_SUCCESS) {
+			kvm_tdx->mig_state->bugged = true;
 			pr_err("%s failed, err=%llx, gfn=%lx\n",
 				__func__, err, (long)gpa_list->entries[0].gfn);
 			return;
@@ -290,10 +292,15 @@ static void tdx_write_unblock_private_page(struct kvm *kvm,
 		.gfn = gfn,
 		.rsvd2 = 0,
 	};
+	uint64_t err;
 
 	tdx_track(kvm);
 
-	tdh_export_unblockw(kvm_tdx->tdr_pa, ept_info.val, &out);
+	err = tdh_export_unblockw(kvm_tdx->tdr_pa, ept_info.val, &out);
+	if (err != TDX_SUCCESS) {
+		kvm_tdx->mig_state->bugged = true;
+		pr_err("%s failed, err=%llx, gfn=%llx\n", __func__, err, gfn);
+	}
 }
 
 static void tdx_mig_stream_get_tdx_mig_attr(struct tdx_mig_stream *stream,
@@ -734,11 +741,15 @@ static int64_t tdx_mig_stream_export_mem(struct kvm_tdx *kvm_tdx,
 					 struct tdx_mig_stream *stream,
 					 uint64_t __user *data)
 {
+	struct tdx_mig_state *mig_state = kvm_tdx->mig_state;
 	struct tdx_mig_gpa_list *gpa_list = &stream->gpa_list;
 	struct tdx_mig_buf_list *mem_buf_list = &stream->mem_buf_list;
 	union tdx_mig_stream_info stream_info = {.val = 0};
 	struct tdx_module_args out;
 	uint64_t npages, err;
+
+	if (mig_state->bugged)
+		return -EBADF;
 
 	if (copy_from_user(&npages, (void __user *)data, sizeof(uint64_t)))
 		return -EFAULT;

@@ -2,7 +2,19 @@
 #include <linux/anon_inodes.h>
 #include <linux/kvm_host.h>
 
+struct tdx_mig_stream {
+	uint16_t idx;
+};
+
 struct tdx_mig_state {
+	/* Number of streams created */
+	atomic_t streams_created;
+	/*
+	 * Array to store physical addresses of the migration stream context
+	 * pages that have been added to the TDX module. The pages can be
+	 * reclaimed from TDX when TD is torn down.
+	 */
+	hpa_t *migsc_paddrs;
 };
 
 struct tdx_mig_capabilities {
@@ -11,6 +23,8 @@ struct tdx_mig_capabilities {
 };
 
 static struct tdx_mig_capabilities tdx_mig_caps;
+
+static void tdx_reclaim_td_page(unsigned long td_page_pa);
 
 static int tdx_mig_capabilities_setup(void)
 {
@@ -78,23 +92,92 @@ static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 	return -ENXIO;
 }
 
+static int tdx_mig_do_stream_create(struct kvm_tdx *kvm_tdx,
+				    struct tdx_mig_stream *stream,
+				    hpa_t *migsc_addr)
+{
+	struct tdx_module_args out;
+	hpa_t migsc_va, migsc_pa;
+	uint64_t err;
+
+	/*
+	 * This migration stream has been created, e.g. the previous migration
+	 * session is aborted and the migration stream is retained during the
+	 * TD guest lifecycle (required by the TDX migration architecture for
+	 * later re-migration). No need to proceed to the creation in this
+	 * case.
+	 */
+	if (*migsc_addr)
+		return 0;
+
+	migsc_va = __get_free_page(GFP_KERNEL_ACCOUNT);
+	if (!migsc_va)
+		return -ENOMEM;
+	migsc_pa = __pa(migsc_va);
+
+	err = tdh_mig_stream_create(kvm_tdx->tdr_pa, migsc_pa);
+	if (WARN_ON_ONCE(err)) {
+		pr_tdx_error(TDH_MIG_STREAM_CREATE, err, &out);
+		free_page(migsc_va);
+		return -EIO;
+	}
+
+	*migsc_addr = migsc_pa;
+	return 0;
+}
+
 static int tdx_mig_stream_create(struct kvm_device *dev, u32 type)
 {
-	return -ENXIO;
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(dev->kvm);
+	struct tdx_mig_state *mig_state = kvm_tdx->mig_state;
+	struct tdx_mig_stream *stream;
+	int ret;
+
+	stream = kzalloc(sizeof(struct tdx_mig_stream), GFP_KERNEL_ACCOUNT);
+	if (!stream)
+		return -ENOMEM;
+
+	dev->private = stream;
+	stream->idx = atomic_inc_return(&mig_state->streams_created) - 1;
+
+	ret = tdx_mig_do_stream_create(kvm_tdx, stream,
+				       &mig_state->migsc_paddrs[stream->idx]);
+	if (ret) {
+		atomic_dec(&mig_state->streams_created);
+		kfree(stream);
+		return ret;
+	}
+
+	return 0;
 }
 
 static void tdx_mig_stream_release(struct kvm_device *dev)
 {
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(dev->kvm);
+	struct tdx_mig_state *mig_state = kvm_tdx->mig_state;
+	struct tdx_mig_stream *stream = dev->private;
+
+	atomic_dec(&mig_state->streams_created);
+	kfree(stream);
 }
 
 static int tdx_mig_state_create(struct kvm_tdx *kvm_tdx)
 {
 	struct tdx_mig_state *mig_state = kvm_tdx->mig_state;
+	hpa_t *migsc_paddrs;
 
 	mig_state = kzalloc(sizeof(struct tdx_mig_state), GFP_KERNEL_ACCOUNT);
 	if (!mig_state)
 		return -ENOMEM;
 
+	migsc_paddrs = kcalloc(tdx_mig_caps.max_migs, sizeof(hpa_t),
+			       GFP_KERNEL_ACCOUNT);
+	if (!migsc_paddrs) {
+		kfree(mig_state);
+		return -ENOMEM;
+	}
+
+	mig_state->migsc_paddrs = migsc_paddrs;
 	kvm_tdx->mig_state = mig_state;
 	return 0;
 }
@@ -102,9 +185,19 @@ static int tdx_mig_state_create(struct kvm_tdx *kvm_tdx)
 static void tdx_mig_state_destroy(struct kvm_tdx *kvm_tdx)
 {
 	struct tdx_mig_state *mig_state = kvm_tdx->mig_state;
+	uint32_t i;
 
 	if (!mig_state)
 		return;
+
+	/* All the streams should have been destroyed */
+	WARN_ON_ONCE(atomic_read(&mig_state->streams_created));
+	for (i = 0; i < tdx_mig_caps.max_migs; i++) {
+		if (!mig_state->migsc_paddrs[i])
+			break;
+
+		tdx_reclaim_td_page(mig_state->migsc_paddrs[i]);
+	}
 
 	kfree(mig_state);
 	kvm_tdx->mig_state = NULL;

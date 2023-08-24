@@ -665,4 +665,11 @@ struct kvm_rw_memory {
 	__u64 len;
 	__u64 ubuf;
 };
+
+enum kvm_tdx_servtd_type {
+	KVM_TDX_SERVTD_TYPE_MIGTD = 0,
+
+	KVM_TDX_SERVTD_TYPE_MAX,
+};
+
 #endif /* _ASM_X86_KVM_H */

@@ -412,4 +412,14 @@ static inline u64 tdh_sys_rd(u64 field, struct tdx_module_args *out)
 	return tdx_seamcall(TDH_SYS_RD, 0, field, 0, 0, 0, 0, out);
 }
 
+static inline u64 tdh_servtd_prebind(hpa_t target_tdr,
+				     hpa_t hash_addr,
+				     u64 slot_idx,
+				     u64 attr,
+				     enum kvm_tdx_servtd_type type)
+{
+	return tdx_seamcall(TDH_SERVTD_PREBIND, target_tdr,
+			    hash_addr, slot_idx, type, attr, 0, NULL);
+}
+
 #endif /* __KVM_X86_TDX_OPS_H */

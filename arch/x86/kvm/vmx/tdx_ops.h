@@ -433,4 +433,9 @@ static inline u64 tdh_servtd_bind(hpa_t servtd_tdr,
 				  slot_idx, type, attr, 0, 0, 0, 0, out);
 }
 
+static inline u64 tdh_mig_stream_create(hpa_t tdr, hpa_t migsc)
+{
+	return tdx_seamcall(TDH_MIG_STREAM_CREATE, migsc, tdr, 0, 0, 0, 0,
+			    NULL);
+}
 #endif /* __KVM_X86_TDX_OPS_H */

@@ -542,4 +542,14 @@ static inline u64 tdh_export_state_td(hpa_t tdr,
 			    buf_list_info, mig_stream_info, 0, out);
 }
 
+static inline u64 tdh_import_state_td(hpa_t tdr,
+				      u64 mbmd_info,
+				      u64 buf_list_info,
+				      u64 mig_stream_info,
+				      struct tdx_module_args *out)
+{
+	return tdx_seamcall(TDH_IMPORT_STATE_TD, tdr, 0, mbmd_info,
+			    buf_list_info, mig_stream_info, 0, out);
+}
+
 #endif /* __KVM_X86_TDX_OPS_H */

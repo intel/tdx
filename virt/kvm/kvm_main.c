@@ -2118,9 +2118,6 @@ int __kvm_set_memory_region(struct kvm *kvm,
 		if ((kvm->nr_memslot_pages + npages) < kvm->nr_memslot_pages)
 			return -EINVAL;
 	} else { /* Modify an existing slot. */
-		/* Private memslots are immutable, they can only be deleted. */
-		if (mem->flags & KVM_MEM_PRIVATE)
-			return -EINVAL;
 		if ((mem->userspace_addr != old->userspace_addr) ||
 		    (npages != old->npages) ||
 		    ((mem->flags ^ old->flags) & KVM_MEM_READONLY))
@@ -2150,6 +2147,11 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	new->flags = mem->flags;
 	new->userspace_addr = mem->userspace_addr;
 	if (mem->flags & KVM_MEM_PRIVATE) {
+		if (change == KVM_MR_FLAGS_ONLY) {
+			kvm_gmem_unbind(old);
+			kvm_memslot_gmem_fput(old);
+		}
+
 		r = kvm_memslot_gmem_fget(new, mem->gmem_fd);
 		if (r)
 			goto out;

@@ -514,4 +514,12 @@ static inline u64 tdh_export_track(hpa_t tdr,
 			    mig_stream_info, 0, NULL);
 }
 
+static inline u64 tdh_import_track(hpa_t tdr,
+				    u64 mbmd_info,
+				    u64 mig_stream_info)
+{
+	return tdx_seamcall(TDH_IMPORT_TRACK, tdr, 0, mbmd_info, 0,
+			    mig_stream_info, 0, NULL);
+}
+
 #endif /* __KVM_X86_TDX_OPS_H */

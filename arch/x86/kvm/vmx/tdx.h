@@ -25,8 +25,13 @@ struct tdx_binding_slot {
 	uint64_t handle;
 	/* UUID of the user TD */
 	uint8_t  uuid[32];
+	/* Idx to servtd's usertd_binding_slots array */
+	uint16_t req_id;
+	/* The servtd that the slot is bound to */
+	struct kvm_tdx *servtd_tdx;
 };
 
+#define SERVTD_SLOTS_MAX 32
 struct kvm_tdx {
 	struct kvm kvm;
 
@@ -79,6 +84,30 @@ struct kvm_tdx {
 	 * held by TDCS (see TDX module v1.5 Base Architecture Spec).
 	 */
 	struct tdx_binding_slot binding_slots[KVM_TDX_SERVTD_TYPE_MAX];
+
+	/*
+	 * Used when being a servtd. A servtd can be bound to multiple user
+	 * TDs. Each entry in the array is a pointer to the user TD's binding
+	 * slot.
+	 */
+	struct tdx_binding_slot *usertd_binding_slots[SERVTD_SLOTS_MAX];
+
+	/*
+	 * The lock is on the servtd side, so when a user TD needs to lock,
+	 * it should lock the one from the service TD that it has bound to,
+	 * e.g. tdx_binding_slot->servtd_tdx->binding_slot_lock.
+	 *
+	 * The lock is used for two synchronization puporses:
+	 * #1 insertion and removal of a binding slot to the
+	 *    usertd_binding_slots array by different user TDs;
+	 * #2 read and write to the fields of a binding slot.
+	 *
+	 * In theory, #1 and #2 are two independent synchronization usages
+	 * and can use two separate locks. But those operations are neither
+	 * frequent nor in performance critical path, so simply use one lock
+	 * for the two purposes.
+	 */
+	spinlock_t binding_slot_lock;
 };
 
 union tdx_exit_reason {

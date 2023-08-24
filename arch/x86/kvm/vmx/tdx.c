@@ -392,13 +392,9 @@ static int __tdx_reclaim_page(hpa_t pa, enum pg_level level,
 	u64 err;
 
 	err = tdh_phymem_page_reclaim(pa, &out);
-	if (WARN_ON_ONCE(err)) {
-		pr_err("%s:%d:%s pa 0x%llx level %d hkid 0x%x do_wb %d\n",
-		       __FILE__, __LINE__, __func__,
-		       pa, level, hkid, do_wb);
-		pr_tdx_error(TDH_PHYMEM_PAGE_RECLAIM, err, &out);
+	if (err & TDX_SEAMCALL_STATUS_MASK)
 		return -EIO;
-	}
+
 	/* out.r8 == tdx sept page level */
 	WARN_ON_ONCE(out.r8 != pg_level_to_tdx_sept_level(level));
 
@@ -2534,15 +2530,13 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		 * was already flushed. We don't have to flush again.
 		 */
 		err = __tdx_reclaim_page(hpa, level, false, 0);
-		if (KVM_BUG_ON(err, kvm)) {
-			pr_err("%s:%d:%s gfn 0x%llx level 0x%x pfn 0x%llx\n",
-			       __FILE__, __LINE__, __func__, gfn, level, pfn);
-			return -EIO;
+		if (!err) {
+			tdx_set_page_present_level(hpa, level);
+			tdx_unpin(kvm, gfn, pfn, level);
+			tdx_unaccount_td_pages(kvm, level);
+			trace_kvm_tdx_page_remove(kvm_tdx->tdr_pa, gfn, pfn,
+						  level);
 		}
-		tdx_set_page_present_level(hpa, level);
-		tdx_unpin(kvm, gfn, pfn, level);
-		tdx_unaccount_td_pages(kvm, level);
-		trace_kvm_tdx_page_remove(kvm_tdx->tdr_pa, gfn, pfn, level);
 		return 0;
 	}
 

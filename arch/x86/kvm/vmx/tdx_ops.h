@@ -580,4 +580,12 @@ static inline u64 tdh_export_abort(hpa_t tdr,
 			    0, mig_stream_info, 0, NULL);
 }
 
+static inline u64 tdh_export_restore(hpa_t tdr,
+				     u64 gpa_list_info,
+				     struct tdx_module_args *out)
+{
+	return tdx_seamcall(TDH_EXPORT_RESTORE, gpa_list_info, tdr, 0, 0, 0, 0,
+			    out);
+}
+
 #endif /* __KVM_X86_TDX_OPS_H */

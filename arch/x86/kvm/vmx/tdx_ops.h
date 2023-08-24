@@ -490,4 +490,20 @@ static inline u64 tdh_export_mem(hpa_t tdr,
 				  mac_list0_info, mac_list1_info, 0, 0, out);
 }
 
+static inline u64 tdh_import_mem(hpa_t tdr,
+				 u64 mbmd_info,
+				 u64 gpa_list_info,
+				 u64 buf_list_info,
+				 u64 mac_list0_info,
+				 u64 mac_list1_info,
+				 u64 td_page_list_info,
+				 u64 mig_stream_info,
+				 struct tdx_module_args *out)
+{
+	return tdx_seamcall_saved(TDH_IMPORT_MEM, gpa_list_info, tdr,
+				  mbmd_info, buf_list_info, mig_stream_info,
+				  mac_list0_info, mac_list1_info,
+				  td_page_list_info, 0, out);
+}
+
 #endif /* __KVM_X86_TDX_OPS_H */

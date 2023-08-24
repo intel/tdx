@@ -71,6 +71,7 @@ struct kvm_tdx {
 
 	hpa_t source_pa;
 
+	bool td_initialized;
 	bool finalized;
 	atomic_t tdh_mem_track;
 

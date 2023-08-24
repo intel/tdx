@@ -582,6 +582,13 @@ enum kvm_tdx_cmd_id {
 	KVM_TDX_CMD_NR_MAX,
 };
 
+/*
+ * Userspace can request to finish the  TD initialization at a later stage,
+ * e.g. after the TD and vCPU states are improted for the destination TD in
+ * the live migration case.
+ */
+#define KVM_TDX_INIT_VM_F_POST_INIT	1
+
 struct kvm_tdx_cmd {
 	/* enum kvm_tdx_cmd_id */
 	__u32 id;

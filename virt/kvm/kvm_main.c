@@ -1642,10 +1642,6 @@ static int check_memory_region_flags(struct kvm *kvm,
 	if (kvm_arch_has_private_mem(kvm))
 		valid_flags |= KVM_MEM_PRIVATE;
 
-	/* Dirty logging private memory is not currently supported. */
-	if (mem->flags & KVM_MEM_PRIVATE)
-		valid_flags &= ~KVM_MEM_LOG_DIRTY_PAGES;
-
 #ifdef __KVM_HAVE_READONLY_MEM
 	if (!kvm->readonly_mem_unsupported)
 		valid_flags |= KVM_MEM_READONLY;

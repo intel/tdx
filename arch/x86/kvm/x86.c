@@ -13869,7 +13869,7 @@ EXPORT_SYMBOL_GPL(kvm_get_xcr);
 
 bool kvm_arch_dirty_log_supported(struct kvm *kvm)
 {
-	return kvm->arch.vm_type != KVM_X86_TDX_VM;
+	return true;
 }
 
 /* vCPU mutex subclasses.  */

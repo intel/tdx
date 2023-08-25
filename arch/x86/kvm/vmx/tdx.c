@@ -107,6 +107,7 @@ struct tdvmcall_service {
 
 enum tdvmcall_service_id {
 	TDVMCALL_SERVICE_ID_QUERY = 0,
+	TDVMCALL_SERVICE_ID_MIGTD = 1,
 
 	TDVMCALL_SERVICE_ID_MAX,
 };
@@ -115,10 +116,14 @@ static guid_t tdvmcall_service_ids[TDVMCALL_SERVICE_ID_MAX] __read_mostly = {
 	[TDVMCALL_SERVICE_ID_QUERY]	= GUID_INIT(0xfb6fc5e1, 0x3378, 0x4acb,
 						    0x89, 0x64, 0xfa, 0x5e,
 						    0xe4, 0x3b, 0x9c, 0x8a),
+	[TDVMCALL_SERVICE_ID_MIGTD]	= GUID_INIT(0xe60e6330, 0x1e09, 0x4387,
+						    0xa4, 0x44, 0x8f, 0x32,
+						    0xb8, 0xd6, 0x11, 0xe5),
 };
 
 enum tdvmcall_service_status {
 	TDVMCALL_SERVICE_S_RETURNED = 0x0,
+	TDVMCALL_SERVICE_S_INVAL = 0x7,
 
 	TDVMCALL_SERVICE_S_UNSUPP = 0xFFFFFFFE,
 };
@@ -133,6 +138,65 @@ struct tdvmcall_service_query {
 	uint8_t status;
 	uint8_t rsvd;
 	guid_t  guid;
+};
+
+/* GUID extension HOB defined in the PI spec */
+struct hob_generic_hdr {
+#define HOB_TYPE_GUID_EXTENSION	0x0004
+	uint16_t type;
+	/* Length of the payload */
+	uint16_t length;
+	uint32_t rsvd;
+};
+
+struct hob_guid_type_hdr {
+	struct hob_generic_hdr		generic_hdr;
+	guid_t				guid;
+};
+
+struct migtd_basic_info {
+	struct hob_guid_type_hdr	hob_hdr;
+	uint64_t			req_id;
+	bool				src;
+	uint32_t			cpu_version;
+	uint8_t				usertd_uuid[32];
+	uint64_t			binding_handle;
+	uint64_t			policy_id;
+	uint64_t			comm_id;
+};
+
+struct migtd_socket_info {
+	struct hob_guid_type_hdr	hob_hdr;
+	uint64_t			comm_id;
+	uint64_t			migtd_cid;
+	uint32_t			channel_port;
+	uint32_t			quote_service_port;
+};
+
+struct migtd_policy_info {
+	struct hob_guid_type_hdr	hob_hdr;
+	uint64_t			policy_id;
+	uint32_t			policy_size;
+	uint8_t				pad[4];
+	uint8_t				policy_data[0];
+};
+
+struct migtd_all_info {
+	struct migtd_basic_info		basic;
+	struct migtd_socket_info	socket;
+	struct migtd_policy_info	policy;
+};
+
+struct tdvmcall_service_migtd {
+#define TDVMCALL_SERVICE_MIGTD_WAIT_VERSION	0
+	uint8_t version;
+#define TDVMCALL_SERVICE_MIGTD_CMD_WAIT		1
+	uint8_t cmd;
+#define TDVMCALL_SERVICE_MIGTD_OP_NOOP		0
+#define TDVMCALL_SERVICE_MIGTD_OP_START_MIG	1
+	uint8_t operation;
+	uint8_t status;
+	uint8_t data[0];
 };
 
 static inline void
@@ -1868,9 +1932,155 @@ static void tdx_handle_service_query(struct tdvmcall_service *cmd_hdr,
 	resp_hdr->status = TDVMCALL_SERVICE_S_RETURNED;
 }
 
+static int migtd_basic_info_setup(struct migtd_basic_info *basic,
+				  struct tdx_binding_slot *slot,
+				  uint64_t req_id)
+{
+	struct hob_guid_type_hdr *hdr = &basic->hob_hdr;
+
+	hdr->generic_hdr.type = HOB_TYPE_GUID_EXTENSION;
+	hdr->generic_hdr.length = sizeof(struct migtd_basic_info);
+	hdr->guid = GUID_INIT(0x42b5e398, 0xa199, 0x4d30, 0xbe, 0xfc, 0xc7,
+			      0x5a, 0xc3, 0xda, 0x5d, 0x7c);
+	basic->req_id = req_id;
+	basic->src = slot->migtd_data.is_src;
+	basic->binding_handle = slot->handle;
+	basic->policy_id = 0; // unused by MigTD currently
+	basic->comm_id = 0;
+	basic->cpu_version = cpuid_eax(0x1);
+	memcpy(basic->usertd_uuid, (uint8_t *)slot->uuid, 32);
+
+	return hdr->generic_hdr.length;
+}
+
+static int migtd_socket_info_setup(struct migtd_socket_info *socket,
+				   struct tdx_binding_slot *slot)
+{
+	struct hob_guid_type_hdr *hdr = &socket->hob_hdr;
+
+	hdr->generic_hdr.type = HOB_TYPE_GUID_EXTENSION;
+	hdr->generic_hdr.length = sizeof(struct migtd_socket_info);
+	hdr->guid = GUID_INIT(0x7a103b9d, 0x552b, 0x485f, 0xbb, 0x4c, 0x2f,
+			      0x3d, 0x2e, 0x8b, 0x1e, 0xe);
+	socket->comm_id = 0;
+	socket->quote_service_port = 0; // unused by MigTD currently
+	socket->migtd_cid = 2; // i.e. VMADDR_CID_HOST
+	socket->channel_port = slot->migtd_data.vsock_port;
+
+	return hdr->generic_hdr.length;
+}
+
+static int migtd_policy_info_setup(struct migtd_policy_info *policy,
+				   struct tdx_binding_slot *slot)
+{
+	struct hob_guid_type_hdr *hdr = &policy->hob_hdr;
+
+	hdr->generic_hdr.type = HOB_TYPE_GUID_EXTENSION;
+	hdr->generic_hdr.length = sizeof(struct migtd_policy_info);
+	hdr->guid = GUID_INIT(0xd64f771a, 0xf0c9, 0x4d33, 0x99, 0x8b, 0xe,
+			      0x3d, 0x8b, 0x94, 0xa, 0x61);
+	policy->policy_id = slot->migtd_data.vsock_port; // unused, testing purpose
+	policy->policy_size = 0;
+
+	return hdr->generic_hdr.length;
+}
+
+static int migtd_start_migration(struct tdvmcall_service_migtd *resp_migtd,
+				 struct tdx_binding_slot *slot,
+				 uint64_t req_id)
+{
+	struct migtd_all_info *info =
+		(struct migtd_all_info *)resp_migtd->data;
+	int len = 0;
+
+	/* Ask MigTD to start migration setup */
+	len += migtd_basic_info_setup(&info->basic, slot, req_id);
+	len += migtd_socket_info_setup(&info->socket, slot);
+	len += migtd_policy_info_setup(&info->policy, slot);
+
+	resp_migtd->operation = TDVMCALL_SERVICE_MIGTD_OP_START_MIG;
+
+	return len;
+}
+
+static bool tdx_binding_slot_premig_wait(struct tdx_binding_slot *slot)
+{
+	if (slot->state == TDX_BINDING_SLOT_STATE_PREMIG_WAIT) {
+		slot->state = TDX_BINDING_SLOT_STATE_PREMIG_PROGRESS;
+		return true;
+	}
+
+	return false;
+}
+
+static int migtd_wait_for_request(struct kvm_tdx *tdx,
+				  struct tdvmcall_service_migtd *resp_migtd)
+{
+	struct tdx_binding_slot *slot;
+	int i, len = sizeof(struct tdvmcall_service_migtd);
+
+	spin_lock(&tdx->binding_slot_lock);
+	for (i = 0; i < SERVTD_SLOTS_MAX; i++) {
+		slot = tdx->usertd_binding_slots[i];
+		if (slot && tdx_binding_slot_premig_wait(slot))
+			break;
+	}
+	spin_unlock(&tdx->binding_slot_lock);
+
+	/* No one requested to start migration */
+	if (i == SERVTD_SLOTS_MAX) {
+		resp_migtd->operation = TDVMCALL_SERVICE_MIGTD_OP_NOOP;
+		return len;
+	}
+
+	len += migtd_start_migration(resp_migtd, slot, i);
+
+	return len;
+}
+
+/* Return true if the response isn't ready and need to block the vcpu */
+static bool tdx_handle_service_migtd(struct kvm_tdx *tdx,
+				     struct tdvmcall_service *cmd_hdr,
+				     struct tdvmcall_service *resp_hdr)
+{
+	struct tdvmcall_service_migtd *cmd_migtd =
+		(struct tdvmcall_service_migtd *)cmd_hdr->data;
+	struct tdvmcall_service_migtd *resp_migtd =
+		(struct tdvmcall_service_migtd *)resp_hdr->data;
+	uint32_t status, len = 0;
+
+	resp_migtd->cmd = cmd_migtd->cmd;
+
+	switch (cmd_migtd->cmd) {
+	case TDVMCALL_SERVICE_MIGTD_CMD_WAIT:
+		resp_migtd->version = TDVMCALL_SERVICE_MIGTD_WAIT_VERSION;
+		if (cmd_migtd->version != resp_migtd->version) {
+			pr_warn("%s: version err\n", __func__);
+			status = TDVMCALL_SERVICE_S_INVAL;
+			break;
+		}
+		len = migtd_wait_for_request(tdx, resp_migtd);
+		status = TDVMCALL_SERVICE_S_RETURNED;
+		break;
+	default:
+		pr_warn("%s: cmd %d not supported\n",
+			 __func__, cmd_migtd->cmd);
+		status = TDVMCALL_SERVICE_S_UNSUPP;
+	}
+
+	resp_hdr->length += len;
+	resp_hdr->status = status;
+
+	if (resp_migtd->operation == TDVMCALL_SERVICE_MIGTD_OP_NOOP)
+		return true;
+
+	return false;
+}
+
 static int tdx_handle_service(struct kvm_vcpu *vcpu)
 {
 	struct kvm *kvm = vcpu->kvm;
+	struct kvm_tdx *tdx = to_kvm_tdx(kvm);
 	gpa_t cmd_gpa = tdvmcall_a0_read(vcpu) &
 			~gfn_to_gpa(kvm_gfn_shared_mask(kvm));
 	gpa_t resp_gpa = tdvmcall_a1_read(vcpu) &
@@ -1878,6 +2088,7 @@ static int tdx_handle_service(struct kvm_vcpu *vcpu)
 	uint64_t nvector = tdvmcall_a2_read(vcpu);
 	struct tdvmcall_service *cmd_buf, *resp_buf;
 	enum tdvmcall_service_id service_id;
+	bool need_block = false;
 
 	if (nvector) {
 		pr_warn("%s: interrupt not supported, nvector %lld\n",
@@ -1906,6 +2117,9 @@ static int tdx_handle_service(struct kvm_vcpu *vcpu)
 	case TDVMCALL_SERVICE_ID_QUERY:
 		tdx_handle_service_query(cmd_buf, resp_buf);
 		break;
+	case TDVMCALL_SERVICE_ID_MIGTD:
+		need_block = tdx_handle_service_migtd(tdx, cmd_buf, resp_buf);
+		break;
 	default:
 		resp_buf->status = TDVMCALL_SERVICE_S_UNSUPP;
 		pr_warn("%s: unsupported service type\n", __func__);
@@ -1915,6 +2129,9 @@ static int tdx_handle_service(struct kvm_vcpu *vcpu)
 	tdvmcall_status_copy_and_free(resp_buf, vcpu, resp_gpa);
 err_status:
 	kfree(cmd_buf);
+	if (need_block && !nvector)
+		return kvm_emulate_halt_noskip(vcpu);
+
 err_cmd:
 	return 1;
 }

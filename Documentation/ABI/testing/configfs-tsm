@@ -1,0 +1,68 @@
+What:		/sys/kernel/config/tsm/report/$name/inblob
+Date:		August, 2023
+KernelVersion:	v6.7
+Contact:	linux-coco@lists.linux.dev
+Description:
+		(WO) Up to 64 bytes of user specified binary data. For replay
+		protection this should include a nonce, but the kernel does not
+		place any restrictions on the content.
+
+What:		/sys/kernel/config/tsm/report/$name/outblob
+Date:		August, 2023
+KernelVersion:	v6.7
+Contact:	linux-coco@lists.linux.dev
+Description:
+		(RO) Binary attestation report generated from @inblob and other
+		options The format of the report is implementation specific
+		(modulo options like @format and @privlevel) where the
+		implementation is conveyed via the @provider attribute.
+
+What:		/sys/kernel/config/tsm/report/$name/provider
+Date:		August, 2023
+KernelVersion:	v6.7
+Contact:	linux-coco@lists.linux.dev
+Description:
+		(RO) A name for the format-specification of @outblob like
+		"sev-snp" or "tdx" in the near term, or a common standard format
+		in the future.
+
+What:		/sys/kernel/config/tsm/report/$name/generation
+Date:		August, 2023
+KernelVersion:	v6.7
+Contact:	linux-coco@lists.linux.dev
+Description:
+		(RO) The value in this attribute increments each time @inblob or
+		any option is written. Userspace can detect conflicts by
+		checking generation before writing to any attribute and making
+		sure the number of writes matches expectations after reading
+		@outblob, or it can prevent conflicts by creating a report
+		instance per requesting context.
+
+What:		/sys/kernel/config/tsm/report/$name/privlevel
+Date:		August, 2023
+KernelVersion:	v6.7
+Contact:	linux-coco@lists.linux.dev
+Description:
+		(WO) If a TSM implementation supports the concept of attestation
+		reports for TVMs running at different privilege levels, like
+		SEV-SNP "VMPL", specify the privilege level via this attribute.
+		The minimum acceptable value is conveyed via @privlevel_floor
+		and the maximum acceptable value is TSM_PRIVLEVEL_MAX (3).
+
+What:		/sys/kernel/config/tsm/report/$name/privlevel_floor
+Date:		August, 2023
+KernelVersion:	v6.7
+Contact:	linux-coco@lists.linux.dev
+Description:
+		(RO) Indicates the minimum permissible value that can be written
+		to @privlevel.
+
+What:		/sys/kernel/config/tsm/report/$name/format
+Date:		August, 2023
+KernelVersion:	v6.7
+Contact:	linux-coco@lists.linux.dev
+Description:
+		(WO) If a TSM implementation supports the concept of attestation
+		reports with "extended" contents, like SEV-SNP extended reports
+		with certificate chains, specify "extended" vs "default" via
+		this attribute.

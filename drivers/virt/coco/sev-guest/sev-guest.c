@@ -16,10 +16,12 @@
 #include <linux/miscdevice.h>
 #include <linux/set_memory.h>
 #include <linux/fs.h>
+#include <linux/tsm.h>
 #include <crypto/aead.h>
 #include <linux/scatterlist.h>
 #include <linux/psp-sev.h>
 #include <linux/sockptr.h>
+#include <linux/cleanup.h>
 #include <uapi/linux/sev-guest.h>
 #include <uapi/linux/psp-sev.h>
 
@@ -759,6 +761,79 @@ static u8 *get_vmpck(int id, struct snp_secrets_page_layout *layout, u32 **seqno
 	return key;
 }
 
+static u8 *sev_report_new(const struct tsm_desc *desc, void *data, size_t *outblob_len)
+{
+	struct snp_guest_dev *snp_dev = data;
+	const int report_size = SZ_4K;
+	const int ext_size = SZ_16K;
+	int ret, size;
+
+	if (desc->inblob_len != 64)
+		return ERR_PTR(-EINVAL);
+
+	if (desc->outblob_format == TSM_FORMAT_EXTENDED)
+		size = report_size + ext_size;
+	else
+		size = report_size;
+
+	u8 *buf __free(kvfree) = kvzalloc(size, GFP_KERNEL);
+
+	guard(mutex)(&snp_cmd_mutex);
+	if (desc->outblob_format == TSM_FORMAT_EXTENDED) {
+		struct snp_ext_report_req ext_req = {
+			.data = { .vmpl = desc->privlevel },
+			.certs_address = (__u64)buf + report_size,
+			.certs_len = ext_size,
+		};
+		memcpy(&ext_req.data.user_data, desc->inblob, desc->inblob_len);
+
+		struct snp_guest_request_ioctl input = {
+			.msg_version = 1,
+			.req_data = (__u64)&ext_req,
+			.resp_data = (__u64)buf,
+		};
+		struct snp_req_resp io = {
+			.req_data = KERNEL_SOCKPTR(&ext_req),
+			.resp_data = KERNEL_SOCKPTR(buf),
+		};
+
+		ret = get_ext_report(snp_dev, &input, &io);
+	} else {
+		struct snp_report_req req = {
+			.vmpl = desc->privlevel,
+		};
+		memcpy(&req.user_data, desc->inblob, desc->inblob_len);
+
+		struct snp_guest_request_ioctl input = {
+			.msg_version = 1,
+			.req_data = (__u64)&req,
+			.resp_data = (__u64)buf,
+		};
+		struct snp_req_resp io = {
+			.req_data = KERNEL_SOCKPTR(&req),
+			.resp_data = KERNEL_SOCKPTR(buf),
+		};
+
+		ret = get_report(snp_dev, &input, &io);
+	}
+
+	if (ret)
+		return ERR_PTR(ret);
+
+	*outblob_len = size;
+	return_ptr(buf);
+}
+
+static const struct tsm_ops sev_tsm_ops = {
+	.name = KBUILD_MODNAME,
+	.report_new = sev_report_new,
+};
+
+static void unregister_sev_tsm(void *data)
+{
+	unregister_tsm(&sev_tsm_ops);
+}
+
 static int __init sev_guest_probe(struct platform_device *pdev)
 {
 	struct snp_secrets_page_layout *layout;
@@ -831,6 +906,14 @@ static int __init sev_guest_probe(struct platform_device *pdev)
 	snp_dev->input.req_gpa = __pa(snp_dev->request);
 	snp_dev->input.resp_gpa = __pa(snp_dev->response);
 	snp_dev->input.data_gpa = __pa(snp_dev->certs_data);
+
+	ret = register_tsm(&sev_tsm_ops, snp_dev, &tsm_report_ext_type);
+	if (ret)
+		goto e_free_cert_data;
+
+	ret = devm_add_action_or_reset(&pdev->dev, unregister_sev_tsm, NULL);
+	if (ret)
+		goto e_free_cert_data;
 
 	ret =  misc_register(misc);
 	if (ret)

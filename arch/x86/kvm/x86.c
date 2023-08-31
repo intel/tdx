@@ -9664,7 +9664,9 @@ int kvm_x86_vendor_init(struct kvm_x86_init_ops *ops)
 	int r;
 
 	mutex_lock(&vendor_module_lock);
+	migrate_disable();
 	r = __kvm_x86_vendor_init(ops);
+	migrate_enable();
 	mutex_unlock(&vendor_module_lock);
 
 	return r;

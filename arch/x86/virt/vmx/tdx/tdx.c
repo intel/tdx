@@ -224,37 +224,39 @@ out:
 /**
  * tdx_cpu_enable - Enable TDX on local cpu
  *
- * Do one-time TDX module per-cpu initialization SEAMCALL (and TDX module
- * global initialization SEAMCALL if not done) on local cpu to make this
- * cpu be ready to run any other SEAMCALLs.
+ * Do one-time TDX module per-cpu initialization SEAMCALL on local cpu to
+ * make this cpu be ready to run any other SEAMCALLs.
  *
- * Call this function with preemption disabled.
- *
- * Return 0 on success, otherwise errors.
+ * @cpu:	the cpu to do per-cpu initialization
  */
-int tdx_cpu_enable(void)
+static int tdx_cpu_enable(unsigned int cpu)
 {
 	struct tdx_module_args args = {};
 	int ret;
 
+	/*
+	 * Don't return an error if global initialization is failed to allow
+	 * the CPU to be online. This is normal if TDX module isn't loaded by
+	 * BIOS or in kexec case.
+	 */
 	if (!tdx_global_initialized)
-		return -ENODEV;
+		return 0;
 
-	lockdep_assert_preemption_disabled();
-
-	/* Already done */
+	/* Already done. e.g., the CPU went offline and is being brought up. */
 	if (__this_cpu_read(tdx_lp_initialized))
 		return 0;
 
-	ret = seamcall(TDH_SYS_LP_INIT, &args);
+	ret = cpu_vmxop_get();
 	if (ret)
 		return ret;
 
-	__this_cpu_write(tdx_lp_initialized, true);
+	ret = seamcall(TDH_SYS_LP_INIT, &args);
+	cpu_vmxop_put();
+	if (!ret)
+		__this_cpu_write(tdx_lp_initialized, true);
 
-	return 0;
+	return ret;
 }
-EXPORT_SYMBOL_GPL(tdx_cpu_enable);
 
 static void print_cmrs(struct cmr_info *cmr_array, int nr_cmrs)
 {
@@ -1335,9 +1337,26 @@ out:
 	return ret;
 }
 
+static bool verify_all_cpus_enabled_tdx(void)
+{
+	int cpu;
+
+	for_each_online_cpu(cpu) {
+		if (!per_cpu(tdx_lp_initialized, cpu)) {
+			pr_err("CPU %d didn't enable TDX\n", cpu);
+			return false;
+		}
+	}
+
+	return true;
+}
+
 static int __tdx_enable(void)
 {
 	int ret;
+
+	if (unlikely(!verify_all_cpus_enabled_tdx()))
+		return -ENODEV;
 
 	ret = init_tdx_module();
 	if (ret) {
@@ -1356,8 +1375,8 @@ static int __tdx_enable(void)
  * tdx_enable - Enable TDX module to make it ready to run TDX guests
  *
  * This function assumes the caller has: 1) held read lock of CPU hotplug
- * lock to prevent any new cpu from becoming online; 2) done both VMXON
- * and tdx_cpu_enable() on all online cpus.
+ * lock to prevent any new cpu from becoming online; 2) done VMXON on all
+ * online cpus.
  *
  * This function requires there's at least one online cpu for each CPU
  * package to succeed.
@@ -1683,8 +1702,21 @@ int __init tdx_init(void)
 	}
 
 	err = init_module_global();
-	if (err)
+	if (err) {
 		pr_err("Global initialization failed: %d\n", err);
+		return err;
+	}
+
+	err = tdx_cpu_enable(smp_processor_id());
+	if (err) {
+		pr_err("Per-CPU initialization failed: %d\n", err);
+		return err;
+	}
+
+	err = cpuhp_setup_state_nocalls(CPUHP_AP_X86_INTEL_TDX_ONLINE,
+			"x86/tdx:online", tdx_cpu_enable, NULL);
+	if (err)
+		pr_err("Failed to register CPU hotplug callback: %d\n", err);
 
 	return err;
 }

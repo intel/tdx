@@ -35,16 +35,7 @@ static int vt_flush_remote_tlbs_range(struct kvm *kvm, gfn_t gfn, gfn_t nr_pages
 
 int vt_hardware_enable(void)
 {
-	int ret;
-
-	ret = vmx_hardware_enable();
-	if (ret || !enable_tdx)
-		return ret;
-
-	ret = tdx_cpu_enable();
-	if (ret)
-		vmx_hardware_disable();
-	return ret;
+	return vmx_hardware_enable();
 }
 
 void vt_hardware_disable(void)

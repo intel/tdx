@@ -1648,7 +1648,7 @@ static struct notifier_block tdx_memory_nb = {
 	.notifier_call = tdx_memory_notifier,
 };
 
-static int __init tdx_init(void)
+int __init tdx_init(void)
 {
 	u32 tdx_keyid_start, nr_tdx_keyids;
 	int err;
@@ -1699,7 +1699,6 @@ static int __init tdx_init(void)
 
 	return 0;
 }
-early_initcall(tdx_init);
 
 /* Return whether the BIOS has enabled TDX */
 bool platform_tdx_enabled(void)

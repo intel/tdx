@@ -195,6 +195,7 @@ u32 tdx_get_nr_guest_keyids(void);
 int tdx_guest_keyid_alloc(void);
 void tdx_guest_keyid_free(int keyid);
 bool tdx_is_enabled(void);
+int __init tdx_init(void);
 #else
 static inline u64 __seamcall(u64 fn, struct tdx_module_args *args) { return TDX_SEAMCALL_UD; }
 static inline u64 __seamcall_ret(u64 fn, struct tdx_module_args *args) { return TDX_SEAMCALL_UD; }
@@ -211,6 +212,7 @@ static inline u32 tdx_get_nr_guest_keyids(void) { return 0; }
 static inline int tdx_guest_keyid_alloc(void) { return -EOPNOTSUPP; }
 static inline void tdx_guest_keyid_free(int keyid) { }
 static inline bool tdx_is_enabled(void) { return false };
+static inline int __init tdx_init(void) { return 0; }
 #endif	/* CONFIG_INTEL_TDX_HOST */
 
 #endif /* !__ASSEMBLY__ */

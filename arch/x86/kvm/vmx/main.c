@@ -1056,6 +1056,11 @@ int vt_skip_emulated_instruction(struct kvm_vcpu *vcpu)
 	return vmx_skip_emulated_instruction(vcpu);
 }
 
+bool vt_allow_write_without_running_vcpu(struct kvm *kvm)
+{
+	return is_td(kvm);
+}
+
 struct kvm_x86_init_ops vt_init_ops __initdata = {
 	.hardware_setup = vt_hardware_setup,
 	.handle_intel_pt_intr = NULL,

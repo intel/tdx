@@ -13094,6 +13094,14 @@ int kvm_arch_interrupt_allowed(struct kvm_vcpu *vcpu)
 	return static_call(kvm_x86_interrupt_allowed)(vcpu, false);
 }
 
+bool kvm_arch_allow_write_without_running_vcpu(struct kvm *kvm)
+{
+	if (!kvm_x86_ops.allow_write_without_running_vcpu)
+		return false;
+
+	return kvm_x86_ops.allow_write_without_running_vcpu(kvm);
+}
+
 unsigned long kvm_get_linear_rip(struct kvm_vcpu *vcpu)
 {
 	/* Can't read the RIP when guest state is protected, just return 0 */

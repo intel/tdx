@@ -712,6 +712,24 @@ static void tdx_mig_buf_list_set_valid(struct tdx_mig_buf_list *mem_buf_list,
 	}
 }
 
+static void tdx_mig_handle_export_mem_error(struct kvm *kvm,
+					    struct tdx_mig_gpa_list *gpa_list,
+					    uint64_t npages)
+{
+	union tdx_mig_gpa_list_entry *entry;
+	uint64_t i;
+
+	for (i = 0; i < npages; i++) {
+		entry = &gpa_list->entries[i];
+		/*
+		 * Re-migrate the failed entries by putting them back to the
+		 * dirty bitmap.
+		 */
+		if (entry->status != GPA_LIST_S_SUCCESS)
+			mark_page_dirty(kvm, (gfn_t)entry->gfn);
+	}
+}
+
 static int64_t tdx_mig_stream_export_mem(struct kvm_tdx *kvm_tdx,
 					 struct tdx_mig_stream *stream,
 					 uint64_t __user *data)
@@ -754,6 +772,10 @@ static int64_t tdx_mig_stream_export_mem(struct kvm_tdx *kvm_tdx,
 	} while (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
 
 	if (seamcall_masked_status(err) == TDX_SUCCESS) {
+		/* A general success could have some entries failed */
+		if (err != TDX_SUCCESS)
+			tdx_mig_handle_export_mem_error(&kvm_tdx->kvm,
+							gpa_list, npages);
 		/*
 		 * 1 for GPA list and 1 for MAC list
 		 * TODO: Improve by checking GPA list entries

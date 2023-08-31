@@ -1848,6 +1848,7 @@ struct kvm_x86_ops {
 	int (*mem_enc_read_memory)(struct kvm *kvm, struct kvm_rw_memory *argp);
 	int (*mem_enc_write_memory)(struct kvm *kvm, struct kvm_rw_memory *argp);
 	void (*guest_memory_reclaimed)(struct kvm *kvm);
+	bool (*allow_write_without_running_vcpu)(struct kvm *kvm);
 
 	int (*get_msr_feature)(struct kvm_msr_entry *entry);
 

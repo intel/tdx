@@ -8196,6 +8196,8 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.vcpu_mem_enc_ioctl = vt_vcpu_mem_enc_ioctl,
 
 	.vm_move_enc_context_from = vt_move_enc_context_from,
+	.allow_write_without_running_vcpu =
+				vt_allow_write_without_running_vcpu,
 };
 
 static unsigned int vmx_handle_intel_pt_intr(void)

@@ -34,6 +34,7 @@
 #include <asm/special_insns.h>
 #include <asm/tdx.h>
 #include <asm/set_memory.h>
+#include <asm/vmx.h>
 #include "tdx.h"
 
 #ifdef CONFIG_SYSFS
@@ -49,7 +50,6 @@ static u32 tdx_nr_guest_keyids __ro_after_init;
 static u64 tdx_features0;
 
 static bool tdx_global_initialized;
-static DEFINE_RAW_SPINLOCK(tdx_global_init_lock);
 static DEFINE_PER_CPU(bool, tdx_lp_initialized);
 
 static enum tdx_module_status_t tdx_module_status;
@@ -197,33 +197,27 @@ void tdx_trace_seamcalls(u64 level)
 }
 EXPORT_SYMBOL_GPL(tdx_trace_seamcalls);
 
-/*
- * Do the module global initialization if not done yet.
- * It's always called with interrupts and preemption disabled.
- */
-static int try_init_module_global(void)
+/* Do the global initialization, the first step of TDX module initialization */
+static int init_module_global(void)
 {
 	struct tdx_module_args args = {};
-	unsigned long flags;
 	int ret;
 
-	/*
-	 * The TDX module global initialization only needs to be done
-	 * once on any cpu.
-	 */
-	raw_spin_lock_irqsave(&tdx_global_init_lock, flags);
+	if (!platform_tdx_enabled())
+		return -ENODEV;
 
-	if (tdx_global_initialized) {
-		ret = 0;
+	preempt_disable();
+	ret = cpu_vmxop_get();
+	if (ret)
 		goto out;
-	}
 
 	ret = seamcall(TDH_SYS_INIT, &args);
 	if (!ret)
 		tdx_global_initialized = true;
-out:
-	raw_spin_unlock_irqrestore(&tdx_global_init_lock, flags);
+	cpu_vmxop_put();
+	preempt_enable();
 
+out:
 	return ret;
 }
 
@@ -243,7 +237,7 @@ int tdx_cpu_enable(void)
 	struct tdx_module_args args = {};
 	int ret;
 
-	if (!platform_tdx_enabled())
+	if (!tdx_global_initialized)
 		return -ENODEV;
 
 	lockdep_assert_preemption_disabled();
@@ -251,15 +245,6 @@ int tdx_cpu_enable(void)
 	/* Already done */
 	if (__this_cpu_read(tdx_lp_initialized))
 		return 0;
-
-	/*
-	 * The TDX module global initialization is the very first step
-	 * to enable TDX.  Need to do it first (if hasn't been done)
-	 * before the per-cpu initialization.
-	 */
-	ret = try_init_module_global();
-	if (ret)
-		return ret;
 
 	ret = seamcall(TDH_SYS_LP_INIT, &args);
 	if (ret)
@@ -1697,7 +1682,11 @@ int __init tdx_init(void)
 			register_reboot_notifier(&tdx_reboot_nb);
 	}
 
-	return 0;
+	err = init_module_global();
+	if (err)
+		pr_err("Global initialization failed: %d\n", err);
+
+	return err;
 }
 
 /* Return whether the BIOS has enabled TDX */

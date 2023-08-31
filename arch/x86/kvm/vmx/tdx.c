@@ -5,6 +5,7 @@
 
 #include <asm/fpu/xcr.h>
 #include <asm/tdx.h>
+#include <asm/vmx.h>
 
 #include "capabilities.h"
 #include "x86_ops.h"
@@ -5084,6 +5085,8 @@ static int __init tdx_module_setup(void)
 
 	tdsysinfo = tdx_get_sysinfo();
 
+	preempt_disable();
+	WARN_ON_ONCE(cpu_vmxop_get());
 	/*
 	 * Make TDH.VP.ENTER preserve RBP so that the stack unwinder
 	 * always work around it.  Query the feature.
@@ -5124,6 +5127,8 @@ static int __init tdx_module_setup(void)
 		tdx_info.nr_tdcs_pages, tdx_info.nr_tdvpx_pages);
 
 	err = tdh_sys_rd(TDX_MD_FID_SERVTD_MAX_SERVTDS, &out);
+	cpu_vmxop_put();
+	preempt_enable();
 	/*
 	 * If error happens, it isn't critical and no need to fail the entire
 	 * tdx setup. Only servtd binding (which is optional) won't be allowed
@@ -5488,38 +5493,8 @@ static int tdx_write_guest_memory(struct kvm *kvm, struct kvm_rw_memory *rw_memo
 	return ret;
 }
 
-struct vmx_tdx_enabled {
-	cpumask_var_t vmx_enabled;
-	atomic_t err;
-};
-
-static void __init vmx_tdx_on(void *_vmx_tdx)
-{
-	struct vmx_tdx_enabled *vmx_tdx = _vmx_tdx;
-	int r;
-
-	r = vmx_hardware_enable();
-	if (!r) {
-		cpumask_set_cpu(smp_processor_id(), vmx_tdx->vmx_enabled);
-		r = tdx_cpu_enable();
-	}
-	if (r)
-		atomic_set(&vmx_tdx->err, r);
-}
-
-static void __init vmx_off(void *_vmx_enabled)
-{
-	cpumask_var_t *vmx_enabled = (cpumask_var_t *)_vmx_enabled;
-
-	if (cpumask_test_cpu(smp_processor_id(), *vmx_enabled))
-		vmx_hardware_disable();
-}
-
 int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 {
-	struct vmx_tdx_enabled vmx_tdx = {
-		.err = ATOMIC_INIT(0),
-	};
 	int max_pkgs;
 	int r = 0;
 	int i;
@@ -5581,22 +5556,7 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	for (i = 0; i < max_pkgs; i++)
 		mutex_init(&tdx_mng_key_config_lock[i]);
 
-	if (!zalloc_cpumask_var(&vmx_tdx.vmx_enabled, GFP_KERNEL)) {
-		r = -ENOMEM;
-		goto out;
-	}
-
-	/* tdx_enable() in tdx_module_setup() requires cpus lock. */
-	cpus_read_lock();
-	on_each_cpu(vmx_tdx_on, &vmx_tdx, true);	/* TDX requires vmxon. */
-	r = atomic_read(&vmx_tdx.err);
-	if (!r)
-		r = tdx_module_setup();
-	else
-		r = -EIO;
-	on_each_cpu(vmx_off, &vmx_tdx.vmx_enabled, true);
-	cpus_read_unlock();
-	free_cpumask_var(vmx_tdx.vmx_enabled);
+	r = tdx_module_setup();
 	if (r)
 		goto out;
 

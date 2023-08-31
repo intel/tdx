@@ -665,9 +665,13 @@ struct vmx_ve_information {
 DECLARE_PER_CPU(u64, vmx_basic);
 int cpu_vmxop_get(void);
 int cpu_vmxop_put(void);
+int cpu_vmxop_get_all(void);
+int cpu_vmxop_put_all(void);
 #else
 static inline int cpu_vmxop_get(void) { return -EOPNOTSUPP; }
 static inline int cpu_vmxop_put(void) { return -EOPNOTSUPP; }
+static inline int cpu_vmxop_get_all(void) { return -EOPNOTSUPP; }
+static inline int cpu_vmxop_put_all(void) { return -EOPNOTSUPP; }
 #endif
 
 #endif

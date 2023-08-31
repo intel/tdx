@@ -2877,7 +2877,7 @@ void vmx_hardware_disable(void)
 	intel_pt_handle_vmx(0);
 }
 
-struct vmcs *alloc_vmcs_cpu(bool shadow, int cpu, gfp_t flags)
+static struct vmcs *__alloc_vmcs_cpu(int cpu, gfp_t flags)
 {
 	int node = cpu_to_node(cpu);
 	struct page *pages;
@@ -2889,11 +2889,21 @@ struct vmcs *alloc_vmcs_cpu(bool shadow, int cpu, gfp_t flags)
 	vmcs = page_address(pages);
 	memset(vmcs, 0, vmcs_config.size);
 
+	vmcs->hdr.revision_id = vmcs_config.revision_id;
+
+	return vmcs;
+}
+
+struct vmcs *alloc_vmcs_cpu(bool shadow, int cpu, gfp_t flags)
+{
+	struct vmcs *vmcs = __alloc_vmcs_cpu(cpu, flags);
+
+	if (!vmcs)
+		return NULL;
+
 	/* KVM supports Enlightened VMCS v1 only */
 	if (kvm_is_using_evmcs())
 		vmcs->hdr.revision_id = KVM_EVMCS_VERSION;
-	else
-		vmcs->hdr.revision_id = vmcs_config.revision_id;
 
 	if (shadow)
 		vmcs->hdr.shadow_vmcs = 1;
@@ -2969,24 +2979,11 @@ static __init int alloc_kvm_area(void)
 	for_each_possible_cpu(cpu) {
 		struct vmcs *vmcs;
 
-		vmcs = alloc_vmcs_cpu(false, cpu, GFP_KERNEL);
+		vmcs = __alloc_vmcs_cpu(cpu, GFP_KERNEL);
 		if (!vmcs) {
 			free_kvm_area();
 			return -ENOMEM;
 		}
-
-		/*
-		 * When eVMCS is enabled, alloc_vmcs_cpu() sets
-		 * vmcs->revision_id to KVM_EVMCS_VERSION instead of
-		 * revision_id reported by MSR_IA32_VMX_BASIC.
-		 *
-		 * However, even though not explicitly documented by
-		 * TLFS, VMXArea passed as VMXON argument should
-		 * still be marked with revision_id reported by
-		 * physical CPU.
-		 */
-		if (kvm_is_using_evmcs())
-			vmcs->hdr.revision_id = vmcs_config.revision_id;
 
 		per_cpu(vmxarea, cpu) = vmcs;
 	}

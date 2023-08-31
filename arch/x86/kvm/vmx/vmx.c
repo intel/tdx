@@ -47,6 +47,7 @@
 #include <asm/mshyperv.h>
 #include <asm/mwait.h>
 #include <asm/spec-ctrl.h>
+#include <asm/virtext.h>
 #include <asm/vmx.h>
 
 #include "capabilities.h"
@@ -727,29 +728,6 @@ static int vmx_set_guest_uret_msr(struct vcpu_vmx *vmx,
 	return ret;
 }
 
-/*
- * Disable VMX and clear CR4.VMXE (even if VMXOFF faults)
- *
- * Note, VMXOFF causes a #UD if the CPU is !post-VMXON, but it's impossible to
- * atomically track post-VMXON state, e.g. this may be called in NMI context.
- * Eat all faults as all other faults on VMXOFF faults are mode related, i.e.
- * faults are guaranteed to be due to the !post-VMXON check unless the CPU is
- * magically in RM, VM86, compat mode, or at CPL>0.
- */
-static int kvm_cpu_vmxoff(void)
-{
-	asm_volatile_goto("1: vmxoff\n\t"
-			  _ASM_EXTABLE(1b, %l[fault])
-			  ::: "cc", "memory" : fault);
-
-	cr4_clear_bits(X86_CR4_VMXE);
-	return 0;
-
-fault:
-	cr4_clear_bits(X86_CR4_VMXE);
-	return -EIO;
-}
-
 static void vmx_emergency_disable(void)
 {
 	int cpu = raw_smp_processor_id();
@@ -770,7 +748,7 @@ static void vmx_emergency_disable(void)
 			    loaded_vmcss_on_cpu_link)
 		vmcs_clear(v->vmcs);
 
-	kvm_cpu_vmxoff();
+	cpu_vmxoff();
 }
 
 static void __loaded_vmcs_clear(void *arg)
@@ -2771,32 +2749,12 @@ int vmx_check_processor_compat(void)
 	return 0;
 }
 
-static int kvm_cpu_vmxon(u64 vmxon_pointer)
-{
-	u64 msr;
-
-	cr4_set_bits(X86_CR4_VMXE);
-
-	asm_volatile_goto("1: vmxon %[vmxon_pointer]\n\t"
-			  _ASM_EXTABLE(1b, %l[fault])
-			  : : [vmxon_pointer] "m"(vmxon_pointer)
-			  : : fault);
-	return 0;
-
-fault:
-	WARN_ONCE(1, "VMXON faulted, MSR_IA32_FEAT_CTL (0x3a) = 0x%llx\n",
-		  rdmsrl_safe(MSR_IA32_FEAT_CTL, &msr) ? 0xdeadbeef : msr);
-	cr4_clear_bits(X86_CR4_VMXE);
-
-	return -EFAULT;
-}
-
 void vmxoff_put(int off)
 {
 	WARN_ON_ONCE(off < 0);
 
 	if (off)
-		kvm_cpu_vmxoff();
+		cpu_vmxoff();
 
 	kvm_hardware_enable_unlock();
 	cpus_read_unlock();
@@ -2815,7 +2773,7 @@ int vmxon_get(void)
 	if (cr4_read_shadow() & X86_CR4_VMXE)
 		return 0;
 
-       if (!kvm_cpu_vmxon(__pa(this_cpu_read(vmxarea))))
+       if (!cpu_vmxon(__pa(this_cpu_read(vmxarea))))
 	       return 1;
 
        preempt_enable();
@@ -2843,7 +2801,7 @@ int vmx_hardware_enable(void)
 
 	intel_pt_handle_vmx(1);
 
-	r = kvm_cpu_vmxon(phys_addr);
+	r = cpu_vmxon(phys_addr);
 	if (r) {
 		intel_pt_handle_vmx(0);
 		return r;
@@ -2869,7 +2827,7 @@ void vmx_hardware_disable(void)
 {
 	vmclear_local_loaded_vmcss();
 
-	if (kvm_cpu_vmxoff())
+	if (cpu_vmxoff())
 		kvm_spurious_fault();
 
 	hv_reset_evmcs();

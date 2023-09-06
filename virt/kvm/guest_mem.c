@@ -392,7 +392,7 @@ static int  kvm_gmem_getattr(struct mnt_idmap *idmap,
 	struct inode *inode = path->dentry->d_inode;
 
 	/* TODO */
-	generic_fillattr(idmap, inode, stat);
+	generic_fillattr(idmap, request_mask, inode, stat);
 	return 0;
 }
 

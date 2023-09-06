@@ -39,7 +39,7 @@ static void test_mmap(int fd, size_t page_size)
 	char *mem;
 
 	mem = mmap(NULL, page_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-	ASSERT_EQ(mem, MAP_FAILED);
+	TEST_ASSERT_EQ(mem, MAP_FAILED);
 }
 
 static void test_file_size(int fd, size_t page_size, size_t total_size)
@@ -49,8 +49,8 @@ static void test_file_size(int fd, size_t page_size, size_t total_size)
 
 	ret = fstat(fd, &sb);
 	TEST_ASSERT(!ret, "fstat should succeed");
-	ASSERT_EQ(sb.st_size, total_size);
-	ASSERT_EQ(sb.st_blksize, page_size);
+	TEST_ASSERT_EQ(sb.st_size, total_size);
+	TEST_ASSERT_EQ(sb.st_blksize, page_size);
 }
 
 static void test_fallocate(int fd, size_t page_size, size_t total_size)

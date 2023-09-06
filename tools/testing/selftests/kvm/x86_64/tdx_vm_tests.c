@@ -63,11 +63,11 @@ void verify_report_fatal_error(void)
 
 	td_vcpu_run(vcpu);
 
-	ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_SYSTEM_EVENT);
-	ASSERT_EQ(vcpu->run->system_event.ndata, 3);
-	ASSERT_EQ(vcpu->run->system_event.data[0], TDG_VP_VMCALL_REPORT_FATAL_ERROR);
-	ASSERT_EQ(vcpu->run->system_event.data[1], 0x0BAAAAAD00000000);
-	ASSERT_EQ(vcpu->run->system_event.data[2], 0);
+	TEST_ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_SYSTEM_EVENT);
+	TEST_ASSERT_EQ(vcpu->run->system_event.ndata, 3);
+	TEST_ASSERT_EQ(vcpu->run->system_event.data[0], TDG_VP_VMCALL_REPORT_FATAL_ERROR);
+	TEST_ASSERT_EQ(vcpu->run->system_event.data[1], 0x0BAAAAAD00000000);
+	TEST_ASSERT_EQ(vcpu->run->system_event.data[2], 0);
 
 	vcpu_run(vcpu);
 	TDX_TEST_ASSERT_SUCCESS(vcpu);
@@ -238,15 +238,15 @@ void verify_td_cpuid(void)
 	guest_fma_enabled = (ecx >> 12) & 0x1;  // As Configured (if Native)
 	guest_initial_apic_id = (ebx >> 24) & 0xFF;  // Calculated
 
-	ASSERT_EQ(guest_sse3_enabled, 1);
-	ASSERT_EQ(guest_clflush_line_size, 8);
-	ASSERT_EQ(guest_max_addressable_ids, host_max_addressable_ids);
+	TEST_ASSERT_EQ(guest_sse3_enabled, 1);
+	TEST_ASSERT_EQ(guest_clflush_line_size, 8);
+	TEST_ASSERT_EQ(guest_max_addressable_ids, host_max_addressable_ids);
 
 	/* TODO: This only tests the native value. To properly test
 	 * "As Configured (if Native)" we need to override this value
 	 * in the TD params
 	 */
-	ASSERT_EQ(guest_fma_enabled, 1);
+	TEST_ASSERT_EQ(guest_fma_enabled, 1);
 
 	/* TODO: guest_initial_apic_id is calculated based on the number of
 	 * VCPUs in the TD. From the spec: "Virtual CPU index, starting from 0
@@ -254,7 +254,7 @@ void verify_td_cpuid(void)
 	 * To test non-trivial values we either need a TD with multiple VCPUs
 	 * or to pick a different calculated value.
 	 */
-	ASSERT_EQ(guest_initial_apic_id, 0);
+	TEST_ASSERT_EQ(guest_initial_apic_id, 0);
 
 	kvm_vm_free(vm);
 	printf("\t ... PASSED\n");
@@ -325,10 +325,10 @@ void verify_get_td_vmcall_info(void)
 	TDX_TEST_CHECK_GUEST_FAILURE(vcpu);
 	r14 = tdx_test_read_64bit_report_from_guest(vcpu);
 
-	ASSERT_EQ(r11, 0);
-	ASSERT_EQ(r12, 0);
-	ASSERT_EQ(r13, 0);
-	ASSERT_EQ(r14, 0);
+	TEST_ASSERT_EQ(r11, 0);
+	TEST_ASSERT_EQ(r12, 0);
+	TEST_ASSERT_EQ(r13, 0);
+	TEST_ASSERT_EQ(r14, 0);
 
 	/* Wait for guest to complete execution */
 	td_vcpu_run(vcpu);
@@ -414,13 +414,13 @@ void verify_guest_writes(void)
 			TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
 	byte_4 = *(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset);
 
-	ASSERT_EQ(byte_1, 0xAB);
-	ASSERT_EQ(byte_2, 0xABCD);
-	ASSERT_EQ(byte_4, 0xFFABCDEF);
+	TEST_ASSERT_EQ(byte_1, 0xAB);
+	TEST_ASSERT_EQ(byte_2, 0xABCD);
+	TEST_ASSERT_EQ(byte_4, 0xFFABCDEF);
 
 	td_vcpu_run(vcpu);
-	ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_SYSTEM_EVENT);
-	ASSERT_EQ(vcpu->run->system_event.data[1], TDG_VP_VMCALL_INVALID_OPERAND);
+	TEST_ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_SYSTEM_EVENT);
+	TEST_ASSERT_EQ(vcpu->run->system_event.data[1], TDG_VP_VMCALL_INVALID_OPERAND);
 
 	td_vcpu_run(vcpu);
 	TDX_TEST_ASSERT_SUCCESS(vcpu);
@@ -505,8 +505,8 @@ void verify_guest_reads(void)
 	*(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset) = 0xFFABCDEF;
 
 	td_vcpu_run(vcpu);
-	ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_SYSTEM_EVENT);
-	ASSERT_EQ(vcpu->run->system_event.data[1], TDG_VP_VMCALL_INVALID_OPERAND);
+	TEST_ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_SYSTEM_EVENT);
+	TEST_ASSERT_EQ(vcpu->run->system_event.data[1], TDG_VP_VMCALL_INVALID_OPERAND);
 
 	td_vcpu_run(vcpu);
 	TDX_TEST_ASSERT_SUCCESS(vcpu);
@@ -620,17 +620,17 @@ void verify_guest_msr_reads(void)
 	td_vcpu_run(vcpu);
 	TDX_TEST_CHECK_GUEST_FAILURE(vcpu);
 	data = tdx_test_read_64bit_report_from_guest(vcpu);
-	ASSERT_EQ(data, 4);
+	TEST_ASSERT_EQ(data, 4);
 
 	td_vcpu_run(vcpu);
 	TDX_TEST_CHECK_GUEST_FAILURE(vcpu);
 	data = tdx_test_read_64bit_report_from_guest(vcpu);
-	ASSERT_EQ(data, 5);
+	TEST_ASSERT_EQ(data, 5);
 
 	td_vcpu_run(vcpu);
 	TDX_TEST_CHECK_GUEST_FAILURE(vcpu);
 	data = tdx_test_read_64bit_report_from_guest(vcpu);
-	ASSERT_EQ(data, TDG_VP_VMCALL_INVALID_OPERAND);
+	TEST_ASSERT_EQ(data, TDG_VP_VMCALL_INVALID_OPERAND);
 
 	td_vcpu_run(vcpu);
 	TDX_TEST_ASSERT_SUCCESS(vcpu);
@@ -706,16 +706,16 @@ void verify_guest_msr_writes(void)
 	td_vcpu_run(vcpu);
 	TDX_TEST_CHECK_GUEST_FAILURE(vcpu);
 	data = tdx_test_read_64bit_report_from_guest(vcpu);
-	ASSERT_EQ(data, TDG_VP_VMCALL_INVALID_OPERAND);
+	TEST_ASSERT_EQ(data, TDG_VP_VMCALL_INVALID_OPERAND);
 
 	td_vcpu_run(vcpu);
 	TDX_TEST_ASSERT_SUCCESS(vcpu);
 
 	printf("\t ... Verifying MSR values writen by guest\n");
 
-	ASSERT_EQ(vcpu_get_msr(vcpu, MSR_X2APIC_APIC_ICR), 4);
-	ASSERT_EQ(vcpu_get_msr(vcpu, MSR_IA32_MISC_ENABLE), 0x1800);
-	ASSERT_EQ(vcpu_get_msr(vcpu, MSR_IA32_POWER_CTL), 6);
+	TEST_ASSERT_EQ(vcpu_get_msr(vcpu, MSR_X2APIC_APIC_ICR), 4);
+	TEST_ASSERT_EQ(vcpu_get_msr(vcpu, MSR_IA32_MISC_ENABLE), 0x1800);
+	TEST_ASSERT_EQ(vcpu_get_msr(vcpu, MSR_IA32_POWER_CTL), 6);
 
 	kvm_vm_free(vm);
 	printf("\t ... PASSED\n");
@@ -767,7 +767,7 @@ void _verify_guest_hlt(int signum)
 		struct kvm_mp_state mp_state;
 
 		vcpu_mp_state_get(vcpu, &mp_state);
-		ASSERT_EQ(mp_state.mp_state, KVM_MP_STATE_HALTED);
+		TEST_ASSERT_EQ(mp_state.mp_state, KVM_MP_STATE_HALTED);
 
 		/* Let the guest to run and finish the test.*/
 		mp_state.mp_state = KVM_MP_STATE_RUNNABLE;
@@ -875,8 +875,8 @@ void verify_mmio_reads(void)
 	*(uint64_t *)vcpu->run->mmio.data = 0x1234567890ABCDEF;
 
 	td_vcpu_run(vcpu);
-	ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_SYSTEM_EVENT);
-	ASSERT_EQ(vcpu->run->system_event.data[1], TDG_VP_VMCALL_INVALID_OPERAND);
+	TEST_ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_SYSTEM_EVENT);
+	TEST_ASSERT_EQ(vcpu->run->system_event.data[1], TDG_VP_VMCALL_INVALID_OPERAND);
 
 	td_vcpu_run(vcpu);
 	TDX_TEST_ASSERT_SUCCESS(vcpu);
@@ -953,14 +953,14 @@ void verify_mmio_writes(void)
 	TDX_TEST_ASSERT_MMIO(vcpu, TDX_MMIO_TEST_ADDR, 8, TDG_VP_VMCALL_VE_REQUEST_MMIO_WRITE);
 	byte_8 = *(uint64_t *)(vcpu->run->mmio.data);
 
-	ASSERT_EQ(byte_1, 0x12);
-	ASSERT_EQ(byte_2, 0x1234);
-	ASSERT_EQ(byte_4, 0x12345678);
-	ASSERT_EQ(byte_8, 0x1234567890ABCDEF);
+	TEST_ASSERT_EQ(byte_1, 0x12);
+	TEST_ASSERT_EQ(byte_2, 0x1234);
+	TEST_ASSERT_EQ(byte_4, 0x12345678);
+	TEST_ASSERT_EQ(byte_8, 0x1234567890ABCDEF);
 
 	td_vcpu_run(vcpu);
-	ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_SYSTEM_EVENT);
-	ASSERT_EQ(vcpu->run->system_event.data[1], TDG_VP_VMCALL_INVALID_OPERAND);
+	TEST_ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_SYSTEM_EVENT);
+	TEST_ASSERT_EQ(vcpu->run->system_event.data[1], TDG_VP_VMCALL_INVALID_OPERAND);
 
 	td_vcpu_run(vcpu);
 	TDX_TEST_ASSERT_SUCCESS(vcpu);
@@ -1052,11 +1052,11 @@ void verify_td_cpuid_tdcall(void)
 	cpuid_entry = get_cpuid_entry(kvm_get_supported_cpuid(), 1, 0);
 	TEST_ASSERT(cpuid_entry, "CPUID entry missing\n");
 
-	ASSERT_EQ(cpuid_entry->eax, eax);
+	TEST_ASSERT_EQ(cpuid_entry->eax, eax);
 	// Mask lapic ID when comparing ebx.
-	ASSERT_EQ(cpuid_entry->ebx & ~0xFF000000, ebx & ~0xFF000000);
-	ASSERT_EQ(cpuid_entry->ecx, ecx);
-	ASSERT_EQ(cpuid_entry->edx, edx);
+	TEST_ASSERT_EQ(cpuid_entry->ebx & ~0xFF000000, ebx & ~0xFF000000);
+	TEST_ASSERT_EQ(cpuid_entry->ecx, ecx);
+	TEST_ASSERT_EQ(cpuid_entry->edx, edx);
 
 	kvm_vm_free(vm);
 	printf("\t ... PASSED\n");
@@ -1268,17 +1268,17 @@ void verify_tdcall_vp_info(void)
 		ret_max_vcpus = (r8 >> 32) & 0xFFFFFFFF;
 
 		/* first bits 5:0 of rcx represent the GPAW */
-		ASSERT_EQ(rcx & 0x3F, max_pa);
+		TEST_ASSERT_EQ(rcx & 0x3F, max_pa);
 		/* next 63:6 bits of rcx is reserved and must be 0 */
-		ASSERT_EQ(rcx >> 6, 0);
-		ASSERT_EQ(rdx, attributes);
-		ASSERT_EQ(ret_num_vcpus, num_vcpus);
-		ASSERT_EQ(ret_max_vcpus, TEST_VP_INFO_MAX_VCPUS);
+		TEST_ASSERT_EQ(rcx >> 6, 0);
+		TEST_ASSERT_EQ(rdx, attributes);
+		TEST_ASSERT_EQ(ret_num_vcpus, num_vcpus);
+		TEST_ASSERT_EQ(ret_max_vcpus, TEST_VP_INFO_MAX_VCPUS);
 		/* VCPU_INDEX = i */
-		ASSERT_EQ(r9, i);
+		TEST_ASSERT_EQ(r9, i);
 		/* verify reserved registers are 0 */
-		ASSERT_EQ(r10, 0);
-		ASSERT_EQ(r11, 0);
+		TEST_ASSERT_EQ(r10, 0);
+		TEST_ASSERT_EQ(r11, 0);
 
 		/* Wait for guest to complete execution */
 		td_vcpu_run(vcpu);

@@ -69,10 +69,10 @@ static void test_private_access_memslot_deleted(void)
 	pthread_join(vm_thread, &thread_return);
 	exit_reason = (uint32_t)(uint64_t)thread_return;
 
-	ASSERT_EQ(exit_reason, KVM_EXIT_MEMORY_FAULT);
-	ASSERT_EQ(vcpu->run->memory.flags, KVM_MEMORY_EXIT_FLAG_PRIVATE);
-	ASSERT_EQ(vcpu->run->memory.gpa, EXITS_TEST_GPA);
-	ASSERT_EQ(vcpu->run->memory.size, EXITS_TEST_SIZE);
+	TEST_ASSERT_EQ(exit_reason, KVM_EXIT_MEMORY_FAULT);
+	TEST_ASSERT_EQ(vcpu->run->memory.flags, KVM_MEMORY_EXIT_FLAG_PRIVATE);
+	TEST_ASSERT_EQ(vcpu->run->memory.gpa, EXITS_TEST_GPA);
+	TEST_ASSERT_EQ(vcpu->run->memory.size, EXITS_TEST_SIZE);
 
 	kvm_vm_free(vm);
 }
@@ -98,10 +98,10 @@ static void test_private_access_memslot_not_private(void)
 
 	exit_reason = run_vcpu_get_exit_reason(vcpu);
 
-	ASSERT_EQ(exit_reason, KVM_EXIT_MEMORY_FAULT);
-	ASSERT_EQ(vcpu->run->memory.flags, KVM_MEMORY_EXIT_FLAG_PRIVATE);
-	ASSERT_EQ(vcpu->run->memory.gpa, EXITS_TEST_GPA);
-	ASSERT_EQ(vcpu->run->memory.size, EXITS_TEST_SIZE);
+	TEST_ASSERT_EQ(exit_reason, KVM_EXIT_MEMORY_FAULT);
+	TEST_ASSERT_EQ(vcpu->run->memory.flags, KVM_MEMORY_EXIT_FLAG_PRIVATE);
+	TEST_ASSERT_EQ(vcpu->run->memory.gpa, EXITS_TEST_GPA);
+	TEST_ASSERT_EQ(vcpu->run->memory.size, EXITS_TEST_SIZE);
 
 	kvm_vm_free(vm);
 }

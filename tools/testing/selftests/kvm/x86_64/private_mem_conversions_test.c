@@ -34,7 +34,8 @@ do {								\
 	size_t i;						\
 								\
 	for (i = 0; i < size; i++)				\
-		GUEST_ASSERT_4(mem[i] == pattern,		\
+		__GUEST_ASSERT(mem[i] == pattern,		\
+			       "gpa %lx i %lx mem[i] %lx pattern %lx", \
 			       gpa, i, mem[i], pattern);	\
 } while (0)
 
@@ -268,7 +269,7 @@ static void *__test_mem_conversions(void *__vcpu)
 
 		switch (get_ucall(vcpu, &uc)) {
 		case UCALL_ABORT:
-			REPORT_GUEST_ASSERT_4(uc, "%lx %lx %lx %lx");
+			REPORT_GUEST_ASSERT(uc);
 		case UCALL_SYNC: {
 			uint8_t *hva = addr_gpa2hva(vm, uc.args[1]);
 			uint64_t size = uc.args[2];

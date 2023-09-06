@@ -1187,7 +1187,7 @@ static inline void kvm_hypercall_map_gpa_range(uint64_t gpa, uint64_t size,
 {
 	uint64_t ret = __kvm_hypercall_map_gpa_range(gpa, size, flags);
 
-	GUEST_ASSERT_1(!ret, ret);
+	GUEST_ASSERT_EQ(ret, 0);
 }
 
 void __vm_xsave_require_permission(uint64_t xfeature, const char *name);

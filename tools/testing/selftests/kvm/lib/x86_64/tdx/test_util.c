@@ -22,7 +22,7 @@ void run_in_new_process(void (*func)(void))
 
 bool is_tdx_enabled(void)
 {
-	return !!(kvm_check_cap(KVM_CAP_VM_TYPES) & BIT(KVM_X86_PROTECTED_VM));
+	return !!(kvm_check_cap(KVM_CAP_VM_TYPES) & BIT(KVM_X86_SW_PROTECTED_VM));
 }
 
 void tdx_test_success(void)

@@ -139,10 +139,10 @@ static void tdx_check_attributes(struct kvm_vm *vm, uint64_t attributes)
 	tdx_cap = tdx_read_capabilities(vm);
 
 	/* TDX spec: any bits 0 in attrs_fixed0 must be 0 in attributes */
-	ASSERT_EQ(attributes & ~tdx_cap->attrs_fixed0, 0);
+	TEST_ASSERT_EQ(attributes & ~tdx_cap->attrs_fixed0, 0);
 
 	/* TDX spec: any bits 1 in attrs_fixed1 must be 1 in attributes */
-	ASSERT_EQ(attributes & tdx_cap->attrs_fixed1, tdx_cap->attrs_fixed1);
+	TEST_ASSERT_EQ(attributes & tdx_cap->attrs_fixed1, tdx_cap->attrs_fixed1);
 
 	free(tdx_cap);
 }
@@ -450,7 +450,7 @@ struct kvm_vm *td_create(void)
 	struct vm_shape shape;
 
 	shape.mode = VM_MODE_DEFAULT;
-	shape.type = KVM_X86_PROTECTED_VM;
+	shape.type = KVM_X86_SW_PROTECTED_VM;
 	return ____vm_create(shape);
 }
 
@@ -464,7 +464,7 @@ static void td_setup_boot_code(struct kvm_vm *vm, enum vm_mem_backing_src_type s
 	vm_userspace_mem_region_add(vm, src_type, boot_code_base_gpa, 1, npages,
 				    KVM_MEM_GUEST_MEMFD);
 	addr = vm_vaddr_alloc_1to1(vm, boot_code_allocation, boot_code_base_gpa, 1);
-	ASSERT_EQ(addr, boot_code_base_gpa);
+	TEST_ASSERT_EQ(addr, boot_code_base_gpa);
 
 	load_td_boot_code(vm);
 }
@@ -488,7 +488,7 @@ static void td_setup_boot_parameters(struct kvm_vm *vm, enum vm_mem_backing_src_
 	vm_userspace_mem_region_add(vm, src_type, TD_BOOT_PARAMETERS_GPA, 2,
 				    npages, KVM_MEM_GUEST_MEMFD);
 	addr = vm_vaddr_alloc_1to1(vm, total_size, TD_BOOT_PARAMETERS_GPA, 2);
-	ASSERT_EQ(addr, TD_BOOT_PARAMETERS_GPA);
+	TEST_ASSERT_EQ(addr, TD_BOOT_PARAMETERS_GPA);
 }
 
 static void __td_initialize(struct kvm_vm *vm,

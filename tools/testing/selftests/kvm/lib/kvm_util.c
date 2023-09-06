@@ -1531,7 +1531,7 @@ vm_vaddr_t vm_vaddr_alloc_1to1(struct kvm_vm *vm, size_t sz, vm_vaddr_t vaddr_mi
 {
 	vm_vaddr_t gva = _vm_vaddr_alloc(vm, sz, vaddr_min, (vm_paddr_t) vaddr_min,
 					 data_memslot, vm->protected);
-	ASSERT_EQ(gva, addr_gva2gpa(vm, gva));
+	TEST_ASSERT_EQ(gva, addr_gva2gpa(vm, gva));
 
 	return gva;
 }

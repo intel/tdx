@@ -82,6 +82,7 @@ static void test_hcall(struct hcall_data *hc)
 
 static void guest_main(void)
 {
+	static struct hcall_data hc = TEST_HCALL(KVM_HC_MAP_GPA_RANGE);
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(msrs_to_test); i++) {
@@ -91,6 +92,13 @@ static void guest_main(void)
 	for (i = 0; i < ARRAY_SIZE(hcalls_to_test); i++) {
 		test_hcall(&hcalls_to_test[i]);
 	}
+
+	/* KVM_HC_MAP_GPA_RANGE requires the user space to handle it. */
+	PR_HCALL(&hc);
+	i = kvm_hypercall(KVM_HC_MAP_GPA_RANGE, 0, 0, 0, 0);
+	GUEST_ASSERT_EQ(i, -KVM_EINVAL);
+	i = kvm_hypercall(KVM_HC_MAP_GPA_RANGE, 0, 1, 0, 0);
+	GUEST_ASSERT_EQ(i, 0);
 
 	GUEST_DONE();
 }
@@ -111,10 +119,18 @@ static void pr_hcall(struct ucall *uc)
 
 static void enter_guest(struct kvm_vcpu *vcpu)
 {
+	int nr_map_gpa_range = 0;
 	struct ucall uc;
 
 	while (true) {
 		vcpu_run(vcpu);
+		if (vcpu->run->exit_reason == KVM_EXIT_HYPERCALL) {
+			TEST_ASSERT_EQ(vcpu->run->hypercall.nr,
+				       KVM_HC_MAP_GPA_RANGE);
+			nr_map_gpa_range++;
+			continue;
+		}
+
 		TEST_ASSERT_KVM_EXIT_REASON(vcpu, KVM_EXIT_IO);
 
 		switch (get_ucall(vcpu, &uc)) {
@@ -126,11 +142,13 @@ static void enter_guest(struct kvm_vcpu *vcpu)
 			break;
 		case UCALL_ABORT:
 			REPORT_GUEST_ASSERT(uc);
-			return;
+			goto out;
 		case UCALL_DONE:
-			return;
+			goto out;
 		}
 	}
+out:
+	TEST_ASSERT_EQ(nr_map_gpa_range, 1);
 }
 
 int main(void)
@@ -138,10 +156,12 @@ int main(void)
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
 
+	TEST_REQUIRE(kvm_has_cap(KVM_CAP_EXIT_HYPERCALL));
 	TEST_REQUIRE(kvm_has_cap(KVM_CAP_ENFORCE_PV_FEATURE_CPUID));
 
 	vm = vm_create_with_one_vcpu(&vcpu, guest_main);
 
+	vm_enable_cap(vm, KVM_CAP_EXIT_HYPERCALL, (1 << KVM_HC_MAP_GPA_RANGE));
 	vcpu_enable_cap(vcpu, KVM_CAP_ENFORCE_PV_FEATURE_CPUID, 1);
 
 	vcpu_clear_cpuid_entry(vcpu, KVM_CPUID_FEATURES);

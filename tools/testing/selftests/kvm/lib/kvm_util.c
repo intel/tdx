@@ -2081,6 +2081,12 @@ static struct exit_reason {
 #ifdef KVM_EXIT_MEMORY_NOT_PRESENT
 	KVM_EXIT_STRING(MEMORY_NOT_PRESENT),
 #endif
+#ifdef KVM_EXIT_TDX
+	KVM_EXIT_STRING(TDX),
+#endif
+#ifdef KVM_EXIT_MEMORY_FAULT
+	KVM_EXIT_STRING(MEMORY_FAULT),
+#endif
 };
 
 /*

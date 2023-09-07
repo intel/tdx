@@ -171,6 +171,8 @@ void vcpu_run_and_manage_memory_conversions(struct kvm_vm *vm,
 			handle_memory_conversion(vm, gpa, vmcall_info->in_r13,
 				!(vm->arch.s_bit & vmcall_info->in_r12));
 			vmcall_info->status_code = 0;
+			if (vm->arch.s_bit & vmcall_info->in_r12)
+				vm_guest_mem_punch_hole(vm, gpa, vmcall_info->in_r13);
 			continue;
 		} else if (handle_conversions &&
 			vcpu->run->exit_reason == KVM_EXIT_MEMORY_FAULT) {

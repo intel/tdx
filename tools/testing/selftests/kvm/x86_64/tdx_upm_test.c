@@ -154,6 +154,15 @@ void vcpu_run_and_manage_memory_conversions(struct kvm_vm *vm,
 	for (;;) {
 		vcpu_run(vcpu);
 		if (vcpu->run->exit_reason == KVM_EXIT_TDX &&
+		    vcpu->run->tdx.type == KVM_EXIT_TDX_VMCALL &&
+		    vcpu->run->tdx.u.vmcall.subfunction ==
+		    TDG_VP_VMCALL_REPORT_FATAL_ERROR) {
+			/*
+			 * Convert TDG_VP_VMCALL_REPORT_FATAL_ERROR to
+			 * KVM_EXIT_SYSTEM_EVENT
+			 */
+			handle_userspace_tdg_vp_vmcall_exit(vcpu);
+		} else if (vcpu->run->exit_reason == KVM_EXIT_TDX &&
 			vcpu->run->tdx.type == KVM_EXIT_TDX_VMCALL &&
 			vcpu->run->tdx.u.vmcall.subfunction == TDG_VP_VMCALL_MAP_GPA) {
 			struct kvm_tdx_vmcall *vmcall_info = &vcpu->run->tdx.u.vmcall;

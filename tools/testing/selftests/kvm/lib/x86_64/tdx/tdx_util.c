@@ -450,7 +450,7 @@ struct kvm_vm *td_create(void)
 	struct vm_shape shape;
 
 	shape.mode = VM_MODE_DEFAULT;
-	shape.type = KVM_X86_SW_PROTECTED_VM;
+	shape.type = KVM_X86_TDX_VM;
 	return ____vm_create(shape);
 }
 

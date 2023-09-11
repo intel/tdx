@@ -2721,6 +2721,36 @@ static ssize_t removable_show(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_RO(removable);
 
+static ssize_t authorized_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return sysfs_emit(buf, "%u\n", dev->authorized);
+}
+
+static ssize_t authorized_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	bool val;
+	int ret;
+
+	ret = kstrtobool(buf, &val);
+	if (ret < 0)
+		return ret;
+
+	device_lock(dev);
+	dev_set_authorized(dev, val);
+	device_unlock(dev);
+
+	if (dev_is_authorized(dev)) {
+		if (!device_attach(dev))
+			dev_err(dev, "failed to probe after authorize\n");
+	} else
+		device_release_driver(dev);
+
+	return count;
+}
+static DEVICE_ATTR_RW(authorized);
+
 int device_add_groups(struct device *dev, const struct attribute_group **groups)
 {
 	return sysfs_create_groups(&dev->kobj, groups);
@@ -2872,8 +2902,16 @@ static int device_add_attrs(struct device *dev)
 			goto err_remove_dev_removable;
 	}
 
+	if (dev_is_authorizable(dev)) {
+		error = device_create_file(dev, &dev_attr_authorized);
+		if (error)
+			goto err_remove_dev_physical;
+	}
+
 	return 0;
 
+ err_remove_dev_physical:
+	device_remove_group(dev, &dev_attr_physical_location_group);
  err_remove_dev_removable:
 	device_remove_file(dev, &dev_attr_removable);
  err_remove_dev_waiting_for_supplier:
@@ -2901,7 +2939,7 @@ static void device_remove_attrs(struct device *dev)
 		device_remove_group(dev, &dev_attr_physical_location_group);
 		kfree(dev->physical_location);
 	}
-
+	device_remove_file(dev, &dev_attr_authorized);
 	device_remove_file(dev, &dev_attr_removable);
 	device_remove_file(dev, &dev_attr_waiting_for_supplier);
 	device_remove_file(dev, &dev_attr_online);
@@ -3068,6 +3106,16 @@ static void klist_children_put(struct klist_node *n)
 	put_device(dev);
 }
 
+/*
+ * Initialize authorized status of all devices. By default, it is
+ * set as "allow all". Used __weak attribute allow ARCH code override
+ * the default status.
+ */
+bool __weak dev_authorized_init(void)
+{
+	return true;
+}
+
 /**
  * device_initialize - init device structure.
  * @dev: device.
@@ -3109,8 +3157,16 @@ void device_initialize(struct device *dev)
 	dev->dma_coherent = dma_default_coherent;
 #endif
 	swiotlb_dev_init(dev);
+	dev_set_authorizable(dev, true);
+	dev->authorized = dev_authorized_init();
 }
 EXPORT_SYMBOL_GPL(device_initialize);
+
+bool __weak arch_dev_authorized(struct device *dev)
+{
+	return dev->authorized;
+}
+EXPORT_SYMBOL_GPL(arch_dev_authorized);
 
 struct kobject *virtual_device_parent(struct device *dev)
 {

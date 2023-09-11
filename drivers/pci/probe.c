@@ -19,6 +19,8 @@
 #include <linux/irqdomain.h>
 #include <linux/pm_runtime.h>
 #include <linux/bitfield.h>
+#include <linux/cc_platform.h>
+#include <linux/device.h>
 #include "pci.h"
 
 #define CARDBUS_LATENCY_TIMER	176	/* secondary latency timer */
@@ -2543,6 +2545,8 @@ void pci_device_add(struct pci_dev *dev, struct pci_bus *bus)
 	pci_configure_device(dev);
 
 	device_initialize(&dev->dev);
+	if (cc_platform_has(CC_ATTR_GUEST_DEVICE_FILTER))
+		dev->dev.authorized = arch_dev_authorized(&dev->dev);
 	dev->dev.release = pci_release_dev;
 
 	set_dev_node(&dev->dev, pcibus_to_node(bus));

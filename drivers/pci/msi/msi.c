@@ -552,7 +552,8 @@ static void __iomem *msix_map_region(struct pci_dev *dev,
 				     unsigned int nr_entries)
 {
 	resource_size_t phys_addr;
-	u32 table_offset;
+	u32 table_offset, table_size;
+	resource_size_t bir_size;
 	unsigned long flags;
 	u8 bir;
 
@@ -563,14 +564,18 @@ static void __iomem *msix_map_region(struct pci_dev *dev,
 	if (!flags || (flags & IORESOURCE_UNSET))
 		return NULL;
 
+	bir_size = pci_resource_len(dev, bir);
+	table_size = nr_entries * PCI_MSIX_ENTRY_SIZE;
 	table_offset &= PCI_MSIX_TABLE_OFFSET;
+	if (bir_size < table_size || table_offset > bir_size - table_size)
+		return NULL;
+
 	phys_addr = pci_resource_start(dev, bir) + table_offset;
 
 	if (dev->dev.authorized)
-		return ioremap_driver_hardened(phys_addr,
-				nr_entries * PCI_MSIX_ENTRY_SIZE);
+		return ioremap_driver_hardened(phys_addr, table_size);
 
-	return ioremap(phys_addr, nr_entries * PCI_MSIX_ENTRY_SIZE);
+	return ioremap(phys_addr, table_size);
 }
 
 /**
@@ -719,7 +724,7 @@ static int msix_capability_init(struct pci_dev *dev, struct msix_entry *entries,
 
 	pci_read_config_word(dev, dev->msix_cap + PCI_MSIX_FLAGS, &control);
 	/* Request & Map MSI-X table region */
-	tsize = msix_table_size(control);
+	tsize = pci_msix_vec_count(dev);
 	dev->msix_base = msix_map_region(dev, tsize);
 	if (!dev->msix_base) {
 		ret = -ENOMEM;

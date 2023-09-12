@@ -75,8 +75,13 @@ int pci_msix_vec_count(struct pci_dev *dev)
 	if (!dev->msix_cap)
 		return -EINVAL;
 
+	if (dev->flags_qsize)
+		return dev->flags_qsize;
+
 	pci_read_config_word(dev, dev->msix_cap + PCI_MSIX_FLAGS, &control);
-	return msix_table_size(control);
+	dev->flags_qsize = msix_table_size(control);
+
+	return dev->flags_qsize;
 }
 EXPORT_SYMBOL(pci_msix_vec_count);
 

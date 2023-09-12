@@ -65,6 +65,10 @@ int tdx_mcall_extend_rtmr(u8 *data, u8 index);
 
 int tdx_hcall_get_quote(void *tdquote, int size);
 
+int tdx_alloc_event_irq(void);
+
+void tdx_free_event_irq(int);
+
 #else
 
 static inline void tdx_early_init(void) { };

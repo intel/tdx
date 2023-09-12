@@ -12,6 +12,7 @@
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/numa.h>
+#include <linux/platform_device.h>
 #include <asm/coco.h>
 #include <asm/tdx.h>
 #include <asm/vmx.h>
@@ -994,3 +995,59 @@ init_failed:
 	return 0;
 }
 arch_initcall(tdx_arch_init);
+
+/**
+ * tdx_alloc_event_irq() - Allocate an IRQ for event notification from
+ * 			   the VMM to the TDX Guest.
+ *
+ * Return IRQ on success or errno on failure.
+ *
+ */
+int tdx_alloc_event_irq(void)
+{
+	struct irq_alloc_info info;
+	int irq;
+
+	if (!cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
+		return -ENODEV;
+
+	init_irq_alloc_info(&info, NULL);
+
+	irq = irq_domain_alloc_irqs(x86_vector_domain, 1, NUMA_NO_NODE, &info);
+	if (irq <= 0) {
+		pr_err("Event notification IRQ allocation failed %d\n", irq);
+		return -EIO;
+	}
+
+	irq_set_handler(irq, handle_edge_irq);
+
+	return irq;
+}
+EXPORT_SYMBOL_GPL(tdx_alloc_event_irq);
+
+/**
+ * tdx_free_event_irq() - Free the event IRQ.
+ *
+ */
+void tdx_free_event_irq(int irq)
+{
+	irq_domain_free_irqs(irq, 1);
+}
+EXPORT_SYMBOL_GPL(tdx_free_event_irq);
+
+static struct platform_device tpm_device = {
+	.name = "tpm",
+	.id = -1,
+};
+
+static int __init tdx_device_init(void)
+{
+	if (!cpu_feature_enabled(X86_FEATURE_TDX_GUEST))
+		return 0;
+
+	if (platform_device_register(&tpm_device))
+		pr_warn("TPM device register failed\n");
+
+	return 0;
+}
+device_initcall(tdx_device_init)

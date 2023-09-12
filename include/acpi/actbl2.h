@@ -54,6 +54,7 @@
 #define ACPI_SIG_SDEV           "SDEV"	/* Secure Devices table */
 #define ACPI_SIG_SVKL           "SVKL"	/* Storage Volume Key Location Table */
 #define ACPI_SIG_TDEL           "TDEL"	/* TD Event Log Table */
+#define ACPI_SIG_TDTK           "TDTK"	/* TD TPM Key Table */
 
 /*
  * All tables must be byte-packed to match the ACPI specification, since
@@ -3015,6 +3016,37 @@ struct acpi_table_tdel {
 	u32 reserved;
 	u64 log_area_minimum_length;
 	u64 log_area_start_address;
+};
+
+/*******************************************************************************
+ *
+ * TDTK - TD TPM Key table
+ *
+ ******************************************************************************/
+
+struct acpi_table_tdtk {
+	struct acpi_table_header header;	/* Common ACPI table header */
+	u32 reserved;
+	u16 version;
+	u8 protocol;
+	u8 reserved2;
+	u32 info_len;
+	u64 info_address;
+};
+
+struct acpi_tdtk_spdm {
+	u16 trans_ver;
+	u16 aead_algo;
+	u32 sess_id;
+};
+
+struct acpi_tdtk_aes_256_gcm {
+	u8 req_key[32];
+	u8 req_iv[12];
+	u64 req_seq;
+	u8 resp_key[32];
+	u8 resp_iv[12];
+	u64 resp_seq;
 };
 
 /* Reset to default packing */

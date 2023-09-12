@@ -219,51 +219,108 @@ static const struct {
 	},
 };
 
+static efi_status_t tcg2_efi_measure(efi_tcg2_protocol_t *tcg2,
+				     unsigned long load_addr,
+				     unsigned long load_size,
+				     enum efistub_event event)
+{
+	struct efi_measured_event {
+		efi_tcg2_event_t	event_data;
+		efi_tcg2_tagged_event_t tagged_event;
+		u8			tagged_event_data[];
+	} *evt;
+	int size = sizeof(*evt) + events[event].event_data_len;
+	efi_status_t status;
+
+	status = efi_bs_call(allocate_pool, EFI_LOADER_DATA, size,
+			     (void **)&evt);
+	if (status != EFI_SUCCESS)
+		return status;
+
+	evt->event_data = (struct efi_tcg2_event){
+		.event_size			= size,
+		.event_header.header_size	= sizeof(evt->event_data.event_header),
+		.event_header.header_version	= EFI_TCG2_EVENT_HEADER_VERSION,
+		.event_header.pcr_index		= events[event].pcr_index,
+		.event_header.event_type	= EV_EVENT_TAG,
+	};
+
+	evt->tagged_event = (struct efi_tcg2_tagged_event){
+		.tagged_event_id		= events[event].event_id,
+		.tagged_event_data_size		= events[event].event_data_len,
+	};
+
+	memcpy(evt->tagged_event_data, events[event].event_data,
+	       events[event].event_data_len);
+
+	status = efi_call_proto(tcg2, hash_log_extend_event, 0,
+				load_addr, load_size, &evt->event_data);
+	efi_bs_call(free_pool, evt);
+
+	return status;
+}
+
+static efi_status_t cc_efi_measure(efi_cc_measurement_protocol_t *cc,
+				   unsigned long load_addr,
+				   unsigned long load_size,
+				   enum efistub_event event)
+{
+	efi_cc_mr_index_t mr;
+	efi_cc_event_t *evt;
+	efi_status_t status;
+	size_t size;
+
+	status = efi_call_proto(cc, map_pcr_to_mr_index, events[event].pcr_index, &mr);
+        if (status != EFI_SUCCESS) {
+		efi_err("CC_MEASURE: PCR to MR mapping failed\n");
+		return status;
+	}
+
+	size = sizeof(*evt) + events[event].event_data_len;
+	status = efi_bs_call(allocate_pool, EFI_LOADER_DATA, size, (void **)&evt);
+        if (status != EFI_SUCCESS) {
+		efi_err("CC_MEASURE: Allocating event struct failed\n");
+		return status;
+	}
+
+	evt->event_size = size;
+	evt->event_header.header_size = sizeof(evt->event_header);
+	evt->event_header.header_version = EFI_CC_EVENT_HEADER_VERSION;
+	evt->event_header.mr_index = mr;
+	evt->event_header.event_type = EV_EVENT_TAG;
+	memcpy(evt->event_data, events[event].event_data, events[event].event_data_len);
+
+	status = efi_call_proto(cc, hash_log_extend_event, 0, load_addr, load_size, evt);
+	efi_bs_call(free_pool, evt);
+
+	return status;
+}
 static efi_status_t efi_measure_tagged_event(unsigned long load_addr,
 					     unsigned long load_size,
 					     enum efistub_event event)
 {
 	efi_guid_t tcg2_guid = EFI_TCG2_PROTOCOL_GUID;
+	efi_guid_t cc_guid = EFI_CC_MEASUREMENT_PROTOCOL_GUID;
+	efi_cc_measurement_protocol_t *cc = NULL;
 	efi_tcg2_protocol_t *tcg2 = NULL;
 	efi_status_t status;
 
 	efi_bs_call(locate_protocol, &tcg2_guid, NULL, (void **)&tcg2);
 	if (tcg2) {
-		struct efi_measured_event {
-			efi_tcg2_event_t	event_data;
-			efi_tcg2_tagged_event_t tagged_event;
-			u8			tagged_event_data[];
-		} *evt;
-		int size = sizeof(*evt) + events[event].event_data_len;
-
-		status = efi_bs_call(allocate_pool, EFI_LOADER_DATA, size,
-				     (void **)&evt);
+		status = tcg2_efi_measure(tcg2, load_addr, load_size, event);
 		if (status != EFI_SUCCESS)
 			goto fail;
 
-		evt->event_data = (struct efi_tcg2_event){
-			.event_size			= size,
-			.event_header.header_size	= sizeof(evt->event_data.event_header),
-			.event_header.header_version	= EFI_TCG2_EVENT_HEADER_VERSION,
-			.event_header.pcr_index		= events[event].pcr_index,
-			.event_header.event_type	= EV_EVENT_TAG,
-		};
+		return status;
+	}
 
-		evt->tagged_event = (struct efi_tcg2_tagged_event){
-			.tagged_event_id		= events[event].event_id,
-			.tagged_event_data_size		= events[event].event_data_len,
-		};
-
-		memcpy(evt->tagged_event_data, events[event].event_data,
-		       events[event].event_data_len);
-
-		status = efi_call_proto(tcg2, hash_log_extend_event, 0,
-					load_addr, load_size, &evt->event_data);
-		efi_bs_call(free_pool, evt);
-
+	efi_bs_call(locate_protocol, &cc_guid, NULL, (void **)&cc);
+	if (cc) {
+		status = cc_efi_measure(cc, load_addr, load_size, event);
 		if (status != EFI_SUCCESS)
 			goto fail;
-		return EFI_SUCCESS;
+
+		return status;
 	}
 
 	return EFI_UNSUPPORTED;

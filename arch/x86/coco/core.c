@@ -16,6 +16,37 @@
 enum cc_vendor cc_vendor __ro_after_init = CC_VENDOR_NONE;
 static u64 cc_mask __ro_after_init;
 
+/* Status of CC filter, enabled by default */
+static bool cc_filter_status = true;
+
+unsigned int x86_cc_attr_override = -1;
+
+/* Command line parser to disable CC filter */
+static int __init setup_noccfilter(char *str)
+{
+	cc_filter_status = false;
+	return 1;
+}
+__setup("noccfilter", setup_noccfilter);
+
+void cc_set_filter_status(bool status)
+{
+	cc_filter_status = status;
+}
+
+bool cc_filter_enabled(void)
+{
+	return cc_filter_status;
+}
+
+static int __init x86_cc_attr_override_setup(char *arg)
+{
+       get_option(&arg, &x86_cc_attr_override);
+
+       return 1;
+}
+__setup("x86_cc_attr_override=", x86_cc_attr_override_setup);
+
 static bool noinstr intel_cc_platform_has(enum cc_attr attr)
 {
 	switch (attr) {
@@ -23,7 +54,13 @@ static bool noinstr intel_cc_platform_has(enum cc_attr attr)
 	case CC_ATTR_HOTPLUG_DISABLED:
 	case CC_ATTR_GUEST_MEM_ENCRYPT:
 	case CC_ATTR_MEM_ENCRYPT:
+	case CC_ATTR_GUEST_HARDENED:
+	case CC_ATTR_GUEST_SECURE_TIME:
+	case CC_ATTR_GUEST_CPUID_FILTER:
+	case CC_ATTR_GUEST_RAND_LOOP:
 		return true;
+	case CC_ATTR_GUEST_DEVICE_FILTER:
+		return cc_filter_status;
 	default:
 		return false;
 	}
@@ -99,6 +136,9 @@ static bool noinstr amd_cc_platform_has(enum cc_attr attr)
 
 bool noinstr cc_platform_has(enum cc_attr attr)
 {
+	if (attr == x86_cc_attr_override)
+		return false;
+
 	switch (cc_vendor) {
 	case CC_VENDOR_AMD:
 		return amd_cc_platform_has(attr);

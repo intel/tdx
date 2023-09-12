@@ -42,6 +42,39 @@ ABI. However, in the future, if the TDX Module supports more than one subtype,
 a new IOCTL CMD will be created to handle it. To keep the IOCTL naming
 consistent, a subtype index is added as part of the IOCTL CMD.
 
+2.2 TDX_CMD_VERIFY_REPORT
+-------------------------
+
+:Input parameters: struct tdx_verify_report_req
+:Output: Return 0 on success, -EIO on TDCALL failure or standard error number
+         on common failures. On TDCALL failure, error code is copied to
+         tdx_verify_report_req.err_code.
+
+The TDX_CMD_VERIFY_REPORT IOCTL can be used by userspace application to verify
+whether the given REPORTMACSTRUCT (part of TDREPORT struct) is generated in the
+current platform using TDG.MR.VERIFYREPORT TDCALL.
+
+2.3 TDX_CMD_EXTEND_RTMR
+-----------------------
+
+:Input parameters: struct tdx_extend_rtmr_req
+:Output: Return 0 on success, -EIO on TDCALL failure, -EBUSY for TDX Module busy
+         condition, or standard error number on common failures.
+
+The TDX_CMD_VERIFY_REPORT IOCTL can be used by userspace application to extend
+RTMR registers > 1 with user specified data using TDG.MR.RTMR.EXTEND TDCALL.
+
+2.3 TDX_CMD_GET_QUOTE
+----------------------
+
+:Input parameters: struct tdx_quote_req
+:Output: Return 0 on success, -EINTR for interrupted request, -EIO on TDCALL
+         failure or standard error number on common failures. Upon successful
+         execution, QUOTE data is copied to tdx_quote_req.buf.
+
+The TDX_CMD_GET_QUOTE IOCTL can be used by attestation software to generate
+QUOTE for the given TDREPORT using TDG.VP.VMCALL<GetQuote> hypercall.
+
 Reference
 ---------
 

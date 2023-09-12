@@ -12,3 +12,4 @@ List the merged patches related to TDX for ease of tracking.
 7. swiotlb enhancment (LFE-111)
 8. Glibc crash due to CPUID virtualization leaf 0x2 (BLR-708)
 9. TDX 1.5/2.0/preserving common part
+10. TDX 1.5/2.0 preserving common part2

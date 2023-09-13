@@ -17,6 +17,7 @@
 
 #include <trace/events/kvm.h>
 #include "trace.h"
+#include "tdx_mig.c"
 
 #undef pr_fmt
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -5606,6 +5607,13 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 
 	mce_register_decode_chain(&tdx_mce_nb);
 	intel_reserve_lbr_buffers();
+
+	r = kvm_tdx_mig_stream_ops_init();
+	if (r) {
+		pr_err("%s: failed to init tdx mig, %d\n", __func__, r);
+		return r;
+	}
+
 	return 0;
 
 out:
@@ -5618,6 +5626,7 @@ out:
 
 void tdx_hardware_unsetup(void)
 {
+	kvm_tdx_mig_stream_ops_exit();
 	intel_release_lbr_buffers();
 	mce_unregister_decode_chain(&tdx_mce_nb);
 	/* kfree accepts NULL. */

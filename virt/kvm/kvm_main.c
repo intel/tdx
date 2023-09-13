@@ -4761,12 +4761,14 @@ int kvm_register_device_ops(const struct kvm_device_ops *ops, u32 type)
 	kvm_device_ops_table[type] = ops;
 	return 0;
 }
+EXPORT_SYMBOL_GPL(kvm_register_device_ops);
 
 void kvm_unregister_device_ops(u32 type)
 {
 	if (kvm_device_ops_table[type] != NULL)
 		kvm_device_ops_table[type] = NULL;
 }
+EXPORT_SYMBOL_GPL(kvm_unregister_device_ops);
 
 static int kvm_ioctl_create_device(struct kvm *kvm,
 				   struct kvm_create_device *cd)

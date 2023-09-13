@@ -151,6 +151,7 @@ static long tdx_get_quote(struct tdx_quote_req __user *ureq)
 {
 	struct tdx_quote_req req;
 	long ret;
+	u64 err;
 
 	if (copy_from_user(&req, ureq, sizeof(req)))
 		return -EFAULT;
@@ -172,12 +173,14 @@ static long tdx_get_quote(struct tdx_quote_req __user *ureq)
 	}
 
 	/* Submit GetQuote Request using GetQuote hypercall */
-	ret = tdx_hcall_get_quote(qentry->buf, qentry->buf_len);
-	if (ret) {
-		pr_err("GetQuote hypercall failed, status:%lx\n", ret);
+	err = tdx_hcall_get_quote(qentry->buf, qentry->buf_len);
+	if (err) {
+		pr_err("GetQuote hypercall failed, status:%lx\n", err);
 		ret = -EIO;
 		goto quote_failed;
 	}
+
+	ret = 0;
 
 	/*
 	 * Although the GHCI specification does not state explicitly that

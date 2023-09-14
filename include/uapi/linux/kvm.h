@@ -1233,6 +1233,7 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_USER_MEMORY2 230
 #define KVM_CAP_MEMORY_ATTRIBUTES 231
 #define KVM_CAP_GUEST_MEMFD 232
+#define KVM_CAP_VM_TYPES 233
 
 #ifdef KVM_CAP_IRQ_ROUTING
 

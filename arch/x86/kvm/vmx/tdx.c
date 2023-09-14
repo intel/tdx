@@ -2955,16 +2955,17 @@ static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 
 	if (kvm_is_private_gpa(vcpu->kvm, tdexit_gpa(vcpu))) {
 		/*
-		 * Always treat SEPT violations as write faults.  Ignore the
-		 * EXIT_QUALIFICATION reported by TDX-SEAM for SEPT violations.
-		 * TD private pages are always RWX in the SEPT tables,
-		 * i.e. they're always mapped writable.  Just as importantly,
-		 * treating SEPT violations as write faults is necessary to
-		 * avoid COW allocations, which will cause TDAUGPAGE failures
+		 * For the RWX bits, always treat them as write faults. This
+		 * avoids COW allocations, which will cause TDAUGPAGE failures
 		 * due to aliasing a single HPA to multiple GPAs.
+		 *
+		 * For other bits, keep them the same as that reported from the
+		 * TDX module. For example, the fault may be triggered via
+		 * write-blocking the private page, and this is detected from
+		 * the exit_qualification bits returned from the TDX module.
 		 */
-#define TDX_SEPT_VIOLATION_EXIT_QUAL	EPT_VIOLATION_ACC_WRITE
-		exit_qual = TDX_SEPT_VIOLATION_EXIT_QUAL;
+		exit_qual = tdexit_exit_qual(vcpu) & (~VMX_EPT_RWX_MASK);
+		exit_qual |= EPT_VIOLATION_ACC_WRITE;
 	} else {
 		exit_qual = tdexit_exit_qual(vcpu);
 		if (exit_qual & EPT_VIOLATION_ACC_INSTR) {
@@ -5624,6 +5625,7 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	x86_ops->mem_enc_read_memory = tdx_read_guest_memory;
 	x86_ops->mem_enc_write_memory = tdx_write_guest_memory;
 	x86_ops->write_block_private_pages = tdx_write_block_private_pages;
+	x86_ops->write_unblock_private_page = tdx_write_unblock_private_page;
 	kvm_set_tdx_guest_pmi_handler(tdx_guest_pmi_handler);
 
 	mce_register_decode_chain(&tdx_mce_nb);

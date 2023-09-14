@@ -114,6 +114,17 @@ struct tdx_mig_mac_list {
 	hpa_t hpa;
 };
 
+/* Secure EPT mapping info used by TDH_EXPORT_UNBLOCKW */
+union tdx_mig_ept_info {
+	uint64_t val;
+	struct {
+		uint64_t level	: 3;
+		uint64_t rsvd1	: 9;
+		uint64_t gfn	: 40;
+		uint64_t rsvd2	: 12;
+	};
+};
+
 struct tdx_mig_stream {
 	uint16_t idx;
 	uint32_t buf_list_pages;
@@ -148,6 +159,7 @@ struct tdx_mig_capabilities {
 static struct tdx_mig_capabilities tdx_mig_caps;
 
 static void tdx_reclaim_td_page(unsigned long td_page_pa);
+static void tdx_track(struct kvm *kvm);
 
 static bool tdx_is_migration_source(struct kvm_tdx *kvm_tdx);
 
@@ -248,6 +260,27 @@ static void tdx_write_block_private_pages(struct kvm *kvm, gfn_t *gfns,
 
 	/* Request for tdx_track as the W bit gets removed */
 	smp_store_release(&kvm_tdx->has_range_blocked, true);
+}
+
+static void tdx_write_unblock_private_page(struct kvm *kvm,
+					  gfn_t gfn, int level)
+{
+	struct tdx_module_args out;
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	union tdx_mig_ept_info ept_info = {
+		/*
+		 * TDX treats level 0 as the leaf level, while Linux treats
+		 * level 1 (PG_LEVEL_4K) as the level.
+		 */
+		.level = pg_level_to_tdx_sept_level(level),
+		.rsvd1 = 0,
+		.gfn = gfn,
+		.rsvd2 = 0,
+	};
+
+	tdx_track(kvm);
+
+	tdh_export_unblockw(kvm_tdx->tdr_pa, ept_info.val, &out);
 }
 
 static void tdx_mig_stream_get_tdx_mig_attr(struct tdx_mig_stream *stream,

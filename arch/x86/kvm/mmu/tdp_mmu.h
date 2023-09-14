@@ -80,6 +80,13 @@ int kvm_tdp_mmu_get_walk(struct kvm_vcpu *vcpu, u64 addr, u64 *sptes,
 u64 *kvm_tdp_mmu_fast_pf_get_last_sptep(struct kvm_vcpu *vcpu, u64 addr,
 					u64 *spte);
 
+int kvm_tdp_mmu_import_private_pages(struct kvm_vcpu *vcpu,
+				     gfn_t *gfns,
+				     uint64_t *sptes,
+				     uint64_t npages,
+				     void *first_time_import_bitmap,
+				     void *opaque);
+
 #ifdef CONFIG_X86_64
 static inline bool is_tdp_mmu_page(struct kvm_mmu_page *sp) { return sp->tdp_mmu_page; }
 #else

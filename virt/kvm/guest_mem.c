@@ -627,7 +627,8 @@ int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
 	page = folio_file_page(folio, index);
 
 	*pfn = page_to_pfn(page);
-	*max_order = compound_order(compound_head(page));
+	if (max_order)
+		*max_order = compound_order(compound_head(page));
 
 	folio_unlock(folio);
 	fput(file);

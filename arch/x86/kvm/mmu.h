@@ -358,4 +358,11 @@ static inline void kvm_mmu_split_direct_map(struct page *page)
 		set_direct_map_split_noflush(page);
 }
 
+int kvm_mmu_import_private_pages(struct kvm_vcpu *vcpu,
+				 gfn_t *gfns,
+				 uint64_t *sptes,
+				 uint64_t npages,
+				 void *first_time_import_bitmap,
+				 void *opaque);
+
 #endif

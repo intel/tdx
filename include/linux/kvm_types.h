@@ -41,6 +41,7 @@ typedef u64            gpa_t;
 typedef u64            gfn_t;
 
 #define INVALID_GPA	(~(gpa_t)0)
+#define INVALID_GFN	(INVALID_GPA / PAGE_SIZE)
 
 typedef unsigned long  hva_t;
 typedef u64            hpa_t;

@@ -3940,6 +3940,21 @@ static int fast_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	return ret;
 }
 
+int kvm_mmu_import_private_pages(struct kvm_vcpu *vcpu,
+				 gfn_t *gfns,
+				 uint64_t *sptes,
+				 uint64_t npages,
+				 void *first_time_import_bitmap,
+				 void *opaque)
+{
+	if (!tdp_mmu_enabled)
+		return -EOPNOTSUPP;
+
+	return kvm_tdp_mmu_import_private_pages(vcpu, gfns, sptes, npages,
+					first_time_import_bitmap, opaque);
+}
+EXPORT_SYMBOL_GPL(kvm_mmu_import_private_pages);
+
 static void mmu_free_root_page(struct kvm *kvm, hpa_t *root_hpa,
 			       struct list_head *invalid_list)
 {

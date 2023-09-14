@@ -5127,8 +5127,6 @@ static int __init tdx_module_setup(void)
 		tdx_info.nr_tdcs_pages, tdx_info.nr_tdvpx_pages);
 
 	err = tdh_sys_rd(TDX_MD_FID_SERVTD_MAX_SERVTDS, &out);
-	cpu_vmxop_put();
-	preempt_enable();
 	/*
 	 * If error happens, it isn't critical and no need to fail the entire
 	 * tdx setup. Only servtd binding (which is optional) won't be allowed
@@ -5139,6 +5137,8 @@ static int __init tdx_module_setup(void)
 	pr_info("tdx: max servtds supported per user TD is %d\n",
 		tdx_info.max_servtds);
 
+	cpu_vmxop_put();
+	preempt_enable();
 	return 0;
 }
 

@@ -771,6 +771,23 @@ static void handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 		kvm_set_pfn_accessed(spte_to_pfn(old_spte));
 }
 
+static int private_spte_change_flags(struct kvm *kvm, gfn_t gfn, u64 old_spte,
+				     u64 new_spte, int level)
+{
+	bool was_writable = is_writable_pte(old_spte);
+	bool is_writable = is_writable_pte(new_spte);
+
+	/* Write block. TODO: Optimize with batching */
+	if (was_writable && !is_writable) {
+		/* Sanity check: should be 4KB only */
+		KVM_BUG_ON(level != PG_LEVEL_4K, kvm);
+		static_call(kvm_x86_write_block_private_pages)(kvm,
+							(gfn_t *)&gfn, 1);
+	}
+
+	return 0;
+}
+
 static int __must_check __set_private_spte_present(struct kvm *kvm, tdp_ptep_t sptep,
 						   gfn_t gfn, u64 old_spte,
 						   u64 new_spte, int level)
@@ -789,11 +806,6 @@ static int __must_check __set_private_spte_present(struct kvm *kvm, tdp_ptep_t s
 	int ret = 0;
 
 	lockdep_assert_held(&kvm->mmu_lock);
-	/*
-	 * TDP MMU doesn't change present -> present. split or merge of large
-	 * page can happen.
-	 */
-	KVM_BUG_ON(was_present && (was_leaf == is_leaf), kvm);
 
 	/*
 	 * Handle special case of old_spte being temporarily blocked private
@@ -853,9 +865,13 @@ static int __must_check __set_private_spte_present(struct kvm *kvm, tdp_ptep_t s
 		if (!ret)
 			ret = static_call(kvm_x86_split_private_spt)(kvm, gfn,
 								     level, private_spt);
-	} else if (is_leaf)
+	} else if (is_leaf) {
+		if (was_present)
+			return private_spte_change_flags(kvm, gfn, old_spte,
+							 new_spte, level);
+
 		ret = static_call(kvm_x86_set_private_spte)(kvm, gfn, level, new_pfn);
-	else {
+	} else {
 		private_spt = get_private_spt(gfn, new_spte, level);
 		KVM_BUG_ON(!private_spt, kvm);
 		ret = static_call(kvm_x86_link_private_spt)(kvm, gfn, level, private_spt);
@@ -2439,6 +2455,10 @@ static void clear_dirty_pt_masked(struct kvm *kvm, struct kvm_mmu_page *root,
 
 		if (!(iter.old_spte & dbit))
 			continue;
+
+		if (is_private_sptep(iter.sptep))
+			static_call(kvm_x86_write_block_private_pages)(kvm,
+							(gfn_t *)&iter.gfn, 1);
 
 		iter.old_spte = tdp_mmu_clear_spte_bits(iter.sptep,
 							iter.old_spte, dbit,

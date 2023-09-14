@@ -5623,7 +5623,7 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	x86_ops->drop_private_spte = tdx_sept_drop_private_spte;
 	x86_ops->mem_enc_read_memory = tdx_read_guest_memory;
 	x86_ops->mem_enc_write_memory = tdx_write_guest_memory;
-
+	x86_ops->write_block_private_pages = tdx_write_block_private_pages;
 	kvm_set_tdx_guest_pmi_handler(tdx_guest_pmi_handler);
 
 	mce_register_decode_chain(&tdx_mce_nb);

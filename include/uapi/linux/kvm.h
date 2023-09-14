@@ -274,6 +274,7 @@ struct kvm_xen_exit {
 #define KVM_EXIT_RISCV_SBI        35
 #define KVM_EXIT_RISCV_CSR        36
 #define KVM_EXIT_NOTIFY           37
+#define KVM_EXIT_MEMORY_FAULT     38
 
 /* For KVM_EXIT_INTERNAL_ERROR */
 /* Emulate instruction failed. */
@@ -541,6 +542,29 @@ struct kvm_run {
 		struct kvm_sync_regs regs;
 		char padding[SYNC_REGS_SIZE_BYTES];
 	} s;
+
+	/*
+	 * This second exit union holds structs for exit types which may be
+	 * triggered after KVM has already initiated a different exit, or which
+	 * may be ultimately dropped by KVM.
+	 *
+	 * For example, because of limitations in KVM's uAPI, KVM x86 can
+	 * generate a memory fault exit an MMIO exit is initiated (exit_reason
+	 * and kvm_run.mmio are filled).  And conversely, KVM often disables
+	 * paravirt features if a memory fault occurs when accessing paravirt
+	 * data instead of reporting the error to userspace.
+	 */
+	union {
+		/* KVM_EXIT_MEMORY_FAULT */
+		struct {
+#define KVM_MEMORY_EXIT_FLAG_PRIVATE	(1ULL << 3)
+			__u64 flags;
+			__u64 gpa;
+			__u64 size;
+		} memory_fault;
+		/* Fix the size of the union. */
+		char padding2[256];
+	};
 };
 
 /* for KVM_REGISTER_COALESCED_MMIO / KVM_UNREGISTER_COALESCED_MMIO */

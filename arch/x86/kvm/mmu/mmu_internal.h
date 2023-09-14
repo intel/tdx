@@ -507,6 +507,8 @@ void *mmu_memory_cache_alloc(struct kvm_mmu_memory_cache *mc);
 
 void track_possible_nx_huge_page(struct kvm *kvm, struct kvm_mmu_page *sp);
 void untrack_possible_nx_huge_page(struct kvm *kvm, struct kvm_mmu_page *sp);
+void kvm_write_unblock_private_page(struct kvm *kvm,
+				    gfn_t gfn, int level);
 
 #ifdef CONFIG_KVM_GENERIC_MEMORY_ATTRIBUTES
 bool kvm_hugepage_test_mixed(struct kvm_memory_slot *slot, gfn_t gfn, int level);

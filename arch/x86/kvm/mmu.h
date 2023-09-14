@@ -185,6 +185,8 @@ static inline void kvm_mmu_refresh_passthrough_bits(struct kvm_vcpu *vcpu,
 int kvm_mmu_map_tdp_page(struct kvm_vcpu *vcpu, gpa_t gpa, u64 error_code,
 			 int max_level, bool nonleaf);
 
+int kvm_tdp_mmu_restore_private_pages(struct kvm *kvm);
+
 #ifdef CONFIG_KVM_PRIVATE_MEM
 int kvm_prealloc_private_pages(struct kvm *kvm, bool nonleaf);
 #endif

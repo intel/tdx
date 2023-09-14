@@ -1230,6 +1230,79 @@ static void tdp_mmu_zap_root(struct kvm *kvm, struct kvm_mmu_page *root,
 	rcu_read_unlock();
 }
 
+static int tdp_mmu_restore_private_page(struct kvm *kvm, gfn_t gfn,
+					u64 *sptep, u64 old_spte,
+					u64 new_spte, int level)
+{
+	int ret;
+
+	kvm_tdp_mmu_write_spte(sptep, old_spte, new_spte, level);
+	ret = static_call(kvm_x86_restore_private_page)(kvm, gfn);
+	if (ret == -EPERM && is_shadow_present_pte(old_spte) &&
+	    !is_writable_pte(old_spte)) {
+		kvm_write_unblock_private_page(kvm, gfn, level);
+		ret = 0;
+	}
+
+	return 0;
+}
+
+static int tdp_mmu_restore_private_pages(struct kvm *kvm,
+					 struct kvm_mmu_page *root)
+{
+	struct tdp_iter iter;
+	u64 old_spte, new_spte, *sptep;
+	gfn_t end = tdp_mmu_max_gfn_exclusive();
+	gfn_t start = 0;
+	gfn_t gfn;
+	int ret = 0;
+
+	for_each_tdp_pte_min_level(iter, root, PG_LEVEL_4K, start, end) {
+		if (tdp_mmu_iter_cond_resched(kvm, &iter, false, false))
+			continue;
+
+		if (iter.level > PG_LEVEL_4K)
+			continue;
+
+		old_spte = iter.old_spte;
+		sptep = iter.sptep;
+		gfn = iter.gfn;
+
+		/* Restored sptes should always be writable */
+		new_spte = old_spte | PT_WRITABLE_MASK;
+		ret = tdp_mmu_restore_private_page(kvm, gfn, sptep,
+						   old_spte, new_spte,
+						   iter.level);
+		if (ret)
+			break;
+	}
+
+	return ret;
+}
+
+int kvm_tdp_mmu_restore_private_pages(struct kvm *kvm)
+{
+	struct kvm_mmu_page *root;
+	int i, ret;
+
+	write_lock(&kvm->mmu_lock);
+
+	for (i = 0; i < kvm_arch_nr_memslot_as_ids(kvm); i++) {
+		for_each_tdp_mmu_root_yield_safe(kvm, root, i) {
+			if (!is_private_sp(root))
+				continue;
+			ret = tdp_mmu_restore_private_pages(kvm, root);
+			if (ret)
+				break;
+		}
+	}
+	kvm_flush_remote_tlbs(kvm);
+
+	write_unlock(&kvm->mmu_lock);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(kvm_tdp_mmu_restore_private_pages);
+
 bool kvm_tdp_mmu_zap_sp(struct kvm *kvm, struct kvm_mmu_page *sp)
 {
 	u64 old_spte;

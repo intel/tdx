@@ -3733,8 +3733,8 @@ static bool page_fault_can_be_fast(struct kvm *kvm, struct kvm_page_fault *fault
 	return fault->write;
 }
 
-static void kvm_write_unblock_private_page(struct kvm *kvm,
-					   gfn_t gfn, int level)
+void kvm_write_unblock_private_page(struct kvm *kvm,
+				    gfn_t gfn, int level)
 {
 	/*
 	 * Sanity check. When reaching here, write_unblock_private_page should

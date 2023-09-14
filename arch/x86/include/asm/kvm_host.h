@@ -1776,6 +1776,7 @@ struct kvm_x86_ops {
 	void (*write_unblock_private_page)(struct kvm *kvm, gfn_t gfn, int level);
 	int (*import_private_pages)(struct kvm *kvm, uint64_t *sptes,
 				    uint64_t npages, void *opaque);
+	int (*restore_private_page)(struct kvm *kvm, gfn_t gfn);
 
 	/*
 	 * The following five operations are only for legacy MMU.

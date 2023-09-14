@@ -186,6 +186,7 @@ struct tdx_mig_state {
 	 */
 	hpa_t *migsc_paddrs;
 	struct tdx_mig_gpa_list blockw_gpa_list;
+	struct tdx_mig_stream *default_stream;
 	/* Backward stream used on migration abort during post-copy */
 	struct tdx_mig_stream backward_stream;
 	hpa_t backward_migsc_paddr;
@@ -1271,6 +1272,46 @@ static int tdx_mig_import_state_vp(struct kvm_tdx *kvm_tdx,
 	return 0;
 }
 
+static int tdx_restore_private_page(struct kvm *kvm, gfn_t gfn)
+{
+	uint64_t err;
+	struct tdx_module_args out;
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct tdx_mig_stream *stream = kvm_tdx->mig_state->default_stream;
+	struct tdx_mig_gpa_list *gpa_list = &stream->gpa_list;
+
+	tdx_mig_gpa_list_init(gpa_list, &gfn, 1);
+	do {
+		err = tdh_export_restore(kvm_tdx->tdr_pa,
+					 gpa_list->info.val, &out);
+		if (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE)
+			gpa_list->info.val = out.rcx;
+	} while (seamcall_masked_status(err) == TDX_INTERRUPTED_RESUMABLE);
+
+	if (seamcall_masked_status(err) != TDX_SUCCESS) {
+		pr_err("%s failed, err=%llx, gfn=%lx\n",
+			__func__, err, (long)gpa_list->entries[0].gfn);
+		return -EIO;
+	} else if (gpa_list->entries[0].status != GPA_LIST_S_SUCCESS) {
+		return -EPERM;
+	}
+
+	return 0;
+}
+
+static int tdx_mig_export_abort(struct kvm_tdx *kvm_tdx,
+				struct tdx_mig_stream *stream,
+				uint64_t __user *data)
+{
+	uint64_t err;
+
+	err = tdh_export_abort(kvm_tdx->tdr_pa, 0, 0);
+	if (err != TDX_SUCCESS)
+		pr_err("%s: export abort failed, err=%llx\n", __func__, err);
+
+	return kvm_tdp_mmu_restore_private_pages(&kvm_tdx->kvm);
+}
+
 static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 				 unsigned long arg)
 {
@@ -1325,6 +1366,10 @@ static long tdx_mig_stream_ioctl(struct kvm_device *dev, unsigned int ioctl,
 	case KVM_TDX_MIG_IMPORT_STATE_VP:
 		r = tdx_mig_import_state_vp(kvm_tdx, stream,
 					(uint64_t __user *)tdx_cmd.data);
+		break;
+	case KVM_TDX_MIG_EXPORT_ABORT:
+		r = tdx_mig_export_abort(kvm_tdx, stream,
+					 (uint64_t __user *)tdx_cmd.data);
 		break;
 	default:
 		r = -EINVAL;
@@ -1387,6 +1432,8 @@ static void tdx_mig_session_exit(struct tdx_mig_state *mig_state)
 {
 	if (mig_state->blockw_gpa_list.entries)
 		free_page((unsigned long)mig_state->blockw_gpa_list.entries);
+
+	mig_state->default_stream = NULL;
 }
 
 static int tdx_mig_stream_create(struct kvm_device *dev, u32 type)
@@ -1407,6 +1454,9 @@ static int tdx_mig_stream_create(struct kvm_device *dev, u32 type)
 		ret = tdx_mig_session_init(kvm_tdx);
 		if (ret)
 			goto err_mig_session_init;
+
+		WARN_ON_ONCE(mig_state->default_stream);
+		mig_state->default_stream = stream;
 	}
 
 	ret = tdx_mig_do_stream_create(kvm_tdx, stream,

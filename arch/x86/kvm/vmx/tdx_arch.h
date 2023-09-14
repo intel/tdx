@@ -289,5 +289,9 @@ union tdx_md_field_id {
 
 /* The field id used to access the metadata (defined in the TDX ABI spec) */
 #define TDX_MD_FID_SERVTD_MAX_SERVTDS		0xA100000100000000
+#define TDX_MD_FID_MAX_MIGS			0xA000000100000010
+#define TDX_MD_FID_IMMUTABLE_STATE_PAGES	0xA000000000000020
+#define TDX_MD_FID_TD_STATE_PAGES		0xA000000000000021
+#define TDX_MD_FID_VP_STATE_PAGES		0xA000000000000022
 
 #endif /* __KVM_X86_TDX_ARCH_H */

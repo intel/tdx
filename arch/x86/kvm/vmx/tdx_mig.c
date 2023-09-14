@@ -2,6 +2,55 @@
 #include <linux/anon_inodes.h>
 #include <linux/kvm_host.h>
 
+struct tdx_mig_capabilities {
+	uint32_t max_migs;
+	uint32_t nonmem_state_pages;
+};
+
+static struct tdx_mig_capabilities tdx_mig_caps;
+
+static int tdx_mig_capabilities_setup(void)
+{
+	struct tdx_module_args out;
+	uint32_t immutable_state_pages, td_state_pages, vp_state_pages;
+	uint64_t err;
+
+	err = tdh_sys_rd(TDX_MD_FID_MAX_MIGS, &out);
+	if (err)
+		return -EIO;
+	tdx_mig_caps.max_migs = out.r8;
+	/*
+	 * At least two migration streams (forward stream + backward stream)
+	 * are required to be created.
+	 */
+	if (unlikely(tdx_mig_caps.max_migs < 2))
+		return -EOPNOTSUPP;
+
+	err = tdh_sys_rd(TDX_MD_FID_IMMUTABLE_STATE_PAGES, &out);
+	if (err)
+		return -EIO;
+	immutable_state_pages = out.r8;
+
+	err = tdh_sys_rd(TDX_MD_FID_TD_STATE_PAGES, &out);
+	if (err)
+		return -EIO;
+	td_state_pages = out.r8;
+
+	err = tdh_sys_rd(TDX_MD_FID_VP_STATE_PAGES, &out);
+	if (err)
+		return -EIO;
+	vp_state_pages = out.r8;
+
+	/*
+	 * The minimal number of pages required. It hould be large enough to
+	 * store all the non-memory states.
+	 */
+	tdx_mig_caps.nonmem_state_pages = max3(immutable_state_pages,
+					       td_state_pages, vp_state_pages);
+
+	return 0;
+}
+
 static int tdx_mig_stream_get_attr(struct kvm_device *dev,
 				   struct kvm_device_attr *attr)
 {

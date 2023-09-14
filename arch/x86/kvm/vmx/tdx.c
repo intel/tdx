@@ -5168,6 +5168,12 @@ static int __init tdx_module_setup(void)
 	pr_info("tdx: max servtds supported per user TD is %d\n",
 		tdx_info.max_servtds);
 
+	ret = tdx_mig_capabilities_setup();
+	if (ret)
+		pr_info("tdx: live migration not supported\n");
+	else
+		pr_info("tdx: live migration supported\n");
+
 	cpu_vmxop_put();
 	preempt_enable();
 	return 0;

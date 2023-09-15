@@ -360,3 +360,46 @@ SYM_FUNC_END(vmread_error_trampoline)
 SYM_FUNC_START(vmx_do_interrupt_irqoff)
 	VMX_DO_EVENT_IRQOFF CALL_NOSPEC _ASM_ARG1
 SYM_FUNC_END(vmx_do_interrupt_irqoff)
+
+#ifdef CONFIG_INTEL_TDX_HOST
+
+#define ARGS_rcx	VCPU_RCX
+#define ARGS_rdx	VCPU_RDX
+#define ARGS_r8		VCPU_R8
+#define ARGS_r9		VCPU_R9
+#define ARGS_r10	VCPU_R10
+#define ARGS_r11	VCPU_R11
+#define ARGS_r12	VCPU_R12
+#define ARGS_r13	VCPU_R13
+#define ARGS_r14	VCPU_R14
+#define ARGS_r15	VCPU_R15
+#define ARGS_rbx	VCPU_RBX
+#define ARGS_rdi	VCPU_RDI
+#define ARGS_rsi	VCPU_RSI
+
+#include "../../virt/vmx/tdx/tdxcall.S"
+
+.pushsection .noinstr.text, "ax"
+
+/*
+ * __kvm_seamcall_saved_ret() - Host-side interface functions to SEAM software
+ * (the P-SEAMLDR or the TDX module), with saving output registers to the
+ * 'struct tdx_module_args' used as input.
+ *
+ * __kvm_seamcall_saved_ret() function ABI:
+ *
+ * @fn   (RDI)  - SEAMCALL Leaf number, moved to RAX
+ * @args (RSI)  - struct vcpu.arch.regs for input and output
+ *
+ * All registers in @args are used as input/output registers.
+ *
+ * Return (via RAX) TDX_SEAMCALL_VMFAILINVALID if the SEAMCALL itself
+ * fails, or the completion status of the SEAMCALL leaf function.
+ */
+SYM_FUNC_START(__kvm_seamcall_saved_ret)
+	TDX_MODULE_CALL host=1 ret=1 saved=1
+SYM_FUNC_END(__kvm_seamcall_saved_ret)
+
+.popsection
+
+#endif

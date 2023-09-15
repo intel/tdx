@@ -82,7 +82,7 @@ static u64 __trace_tdcall_ret(u64 fn, struct tdx_module_args *args)
 		args = &dummy_out;
 
 	trace_tdx_module_call_enter_rcuidle(fn, args->rcx, args->rdx, args->r8, args->r9);
-	err = __tdcall_ret(fn, args);
+	err = tdcall_ret(fn, args);
 	trace_tdx_module_call_exit_rcuidle(err, args->rcx, args->rdx,
 			args->r8, args->r9, args->r10, args->r11);
 
@@ -118,7 +118,7 @@ EXPORT_SYMBOL_GPL(tdx_kvm_hypercall);
  * should only be used for calls that have no legitimate reason to fail
  * or where the kernel can not survive the call failing.
  */
-static inline void tdcall(u64 fn, struct tdx_module_args *args)
+static inline void tdcall_ret_with_trace(u64 fn, struct tdx_module_args *args)
 {
 	if (__trace_tdcall_ret(fn, args))
 		panic("TDCALL %lld failed (Buggy TDX module!)\n", fn);
@@ -147,7 +147,7 @@ int tdx_mcall_get_report0(u8 *reportdata, u8 *tdreport)
 	};
 	u64 ret;
 
-	ret = __tdcall(TDG_MR_REPORT, &args);
+	ret = tdcall(TDG_MR_REPORT, &args);
 	if (ret) {
 		if (TDCALL_RETURN_CODE(ret) == TDCALL_INVALID_OPERAND)
 			return -EINVAL;
@@ -210,7 +210,7 @@ u64 tdx_mcall_verify_report(u8 *reportmac)
 	struct tdx_module_args args = {
 		.rcx = virt_to_phys(reportmac),
 	};
-	return __tdcall(TDG_VERIFYREPORT, &args);
+	return tdcall(TDG_VERIFYREPORT, &args);
 }
 EXPORT_SYMBOL_GPL(tdx_mcall_verify_report);
 
@@ -236,7 +236,7 @@ int tdx_mcall_extend_rtmr(u8 *data, u8 index)
 	};
 	u64 ret;
 
-	ret = __tdcall(TDG_EXTEND_RTMR, &args);
+	ret = tdcall(TDG_EXTEND_RTMR, &args);
 	if (ret) {
 		if (TDCALL_RETURN_CODE(ret) == TDCALL_INVALID_OPERAND)
 			return -EINVAL;
@@ -295,7 +295,7 @@ static void tdx_parse_tdinfo(u64 *cc_mask)
 	 * Guest-Host-Communication Interface (GHCI), section 2.4.2 TDCALL
 	 * [TDG.VP.INFO].
 	 */
-	tdcall(TDG_VP_INFO, &args);
+	tdcall_ret_with_trace(TDG_VP_INFO, &args);
 
 	/*
 	 * The highest bit of a guest physical address is the "sharing" bit.
@@ -917,7 +917,7 @@ void tdx_get_ve_info(struct ve_info *ve)
 	 * Note, the TDX module treats virtual NMIs as inhibited if the #VE
 	 * valid flag is set. It means that NMI=>#VE will not result in a #DF.
 	 */
-	tdcall(TDG_VP_VEINFO_GET, &args);
+	tdcall_ret_with_trace(TDG_VP_VEINFO_GET, &args);
 
 	/* Transfer the output parameters */
 	ve->exit_reason = args.rcx;
@@ -1150,7 +1150,7 @@ void __init tdx_early_init(void)
 	cc_set_mask(cc_mask);
 
 	/* Kernel does not use NOTIFY_ENABLES and does not need random #VEs */
-	tdcall(TDG_VM_WR, &args);
+	tdcall_ret_with_trace(TDG_VM_WR, &args);
 
 	/*
 	 * All bits above GPA width are reserved and kernel treats shared bit

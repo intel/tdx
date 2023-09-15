@@ -62,6 +62,12 @@
 #define TDX_PS_1G	2
 #define TDX_PS_NR	(TDX_PS_1G + 1)
 
+#define TDCALL_RETRY_MAX	10000
+#define TDCALL_STATUS_MASK	0xFFFFFFFF00000000ULL
+
+#define TDX_OPERAND_BUSY		0x8000020000000000ULL
+#define TDX_OPERAND_BUSY_HOST_PRIORITY	0x8000020400000000ULL
+
 #ifndef __ASSEMBLY__
 
 /*
@@ -99,6 +105,44 @@ struct tdx_module_args {
 u64 __tdcall(u64 fn, struct tdx_module_args *args);
 u64 __tdcall_ret(u64 fn, struct tdx_module_args *args);
 u64 __tdcall_saved_ret(u64 fn, struct tdx_module_args *args);
+
+static inline u64 __tdcall_common(u64 fn, struct tdx_module_args *args,
+				  bool tdcall_ret, bool tdcall_saved_ret)
+{
+	u64 err, err_masked, retries = 0;
+
+	do {
+		if (tdcall_saved_ret)
+			err = __tdcall_saved_ret(fn, args);
+		else if (tdcall_ret)
+			err = __tdcall_ret(fn, args);
+		else
+			err = __tdcall(fn, args);
+
+		if (likely(!err) || retries++ > TDCALL_RETRY_MAX)
+			break;
+
+		err_masked = err & TDCALL_STATUS_MASK;
+	} while (err_masked == TDX_OPERAND_BUSY ||
+		 err_masked == TDX_OPERAND_BUSY_HOST_PRIORITY);
+
+	return err;
+}
+
+static inline u64 tdcall(u64 fn, struct tdx_module_args *args)
+{
+	return __tdcall_common(fn, args, false, false);
+}
+
+static inline u64 tdcall_ret(u64 fn, struct tdx_module_args *args)
+{
+	return __tdcall_common(fn, args, true, false);
+}
+
+static inline u64 tdcall_saved_ret(u64 fn, struct tdx_module_args *args)
+{
+	return __tdcall_common(fn, args, false, true);
+}
 
 /* Used to request services from the VMM */
 u64 __tdx_hypercall(struct tdx_module_args *args);

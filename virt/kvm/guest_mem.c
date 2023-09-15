@@ -569,6 +569,7 @@ int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
 	xa_store_range(&gmem->bindings, start, end - 1, slot, GFP_KERNEL);
 	filemap_invalidate_unlock(inode->i_mapping);
 
+	fput(file);
 	return 0;
 
 err:
@@ -581,7 +582,10 @@ void kvm_gmem_unbind(struct kvm_memory_slot *slot)
 	unsigned long start = slot->gmem.pgoff;
 	unsigned long end = start + slot->npages;
 	struct kvm_gmem *gmem;
-	struct file *file = rcu_dereference(slot->gmem.file);
+	struct file *file = kvm_gmem_get_file(slot);
+
+	if (!file)
+		return;
 
 	gmem = file->private_data;
 

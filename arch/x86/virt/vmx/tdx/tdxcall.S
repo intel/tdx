@@ -10,6 +10,46 @@
 #define tdcall		.byte 0x66,0x0f,0x01,0xcc
 #define seamcall	.byte 0x66,0x0f,0x01,0xcf
 
+#ifndef ARGS_rcx
+# define ARGS_rcx	TDX_MODULE_rcx
+#endif
+#ifndef ARGS_rdx
+# define ARGS_rdx	TDX_MODULE_rdx
+#endif
+#ifndef ARGS_r8
+# define ARGS_r8	TDX_MODULE_r8
+#endif
+#ifndef ARGS_r9
+# define ARGS_r9	TDX_MODULE_r9
+#endif
+#ifndef ARGS_r10
+# define ARGS_r10	TDX_MODULE_r10
+#endif
+#ifndef ARGS_r11
+# define ARGS_r11	TDX_MODULE_r11
+#endif
+#ifndef ARGS_r12
+# define ARGS_r12	TDX_MODULE_r12
+#endif
+#ifndef ARGS_r13
+# define ARGS_r13	TDX_MODULE_r13
+#endif
+#ifndef ARGS_r14
+# define ARGS_r14	TDX_MODULE_r14
+#endif
+#ifndef ARGS_r15
+# define ARGS_r15	TDX_MODULE_r15
+#endif
+#ifndef ARGS_rbx
+# define ARGS_rbx	TDX_MODULE_rbx
+#endif
+#ifndef ARGS_rdi
+# define ARGS_rdi	TDX_MODULE_rdi
+#endif
+#ifndef ARGS_rsi
+# define ARGS_rsi	TDX_MODULE_rsi
+#endif
+
 /*
  * TDX_MODULE_CALL - common helper macro for both
  *                 TDCALL and SEAMCALL instructions.
@@ -54,12 +94,12 @@
 	mov %rdi, %rax
 
 	/* Move other input regs from 'struct tdx_module_args' */
-	movq	TDX_MODULE_rcx(%rsi), %rcx
-	movq	TDX_MODULE_rdx(%rsi), %rdx
-	movq	TDX_MODULE_r8(%rsi),  %r8
-	movq	TDX_MODULE_r9(%rsi),  %r9
-	movq	TDX_MODULE_r10(%rsi), %r10
-	movq	TDX_MODULE_r11(%rsi), %r11
+	movq	ARGS_rcx(%rsi), %rcx
+	movq	ARGS_rdx(%rsi), %rdx
+	movq	ARGS_r8(%rsi),  %r8
+	movq	ARGS_r9(%rsi),  %r9
+	movq	ARGS_r10(%rsi), %r10
+	movq	ARGS_r11(%rsi), %r11
 
 .if \saved
 	/*
@@ -74,20 +114,20 @@
 	pushq	%r14
 	pushq	%r15
 
-	movq	TDX_MODULE_r12(%rsi), %r12
-	movq	TDX_MODULE_r13(%rsi), %r13
-	movq	TDX_MODULE_r14(%rsi), %r14
-	movq	TDX_MODULE_r15(%rsi), %r15
-	movq	TDX_MODULE_rbx(%rsi), %rbx
+	movq	ARGS_r12(%rsi), %r12
+	movq	ARGS_r13(%rsi), %r13
+	movq	ARGS_r14(%rsi), %r14
+	movq	ARGS_r15(%rsi), %r15
+	movq	ARGS_rbx(%rsi), %rbx
 
 .if \ret
 	/* Save the structure pointer as RSI is about to be clobbered */
 	pushq	%rsi
 .endif
 
-	movq	TDX_MODULE_rdi(%rsi), %rdi
+	movq	ARGS_rdi(%rsi), %rdi
 	/* RSI needs to be done at last */
-	movq	TDX_MODULE_rsi(%rsi), %rsi
+	movq	ARGS_rsi(%rsi), %rsi
 .endif	/* \saved */
 
 .if \host
@@ -127,26 +167,26 @@
 	 */
 	pushq	%rax		/* save the TDCALL/SEAMCALL return code */
 	movq	8(%rsp), %rax	/* restore the structure pointer */
-	movq	%rsi, TDX_MODULE_rsi(%rax)	/* save RSI */
+	movq	%rsi, ARGS_rsi(%rax)	/* save RSI */
 	popq	%rax		/* restore the return code */
 	popq	%rsi		/* pop the structure pointer */
 
 	/* Copy additional output regs to the structure  */
-	movq %r12, TDX_MODULE_r12(%rsi)
-	movq %r13, TDX_MODULE_r13(%rsi)
-	movq %r14, TDX_MODULE_r14(%rsi)
-	movq %r15, TDX_MODULE_r15(%rsi)
-	movq %rbx, TDX_MODULE_rbx(%rsi)
-	movq %rdi, TDX_MODULE_rdi(%rsi)
+	movq %r12, ARGS_r12(%rsi)
+	movq %r13, ARGS_r13(%rsi)
+	movq %r14, ARGS_r14(%rsi)
+	movq %r15, ARGS_r15(%rsi)
+	movq %rbx, ARGS_rbx(%rsi)
+	movq %rdi, ARGS_rdi(%rsi)
 .endif	/* \saved */
 
 	/* Copy output registers to the structure */
-	movq %rcx, TDX_MODULE_rcx(%rsi)
-	movq %rdx, TDX_MODULE_rdx(%rsi)
-	movq %r8,  TDX_MODULE_r8(%rsi)
-	movq %r9,  TDX_MODULE_r9(%rsi)
-	movq %r10, TDX_MODULE_r10(%rsi)
-	movq %r11, TDX_MODULE_r11(%rsi)
+	movq %rcx, ARGS_rcx(%rsi)
+	movq %rdx, ARGS_rdx(%rsi)
+	movq %r8,  ARGS_r8(%rsi)
+	movq %r9,  ARGS_r9(%rsi)
+	movq %r10, ARGS_r10(%rsi)
+	movq %r11, ARGS_r11(%rsi)
 .endif	/* \ret */
 
 .if \saved && \ret

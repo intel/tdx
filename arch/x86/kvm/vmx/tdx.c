@@ -890,10 +890,10 @@ static void tdx_restore_host_xsave_state(struct kvm_vcpu *vcpu)
 		write_pkru(vcpu->arch.host_pkru);
 }
 
+u64 __kvm_seamcall_saved_ret(u64 fn, unsigned long *regs);
+
 static noinstr void tdx_vcpu_enter_exit(struct vcpu_tdx *tdx)
 {
-	struct tdx_module_args args;
-
 	/*
 	 * Avoid section mismatch with to_tdx() with KVM_VM_BUG().  The caller
 	 * should call to_tdx().
@@ -904,46 +904,12 @@ static noinstr void tdx_vcpu_enter_exit(struct vcpu_tdx *tdx)
 
 	/*
 	 * TODO: optimization:
-	 * - Eliminate copy between args and vcpu->arch.regs.
-	 * - copyin/copyout registers only if (tdx->tdvmvall.regs_mask != 0)
-	 *   which means TDG.VP.VMCALL.
+	 * copyin/copyout registers only if (tdx->tdvmvall.regs_mask != 0)
+	 * which means TDG.VP.VMCALL.
 	 */
-	args = (struct tdx_module_args) {
-		.rcx = tdx->tdvpr_pa,
-#define REG(reg, REG)	.reg = vcpu->arch.regs[VCPU_REGS_ ## REG]
-		REG(rdx, RDX),
-		REG(r8,  R8),
-		REG(r9,  R9),
-		REG(r10, R10),
-		REG(r11, R11),
-		REG(r12, R12),
-		REG(r13, R13),
-		REG(r14, R14),
-		REG(r15, R15),
-		REG(rbx, RBX),
-		REG(rdi, RDI),
-		REG(rsi, RSI),
-#undef REG
-	};
-
-	tdx->exit_reason.full = __seamcall_saved_ret(TDH_VP_ENTER, &args);
-
-#define REG(reg, REG)	vcpu->arch.regs[VCPU_REGS_ ## REG] = args.reg
-		REG(rcx, RCX);
-		REG(rdx, RDX);
-		REG(r8,  R8);
-		REG(r9,  R9);
-		REG(r10, R10);
-		REG(r11, R11);
-		REG(r12, R12);
-		REG(r13, R13);
-		REG(r14, R14);
-		REG(r15, R15);
-		REG(rbx, RBX);
-		REG(rdi, RDI);
-		REG(rsi, RSI);
-#undef REG
-
+	vcpu->arch.regs[VCPU_REGS_RCX] = tdx->tdvpr_pa;
+	tdx->exit_reason.full = __kvm_seamcall_saved_ret(TDH_VP_ENTER,
+							 vcpu->arch.regs);
 	WARN_ON_ONCE(!kvm_rebooting &&
 		     (tdx->exit_reason.full & TDX_SW_ERROR) == TDX_SW_ERROR);
 

@@ -4890,6 +4890,9 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 	tdx->tdvpr_pa = tdvpr_pa;
 	tdx->tdvpx_pa = tdvpx_pa;
 
+	WARN_ON_ONCE(kvm_apicv_activated(vcpu->kvm));
+	vcpu->arch.apic->apicv_active = false;
+
 	/*
 	 * Keep the tdvpr and tdvpx pages allocated above, but adding them to
 	 * the TDX module and the TDH_VP_CREATE seamcall require TD to be
@@ -4907,9 +4910,6 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 		pr_tdx_error(TDH_VP_INIT, err, NULL);
 		return -EIO;
 	}
-
-	WARN_ON_ONCE(kvm_apicv_activated(vcpu->kvm));
-	vcpu->arch.apic->apicv_active = false;
 
 	return 0;
 

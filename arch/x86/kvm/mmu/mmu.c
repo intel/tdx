@@ -7259,10 +7259,17 @@ bool kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
 					struct kvm_gfn_range *range)
 {
 	/*
-	 * KVM x86 currently only supports KVM_MEMORY_ATTRIBUTE_PRIVATE, skip
-	 * the slot if the slot will never consume the PRIVATE attribute.
+	 * Zap SPTEs even if the slot can't be mapped PRIVATE.  KVM x86 only
+	 * supports KVM_MEMORY_ATTRIBUTE_PRIVATE, and so it *seems* like KVM
+	 * can simply ignore such slots.  But if userspace is making memory
+	 * PRIVATE, then KVM must prevent the guest from accessing the memory
+	 * as shared.  And if userspace is making memory SHARED and this point
+	 * is reached, then at least one page within the range was previously
+	 * PRIVATE, i.e. the slot's possible hugepage ranges are changing.
+	 * Zapping SPTEs in this case ensures KVM will reassess whether or not
+	 * a hugepage can be used for affected ranges.
 	 */
-	if (!kvm_slot_can_be_private(range->slot))
+	if (WARN_ON_ONCE(!kvm_arch_has_private_mem(kvm)))
 		return false;
 
 	return kvm_mmu_unmap_gfn_range(kvm, range);

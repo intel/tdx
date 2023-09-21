@@ -873,11 +873,10 @@ void kvm_mmu_invalidate_end(struct kvm *kvm)
 	KVM_BUG_ON(kvm->mmu_invalidate_in_progress < 0, kvm);
 
 	/*
-	 * Assert that at least one range must be added between start() and
-	 * end().  Not adding a range isn't fatal, but it is a KVM bug.
+	 * Assert that at least one range was added between start() and end().
+	 * Not adding a range isn't fatal, but it is a KVM bug.
 	 */
-	WARN_ON_ONCE(kvm->mmu_invalidate_in_progress &&
-		     kvm->mmu_invalidate_range_start == INVALID_GPA);
+	WARN_ON_ONCE(kvm->mmu_invalidate_range_start == INVALID_GPA);
 }
 
 static void kvm_mmu_notifier_invalidate_range_end(struct mmu_notifier *mn,

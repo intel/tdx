@@ -83,13 +83,14 @@ static void guest_sync_private(uint64_t gpa, uint64_t size, uint8_t pattern)
 }
 
 /* Arbitrary values, KVM doesn't care about the attribute flags. */
-#define MAP_GPA_SHARED		BIT(0)
-#define MAP_GPA_DO_FALLOCATE	BIT(1)
+#define MAP_GPA_SET_ATTRIBUTES	BIT(0)
+#define MAP_GPA_SHARED		BIT(1)
+#define MAP_GPA_DO_FALLOCATE	BIT(2)
 
 static void guest_map_mem(uint64_t gpa, uint64_t size, bool map_shared,
 			  bool do_fallocate)
 {
-	uint64_t flags = 0;
+	uint64_t flags = MAP_GPA_SET_ATTRIBUTES;
 
 	if (map_shared)
 		flags |= MAP_GPA_SHARED;
@@ -108,19 +109,19 @@ static void guest_map_private(uint64_t gpa, uint64_t size, bool do_fallocate)
 	guest_map_mem(gpa, size, false, do_fallocate);
 }
 
-static void guest_run_test(uint64_t base_gpa, bool do_fallocate)
+struct {
+	uint64_t offset;
+	uint64_t size;
+} static const test_ranges[] = {
+	GUEST_STAGE(0, PAGE_SIZE),
+	GUEST_STAGE(0, SZ_2M),
+	GUEST_STAGE(PAGE_SIZE, PAGE_SIZE),
+	GUEST_STAGE(PAGE_SIZE, SZ_2M),
+	GUEST_STAGE(SZ_2M, PAGE_SIZE),
+};
+
+static void guest_test_explicit_conversion(uint64_t base_gpa, bool do_fallocate)
 {
-	struct {
-		uint64_t offset;
-		uint64_t size;
-		uint8_t pattern;
-	} stages[] = {
-		GUEST_STAGE(0, PAGE_SIZE),
-		GUEST_STAGE(0, SZ_2M),
-		GUEST_STAGE(PAGE_SIZE, PAGE_SIZE),
-		GUEST_STAGE(PAGE_SIZE, SZ_2M),
-		GUEST_STAGE(SZ_2M, PAGE_SIZE),
-	};
 	const uint8_t init_p = 0xcc;
 	uint64_t j;
 	int i;
@@ -130,9 +131,9 @@ static void guest_run_test(uint64_t base_gpa, bool do_fallocate)
 	guest_sync_shared(base_gpa, PER_CPU_DATA_SIZE, (uint8_t)~init_p, init_p);
 	memcmp_g(base_gpa, init_p, PER_CPU_DATA_SIZE);
 
-	for (i = 0; i < ARRAY_SIZE(stages); i++) {
-		uint64_t gpa = base_gpa + stages[i].offset;
-		uint64_t size = stages[i].size;
+	for (i = 0; i < ARRAY_SIZE(test_ranges); i++) {
+		uint64_t gpa = base_gpa + test_ranges[i].offset;
+		uint64_t size = test_ranges[i].size;
 		uint8_t p1 = 0x11;
 		uint8_t p2 = 0x22;
 		uint8_t p3 = 0x33;
@@ -214,11 +215,11 @@ skip:
 static void guest_code(uint64_t base_gpa)
 {
 	/*
-	 * Run everything twice, with and without doing fallocate() on the
-	 * guest_memfd backing when converting between shared and private.
+	 * Run the conversion test twice, with and without doing fallocate() on
+	 * the guest_memfd backing when converting between shared and private.
 	 */
-	guest_run_test(base_gpa, false);
-	guest_run_test(base_gpa, true);
+	guest_test_explicit_conversion(base_gpa, false);
+	guest_test_explicit_conversion(base_gpa, true);
 	GUEST_DONE();
 }
 
@@ -227,6 +228,7 @@ static void handle_exit_hypercall(struct kvm_vcpu *vcpu)
 	struct kvm_run *run = vcpu->run;
 	uint64_t gpa = run->hypercall.args[0];
 	uint64_t size = run->hypercall.args[1] * PAGE_SIZE;
+	bool set_attributes = run->hypercall.args[2] & MAP_GPA_SET_ATTRIBUTES;
 	bool map_shared = run->hypercall.args[2] & MAP_GPA_SHARED;
 	bool do_fallocate = run->hypercall.args[2] & MAP_GPA_DO_FALLOCATE;
 	struct kvm_vm *vm = vcpu->vm;
@@ -238,8 +240,9 @@ static void handle_exit_hypercall(struct kvm_vcpu *vcpu)
 	if (do_fallocate)
 		vm_guest_mem_fallocate(vm, gpa, size, map_shared);
 
-	vm_set_memory_attributes(vm, gpa, size,
-				 map_shared ? 0 : KVM_MEMORY_ATTRIBUTE_PRIVATE);
+	if (set_attributes)
+		vm_set_memory_attributes(vm, gpa, size,
+					 map_shared ? 0 : KVM_MEMORY_ATTRIBUTE_PRIVATE);
 	run->hypercall.ret = 0;
 }
 

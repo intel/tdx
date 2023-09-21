@@ -7272,7 +7272,7 @@ bool kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
 	if (WARN_ON_ONCE(!kvm_arch_has_private_mem(kvm)))
 		return false;
 
-	return kvm_mmu_unmap_gfn_range(kvm, range);
+	return kvm_unmap_gfn_range(kvm, range);
 }
 
 static bool hugepage_test_mixed(struct kvm_memory_slot *slot, gfn_t gfn,

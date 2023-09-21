@@ -88,14 +88,10 @@ static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index)
 static void kvm_gmem_invalidate_begin(struct kvm_gmem *gmem, pgoff_t start,
 				      pgoff_t end)
 {
+	bool flush = false, found_memslot = false;
 	struct kvm_memory_slot *slot;
 	struct kvm *kvm = gmem->kvm;
 	unsigned long index;
-	bool flush = false;
-
-	KVM_MMU_LOCK(kvm);
-
-	kvm_mmu_invalidate_begin(kvm);
 
 	xa_for_each_range(&gmem->bindings, index, slot, start, end - 1) {
 		pgoff_t pgoff = slot->gmem.pgoff;
@@ -107,13 +103,21 @@ static void kvm_gmem_invalidate_begin(struct kvm_gmem *gmem, pgoff_t start,
 			.may_block = true,
 		};
 
+		if (!found_memslot) {
+			found_memslot = true;
+
+			KVM_MMU_LOCK(kvm);
+			kvm_mmu_invalidate_begin(kvm);
+		}
+
 		flush |= kvm_mmu_unmap_gfn_range(kvm, &gfn_range);
 	}
 
 	if (flush)
 		kvm_flush_remote_tlbs(kvm);
 
-	KVM_MMU_UNLOCK(kvm);
+	if (found_memslot)
+		KVM_MMU_UNLOCK(kvm);
 }
 
 static void kvm_gmem_invalidate_end(struct kvm_gmem *gmem, pgoff_t start,
@@ -121,10 +125,11 @@ static void kvm_gmem_invalidate_end(struct kvm_gmem *gmem, pgoff_t start,
 {
 	struct kvm *kvm = gmem->kvm;
 
-	KVM_MMU_LOCK(kvm);
-	if (xa_find(&gmem->bindings, &start, end - 1, XA_PRESENT))
+	if (xa_find(&gmem->bindings, &start, end - 1, XA_PRESENT)) {
+		KVM_MMU_LOCK(kvm);
 		kvm_mmu_invalidate_end(kvm);
-	KVM_MMU_UNLOCK(kvm);
+		KVM_MMU_UNLOCK(kvm);
+	}
 }
 
 static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)

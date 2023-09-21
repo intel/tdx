@@ -212,6 +212,60 @@ skip:
 	}
 }
 
+static void guest_punch_hole(uint64_t gpa, uint64_t size)
+{
+	/* "Mapping" memory shared via fallocate() is done via PUNCH_HOLE. */
+	uint64_t flags = MAP_GPA_SHARED | MAP_GPA_DO_FALLOCATE;
+
+	kvm_hypercall_map_gpa_range(gpa, size, flags);
+}
+
+/*
+ * Test that PUNCH_HOLE actually frees memory by punching holes without doing a
+ * proper conversion.  Freeing (PUNCH_HOLE) should zap SPTEs, and reallocating
+ * (subsequent fault) should zero memory.
+ */
+static void guest_test_punch_hole(uint64_t base_gpa, bool precise)
+{
+	const uint8_t init_p = 0xcc;
+	int i;
+
+	/*
+	 * Convert the entire range to private, this testcase is all about
+	 * punching holes in guest_memfd, i.e. shared mappings aren't needed.
+	 */
+	guest_map_private(base_gpa, PER_CPU_DATA_SIZE, false);
+
+	for (i = 0; i < ARRAY_SIZE(test_ranges); i++) {
+		uint64_t gpa = base_gpa + test_ranges[i].offset;
+		uint64_t size = test_ranges[i].size;
+
+		/*
+		 * Free all memory before each iteration, even for the !precise
+		 * case where the memory will be faulted back in.  Freeing and
+		 * reallocating should obviously work, and freeing all memory
+		 * minimizes the probability of cross-testcase influence.
+		 */
+		guest_punch_hole(base_gpa, PER_CPU_DATA_SIZE);
+
+		/* Fault-in and initialize memory, and verify the pattern. */
+		if (precise) {
+			memset((void *)gpa, init_p, size);
+			memcmp_g(gpa, init_p, size);
+		} else {
+			memset((void *)base_gpa, init_p, PER_CPU_DATA_SIZE);
+			memcmp_g(base_gpa, init_p, PER_CPU_DATA_SIZE);
+		}
+
+		/*
+		 * Punch a hole at the target range and verify that reads from
+		 * the guest succeed and return zeroes.
+		 */
+		guest_punch_hole(gpa, size);
+		memcmp_g(gpa, 0, size);
+	}
+}
+
 static void guest_code(uint64_t base_gpa)
 {
 	/*
@@ -220,6 +274,13 @@ static void guest_code(uint64_t base_gpa)
 	 */
 	guest_test_explicit_conversion(base_gpa, false);
 	guest_test_explicit_conversion(base_gpa, true);
+
+	/*
+	 * Run the PUNCH_HOLE test twice too, once with the entire guest_memfd
+	 * faulted in, once with only the target range faulted in.
+	 */
+	guest_test_punch_hole(base_gpa, false);
+	guest_test_punch_hole(base_gpa, true);
 	GUEST_DONE();
 }
 

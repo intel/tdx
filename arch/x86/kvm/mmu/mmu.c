@@ -7314,10 +7314,12 @@ bool kvm_arch_post_set_memory_attributes(struct kvm *kvm,
 	lockdep_assert_held(&kvm->slots_lock);
 
 	/*
-	 * KVM x86 currently only supports KVM_MEMORY_ATTRIBUTE_PRIVATE, skip
-	 * the slot if the slot will never consume the PRIVATE attribute.
+	 * Calculate which ranges can be mapped with hugepages even if the slot
+	 * can't map memory PRIVATE.  KVM mustn't create a SHARED hugepage over
+	 * a range that has PRIVATE GFNs, and conversely converting a range to
+	 * SHARED may now allow hugepages.
 	 */
-	if (!kvm_slot_can_be_private(slot))
+	if (WARN_ON_ONCE(!kvm_arch_has_private_mem(kvm)))
 		return false;
 
 	/*
@@ -7372,7 +7374,7 @@ void kvm_mmu_init_memslot_memory_attributes(struct kvm *kvm,
 {
 	int level;
 
-	if (!kvm_slot_can_be_private(slot))
+	if (!kvm_arch_has_private_mem(kvm))
 		return;
 
 	for (level = PG_LEVEL_2M; level <= KVM_MAX_HUGEPAGE_LEVEL; level++) {

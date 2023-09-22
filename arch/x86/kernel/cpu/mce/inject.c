@@ -126,25 +126,6 @@ static void setup_inj_struct(struct mce *m)
 	m->microcode = boot_cpu_data.microcode;
 }
 
-/* Update fake mce registers on current CPU. */
-static void inject_mce(struct mce *m)
-{
-	struct mce *i = &per_cpu(injectm, m->extcpu);
-
-	/* Make sure no one reads partially written injectm */
-	i->finished = 0;
-	mb();
-	m->finished = 0;
-	/* First set the fields after finished */
-	i->extcpu = m->extcpu;
-	mb();
-	/* Now write record in order, finished last (except above) */
-	memcpy(i, m, sizeof(struct mce));
-	/* Finally activate it */
-	mb();
-	i->finished = 1;
-}
-
 static void raise_poll(struct mce *m)
 {
 	unsigned long flags;
@@ -176,7 +157,6 @@ static void raise_exception(struct mce *m, struct pt_regs *pregs)
 }
 
 static cpumask_var_t mce_inject_cpumask;
-static DEFINE_MUTEX(mce_inject_mutex);
 
 static int mce_raise_notify(unsigned int cmd, struct pt_regs *regs)
 {
@@ -245,7 +225,7 @@ static void __maybe_unused raise_mce(struct mce *m)
 {
 	int context = MCJ_CTX(m->inject_flags);
 
-	inject_mce(m);
+	mce_inject(m);
 
 	if (context == MCJ_CTX_RANDOM)
 		return;
@@ -303,9 +283,9 @@ static int mce_inject_raise(struct notifier_block *nb, unsigned long val,
 	if (!m)
 		return NOTIFY_DONE;
 
-	mutex_lock(&mce_inject_mutex);
+	mce_inject_lock();
 	raise_mce(m);
-	mutex_unlock(&mce_inject_mutex);
+	mce_inject_unlock();
 
 	return NOTIFY_DONE;
 }

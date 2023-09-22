@@ -129,9 +129,45 @@ void mce_setup(struct mce *m)
 	m->ppin = cpu_data(m->extcpu).ppin;
 	m->microcode = boot_cpu_data.microcode;
 }
+EXPORT_SYMBOL_GPL(mce_setup);
 
 DEFINE_PER_CPU(struct mce, injectm);
 EXPORT_PER_CPU_SYMBOL_GPL(injectm);
+static DEFINE_MUTEX(mce_inject_mutex);
+
+void mce_inject_lock(void)
+{
+	mutex_lock(&mce_inject_mutex);
+}
+EXPORT_SYMBOL_GPL(mce_inject_lock);
+
+void mce_inject_unlock(void)
+{
+	mutex_unlock(&mce_inject_mutex);
+}
+EXPORT_SYMBOL_GPL(mce_inject_unlock);
+
+/* Update fake mce registers on current CPU. */
+void mce_inject(struct mce *m)
+{
+	struct mce *i = &per_cpu(injectm, m->extcpu);
+
+	lockdep_assert_held(&mce_inject_mutex);
+
+	/* Make sure no one reads partially written injectm */
+	i->finished = 0;
+	mb();
+	m->finished = 0;
+	/* First set the fields after finished */
+	i->extcpu = m->extcpu;
+	mb();
+	/* Now write record in order, finished last (except above) */
+	memcpy(i, m, sizeof(struct mce));
+	/* Finally activate it */
+	mb();
+	i->finished = 1;
+}
+EXPORT_SYMBOL_GPL(mce_inject);
 
 void mce_log(struct mce *m)
 {

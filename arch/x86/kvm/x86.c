@@ -10751,6 +10751,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 	fastpath_t exit_fastpath;
 
 	bool req_immediate_exit = false;
+	bool req_mce_inject = false;
 
 	if (kvm_request_pending(vcpu)) {
 		if (kvm_check_request(KVM_REQ_VM_DEAD, vcpu)) {
@@ -10901,6 +10902,8 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 		if (kvm_check_request(KVM_REQ_UPDATE_CPU_DIRTY_LOGGING, vcpu))
 			static_call(kvm_x86_update_cpu_dirty_logging)(vcpu);
+
+		req_mce_inject = kvm_check_request(KVM_REQ_MCE_INJECT, vcpu);
 	}
 
 	if (kvm_check_request(KVM_REQ_EVENT, vcpu) || req_int_win ||
@@ -10935,6 +10938,8 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		goto cancel_injection;
 	}
 
+	if (unlikely(req_mce_inject))
+		mce_inject_lock();
 	preempt_disable();
 
 	static_call(kvm_x86_prepare_switch_to_guest)(vcpu);
@@ -10980,6 +10985,10 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		smp_wmb();
 		local_irq_enable();
 		preempt_enable();
+		if (unlikely(req_mce_inject)) {
+			kvm_make_request(KVM_REQ_MCE_INJECT, vcpu);
+			mce_inject_unlock();
+		}
 		kvm_vcpu_srcu_read_lock(vcpu);
 		r = 1;
 		goto cancel_injection;
@@ -11078,6 +11087,11 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		fpu_sync_guest_vmexit_xfd_state();
 
 	static_call(kvm_x86_handle_exit_irqoff)(vcpu);
+	if (unlikely(req_mce_inject)) {
+		mce_call_atomic_injector_chain(smp_processor_id());
+		kvm_machine_check();
+		mce_inject_unlock();
+	}
 
 	if (vcpu->arch.guest_fpu.xfd_err)
 		wrmsrl(MSR_IA32_XFD_ERR, 0);

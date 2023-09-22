@@ -56,6 +56,22 @@ static int vcpu_get_tsc_scaling_frac_bits(void *data, u64 *val)
 
 DEFINE_SIMPLE_ATTRIBUTE(vcpu_tsc_scaling_frac_fops, vcpu_get_tsc_scaling_frac_bits, NULL, "%llu\n");
 
+static int vcpu_mce_inject_set(void *data, u64 val)
+{
+	struct kvm_vcpu *vcpu = (struct kvm_vcpu *) data;
+
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
+	if (val != 1)
+		return -EINVAL;
+	kvm_make_request(KVM_REQ_MCE_INJECT, vcpu);
+	kvm_vcpu_kick(vcpu);
+	return 0;
+}
+
+DEFINE_SIMPLE_ATTRIBUTE(vcpu_mce_inject_fops, NULL, vcpu_mce_inject_set, "%llx\n");
+
 void kvm_arch_create_vcpu_debugfs(struct kvm_vcpu *vcpu, struct dentry *debugfs_dentry)
 {
 	debugfs_create_file("guest_mode", 0444, debugfs_dentry, vcpu,
@@ -76,6 +92,12 @@ void kvm_arch_create_vcpu_debugfs(struct kvm_vcpu *vcpu, struct dentry *debugfs_
 				    debugfs_dentry, vcpu,
 				    &vcpu_tsc_scaling_frac_fops);
 	}
+
+	if (IS_ENABLED(CONFIG_X86_MCE_INJECT) &&
+	    boot_cpu_has(X86_FEATURE_MCE) && boot_cpu_has(X86_FEATURE_MCA))
+		debugfs_create_file("mce-inject", 0200,
+				    debugfs_dentry, vcpu,
+				    &vcpu_mce_inject_fops);
 }
 
 /*

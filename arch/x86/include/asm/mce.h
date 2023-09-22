@@ -265,6 +265,16 @@ int mce_notify_irq(void);
 
 DECLARE_PER_CPU(struct mce, injectm);
 
+#ifdef CONFIG_X86_MCE
+void mce_inject_lock(void);
+void mce_inject_unlock(void);
+void mce_inject(struct mce *m);
+#else
+static inline void mce_inject_lock(void) {}
+static inline void mce_inject_unlock(void) {}
+static inline void mce_inject(struct mce *m) {}
+#endif
+
 /* Disable CMCI/polling for MCA bank claimed by firmware */
 extern void mce_disable_bank(int bank);
 

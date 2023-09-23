@@ -34,6 +34,7 @@
 #include "internal.h"
 
 static bool hw_injection_possible;
+static u64 notrigger;
 
 /*
  * Collect all the MCi_XXX settings
@@ -598,6 +599,8 @@ static int inj_bank_set(void *data, u64 val)
 	}
 
 	m->bank = val;
+	if (notrigger)
+		return 0;
 
 	/*
 	 * sw-only injection allows to write arbitrary values into the MCA
@@ -636,6 +639,21 @@ inject:
 MCE_INJECT_GET(bank);
 
 DEFINE_SIMPLE_ATTRIBUTE(bank_fops, inj_bank_get, inj_bank_set, "%llu\n");
+
+static int inj_notrigger_get(void *data, u64 *val)
+{
+	*val = notrigger;
+	return 0;
+}
+
+static int inj_notrigger_set(void *data, u64 val)
+{
+	notrigger = val;
+	return 0;
+}
+
+DEFINE_SIMPLE_ATTRIBUTE(notrigger_fops, inj_notrigger_get, inj_notrigger_set,
+			"%llx\n");
 
 static const char readme_msg[] =
 "Description of the files and their usages:\n"
@@ -685,6 +703,9 @@ static const char readme_msg[] =
 "\n"
 "mcgstatus:\t Set MCG_STATUS: the bits in that MSR describes the current state\n"
 "\t of the processor after the MCE.\n"
+"\n"
+"notrigger:\t Suppress triggering the injection when set to non-zero\n"
+"\t The injection is triggered by other way.\n"
 "\n";
 
 static ssize_t
@@ -713,6 +734,8 @@ static struct dfs_node {
 	{ .name = "flags",	.fops = &flags_fops,  .perm = S_IRUSR | S_IWUSR },
 	{ .name = "cpu",	.fops = &extcpu_fops, .perm = S_IRUSR | S_IWUSR },
 	{ .name = "mcgstatus",	.fops = &mcgstatus_fops,
+						      .perm = S_IRUSR | S_IWUSR },
+	{ .name = "notrigger",	.fops = &notrigger_fops,
 						      .perm = S_IRUSR | S_IWUSR },
 	{ .name = "README",	.fops = &readme_fops, .perm = S_IRUSR | S_IRGRP | S_IROTH },
 };

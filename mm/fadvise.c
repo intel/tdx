@@ -18,10 +18,61 @@
 #include <linux/writeback.h>
 #include <linux/syscalls.h>
 #include <linux/swap.h>
+#include <linux/hugetlb.h>
 
 #include <asm/unistd.h>
 
 #include "internal.h"
+
+static int fadvise_inject_error(struct file *file, struct address_space *mapping,
+				loff_t offset, off_t endbyte, int advice)
+{
+	pgoff_t start_index, end_index, index, next;
+	struct folio *folio;
+	unsigned int shift;
+	unsigned long pfn;
+	int ret;
+
+	if (!IS_ENABLED(CONFIG_MEMORY_FAILURE))
+		return -EOPNOTSUPP;
+
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
+	if (is_file_hugepages(file))
+		shift = huge_page_shift(hstate_file(file));
+	else
+		shift = PAGE_SHIFT;
+	start_index = offset >> shift;
+	end_index = endbyte >> shift;
+
+	index = start_index;
+	while (index <= end_index) {
+		folio = filemap_get_folio(mapping, index);
+		if (IS_ERR(folio))
+			return PTR_ERR(folio);
+
+		next = folio_next_index(folio);
+		pfn = folio_pfn(folio);
+		if (advice == FADV_SOFT_OFFLINE) {
+			pr_info("Soft offlining pfn %#lx at file index %#lx\n",
+				pfn, index);
+			ret = soft_offline_page(pfn, MF_COUNT_INCREASED);
+		} else {
+			pr_info("Injecting memory failure for pfn %#lx at file index %#lx\n",
+				pfn, index);
+			ret = memory_failure(pfn, MF_COUNT_INCREASED | MF_SW_SIMULATED);
+			if (ret == -EOPNOTSUPP)
+				ret = 0;
+		}
+
+		if (ret)
+			return ret;
+		index = next;
+	}
+
+	return 0;
+}
 
 /*
  * POSIX_FADV_WILLNEED could set PG_Referenced, and POSIX_FADV_NOREUSE could
@@ -57,11 +108,13 @@ int generic_fadvise(struct file *file, loff_t offset, loff_t len, int advice)
 		case POSIX_FADV_NOREUSE:
 		case POSIX_FADV_DONTNEED:
 			/* no bad return value, but ignore advice */
+			return 0;
+		case FADV_HWPOISON:
+		case FADV_SOFT_OFFLINE:
 			break;
 		default:
 			return -EINVAL;
 		}
-		return 0;
 	}
 
 	/*
@@ -170,6 +223,9 @@ int generic_fadvise(struct file *file, loff_t offset, loff_t len, int advice)
 			}
 		}
 		break;
+	case FADV_HWPOISON:
+	case FADV_SOFT_OFFLINE:
+		return fadvise_inject_error(file, mapping, offset, endbyte, advice);
 	default:
 		return -EINVAL;
 	}

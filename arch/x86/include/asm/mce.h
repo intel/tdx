@@ -269,10 +269,16 @@ DECLARE_PER_CPU(struct mce, injectm);
 void mce_inject_lock(void);
 void mce_inject_unlock(void);
 void mce_inject(struct mce *m);
+void mce_register_atomic_injector_chain(struct notifier_block *nb);
+void mce_unregister_atomic_injector_chain(struct notifier_block *nb);
+void mce_call_atomic_injector_chain(unsigned long cpu);
 #else
 static inline void mce_inject_lock(void) {}
 static inline void mce_inject_unlock(void) {}
 static inline void mce_inject(struct mce *m) {}
+static inline void mce_register_atomic_injector_chain(struct notifier_block *nb) {}
+static inline void mce_unregister_atomic_injector_chain(struct notifier_block *nb) {}
+static inline void mce_call_atomic_injector_chain(unsigned long cpu) {}
 #endif
 
 /* Disable CMCI/polling for MCA bank claimed by firmware */

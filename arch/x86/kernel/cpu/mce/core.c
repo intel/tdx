@@ -169,6 +169,26 @@ void mce_inject(struct mce *m)
 }
 EXPORT_SYMBOL_GPL(mce_inject);
 
+static ATOMIC_NOTIFIER_HEAD(mce_atomic_injector_chain);
+
+void mce_register_atomic_injector_chain(struct notifier_block *nb)
+{
+	atomic_notifier_chain_register(&mce_atomic_injector_chain, nb);
+}
+EXPORT_SYMBOL_GPL(mce_register_atomic_injector_chain);
+
+void mce_unregister_atomic_injector_chain(struct notifier_block *nb)
+{
+	atomic_notifier_chain_unregister(&mce_atomic_injector_chain, nb);
+}
+EXPORT_SYMBOL_GPL(mce_unregister_atomic_injector_chain);
+
+void mce_call_atomic_injector_chain(unsigned long cpu)
+{
+	atomic_notifier_call_chain(&mce_atomic_injector_chain, cpu, NULL);
+}
+EXPORT_SYMBOL_GPL(mce_call_atomic_injector_chain);
+
 void mce_log(struct mce *m)
 {
 	if (!mce_gen_pool_add(m))

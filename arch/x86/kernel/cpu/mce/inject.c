@@ -303,7 +303,23 @@ static int fadvise_inject_addr(struct notifier_block *nb, unsigned long val,
 
 static struct notifier_block fadvise_nb = {
 	.notifier_call	= fadvise_inject_addr,
+};
+
+static int mce_atomic_injector(struct notifier_block *nb, unsigned long val,
+			       void *data)
+{
+	lockdep_assert_preemption_disabled();
+
+	i_mce.extcpu = val;
+	mce_inject(&i_mce);
+	setup_inj_struct(&i_mce);
+
+	return NOTIFY_DONE;
 }
+
+static struct notifier_block atomic_injector_nb = {
+	.notifier_call = mce_atomic_injector,
+};
 
 /*
  * Caller needs to be make sure this cpu doesn't disappear
@@ -796,6 +812,7 @@ static int __init inject_init(void)
 	register_nmi_handler(NMI_LOCAL, mce_raise_notify, 0, "mce_notify");
 	mce_register_injector_chain(&inject_nb);
 	fadvise_register_mce_injector_chain(&fadvise_nb);
+	mce_register_atomic_injector_chain(&atomic_injector_nb);
 
 	setup_inj_struct(&i_mce);
 
@@ -807,6 +824,7 @@ static int __init inject_init(void)
 static void __exit inject_exit(void)
 {
 
+	mce_unregister_atomic_injector_chain(&atomic_injector_nb);
 	fadvise_unregister_mce_injector_chain(&fadvise_nb);
 	mce_unregister_injector_chain(&inject_nb);
 	unregister_nmi_handler(NMI_LOCAL, "mce_notify");

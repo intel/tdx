@@ -74,6 +74,65 @@ static int fadvise_inject_error(struct file *file, struct address_space *mapping
 	return 0;
 }
 
+#ifdef CONFIG_X86_MCE_INJECT
+static BLOCKING_NOTIFIER_HEAD(mce_injector_chain);
+
+void fadvise_register_mce_injector_chain(struct notifier_block *nb)
+{
+	blocking_notifier_chain_register(&mce_injector_chain, nb);
+}
+EXPORT_SYMBOL_GPL(fadvise_register_mce_injector_chain);
+
+void fadvise_unregister_mce_injector_chain(struct notifier_block *nb)
+{
+	blocking_notifier_chain_unregister(&mce_injector_chain, nb);
+}
+EXPORT_SYMBOL_GPL(fadvise_unregister_mce_injector_chain);
+
+static void fadvise_call_mce_injector_chain(unsigned long physaddr)
+{
+	blocking_notifier_call_chain(&mce_injector_chain, physaddr, NULL);
+}
+#else
+static void fadvise_call_mce_injector_chain(unsigned long physaddr)
+{
+}
+#endif
+
+static int fadvise_inject_mce(struct file *file, struct address_space *mapping,
+			      loff_t offset)
+{
+	unsigned long page_mask, physaddr;
+	struct folio *folio;
+	pgoff_t index;
+
+	if (!IS_ENABLED(CONFIG_X86_MCE_INJECT))
+		return -EOPNOTSUPP;
+
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
+
+	if (is_file_hugepages(file)) {
+		index = offset >> huge_page_shift(hstate_file(file));
+		page_mask = huge_page_mask(hstate_file(file));
+	} else {
+		index = offset >> PAGE_SHIFT;
+		page_mask = PAGE_MASK;
+	}
+
+	folio = filemap_get_folio(mapping, index);
+	if (IS_ERR(folio))
+		return PTR_ERR(folio);
+
+	physaddr = (folio_pfn(folio) << PAGE_SHIFT) | (offset & ~page_mask);
+	folio_put(folio);
+
+	pr_info("Injecting mce for address %#lx at file offset %#llx\n",
+		physaddr, offset);
+	fadvise_call_mce_injector_chain(physaddr);
+	return 0;
+}
+
 /*
  * POSIX_FADV_WILLNEED could set PG_Referenced, and POSIX_FADV_NOREUSE could
  * deactivate the pages and clear PG_Referenced.
@@ -111,6 +170,7 @@ int generic_fadvise(struct file *file, loff_t offset, loff_t len, int advice)
 			return 0;
 		case FADV_HWPOISON:
 		case FADV_SOFT_OFFLINE:
+		case FADV_MCE_INJECT:
 			break;
 		default:
 			return -EINVAL;
@@ -226,6 +286,8 @@ int generic_fadvise(struct file *file, loff_t offset, loff_t len, int advice)
 	case FADV_HWPOISON:
 	case FADV_SOFT_OFFLINE:
 		return fadvise_inject_error(file, mapping, offset, endbyte, advice);
+	case FADV_MCE_INJECT:
+		return fadvise_inject_mce(file, mapping, offset);
 	default:
 		return -EINVAL;
 	}

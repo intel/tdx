@@ -26,6 +26,8 @@
 #include <linux/sort.h>
 #include <linux/log2.h>
 #include <linux/reboot.h>
+#include <linux/acpi.h>
+#include <linux/suspend.h>
 #include <asm/msr-index.h>
 #include <asm/msr.h>
 #include <asm/page.h>
@@ -1402,6 +1404,15 @@ static int __init tdx_init(void)
 		return -ENODEV;
 	}
 
+	/*
+	 * At this point, hibernation_available() indicates whether or
+	 * not hibernation support has been permanently disabled.
+	 */
+	if (hibernation_available()) {
+		pr_err("initialization failed: Hibernation support is enabled\n");
+		return -ENODEV;
+	}
+
 	err = register_memory_notifier(&tdx_memory_nb);
 	if (err) {
 		pr_err("initialization failed: register_memory_notifier() failed (%d)\n",
@@ -1416,6 +1427,11 @@ static int __init tdx_init(void)
 		unregister_memory_notifier(&tdx_memory_nb);
 		return -ENODEV;
 	}
+
+#if defined(CONFIG_ACPI) && defined(CONFIG_SUSPEND)
+	pr_info("Disable ACPI S3. Turn off TDX in the BIOS to use ACPI S3.\n");
+	acpi_suspend_lowlevel = NULL;
+#endif
 
 	/*
 	 * Just use the first TDX KeyID as the 'global KeyID' and

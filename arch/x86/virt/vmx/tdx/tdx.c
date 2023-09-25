@@ -28,6 +28,8 @@
 #include <linux/sort.h>
 #include <linux/log2.h>
 #include <linux/reboot.h>
+#include <linux/acpi.h>
+#include <linux/suspend.h>
 #include <asm/msr-index.h>
 #include <asm/msr.h>
 #include <asm/page.h>
@@ -1418,6 +1420,15 @@ static int __init tdx_init(void)
 		return -ENODEV;
 	}
 
+	/*
+	 * At this point, hibernation_available() indicates whether or
+	 * not hibernation support has been permanently disabled.
+	 */
+	if (hibernation_available()) {
+		pr_err("initialization failed: Hibernation support is enabled\n");
+		return -ENODEV;
+	}
+
 	err = register_memory_notifier(&tdx_memory_nb);
 	if (err) {
 		pr_err("initialization failed: register_memory_notifier() failed (%d)\n",
@@ -1432,6 +1443,15 @@ static int __init tdx_init(void)
 		unregister_memory_notifier(&tdx_memory_nb);
 		return -ENODEV;
 	}
+
+	/*
+	 * Choose TDX over S3 and request user to disable TDX to use S3.
+	 * This is because there's no existing kernel command line to
+	 * disable S3, and BIOS doesn't always have an option to disable
+	 * S3.
+	 */
+	pr_info("Disable ACPI S3. Turn off TDX in the BIOS to use ACPI S3.\n");
+	acpi_sleep_disable_s3();
 
 	/*
 	 * Just use the first TDX KeyID as the 'global KeyID' and

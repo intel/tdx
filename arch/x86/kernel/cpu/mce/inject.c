@@ -294,6 +294,17 @@ static struct notifier_block inject_nb = {
 	.notifier_call  = mce_inject_raise,
 };
 
+static int fadvise_inject_addr(struct notifier_block *nb, unsigned long val,
+				void *data)
+{
+	inj_addr_set(&i_mce, val);
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block fadvise_nb = {
+	.notifier_call	= fadvise_inject_addr,
+}
+
 /*
  * Caller needs to be make sure this cpu doesn't disappear
  * from under us, i.e.: get_cpu/put_cpu.
@@ -784,6 +795,7 @@ static int __init inject_init(void)
 
 	register_nmi_handler(NMI_LOCAL, mce_raise_notify, 0, "mce_notify");
 	mce_register_injector_chain(&inject_nb);
+	fadvise_register_mce_injector_chain(&fadvise_nb);
 
 	setup_inj_struct(&i_mce);
 
@@ -795,6 +807,7 @@ static int __init inject_init(void)
 static void __exit inject_exit(void)
 {
 
+	fadvise_unregister_mce_injector_chain(&fadvise_nb);
 	mce_unregister_injector_chain(&inject_nb);
 	unregister_nmi_handler(NMI_LOCAL, "mce_notify");
 

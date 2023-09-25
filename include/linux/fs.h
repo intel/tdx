@@ -3419,5 +3419,13 @@ extern int vfs_fadvise(struct file *file, loff_t offset, loff_t len,
 		       int advice);
 extern int generic_fadvise(struct file *file, loff_t offset, loff_t len,
 			   int advice);
+#ifdef CONFIG_X86_MCE_INJECT
+void fadvise_register_mce_injector_chain(struct notifier_block *nb);
+void fadvise_unregister_mce_injector_chain(struct notifier_block *nb);
+#else
+static inline void fadvise_register_mce_injector_chain(struct notifier_block *nb) {}
+static inline void fadvise_unregister_mce_injector_chain(struct notifier_block *nb) {}
+#endif
+
 
 #endif /* _LINUX_FS_H */

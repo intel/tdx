@@ -18,6 +18,7 @@
 #include <linux/compiler.h>
 #include <linux/kernel.h>
 #include <linux/kvm_para.h>
+#include <linux/fadvise.h>
 #include <linux/memfd.h>
 #include <linux/sizes.h>
 #include <linux/fs.h>
@@ -139,6 +140,143 @@ static void handle_exit_hypercall(struct kvm_vcpu *vcpu)
 #ifndef FADV_HWPOISON
 # define FADV_HWPOISON 100
 #endif
+#ifndef FADV_MCE_INJECT
+# define FADV_MCE_INJECT 102
+#endif
+
+bool use_mce_injection = false;
+
+#define MCE_INJECT_DIR		"/sys/kernel/debug/mce-inject/"
+#define MCE_STATUS		MCE_INJECT_DIR"status"
+#define MCE_MISC		MCE_INJECT_DIR"misc"
+#define MCE_ADDR		MCE_INJECT_DIR"addr"
+#define MCE_BANK		MCE_INJECT_DIR"bank"
+#define MCE_FLAGS		MCE_INJECT_DIR"flags"
+#define MCE_CPU			MCE_INJECT_DIR"cpu"
+#define MCE_MCGSTATUS		MCE_INJECT_DIR"mcgstatus"
+#define MCE_NOTRIGGER		MCE_INJECT_DIR"notrigger"
+
+static void open_write_close(const char *path, const char *buf, size_t size)
+{
+	int fd;
+	ssize_t r;
+
+	fd = open(path, O_WRONLY);
+	TEST_ASSERT(fd >= 0, "failed to open %s\n", path);
+
+	r = write(fd, buf, size);
+	TEST_ASSERT(r == size, "failed to write(%s:%s:%zd) = %zd\n",
+		    path, buf, size, r);
+
+	close(fd);
+}
+
+static void mce_write(const char *path, uint64_t val)
+{
+	char buf[64];
+	int len;
+
+	len = sprintf(buf, "%"PRIu64"\n", val);
+	open_write_close(path, buf, len);
+}
+
+static void mce_flags(void)
+{
+	char *buf = "sw\n";
+	open_write_close(MCE_FLAGS, buf, strlen(buf));
+}
+
+/* From asm/mce.h */
+/* MCG_STATUS register defines */
+#define MCG_STATUS_EIPV		BIT_ULL(1)   /* ip points to correct instruction */
+#define MCG_STATUS_MCIP		BIT_ULL(2)   /* machine check in progress */
+#define MCG_STATUS_LMCES	BIT_ULL(3)   /* LMCE signaled */
+
+/* MCi_STATUS register defines */
+#define MCI_STATUS_VAL		BIT_ULL(63)  /* valid error */
+#define MCI_STATUS_UC		BIT_ULL(61)  /* uncorrected error */
+#define MCI_STATUS_EN		BIT_ULL(60)  /* error enabled */
+#define MCI_STATUS_MISCV	BIT_ULL(59)  /* misc error reg. valid */
+#define MCI_STATUS_ADDRV	BIT_ULL(58)  /* addr reg. valid */
+#define MCI_STATUS_AR		BIT_ULL(55)  /* Action required */
+#define MCI_STATUS_S		BIT_ULL(56)  /* Signaled machine check */
+
+#define MCACOD_DATA		0x0134		/* Data Load */
+
+/* MCi_MISC register defines */
+#define MCI_MISC_ADDR_MODE_SHIFT	6
+#define  MCI_MISC_ADDR_PHYS		2
+
+#define KVM_MCE_INJECT  "/sys/kernel/debug/kvm/%d-%d/vcpu%d/mce-inject"
+
+/* Worst case buffer size needed for holding an integer. */
+#define ITOA_MAX_LEN 12
+
+static void vcpu_inject_mce(struct kvm_vcpu *vcpu)
+{
+	char path[sizeof(KVM_MCE_INJECT) + ITOA_MAX_LEN * 3 + 1];
+	char data[] = "0";
+	ssize_t r;
+	int fd;
+
+	snprintf(path, sizeof(path), KVM_MCE_INJECT,
+		 getpid(), vcpu->vm->fd, vcpu->id);
+
+	fd = open(path, O_WRONLY);
+	TEST_ASSERT(fd >= 0, "failed to open %s\n", path);
+
+	data[0] = '0';
+	r = write(fd, data, sizeof(data));
+	TEST_ASSERT(r == -1 && errno == EINVAL,
+		    "succeeded to write(%s:%s:%zd) = %zd\n",
+		    path, data, sizeof(data), r);
+
+	data[0] = '1';
+	r = write(fd, data, sizeof(data));
+	TEST_ASSERT(r == sizeof(data),
+		    "failed to write(%s:%s:%zd) = %zd\n",
+		    path, data, sizeof(data), r);
+
+	close(fd);
+}
+
+static void inject_mce(struct kvm_vcpu *vcpu, int gmem_fd, uint64_t gpa)
+{
+	/* See vm_mem_add() in test_mem_failure() */
+	uint64_t offset = gpa - BASE_DATA_GPA;
+	int ret;
+
+	mce_write(MCE_NOTRIGGER, 1);
+
+	/* FIXME: These values are vendor specific. */
+	mce_write(MCE_MCGSTATUS,
+		  MCG_STATUS_EIPV | MCG_STATUS_MCIP | MCG_STATUS_LMCES);
+	mce_write(MCE_MISC,
+		  (MCI_MISC_ADDR_PHYS << MCI_MISC_ADDR_MODE_SHIFT) | 3);
+	/*
+	 * MCI_STATUS_UC: Uncorrected error:
+	 * MCI_STATUS_EN | MCI_STATUS_AR | MCI_STATUS_S:
+	 *   SRAR: Software Recoverable Action Required
+	 */
+	mce_write(MCE_STATUS,
+		  MCACOD_DATA |
+		  MCI_STATUS_EN | MCI_STATUS_UC | MCI_STATUS_S | MCI_STATUS_AR |
+		  MCI_STATUS_VAL | MCI_STATUS_MISCV | MCI_STATUS_ADDRV);
+	mce_flags();
+	mce_write(MCE_BANK, 0);
+
+	ret = posix_fadvise(gmem_fd, offset, 8, FADV_MCE_INJECT);
+	/* posix_fadvise() doesn't set errno, but returns erorr no. */
+	if (ret)
+		errno = ret;
+	__TEST_REQUIRE(ret != EPERM,
+		       "Injecting mcet requires CAP_SYS_ADMIN ret %d", ret);
+	TEST_ASSERT(!ret || ret == EBUSY,
+		    "posix_fadvise(FADV_MCE_INJECT) should success ret %d", ret);
+
+	/* Schedule to fire MCE on the next vcpu run. */
+	vcpu_inject_mce(vcpu);
+}
 
 static void inject_memory_failure(int gmem_fd, uint64_t gpa)
 {
@@ -148,6 +286,8 @@ static void inject_memory_failure(int gmem_fd, uint64_t gpa)
 
 	ret = posix_fadvise(gmem_fd, offset, 8, FADV_HWPOISON);
 	/* posix_fadvise() doesn't set errno, but returns erorr no. */
+	if (ret)
+		errno = ret;
 	__TEST_REQUIRE(ret != EPERM,
 		       "Injecting memory fault requires CAP_SYS_ADMIN ret %d",
 		       ret);
@@ -202,44 +342,56 @@ static void *__test_mem_failure(void *__args)
 			break;
 		case UCALL_SYNC: {
 			uint64_t gpa = uc.args[1];
+			uint8_t *hva = addr_gpa2hva(vm, gpa);
+			int r;
 
 			TEST_ASSERT(uc.args[0] == HWPOISON_SHARED ||
 				    uc.args[0] == HWPOISON_PRIVATE,
 				    "Unknown sync command '%ld'", uc.args[0]);
 
 			if (uc.args[0] == HWPOISON_PRIVATE) {
-				int ret;
+				if (use_mce_injection)
+					inject_mce(vcpu, gmem_fd, gpa);
+				else
+					inject_memory_failure(gmem_fd, gpa);
+			} else {
+				r = madvise(hva, 8, MADV_HWPOISON);
+				__TEST_REQUIRE(!(r == -1 && errno == EPERM),
+					       "madvise(MADV_HWPOISON) requires CAP_SYS_ADMIN");
+				TEST_ASSERT(!r, "madvise(MADV_HWPOISON) should succeed");
+			}
 
-				inject_memory_failure(gmem_fd, gpa);
-				ret = _vcpu_run(vcpu);
-				TEST_ASSERT(ret == -1 && errno == EHWPOISON &&
+			if (uc.args[0] == HWPOISON_PRIVATE && !use_mce_injection) {
+				r = _vcpu_run(vcpu);
+				TEST_ASSERT(r == -1 && errno == EHWPOISON &&
 					    run->exit_reason == KVM_EXIT_MEMORY_FAULT,
 					    "exit_reason 0x%x",
 					    run->exit_reason);
 				/* Discard the poisoned page and assign new page. */
 				vm_guest_mem_fallocate(vm, gpa, PAGE_SIZE, true);
 			} else {
-				uint8_t *hva = addr_gpa2hva(vm, gpa);
-				int r;
+				struct sigaction sa = {
+					.sa_sigaction = sigbus_handler,
+					.sa_flags = SA_SIGINFO,
+				};
+				r = sigaction(SIGBUS, &sa, NULL);
+				TEST_ASSERT(!r, "sigaction should success");
 
-				r = madvise(hva, 8, MADV_HWPOISON);
-				__TEST_REQUIRE(!(r == -1 && errno == EPERM),
-					       "madvise(MADV_HWPOISON) requires CAP_SYS_ADMIN");
-				TEST_ASSERT(!r, "madvise(MADV_HWPOISON) should succeed");
-				if (sigsetjmp(sigbuf, 1)) {
-					TEST_ASSERT(!sigaction(SIGBUS, NULL, NULL),
-						    "sigaction should success");
-					r = madvise(hva, PAGE_SIZE, MADV_FREE);
-					TEST_ASSERT(!r, "madvise(MADV_FREE) should success");
-				} else {
-					struct sigaction sa = {
-						.sa_sigaction = sigbus_handler,
-						.sa_flags = SA_SIGINFO,
-					};
-					TEST_ASSERT(!sigaction(SIGBUS, &sa, NULL),
-						    "sigaction should success");
+				if (!sigsetjmp(sigbuf, 1)) {
 					/* Trigger SIGBUS */
 					vcpu_run(vcpu);
+					TEST_FAIL("SIGBUS didn't trgger.");
+				}
+
+				sa.sa_handler = SIG_DFL,
+				r = sigaction(SIGBUS, &sa, NULL);
+				TEST_ASSERT(!r, "sigaction should success");
+				if (uc.args[0] == HWPOISON_PRIVATE) {
+					/* Discard the poisoned page and assign new page. */
+					vm_guest_mem_fallocate(vm, gpa, PAGE_SIZE, true);
+				} else {
+					r = madvise(hva, PAGE_SIZE, MADV_FREE);
+					TEST_ASSERT(!r, "madvise(MADV_FREE) should success");
 				}
 			}
 			break;
@@ -318,8 +470,9 @@ static void test_mem_failure(enum vm_mem_backing_src_type src_type, uint32_t nr_
 
 static void help(const char *prog_name)
 {
-	printf("usage: %s [-h] [-m] [-M] [-n nr_vcpus] [-s mem_type] [-?]\n"
+	printf("usage: %s [-h] [-i] [-m] [-M] [-n nr_vcpus] [-s mem_type] [-?]\n"
 	       " -h: use huge page\n"
+	       " -i: use mce injection\n"
 	       " -m: use multiple memslots (default: 1)\n"
 	       " -n: specify the number of vcpus (default: 1)\n"
 	       " -s: specify the memory type\n"
@@ -340,10 +493,13 @@ int main(int argc, char *argv[])
 	TEST_REQUIRE(kvm_check_cap(KVM_CAP_VM_TYPES) &
 		     BIT(KVM_X86_SW_PROTECTED_VM));
 
-	while ((opt = getopt(argc, argv, "hmn:s:S?")) != -1) {
+	while ((opt = getopt(argc, argv, "himn:s:S?")) != -1) {
 		switch (opt) {
 		case 'h':
 			huge_page = true;
+			break;
+		case 'i':
+			use_mce_injection = true;
 			break;
 		case 'm':
 			use_multiple_memslots = true;

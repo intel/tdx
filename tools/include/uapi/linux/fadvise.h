@@ -19,4 +19,9 @@
 #define POSIX_FADV_NOREUSE	5 /* Data will be accessed once.  */
 #endif
 
+/* Same to MADV_HWPOISON and MADV_SOFT_OFFLINE */
+#define FADV_HWPOISON           100     /* poison a page for testing */
+#define FADV_SOFT_OFFLINE       101     /* soft offline page for testing */
+#define FADV_MCE_INJECT         102
+
 #endif	/* FADVISE_H_INCLUDED */

@@ -72,6 +72,7 @@ static int inj_##reg##_set(void *data, u64 val)				\
 	return 0;							\
 }
 
+MCE_INJECT_SET(mcgstatus);
 MCE_INJECT_SET(status);
 MCE_INJECT_SET(misc);
 MCE_INJECT_SET(addr);
@@ -86,12 +87,14 @@ static int inj_##reg##_get(void *data, u64 *val)			\
 	return 0;							\
 }
 
+MCE_INJECT_GET(mcgstatus);
 MCE_INJECT_GET(status);
 MCE_INJECT_GET(misc);
 MCE_INJECT_GET(addr);
 MCE_INJECT_GET(synd);
 MCE_INJECT_GET(ipid);
 
+DEFINE_SIMPLE_ATTRIBUTE(mcgstatus_fops, inj_mcgstatus_get, inj_mcgstatus_set, "%llx\n");
 DEFINE_SIMPLE_ATTRIBUTE(status_fops, inj_status_get, inj_status_set, "%llx\n");
 DEFINE_SIMPLE_ATTRIBUTE(misc_fops, inj_misc_get, inj_misc_set, "%llx\n");
 DEFINE_SIMPLE_ATTRIBUTE(addr_fops, inj_addr_get, inj_addr_set, "%llx\n");
@@ -679,6 +682,9 @@ static const char readme_msg[] =
 "\t    APIC interrupt handler to handle the error. \n"
 "\n"
 "ipid:\t IPID (AMD-specific)\n"
+"\n"
+"mcgstatus:\t Set MCG_STATUS: the bits in that MSR describes the current state\n"
+"\t of the processor after the MCE.\n"
 "\n";
 
 static ssize_t
@@ -706,6 +712,8 @@ static struct dfs_node {
 	{ .name = "bank",	.fops = &bank_fops,   .perm = S_IRUSR | S_IWUSR },
 	{ .name = "flags",	.fops = &flags_fops,  .perm = S_IRUSR | S_IWUSR },
 	{ .name = "cpu",	.fops = &extcpu_fops, .perm = S_IRUSR | S_IWUSR },
+	{ .name = "mcgstatus",	.fops = &mcgstatus_fops,
+						      .perm = S_IRUSR | S_IWUSR },
 	{ .name = "README",	.fops = &readme_fops, .perm = S_IRUSR | S_IRGRP | S_IROTH },
 };
 

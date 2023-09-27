@@ -281,6 +281,14 @@ const struct vm_mem_backing_src_alias *vm_mem_backing_src_alias(uint32_t i)
 			 */
 			.flag = MAP_SHARED,
 		},
+		[VM_MEM_SRC_ANONYMOUS_MEMFD] = {
+			.name = "anonymous_memfd",
+			.flag = ANON_FLAGS,
+		},
+		[VM_MEM_SRC_ANONYMOUS_MEMFD_HUGETLB] = {
+			.name = "anonymous_memfd_hugetlb",
+			.flag = ANON_HUGE_FLAGS,
+		},
 	};
 	_Static_assert(ARRAY_SIZE(aliases) == NUM_SRC_TYPES,
 		       "Missing new backing src types?");

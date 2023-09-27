@@ -33,7 +33,7 @@
 
 #include "internal.h"
 
-static bool hw_injection_possible = true;
+static bool hw_injection_possible;
 
 /*
  * Collect all the MCi_XXX settings
@@ -732,6 +732,7 @@ static void check_hw_inj_possible(void)
 	if (!cpu_feature_enabled(X86_FEATURE_SMCA))
 		return;
 
+	hw_injection_possible = true;
 	cpu = get_cpu();
 
 	for (bank = 0; bank < MAX_NR_BANKS; ++bank) {

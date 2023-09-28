@@ -665,12 +665,14 @@ static void __vm_mem_region_delete(struct kvm_vm *vm,
 	sparsebit_free(&region->protected_phy_pages);
 	ret = munmap(region->mmap_start, region->mmap_size);
 	TEST_ASSERT(!ret, __KVM_SYSCALL_ERROR("munmap()", ret));
-	if (region->fd >= 0) {
+
+	if (region->mmap_alias) {
 		/* There's an extra map when using shared memory. */
 		ret = munmap(region->mmap_alias, region->mmap_size);
 		TEST_ASSERT(!ret, __KVM_SYSCALL_ERROR("munmap()", ret));
-		close(region->fd);
 	}
+	if (region->fd >= 0)
+		close(region->fd);
 	if (region->region.guest_memfd >= 0)
 		close(region->region.guest_memfd);
 
@@ -906,7 +908,8 @@ void vm_set_user_memory_region2(struct kvm_vm *vm, uint32_t slot, uint32_t flags
 /* FIXME: This thing needs to be ripped apart and rewritten. */
 void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
 		uint64_t guest_paddr, uint32_t slot, uint64_t npages,
-		uint32_t flags, int guest_memfd, uint64_t guest_memfd_offset)
+		uint32_t flags, int guest_memfd, uint64_t guest_memfd_offset,
+		bool create_alias)
 {
 	int ret;
 	struct userspace_mem_region *region;
@@ -1067,7 +1070,7 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
 	hash_add(vm->regions.slot_hash, &region->slot_node, slot);
 
 	/* If shared memory, create an alias. */
-	if (region->fd >= 0) {
+	if (region->fd >= 0 && create_alias) {
 		region->mmap_alias = mmap(NULL, region->mmap_size,
 					  PROT_READ | PROT_WRITE,
 					  vm_mem_backing_src_alias(src_type)->flag,
@@ -1078,6 +1081,23 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
 		/* Align host alias address */
 		region->host_alias = align_ptr_up(region->mmap_alias, alignment);
 	}
+}
+
+void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
+		uint64_t guest_paddr, uint32_t slot, uint64_t npages,
+		uint32_t flags, int gmem_fd, uint64_t gmem_offset)
+{
+	__vm_mem_add(vm, src_type, guest_paddr, slot, npages, flags, gmem_fd,
+		     gmem_offset, true);
+}
+
+void __vm_userspace_mem_region_add(struct kvm_vm *vm,
+				   enum vm_mem_backing_src_type src_type,
+				   uint64_t guest_paddr, uint32_t slot, uint64_t npages,
+				   uint32_t flags, bool create_alias)
+{
+	__vm_mem_add(vm, src_type, guest_paddr, slot, npages, flags, -1, 0,
+		     create_alias);
 }
 
 void vm_userspace_mem_region_add(struct kvm_vm *vm,

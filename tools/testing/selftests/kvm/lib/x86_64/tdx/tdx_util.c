@@ -491,10 +491,13 @@ static void td_setup_boot_parameters(struct kvm_vm *vm, enum vm_mem_backing_src_
 	ASSERT_EQ(addr, TD_BOOT_PARAMETERS_GPA);
 }
 
-void td_initialize(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
-		   uint64_t attributes)
+static void __td_initialize(struct kvm_vm *vm,
+			    enum vm_mem_backing_src_type src_type,
+			    uint64_t attributes, uint64_t extra_pages)
 {
 	uint64_t nr_pages_required;
+	uint64_t extra_mem_size = extra_pages * PAGE_SIZE;
+	vm_vaddr_t extra_mem_addr;
 
 	tdx_enable_capabilities(vm);
 
@@ -502,7 +505,7 @@ void td_initialize(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
 
 	tdx_td_init(vm, attributes);
 
-	nr_pages_required = vm_nr_pages_required(VM_MODE_DEFAULT, 1, 0);
+	nr_pages_required = vm_nr_pages_required(VM_MODE_DEFAULT, 1, extra_pages);
 
 	/*
 	 * Add memory (add 0th memslot) for TD. This will be used to setup the
@@ -517,6 +520,27 @@ void td_initialize(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
 
 	td_setup_boot_code(vm, src_type);
 	td_setup_boot_parameters(vm, src_type);
+
+	if (extra_pages) {
+		vm_userspace_mem_region_add(vm, src_type, FOUR_GIGABYTES_GPA, 3,
+					    extra_pages, KVM_MEM_GUEST_MEMFD);
+		extra_mem_addr = vm_vaddr_alloc_1to1(vm, extra_mem_size,
+						     FOUR_GIGABYTES_GPA, 3);
+		ASSERT_EQ(extra_mem_addr, FOUR_GIGABYTES_GPA);
+	}
+}
+
+void td_initialize(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
+		   uint64_t attributes)
+{
+	__td_initialize(vm, src_type, attributes, 0);
+}
+
+void td_initialize_with_extra_memory(struct kvm_vm *vm,
+				     enum vm_mem_backing_src_type src_type,
+				     uint64_t attributes, uint64_t extra_pages)
+{
+	__td_initialize(vm, src_type, attributes, extra_pages);
 }
 
 void td_finalize(struct kvm_vm *vm)

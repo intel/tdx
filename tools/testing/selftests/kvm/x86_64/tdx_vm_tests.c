@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 #include <signal.h>
+#include <time.h>
 #include "kvm_util_base.h"
 #include "processor.h"
 #include "tdx/tdcall.h"
@@ -8,6 +9,8 @@
 #include "tdx/tdx_util.h"
 #include "tdx/test_util.h"
 #include "test_util.h"
+
+#define GB (1024 * 1024 * 1024)
 
 void guest_code_lifecycle(void)
 {
@@ -1293,6 +1296,33 @@ void verify_tdcall_vp_info(void)
 	printf("\t ... PASSED\n");
 }
 
+void verify_large_td(void)
+{
+	struct kvm_vm *vm;
+	struct kvm_vcpu *vcpu;
+	time_t start_time, now;
+	uint64_t extra_mem_gb = 10;
+
+	printf("Verifying TD with extra %ldGB:\n", extra_mem_gb);
+
+	start_time = time(NULL);
+	vm = td_create();
+	td_initialize_with_extra_memory(vm, VM_MEM_SRC_ANONYMOUS, 0, (extra_mem_gb * GB) >> 12);
+	vcpu = td_vcpu_add(vm, 0, guest_code_lifecycle);
+	td_finalize(vm);
+	now = time(NULL);
+	printf("Creating VM took %ld seconds\n", now-start_time);
+	
+	vcpu_run(vcpu);
+	TDX_TEST_ASSERT_SUCCESS(vcpu);
+
+	start_time = time(NULL);
+	kvm_vm_free(vm);
+	now = time(NULL);
+	printf("Destroying VM took %ld seconds\n", now-start_time);
+	printf("\t ... PASSED\n");
+}
+
 int main(int argc, char **argv)
 {
 	setbuf(stdout, NULL);
@@ -1317,6 +1347,7 @@ int main(int argc, char **argv)
 	run_in_new_process(&verify_td_cpuid_tdcall);
 	run_in_new_process(&verify_host_reading_private_mem);
 	run_in_new_process(&verify_tdcall_vp_info);
+	run_in_new_process(&verify_large_td);
 
 	return 0;
 }

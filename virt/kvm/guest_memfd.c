@@ -378,8 +378,8 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
 		goto err_fd;
 	}
 
-	file = anon_inode_getfile(anon_name, &kvm_gmem_fops, gmem,
-				  O_RDWR);
+	file = anon_inode_getfile_secure(anon_name, &kvm_gmem_fops, gmem,
+					 O_RDWR, NULL);
 	if (IS_ERR(file)) {
 		err = PTR_ERR(file);
 		goto err_gmem;

@@ -166,9 +166,9 @@ void vcpu_run_and_manage_memory_conversions(struct kvm_vm *vm,
 		} else if (handle_conversions &&
 			vcpu->run->exit_reason == KVM_EXIT_MEMORY_FAULT) {
 			handle_memory_conversion(
-				vm, vcpu->run->memory.gpa,
-				vcpu->run->memory.size,
-				vcpu->run->memory.flags == KVM_MEMORY_EXIT_FLAG_PRIVATE);
+				vm, vcpu->run->memory_fault.gpa,
+				vcpu->run->memory_fault.size,
+				vcpu->run->memory_fault.flags == KVM_MEMORY_EXIT_FLAG_PRIVATE);
 			continue;
 		} else if (
 			vcpu->run->exit_reason == KVM_EXIT_IO &&

@@ -526,7 +526,7 @@ static void __td_initialize(struct kvm_vm *vm,
 					    extra_pages, KVM_MEM_GUEST_MEMFD);
 		extra_mem_addr = vm_vaddr_alloc_1to1(vm, extra_mem_size,
 						     FOUR_GIGABYTES_GPA, 3);
-		ASSERT_EQ(extra_mem_addr, FOUR_GIGABYTES_GPA);
+		TEST_ASSERT_EQ(extra_mem_addr, FOUR_GIGABYTES_GPA);
 	}
 }
 

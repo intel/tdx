@@ -6,6 +6,7 @@
 #include <linux/types.h>
 
 #define TSM_INBLOB_MAX 64
+#define TSM_RTMR_DATA_MAX 48
 #define TSM_OUTBLOB_MAX SZ_32K
 
 /*
@@ -43,10 +44,27 @@ struct tsm_report {
 };
 
 /**
+ * struct tsm_rtmr - track state of RTMR extend operation
+ * @index: Index of RTMR register to extend
+ * @data_len: sizeof @data
+ * @data: Measurement extension data.
+ * @status: Status of RTMR extend operation.
+ */
+struct tsm_rtmr {
+	unsigned int index;
+	size_t data_len;
+	u8 data[TSM_RTMR_DATA_MAX];
+	int status;
+};
+
+/**
  * struct tsm_ops - attributes and operations for tsm instances
  * @name: tsm id reflected in /sys/kernel/config/tsm/report/$report/provider
  * @privlevel_floor: convey base privlevel for nested scenarios
+ * @max_rtmr_index: Maximum RTMR register index allowed to extend.
+ * @min_rtmr_index: Minimum RTMR register index allowed to extend.
  * @report_new: Populate @report with the report blob and auxblob
+ * @update_rtmr: Update RTMR register with RTMR data and index.
  * (optional), return 0 on successful population, or -errno otherwise
  *
  * Implementation specific ops, only one is expected to be registered at
@@ -55,7 +73,10 @@ struct tsm_report {
 struct tsm_ops {
 	const char *name;
 	const unsigned int privlevel_floor;
+	const unsigned int min_rtmr_index;
+	const unsigned int max_rtmr_index;
 	int (*report_new)(struct tsm_report *report, void *data);
+	int (*update_rtmr)(struct tsm_rtmr *rtmr, void *data);
 };
 
 extern const struct config_item_type tsm_report_default_type;

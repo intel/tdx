@@ -45,9 +45,197 @@ struct tsm_report_state {
 	struct config_item cfg;
 };
 
+struct tsm_rtmr_state {
+	struct tsm_rtmr rtmr;
+	unsigned long write_generation;
+	unsigned long read_generation;
+	struct config_item cfg;
+};
+
 enum tsm_data_select {
 	TSM_REPORT,
 	TSM_CERTS,
+};
+
+static struct tsm_rtmr *to_tsm_rtmr(struct config_item *cfg)
+{
+	struct tsm_rtmr_state *state =
+		container_of(cfg, struct tsm_rtmr_state, cfg);
+
+	return &state->rtmr;
+}
+
+static struct tsm_rtmr_state *to_rtmr_state(struct tsm_rtmr *rtmr)
+{
+	return container_of(rtmr, struct tsm_rtmr_state, rtmr);
+}
+
+static int try_rtmr_advance_write_generation(struct tsm_rtmr *rtmr)
+{
+	struct tsm_rtmr_state *state = to_rtmr_state(rtmr);
+
+	lockdep_assert_held_write(&tsm_rwsem);
+
+	/* Handle wrap of write_generation due to malicious user writes without any read */
+	if (state->write_generation == state->read_generation - 1)
+		return -EBUSY;
+
+	state->write_generation++;
+
+	return 0;
+}
+
+static ssize_t tsm_rtmr_index_store(struct config_item *cfg, const char *buf, size_t len)
+{
+	struct tsm_rtmr *rtmr = to_tsm_rtmr(cfg);
+	unsigned int val;
+	int rc;
+
+	rc = kstrtouint(buf, 0, &val);
+	if (rc)
+		return rc;
+
+	if (val < provider.ops->min_rtmr_index || val >  provider.ops->max_rtmr_index)
+		return -EINVAL;
+
+	guard(rwsem_write)(&tsm_rwsem);
+
+	rc = try_rtmr_advance_write_generation(rtmr);
+	if (rc)
+		return rc;
+
+	rtmr->index = val;
+
+	return len;
+}
+CONFIGFS_ATTR_WO(tsm_rtmr_, index);
+
+static ssize_t tsm_rtmr_allowed_index_show(struct config_item *cfg, char *buf)
+{
+	guard(rwsem_read)(&tsm_rwsem);
+
+	return sysfs_emit(buf, "%u-%u\n", provider.ops->min_rtmr_index,
+			  provider.ops->max_rtmr_index);
+}
+CONFIGFS_ATTR_RO(tsm_rtmr_, allowed_index);
+
+static ssize_t tsm_rtmr_data_write(struct config_item *cfg, const void *buf, size_t count)
+{
+	struct tsm_rtmr *rtmr = to_tsm_rtmr(cfg);
+	int rc;
+
+	guard(rwsem_write)(&tsm_rwsem);
+
+	rc = try_rtmr_advance_write_generation(rtmr);
+	if (rc)
+		return rc;
+
+	rtmr->data_len = count;
+
+	memcpy(rtmr->data, buf, count);
+
+	return count;
+}
+CONFIGFS_BIN_ATTR_WO(tsm_rtmr_, data, NULL, TSM_RTMR_DATA_MAX);
+
+static ssize_t tsm_rtmr_status_show(struct config_item *cfg, char *buf)
+{
+	struct tsm_rtmr *rtmr = to_tsm_rtmr(cfg);
+	struct tsm_rtmr_state *state = to_rtmr_state(rtmr);
+	const struct tsm_ops *ops;
+	size_t rc;
+
+	guard(rwsem_read)(&tsm_rwsem);
+
+	ops = provider.ops;
+
+	if (!rtmr->data_len)
+		return -EINVAL;
+
+	if (state->write_generation > 0 && state->read_generation == state->write_generation)
+		goto out;
+
+	rc = ops->update_rtmr(rtmr, provider.data);
+	if (rc < 0)
+		return rc;
+
+	state->read_generation = state->write_generation;
+	rtmr->status = rc;
+out:
+	return sysfs_emit(buf, "%d\n", rtmr->status);
+}
+CONFIGFS_ATTR_RO(tsm_rtmr_, status);
+
+static ssize_t tsm_rtmr_generation_show(struct config_item *cfg, char *buf)
+{
+	struct tsm_rtmr *rtmr = to_tsm_rtmr(cfg);
+	struct tsm_rtmr_state *state = to_rtmr_state(rtmr);
+
+	guard(rwsem_read)(&tsm_rwsem);
+
+	return sysfs_emit(buf, "%lu\n", state->write_generation);
+}
+CONFIGFS_ATTR_RO(tsm_rtmr_, generation);
+
+static struct configfs_bin_attribute *tsm_rtmr_bin_attrs[] = {
+	&tsm_rtmr_attr_data,
+	NULL,
+};
+
+static struct configfs_attribute *tsm_rtmr_attrs[] = {
+	&tsm_rtmr_attr_generation,
+	&tsm_rtmr_attr_index,
+	&tsm_rtmr_attr_status,
+	&tsm_rtmr_attr_allowed_index,
+	NULL,
+};
+
+static void tsm_rtmr_item_release(struct config_item *cfg)
+{
+	struct tsm_rtmr *rtmr = to_tsm_rtmr(cfg);
+	struct tsm_rtmr_state *state = to_rtmr_state(rtmr);
+
+	kfree(state);
+}
+
+static struct configfs_item_operations tsm_rtmr_item_ops = {
+	.release = tsm_rtmr_item_release,
+};
+
+const struct config_item_type tsm_rtmr_default_type = {
+	.ct_owner = THIS_MODULE,
+	.ct_bin_attrs = tsm_rtmr_bin_attrs,
+	.ct_attrs = tsm_rtmr_attrs,
+	.ct_item_ops = &tsm_rtmr_item_ops,
+};
+EXPORT_SYMBOL_GPL(tsm_rtmr_default_type);
+
+static struct config_item *tsm_rtmr_make_item(struct config_group *group,
+						     const char *name)
+{
+	struct tsm_rtmr_state *state;
+
+	guard(rwsem_read)(&tsm_rwsem);
+
+	if (!provider.ops)
+		return ERR_PTR(-ENXIO);
+
+	state = kzalloc(sizeof(*state), GFP_KERNEL);
+	if (!state)
+		return ERR_PTR(-ENOMEM);
+
+	config_item_init_type_name(&state->cfg, name, &tsm_rtmr_default_type);
+
+	return &state->cfg;
+}
+
+static struct configfs_group_operations tsm_rtmr_group_ops = {
+	.make_item = tsm_rtmr_make_item,
+};
+
+static const struct config_item_type tsm_rtmr_type = {
+	.ct_owner = THIS_MODULE,
+	.ct_group_ops = &tsm_rtmr_group_ops,
 };
 
 static struct tsm_report *to_tsm_report(struct config_item *cfg)
@@ -334,13 +522,13 @@ static struct configfs_group_operations tsm_report_group_ops = {
 	.make_item = tsm_report_make_item,
 };
 
+static const struct config_item_type tsm_root_group_type = {
+	.ct_owner = THIS_MODULE,
+};
+
 static const struct config_item_type tsm_reports_type = {
 	.ct_owner = THIS_MODULE,
 	.ct_group_ops = &tsm_report_group_ops,
-};
-
-static const struct config_item_type tsm_root_group_type = {
-	.ct_owner = THIS_MODULE,
 };
 
 static struct configfs_subsystem tsm_configfs = {
@@ -390,11 +578,12 @@ int tsm_unregister(const struct tsm_ops *ops)
 EXPORT_SYMBOL_GPL(tsm_unregister);
 
 static struct config_group *tsm_report_group;
+static struct config_group *tsm_rtmr_group;
 
 static int __init tsm_init(void)
 {
 	struct config_group *root = &tsm_configfs.su_group;
-	struct config_group *tsm;
+	struct config_group *tsm, *tsm_rtmr;
 	int rc;
 
 	config_group_init(root);
@@ -405,17 +594,34 @@ static int __init tsm_init(void)
 	tsm = configfs_register_default_group(root, "report",
 					      &tsm_reports_type);
 	if (IS_ERR(tsm)) {
-		configfs_unregister_subsystem(&tsm_configfs);
-		return PTR_ERR(tsm);
+		rc = PTR_ERR(tsm);
+		goto free_subsys;
 	}
+
+	tsm_rtmr = configfs_register_default_group(root, "rtmr",
+					      &tsm_rtmr_type);
+	if (IS_ERR(tsm_rtmr)) {
+		rc = PTR_ERR(tsm_rtmr);
+		goto free_report;
+	}
+
 	tsm_report_group = tsm;
+	tsm_rtmr_group = tsm_rtmr;
 
 	return 0;
+
+free_report:
+	configfs_unregister_default_group(tsm);
+free_subsys:
+	configfs_unregister_subsystem(&tsm_configfs);
+
+	return rc;
 }
 module_init(tsm_init);
 
 static void __exit tsm_exit(void)
 {
+	configfs_unregister_default_group(tsm_rtmr_group);
 	configfs_unregister_default_group(tsm_report_group);
 	configfs_unregister_subsystem(&tsm_configfs);
 }

@@ -80,3 +80,46 @@ Contact:	linux-coco@lists.linux.dev
 Description:
 		(RO) Indicates the minimum permissible value that can be written
 		to @privlevel.
+
+What:		/sys/kernel/config/tsm/rtmr/$name/data
+Date:		October, 2023
+KernelVersion:	v6.7
+Contact:	linux-coco@lists.linux.dev
+Description:
+		(WO) Up to 48 bytes of user specified binary data. Used for extending
+		the measurments of the VM. Kernel does not place any restrictions
+		on the content.
+
+What:		/sys/kernel/config/tsm/rtmr/$name/index
+Date:		October, 2023
+KernelVersion:	v6.7
+Contact:	linux-coco@lists.linux.dev
+Description:
+		(WO) Index of the Runtime Mesurement Register (RTMR) to update. The
+		acceptable range is conveyed via @allowed_index.
+
+What:		/sys/kernel/config/tsm/rtmr/$name/status
+Date:		October, 2023
+KernelVersion:	v6.7
+Contact:	linux-coco@lists.linux.dev
+Description:
+		(RO) Extend the VM measurements and read the status. zero value indicates
+		successful extension or error code on failure.
+
+What:		/sys/kernel/config/tsm/rtmr/$name/allowed_index
+Date:		October, 2023
+KernelVersion:	v6.7
+Contact:	linux-coco@lists.linux.dev
+Description:
+		(RO) Acceptable range of Runtime Measurement Register (RTMR) index
+		allowed for the user to extend.
+
+What:		/sys/kernel/config/tsm/rtmr/$name/generation
+Date:		October, 2023
+KernelVersion:	v6.7
+Contact:	linux-coco@lists.linux.dev
+Description:
+		(RO) The value in this attribute increments each time @data or
+		any input RTMR option is written. Userspace can use it detect conflicts
+		by making sure generation value matches the number of writes done by
+		the user.

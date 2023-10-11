@@ -508,8 +508,7 @@ static void handle_removed_private_spte(struct kvm *kvm, gfn_t gfn,
 	KVM_BUG_ON(!was_present, kvm);
 	KVM_BUG_ON(new_pfn, kvm);
 
-	/* Zapping leaf spte is allowed only when write lock is held. */
-	lockdep_assert_held_write(&kvm->mmu_lock);
+	lockdep_assert_held(&kvm->mmu_lock);
 	ret = static_call(kvm_x86_zap_private_spte)(kvm, gfn, level);
 	/* Because write lock is held, operation should success. */
 	if (KVM_BUG_ON(ret, kvm))
@@ -956,6 +955,107 @@ retry:
 	}
 }
 
+static void tdp_mmu_zap_root_tdx_work(struct work_struct *work)
+{
+	struct kvm_mmu_page *sp = container_of(work, struct kvm_mmu_page,
+					       tdp_mmu_async_work);
+	struct kvm_mmu_page *root = sp->tdp_mmu_async_data;
+	struct kvm *kvm = root->tdp_mmu_async_data;
+	struct tdp_iter iter;
+	int zap_level;
+
+	read_lock(&kvm->mmu_lock);
+
+retry:
+	rcu_read_lock();
+
+	/* Setup struct tdp_iter to zap from the parent of this sp. */
+	zap_level = sp->role.level + 1;
+	tdp_iter_start(&iter, root, zap_level, sp->gfn);
+
+	/* Step down to the parent entry of sp. */
+	while (iter.level > zap_level)
+		tdp_iter_next(&iter);
+
+	if (tdp_mmu_set_spte_atomic(kvm, &iter, SHADOW_NONPRESENT_VALUE)) {
+		rcu_read_unlock();
+		cond_resched_rwlock_read(&kvm->mmu_lock);
+		goto retry;
+	}
+
+	rcu_read_unlock();
+	read_unlock(&kvm->mmu_lock);
+}
+
+static void tdp_mmu_schedule_zap_tdx(struct kvm *kvm, struct kvm_mmu_page *root,
+				     int zap_level, gfn_t start, gfn_t end)
+{
+	struct kvm_mmu_page *sp;
+	struct tdp_iter iter;
+	tdp_ptep_t child_pt;
+
+	lockdep_assert_held_read(&kvm->mmu_lock);
+	WARN_ON_ONCE(zap_level < PG_LEVEL_2M);
+	WARN_ON_ONCE(start >= end);
+
+	root->tdp_mmu_async_data = kvm;
+	for_each_tdp_pte_min_level(iter, root, zap_level, start, end) {
+		if (need_resched() || rwlock_needbreak(&kvm->mmu_lock)) {
+			rcu_read_unlock();
+			cond_resched_rwlock_read(&kvm->mmu_lock);
+			rcu_read_lock();
+			iter.yielded = true;
+			continue;
+		}
+
+		if (!is_shadow_present_pte(iter.old_spte))
+			continue;
+
+		if (iter.level > zap_level)
+			continue;
+
+		if (is_removed_spte(iter.old_spte)) {
+			iter.yielded = true;
+			cpu_relax();
+			continue;
+		}
+
+		/*
+		 * struct tdp_iter is large so that we can't stash iter into
+		 * unused space in struct kvm_mmu_page.
+		 */
+		child_pt = spte_to_child_pt(iter.old_spte, iter.level);
+		if (!child_pt)
+			continue;
+		sp = sptep_to_sp(child_pt);
+		sp->tdp_mmu_async_data = root;
+		INIT_WORK(&sp->tdp_mmu_async_work, tdp_mmu_zap_root_tdx_work);
+		queue_work(kvm->arch.tdp_mmu_zap_wq, &sp->tdp_mmu_async_work);
+	}
+}
+
+static void __tdp_mmu_zap_root_tdx(struct kvm *kvm, struct kvm_mmu_page *root,
+				   int zap_level)
+{
+	gfn_t end = tdp_mmu_max_gfn_exclusive();
+	gfn_t start = 0;
+
+	/* Ugly: Need shared lock to allow parallel zapping. */
+	rcu_read_unlock();
+	write_unlock(&kvm->mmu_lock);
+
+	read_lock(&kvm->mmu_lock);
+	rcu_read_lock();
+	tdp_mmu_schedule_zap_tdx(kvm, root, zap_level, start, end);
+	rcu_read_unlock();
+	read_unlock(&kvm->mmu_lock);
+
+	flush_workqueue(kvm->arch.tdp_mmu_zap_wq);
+
+	write_lock(&kvm->mmu_lock);
+	rcu_read_lock();
+}
+
 static void tdp_mmu_zap_root(struct kvm *kvm, struct kvm_mmu_page *root,
 			     bool shared)
 {
@@ -986,8 +1086,13 @@ static void tdp_mmu_zap_root(struct kvm *kvm, struct kvm_mmu_page *root,
 	 * Because zapping a SP recurses on its children, stepping down to
 	 * PG_LEVEL_4K in the iterator itself is unnecessary.
 	 */
-	__tdp_mmu_zap_root(kvm, root, shared, PG_LEVEL_1G);
-	__tdp_mmu_zap_root(kvm, root, shared, root->role.level);
+	if (kvm->arch.vm_type == KVM_X86_TDX_VM && is_private_sp(root) && !shared) {
+		__tdp_mmu_zap_root_tdx(kvm, root, PG_LEVEL_1G);
+		__tdp_mmu_zap_root_tdx(kvm, root, root->role.level);
+	} else {
+		__tdp_mmu_zap_root(kvm, root, shared, PG_LEVEL_1G);
+		__tdp_mmu_zap_root(kvm, root, shared, root->role.level);
+	}
 
 	rcu_read_unlock();
 }

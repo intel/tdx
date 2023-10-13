@@ -1317,6 +1317,7 @@ void verify_large_td(void)
 	TDX_TEST_ASSERT_SUCCESS(vcpu);
 
 	start_time = time(NULL);
+	td_release(vm);
 	kvm_vm_free(vm);
 	now = time(NULL);
 	printf("Destroying VM took %ld seconds\n", now-start_time);

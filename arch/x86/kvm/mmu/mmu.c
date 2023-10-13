@@ -6907,6 +6907,7 @@ void kvm_arch_flush_shadow_all(struct kvm *kvm)
 	static_call_cond(kvm_x86_flush_shadow_all_private)(kvm);
 	kvm_mmu_zap_all(kvm);
 }
+EXPORT_SYMBOL_GPL(kvm_arch_flush_shadow_all);
 
 static void kvm_mmu_zap_memslot(struct kvm *kvm, struct kvm_memory_slot *slot)
 {

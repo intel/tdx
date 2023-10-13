@@ -24,7 +24,8 @@ static char *tdx_cmd_str[] = {
 	"KVM_TDX_INIT_VM",
 	"KVM_TDX_INIT_VCPU",
 	"KVM_TDX_INIT_MEM_REGION",
-	"KVM_TDX_FINALIZE_VM"
+	"KVM_TDX_FINALIZE_VM",
+	"KVM_TDX_RELEASE_VM"
 };
 #define TDX_MAX_CMD_STR (ARRAY_SIZE(tdx_cmd_str))
 
@@ -550,6 +551,11 @@ void td_finalize(struct kvm_vm *vm)
 	load_td_private_memory(vm);
 
 	tdx_td_finalizemr(vm);
+}
+
+void td_release(struct kvm_vm *vm)
+{
+	tdx_ioctl(vm->fd, KVM_TDX_RELEASE_VM, 0, NULL);
 }
 
 void td_vcpu_run(struct kvm_vcpu *vcpu)

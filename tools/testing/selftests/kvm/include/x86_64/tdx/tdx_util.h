@@ -15,6 +15,7 @@ void td_initialize_with_extra_memory(struct kvm_vm *vm,
 				     enum vm_mem_backing_src_type src_type,
 				     uint64_t attributes, uint64_t extra_pages);
 void td_finalize(struct kvm_vm *vm);
+void td_release(struct kvm_vm *vm);
 void td_vcpu_run(struct kvm_vcpu *vcpu);
 void handle_memory_conversion(struct kvm_vm *vm, uint64_t gpa, uint64_t size,
 			bool shared_to_private);

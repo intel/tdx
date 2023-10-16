@@ -398,6 +398,7 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
 	mapping_set_gfp_mask(inode->i_mapping, GFP_HIGHUSER);
 	mapping_set_large_folios(inode->i_mapping);
 	mapping_set_unmovable(inode->i_mapping);
+	inode->i_mapping->flags |= AS_INACCESSIBLE;
 	/* Unmovable mappings are supposed to be marked unevictable as well. */
 	WARN_ON_ONCE(!mapping_unevictable(inode->i_mapping));
 

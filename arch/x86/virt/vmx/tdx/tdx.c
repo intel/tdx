@@ -46,6 +46,8 @@ static DEFINE_MUTEX(tdx_module_lock);
 /* All TDX-usable memory regions.  Protected by mem_hotplug_lock. */
 static LIST_HEAD(tdx_memlist);
 
+static struct tdmr_info_list tdx_tdmr_list;
+
 typedef void (*sc_err_func_t)(u64 fn, u64 err, struct tdx_module_args *args);
 
 static inline void seamcall_err(u64 fn, u64 err, struct tdx_module_args *args)
@@ -1058,7 +1060,6 @@ static int init_tdmrs(struct tdmr_info_list *tdmr_list)
 static int init_tdx_module(void)
 {
 	struct tdsysinfo_struct *tdsysinfo;
-	struct tdmr_info_list tdmr_list;
 	struct cmr_info *cmr_array;
 	int tdsysinfo_size;
 	int cmr_array_size;
@@ -1101,17 +1102,17 @@ static int init_tdx_module(void)
 		goto out_put_tdxmem;
 
 	/* Allocate enough space for constructing TDMRs */
-	ret = alloc_tdmr_list(&tdmr_list, tdsysinfo);
+	ret = alloc_tdmr_list(&tdx_tdmr_list, tdsysinfo);
 	if (ret)
 		goto out_free_tdxmem;
 
 	/* Cover all TDX-usable memory regions in TDMRs */
-	ret = construct_tdmrs(&tdx_memlist, &tdmr_list, tdsysinfo);
+	ret = construct_tdmrs(&tdx_memlist, &tdx_tdmr_list, tdsysinfo);
 	if (ret)
 		goto out_free_tdmrs;
 
 	/* Pass the TDMRs and the global KeyID to the TDX module */
-	ret = config_tdx_module(&tdmr_list, tdx_global_keyid);
+	ret = config_tdx_module(&tdx_tdmr_list, tdx_global_keyid);
 	if (ret)
 		goto out_free_pamts;
 
@@ -1131,7 +1132,7 @@ static int init_tdx_module(void)
 		goto out_reset_pamts;
 
 	/* Initialize TDMRs to complete the TDX module initialization */
-	ret = init_tdmrs(&tdmr_list);
+	ret = init_tdmrs(&tdx_tdmr_list);
 out_reset_pamts:
 	if (ret) {
 		/*
@@ -1148,20 +1149,17 @@ out_reset_pamts:
 		 * back to normal.  But do the conversion anyway here
 		 * as suggested by the TDX spec.
 		 */
-		tdmrs_reset_pamt_all(&tdmr_list);
+		tdmrs_reset_pamt_all(&tdx_tdmr_list);
 	}
 out_free_pamts:
 	if (ret)
-		tdmrs_free_pamt_all(&tdmr_list);
+		tdmrs_free_pamt_all(&tdx_tdmr_list);
 	else
 		pr_info("%lu KBs allocated for PAMT\n",
-				tdmrs_count_pamt_kb(&tdmr_list));
+				tdmrs_count_pamt_kb(&tdx_tdmr_list));
 out_free_tdmrs:
-	/*
-	 * Always free the buffer of TDMRs as they are only used during
-	 * module initialization.
-	 */
-	free_tdmr_list(&tdmr_list);
+	if (ret)
+		free_tdmr_list(&tdx_tdmr_list);
 out_free_tdxmem:
 	if (ret)
 		free_tdx_memlist(&tdx_memlist);

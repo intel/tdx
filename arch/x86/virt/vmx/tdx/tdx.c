@@ -28,10 +28,12 @@
 #include <linux/sort.h>
 #include <linux/log2.h>
 #include <linux/reboot.h>
+#include <linux/suspend.h>
 #include <asm/msr-index.h>
 #include <asm/msr.h>
 #include <asm/page.h>
 #include <asm/special_insns.h>
+#include <asm/acpi.h>
 #include <asm/tdx.h>
 #include "tdx.h"
 
@@ -1427,6 +1429,22 @@ static int __init tdx_init(void)
 		return -ENODEV;
 	}
 
+#define HIBERNATION_MSG		\
+	"Disable TDX due to hibernation is available. Use 'nohibernate' command line to disable hibernation."
+	/*
+	 * Note hibernation_available() can vary when it is called at
+	 * runtime as it checks secretmem_active() and cxl_mem_active()
+	 * which can both vary at runtime.  But here at early_init() they
+	 * both cannot return true, thus when hibernation_available()
+	 * returns false here, hibernation is disabled by either
+	 * 'nohibernate' or LOCKDOWN_HIBERNATION security lockdown,
+	 * which are both permanent.
+	 */
+	if (hibernation_available()) {
+		pr_err("initialization failed: %s\n", HIBERNATION_MSG);
+		return -ENODEV;
+	}
+
 	err = register_memory_notifier(&tdx_memory_nb);
 	if (err) {
 		pr_err("initialization failed: register_memory_notifier() failed (%d)\n",
@@ -1441,6 +1459,11 @@ static int __init tdx_init(void)
 		unregister_memory_notifier(&tdx_memory_nb);
 		return -ENODEV;
 	}
+
+#ifdef CONFIG_ACPI
+	pr_info("Disable ACPI S3 suspend. Turn off TDX in the BIOS to use ACPI S3.\n");
+	acpi_suspend_lowlevel = NULL;
+#endif
 
 	/*
 	 * Just use the first TDX KeyID as the 'global KeyID' and

@@ -35,6 +35,9 @@
 #define GET_QUOTE_SUCCESS		0
 #define GET_QUOTE_IN_FLIGHT		0xffffffffffffffff
 
+#define TDX_RTMR_EXTEND_LEN		48
+#define TDX_RTMR_BUF_LEN		64
+
 /* struct tdx_quote_buf: Format of Quote request buffer.
  * @version: Quote format version, filled by TD.
  * @status: Status code of Quote request, filled by VMM.
@@ -159,6 +162,7 @@ static int wait_for_quote_completion(struct tdx_quote_buf *quote_buf, u32 timeou
 	return (i == timeout) ? -ETIMEDOUT : 0;
 }
 
+
 static int tdx_report_new(struct tsm_report *report, void *data)
 {
 	u8 *buf, *reportdata = NULL, *tdreport = NULL;
@@ -260,6 +264,23 @@ static long tdx_guest_ioctl(struct file *file, unsigned int cmd,
 	}
 }
 
+static int tdx_update_rtmr(struct tsm_rtmr *rtmr, void *data)
+{
+	pr_info("%s:%d called for index:%d\n", __func__, __LINE__, rtmr->index);
+
+	if (rtmr->data_len != TDX_RTMR_EXTEND_LEN)
+		return -EINVAL;
+
+	void *buf __free(kfree) = kzalloc(TDX_RTMR_BUF_LEN, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	memcpy(buf, rtmr->data, rtmr->data_len);
+
+	/* Extend RTMR registers using "TDG.MR.RTMR.EXTEND" TDCALL */
+	return tdx_mcall_extend_rtmr(buf, rtmr->index);
+}
+
 static const struct file_operations tdx_guest_fops = {
 	.owner = THIS_MODULE,
 	.unlocked_ioctl = tdx_guest_ioctl,
@@ -280,7 +301,10 @@ MODULE_DEVICE_TABLE(x86cpu, tdx_guest_ids);
 
 static const struct tsm_ops tdx_tsm_ops = {
 	.name = KBUILD_MODNAME,
+	.min_rtmr_index = 2,
+	.max_rtmr_index = 2,
 	.report_new = tdx_report_new,
+	.update_rtmr = tdx_update_rtmr,
 };
 
 static int __init tdx_guest_init(void)

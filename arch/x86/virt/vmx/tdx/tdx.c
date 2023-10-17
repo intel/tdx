@@ -16,8 +16,11 @@
 #include <linux/spinlock.h>
 #include <linux/percpu-defs.h>
 #include <linux/mutex.h>
+#include <linux/slab.h>
+#include <linux/math.h>
 #include <asm/msr-index.h>
 #include <asm/msr.h>
+#include <asm/page.h>
 #include <asm/tdx.h>
 #include "tdx.h"
 
@@ -162,12 +165,91 @@ int tdx_cpu_enable(void)
 }
 EXPORT_SYMBOL_GPL(tdx_cpu_enable);
 
+static void print_cmrs(struct cmr_info *cmr_array, int nr_cmrs)
+{
+	int i;
+
+	for (i = 0; i < nr_cmrs; i++) {
+		struct cmr_info *cmr = &cmr_array[i];
+
+		/*
+		 * The array of CMRs reported via TDH.SYS.INFO can
+		 * contain tail empty CMRs.  Don't print them.
+		 */
+		if (!cmr->size)
+			break;
+
+		pr_info("CMR: [0x%llx, 0x%llx)\n", cmr->base,
+				cmr->base + cmr->size);
+	}
+}
+
+static int get_tdx_sysinfo(struct tdsysinfo_struct *tdsysinfo,
+			   struct cmr_info *cmr_array)
+{
+	struct tdx_module_args args = {};
+	int ret;
+
+	/*
+	 * TDH.SYS.INFO writes the TDSYSINFO_STRUCT and the CMR array
+	 * to the buffers provided by the kernel (via RCX and R8
+	 * respectively).  The buffer size of the TDSYSINFO_STRUCT
+	 * (via RDX) and the maximum entries of the CMR array (via R9)
+	 * passed to this SEAMCALL must be at least the size of
+	 * TDSYSINFO_STRUCT and MAX_CMRS respectively.
+	 *
+	 * Upon a successful return, R9 contains the actual entries
+	 * written to the CMR array.
+	 */
+	args.rcx = __pa(tdsysinfo);
+	args.rdx = TDSYSINFO_STRUCT_SIZE;
+	args.r8 = __pa(cmr_array);
+	args.r9 = MAX_CMRS;
+	ret = seamcall_prerr_ret(TDH_SYS_INFO, &args);
+	if (ret)
+		return ret;
+
+	pr_info("TDX module: attributes 0x%x, vendor_id 0x%x, major_version %u, minor_version %u, build_date %u, build_num %u",
+		tdsysinfo->attributes,    tdsysinfo->vendor_id,
+		tdsysinfo->major_version, tdsysinfo->minor_version,
+		tdsysinfo->build_date,    tdsysinfo->build_num);
+
+	print_cmrs(cmr_array, args.r9);
+
+	return 0;
+}
+
 static int init_tdx_module(void)
 {
+	struct tdsysinfo_struct *tdsysinfo;
+	struct cmr_info *cmr_array;
+	int tdsysinfo_size;
+	int cmr_array_size;
+	int ret;
+
+	tdsysinfo_size = round_up(TDSYSINFO_STRUCT_SIZE,
+			TDSYSINFO_STRUCT_ALIGNMENT);
+	tdsysinfo = kzalloc(tdsysinfo_size, GFP_KERNEL);
+	if (!tdsysinfo)
+		return -ENOMEM;
+
+	cmr_array_size = sizeof(struct cmr_info) * MAX_CMRS;
+	cmr_array_size = round_up(cmr_array_size, CMR_INFO_ARRAY_ALIGNMENT);
+	cmr_array = kzalloc(cmr_array_size, GFP_KERNEL);
+	if (!cmr_array) {
+		kfree(tdsysinfo);
+		return -ENOMEM;
+	}
+
+
+	/* Get the TDSYSINFO_STRUCT and CMRs from the TDX module. */
+	ret = get_tdx_sysinfo(tdsysinfo, cmr_array);
+	if (ret)
+		goto out;
+
 	/*
 	 * TODO:
 	 *
-	 *  - Get TDX module information and TDX-capable memory regions.
 	 *  - Build the list of TDX-usable memory regions.
 	 *  - Construct a list of "TD Memory Regions" (TDMRs) to cover
 	 *    all TDX-usable memory regions.
@@ -177,7 +259,15 @@ static int init_tdx_module(void)
 	 *
 	 *  Return error before all steps are done.
 	 */
-	return -EINVAL;
+	ret = -EINVAL;
+out:
+	/*
+	 * For now both @sysinfo and @cmr_array are only used during
+	 * module initialization, so always free them.
+	 */
+	kfree(tdsysinfo);
+	kfree(cmr_array);
+	return ret;
 }
 
 static int __tdx_enable(void)

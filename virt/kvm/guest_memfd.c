@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/backing-dev.h>
+#include <linux/anon_inodes.h>
 #include <linux/falloc.h>
 #include <linux/kvm_host.h>
 #include <linux/pagemap.h>
-#include <linux/anon_inodes.h>
+#include <linux/pseudo_fs.h>
+
+#include <uapi/linux/magic.h>
 
 #include "kvm_mm.h"
+
+static struct vfsmount *kvm_gmem_mnt;
 
 struct kvm_gmem {
 	struct kvm *kvm;
@@ -360,41 +365,29 @@ static const struct inode_operations kvm_gmem_iops = {
 	.setattr	= kvm_gmem_setattr,
 };
 
-static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
+static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags,
+			     struct vfsmount *mnt)
 {
 	const char *anon_name = "[kvm-gmem]";
+	const struct qstr qname = QSTR_INIT(anon_name, strlen(anon_name));
 	struct kvm_gmem *gmem;
 	struct inode *inode;
 	struct file *file;
 	int fd, err;
 
-	fd = get_unused_fd_flags(0);
-	if (fd < 0)
-		return fd;
+	inode = alloc_anon_inode(mnt->mnt_sb);
+	if (IS_ERR(inode))
+		return PTR_ERR(inode);
 
-	gmem = kzalloc(sizeof(*gmem), GFP_KERNEL);
-	if (!gmem) {
-		err = -ENOMEM;
-		goto err_fd;
-	}
-
-	file = anon_inode_create_getfile(anon_name, &kvm_gmem_fops, gmem,
-					 O_RDWR, NULL);
-	if (IS_ERR(file)) {
-		err = PTR_ERR(file);
-		goto err_gmem;
-	}
-
-	file->f_flags |= O_LARGEFILE;
-
-	inode = file->f_inode;
-	WARN_ON(file->f_mapping != inode->i_mapping);
+	err = security_inode_init_security_anon(inode, &qname, NULL);
+	if (err)
+		goto err_inode;
 
 	inode->i_private = (void *)(unsigned long)flags;
 	inode->i_op = &kvm_gmem_iops;
 	inode->i_mapping->a_ops = &kvm_gmem_aops;
 	inode->i_mode |= S_IFREG;
-	inode->i_size = size;
+	i_size_write(inode, size);
 	mapping_set_gfp_mask(inode->i_mapping, GFP_HIGHUSER);
 	mapping_set_large_folios(inode->i_mapping);
 	mapping_set_unmovable(inode->i_mapping);
@@ -402,18 +395,51 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
 	/* Unmovable mappings are supposed to be marked unevictable as well. */
 	WARN_ON_ONCE(!mapping_unevictable(inode->i_mapping));
 
+	fd = get_unused_fd_flags(0);
+	if (fd < 0) {
+		err = fd;
+		goto err_inode;
+	}
+
+	if (!try_module_get(kvm_gmem_fops.owner)) {
+		err = -ENOENT;
+		goto err_inode;
+	}
+
+	file = alloc_file_pseudo(inode, mnt, "kvm-gmem", O_RDWR, &kvm_gmem_fops);
+	if (IS_ERR(file)) {
+		err = PTR_ERR(file);
+		put_unused_fd(fd);
+		goto err_inode;
+	}
+
+	file->f_flags |= O_LARGEFILE;
+	file->f_mapping = inode->i_mapping;
+
+	gmem = kzalloc(sizeof(*gmem), GFP_KERNEL);
+	if (!gmem) {
+		err = -ENOMEM;
+		goto err_file;
+	}
+
 	kvm_get_kvm(kvm);
 	gmem->kvm = kvm;
 	xa_init(&gmem->bindings);
+
+	file->private_data = gmem;
+
 	list_add(&gmem->entry, &inode->i_mapping->i_private_list);
 
 	fd_install(fd, file);
 	return fd;
 
-err_gmem:
-	kfree(gmem);
-err_fd:
+err_file:
+	fput(file);
 	put_unused_fd(fd);
+	return err;
+
+err_inode:
+	iput(inode);
 	return err;
 }
 
@@ -438,7 +464,7 @@ int kvm_gmem_create(struct kvm *kvm, struct kvm_create_guest_memfd *args)
 		return -EINVAL;
 #endif
 
-	return __kvm_gmem_create(kvm, size, flags);
+	return __kvm_gmem_create(kvm, size, flags, kvm_gmem_mnt);
 }
 
 int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
@@ -593,3 +619,35 @@ out_fput:
 	return r;
 }
 EXPORT_SYMBOL_GPL(kvm_gmem_get_pfn);
+
+static int kvm_gmem_init_fs_context(struct fs_context *fc)
+{
+	if (!init_pseudo(fc, KVM_GUEST_MEMORY_MAGIC))
+		return -ENOMEM;
+
+	return 0;
+}
+
+static struct file_system_type kvm_gmem_fs = {
+	.name		 = "kvm_guest_memory",
+	.init_fs_context = kvm_gmem_init_fs_context,
+	.kill_sb	 = kill_anon_super,
+};
+
+int kvm_gmem_fs_init(void)
+{
+	kvm_gmem_mnt = kern_mount(&kvm_gmem_fs);
+	if (IS_ERR(kvm_gmem_mnt))
+		return PTR_ERR(kvm_gmem_mnt);
+
+	/* For giggles.  Userspace can never map this anyways. */
+	kvm_gmem_mnt->mnt_flags |= MNT_NOEXEC;
+
+	return 0;
+}
+
+void kvm_gmem_fs_exit(void)
+{
+	kern_unmount(kvm_gmem_mnt);
+	kvm_gmem_mnt = NULL;
+}

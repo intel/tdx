@@ -620,11 +620,24 @@ out_fput:
 }
 EXPORT_SYMBOL_GPL(kvm_gmem_get_pfn);
 
+static int kvm_gmem_drop_inode(struct inode *inode)
+{
+	/* TODO: kvm gmem change */
+	return generic_drop_inode(inode);
+}
+
+static const struct super_operations kvm_gmem_sops = {
+	.statfs = simple_statfs,
+	.drop_inode = kvm_gmem_drop_inode,
+};
+
 static int kvm_gmem_init_fs_context(struct fs_context *fc)
 {
-	if (!init_pseudo(fc, KVM_GUEST_MEMORY_MAGIC))
-		return -ENOMEM;
+	struct pseudo_fs_context *ctx = init_pseudo(fc, KVM_GUEST_MEMORY_MAGIC);
 
+	if (!ctx)
+		return -ENOMEM;
+	ctx->ops = &kvm_gmem_sops;
 	return 0;
 }
 

@@ -1017,7 +1017,7 @@ static inline void kvm_irqfd_exit(void)
 #endif
 
 struct kvm_arch_gmem_ops {
-	/* TODO add callbacks. */
+	void (*free_folio)(struct folio *folio);
 };
 
 void kvm_gmem_register(const struct kvm_arch_gmem_ops *ops);

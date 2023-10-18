@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/backing-dev.h>
 #include <linux/anon_inodes.h>
+#include <linux/page-flags.h>
 #include <linux/falloc.h>
 #include <linux/kvm_host.h>
 #include <linux/pagemap.h>
+#include <linux/pagevec.h>
 #include <linux/pseudo_fs.h>
+#include <linux/swap.h>
 
 #include <uapi/linux/magic.h>
 
@@ -12,10 +15,12 @@
 
 static struct vfsmount *kvm_gmem_mnt;
 
+static void (*free_folio)(struct folio *);
+
 /* TODO: move this to kvm_init(). */
 void kvm_gmem_register(const struct kvm_arch_gmem_ops *ops)
 {
-	/* TODO: Add callbacks. */
+	free_folio = ops->free_folio;
 }
 EXPORT_SYMBOL_GPL(kvm_gmem_register);
 
@@ -240,6 +245,34 @@ static long kvm_gmem_fallocate(struct file *file, int mode, loff_t offset,
 	return ret;
 }
 
+static void kvm_gmem_clear_unevictable(struct inode *inode)
+{
+	struct folio_batch fbatch;
+	pgoff_t index = 0;
+
+	mapping_clear_unevictable(inode->i_mapping);
+
+	/* Move folios from unevicable LRU to the evictable. */
+	folio_batch_init(&fbatch);
+	while (filemap_get_folios(inode->i_mapping, &index, ~0UL, &fbatch)) {
+		int i;
+
+		for (i = 0; i < fbatch.nr; i++) {
+			struct folio *folio = fbatch.folios[i];
+
+			folio_clear_referenced(folio);
+			if (folio_test_clear_dirty(folio))
+				folio_set_checked(folio);
+			folio_set_reclaim(folio);
+		}
+
+		check_move_unevictable_folios(&fbatch);
+
+		__folio_batch_release(&fbatch);
+		cond_resched();
+	}
+}
+
 static int kvm_gmem_release(struct inode *inode, struct file *file)
 {
 	struct kvm_gmem *gmem = file->private_data;
@@ -278,6 +311,9 @@ static int kvm_gmem_release(struct inode *inode, struct file *file)
 	mutex_unlock(&kvm->slots_lock);
 
 	xa_destroy(&gmem->bindings);
+
+	if (free_folio)
+		kvm_gmem_clear_unevictable(inode);
 	kfree(gmem);
 
 	kvm_put_kvm(kvm);
@@ -346,8 +382,21 @@ static int kvm_gmem_error_folio(struct address_space *mapping, struct folio *fol
 	return MF_DELAYED;
 }
 
+static void kvm_gmem_free_folio(struct folio *folio)
+{
+	if (!free_folio)
+		return;
+
+	if (folio_test_checked(folio) || folio_test_dirty(folio)) {
+		folio_clear_checked(folio);
+		folio_clear_dirty(folio);
+		free_folio(folio);
+	}
+}
+
 static const struct address_space_operations kvm_gmem_aops = {
 	.dirty_folio = noop_dirty_folio,
+	.free_folio = kvm_gmem_free_folio,
 	.migrate_folio	= kvm_gmem_migrate_folio,
 	.error_remove_folio = kvm_gmem_error_folio,
 };
@@ -427,6 +476,16 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags,
 	if (!gmem) {
 		err = -ENOMEM;
 		goto err_file;
+	}
+
+	if (free_folio) {
+		/*
+		 * Allow inode alive after releasing file so that kswapd can
+		 * trigger clearing private page.
+		 */
+		set_nlink(inode, 1);
+		inode_fake_hash(inode);
+		inode_sb_list_add(inode);
 	}
 
 	kvm_get_kvm(kvm);
@@ -629,7 +688,10 @@ EXPORT_SYMBOL_GPL(kvm_gmem_get_pfn);
 
 static int kvm_gmem_drop_inode(struct inode *inode)
 {
-	/* TODO: kvm gmem change */
+	if (free_folio && !inode->i_mapping->nrpages)
+		/* clear_nlink() checks i_nlink = 0. */
+		clear_nlink(inode);
+
 	return generic_drop_inode(inode);
 }
 

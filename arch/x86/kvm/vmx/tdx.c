@@ -588,10 +588,31 @@ void tdx_mmu_release_hkid(struct kvm *kvm)
 		;
 }
 
+static void tdx_tdr_free(unsigned long tdr_pa)
+{
+	u64 err;
+
+	if (__tdx_reclaim_page(tdr_pa, PG_LEVEL_4K))
+		return;
+	/*
+	 * TDX module maps TDR with TDX global HKID.  TDX module may access TDR
+	 * while operating on TD (Especially reclaiming TDCS).  Cache flush with
+	 * TDX global HKID is needed.
+	 */
+	err = tdh_phymem_page_wbinvd(set_hkid_to_hpa(tdr_pa,
+						     tdx_global_keyid));
+	if (WARN_ON_ONCE(err)) {
+		pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
+		return;
+	}
+	tdx_clear_page(tdr_pa, PAGE_SIZE);
+
+	free_page((unsigned long)__va(tdr_pa));
+}
+
 static void __tdx_vm_free(struct kvm *kvm)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
-	u64 err;
 	int i;
 
 	/*
@@ -615,23 +636,8 @@ static void __tdx_vm_free(struct kvm *kvm)
 
 	if (!kvm_tdx->tdr_pa)
 		return;
-	if (__tdx_reclaim_page(kvm_tdx->tdr_pa, PG_LEVEL_4K))
-		return;
-	/*
-	 * TDX module maps TDR with TDX global HKID.  TDX module may access TDR
-	 * while operating on TD (Especially reclaiming TDCS).  Cache flush with
-	 * TDX global HKID is needed.
-	 */
-	err = tdh_phymem_page_wbinvd(set_hkid_to_hpa(kvm_tdx->tdr_pa,
-						     tdx_global_keyid));
-	if (WARN_ON_ONCE(err)) {
-		pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
-		return;
-	}
-	tdx_clear_page(kvm_tdx->tdr_pa, PAGE_SIZE);
-
+	tdx_tdr_free(kvm_tdx->tdr_pa);
 	tdx_unaccount_ctl_page(kvm);
-	free_page((unsigned long)__va(kvm_tdx->tdr_pa));
 	kvm_tdx->tdr_pa = 0;
 
 	kfree(kvm_tdx->cpuid);

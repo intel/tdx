@@ -5716,6 +5716,20 @@ static int hardware_enable_all(void)
 	return r;
 }
 
+void kvm_hardware_get(void)
+{
+	mutex_lock(&kvm_lock);
+	WARN_ON_ONCE(kvm_usage_count++ == 0);
+	mutex_unlock(&kvm_lock);
+}
+EXPORT_SYMBOL_GPL(kvm_hardware_get);
+
+void kvm_hardware_put(void)
+{
+	hardware_disable_all();
+}
+EXPORT_SYMBOL_GPL(kvm_hardware_put);
+
 static void kvm_shutdown(void)
 {
 	/*

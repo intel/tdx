@@ -2023,17 +2023,25 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		 * The HKID assigned to this TD was already freed and cache
 		 * was already flushed. We don't have to flush again.
 		 */
-		err = __tdx_reclaim_page(hpa, level);
+		err = 0;
+		if (kvm_gmem_mapping(folio_mapping(folio))) {
+			/*
+			 * KVM GMEM deferes relaim until page reclaim.
+			 * TDH.PHYMEM.PAGE.RECLAIM() depends on page level.
+			 */
+			if (folio_size(folio) == KVM_HPAGE_SIZE(level))
+				folio_clear_uptodate(folio);
+			else {
+				err = tdx_reclaim_page(hpa, level);
+				folio_mark_uptodate(folio);
+			}
+		} else
+			err = tdx_reclaim_page(hpa, level);
 		if (KVM_BUG_ON(err, kvm)) {
 			pr_err("%s:%d:%s gfn 0x%llx level 0x%x pfn 0x%llx\n",
 			       __FILE__, __LINE__, __func__, gfn, level, pfn);
 			return -EIO;
 		}
-		if (kvm_gmem_mapping(folio_mapping(folio)))
-			/* Let free_folio handle it. */
-			folio_clear_uptodate(folio);
-		else
-			tdx_clear_page(hpa, KVM_HPAGE_SIZE(level));
 
 		tdx_set_page_present_level(hpa, level);
 		tdx_unpin(kvm, pfn, level);
@@ -4810,13 +4818,30 @@ static void __init vmx_off(void *_vmx_enabled)
 
 static void tdx_free_folio(struct folio *folio)
 {
+	enum pg_level level;
 	unsigned long pa;
+	u64 err;
 
 	if (folio_test_uptodate(folio))
 		return;
 
+	switch (folio_size(folio)) {
+	case PAGE_SIZE:
+		level = PG_LEVEL_4K;
+		break;
+	case KVM_HPAGE_SIZE(PG_LEVEL_2M):
+		level = PG_LEVEL_2M;
+		break;
+	default:
+		WARN_ON_ONCE(1);
+		return;
+	}
+
 	pa = folio_pfn(folio) << PAGE_SHIFT;
-	tdx_clear_page(pa, folio_size(folio));
+	err = tdx_reclaim_page(pa, level);
+	if (WARN_ON_ONCE(err))
+		return;
+	folio_mark_uptodate(folio);
 }
 
 struct tdx_work {

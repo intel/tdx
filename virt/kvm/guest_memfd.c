@@ -12,6 +12,13 @@
 
 static struct vfsmount *kvm_gmem_mnt;
 
+/* TODO: move this to kvm_init(). */
+void kvm_gmem_register(const struct kvm_arch_gmem_ops *ops)
+{
+	/* TODO: Add callbacks. */
+}
+EXPORT_SYMBOL_GPL(kvm_gmem_register);
+
 struct kvm_gmem {
 	struct kvm *kvm;
 	struct xarray bindings;

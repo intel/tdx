@@ -1015,6 +1015,12 @@ static inline void kvm_irqfd_exit(void)
 {
 }
 #endif
+
+struct kvm_arch_gmem_ops {
+	/* TODO add callbacks. */
+};
+
+void kvm_gmem_register(const struct kvm_arch_gmem_ops *ops);
 int kvm_init(unsigned vcpu_size, unsigned vcpu_align, struct module *module);
 void kvm_exit(void);
 

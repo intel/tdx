@@ -4784,7 +4784,8 @@ static void tdx_free_folio(struct folio *folio)
 }
 
 struct tdx_work {
-	/* TODO: fill members. */
+	struct work_struct work;
+	struct inode *inode;
 };
 
 static int tdx_gmem_alloc_inode(struct inode *inode)
@@ -4803,10 +4804,47 @@ static void tdx_gmem_destroy_inode(struct inode *inode)
 	inode->i_mapping->i_private_data = NULL;
 }
 
+struct workqueue_struct *tdx_gmem_release_wq;
+
+static void tdx_gmem_release_work(struct work_struct *work_)
+{
+	struct tdx_work *work = container_of(work_, struct tdx_work,
+					     work);
+	struct inode *inode = work->inode;
+
+	while (true) {
+		invalidate_mapping_pages(inode->i_mapping, 0, -1);
+
+		spin_lock(&inode->i_lock);
+		if (!inode->i_mapping->nrpages) {
+			clear_nlink(inode);
+			spin_unlock(&inode->i_lock);
+			break;
+		}
+		spin_unlock(&inode->i_lock);
+
+		cond_resched();
+	}
+
+	iput(inode);
+}
+
+static void tdx_gmem_release(struct kvm *kvm, struct inode *inode)
+{
+	struct tdx_work *work = inode->i_mapping->i_private_data;
+
+	ihold(inode);
+
+	work->inode = inode;
+	INIT_WORK(&work->work, tdx_gmem_release_work);
+	queue_work(tdx_gmem_release_wq, &work->work);
+}
+
 static const struct kvm_arch_gmem_ops tdx_gmem_ops = {
 	.free_folio = tdx_free_folio,
 	.alloc_inode = tdx_gmem_alloc_inode,
 	.destroy_inode = tdx_gmem_destroy_inode,
+	.gmem_release = tdx_gmem_release,
 };
 
 int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
@@ -4826,6 +4864,11 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 		pr_warn("Cannot enable TDX with EPT disabled\n");
 		return -EINVAL;
 	}
+
+	tdx_gmem_release_wq = alloc_workqueue("kvm-tdx",
+					    WQ_UNBOUND|WQ_MEM_RECLAIM|WQ_CPU_INTENSIVE, 0);
+	if (!tdx_gmem_release_wq)
+		return -ENOMEM;
 
 	/* tdx_hardware_disable() uses associated_tdvcpus. */
 	for_each_possible_cpu(i)
@@ -4937,6 +4980,10 @@ void tdx_hardware_unsetup(void)
 	kfree(tdx_mng_key_config_lock);
 	misc_cg_set_capacity(MISC_CG_RES_TDX, 0);
 	kvm_set_tdx_guest_pmi_handler(NULL);
+
+	flush_workqueue(tdx_gmem_release_wq);
+	destroy_workqueue(tdx_gmem_release_wq);
+	tdx_gmem_release_wq = NULL;
 }
 
 int tdx_offline_cpu(void)

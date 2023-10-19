@@ -4783,8 +4783,30 @@ static void tdx_free_folio(struct folio *folio)
 	tdx_clear_page(pa, folio_size(folio));
 }
 
+struct tdx_work {
+	/* TODO: fill members. */
+};
+
+static int tdx_gmem_alloc_inode(struct inode *inode)
+{
+	struct tdx_work *work = kzalloc(sizeof(*work), GFP_KERNEL_ACCOUNT);
+
+	if (!work)
+		return -ENOMEM;
+	inode->i_mapping->i_private_data = work;
+	return 0;
+}
+
+static void tdx_gmem_destroy_inode(struct inode *inode)
+{
+	kfree(inode->i_mapping->i_private_data);
+	inode->i_mapping->i_private_data = NULL;
+}
+
 static const struct kvm_arch_gmem_ops tdx_gmem_ops = {
 	.free_folio = tdx_free_folio,
+	.alloc_inode = tdx_gmem_alloc_inode,
+	.destroy_inode = tdx_gmem_destroy_inode,
 };
 
 int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)

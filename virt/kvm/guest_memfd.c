@@ -401,6 +401,12 @@ static const struct address_space_operations kvm_gmem_aops = {
 	.error_remove_folio = kvm_gmem_error_folio,
 };
 
+bool kvm_gmem_mapping(const struct address_space *mapping)
+{
+	return mapping->a_ops == &kvm_gmem_aops;
+}
+EXPORT_SYMBOL_GPL(kvm_gmem_mapping);
+
 static int kvm_gmem_getattr(struct mnt_idmap *idmap, const struct path *path,
 			    struct kstat *stat, u32 request_mask,
 			    unsigned int query_flags)

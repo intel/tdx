@@ -33,6 +33,8 @@
 bool acpi_no_s5;
 static u8 sleep_states[ACPI_S_STATE_COUNT];
 
+static bool acpi_no_s3 __ro_after_init;
+
 static void acpi_sleep_tts_switch(u32 acpi_state)
 {
 	acpi_status status;
@@ -84,10 +86,25 @@ static int acpi_sleep_prepare(u32 acpi_state)
 	return 0;
 }
 
+/* Disable ACPI S3 at kernel early boot. */
+void __init acpi_sleep_disable_s3(void)
+{
+	/*
+	 * Make sure ACPI S3 is disabled before the kernel
+	 * caches S3 state in sleep_states[] using
+	 * acpi_sleep_state_supported().
+	 */
+	WARN_ON_ONCE(sleep_states[ACPI_STATE_S3]);
+	acpi_no_s3 = true;
+}
+
 bool acpi_sleep_state_supported(u8 sleep_state)
 {
 	acpi_status status;
 	u8 type_a, type_b;
+
+	if (acpi_no_s3 && sleep_state == ACPI_STATE_S3)
+		return false;
 
 	status = acpi_get_sleep_type_data(sleep_state, &type_a, &type_b);
 	return ACPI_SUCCESS(status) && (!acpi_gbl_reduced_hardware

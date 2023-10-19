@@ -733,8 +733,10 @@ static inline int acpi_pm_set_device_wakeup(struct device *dev, bool enable)
 
 #ifdef CONFIG_ACPI_SYSTEM_POWER_STATES_SUPPORT
 bool acpi_sleep_state_supported(u8 sleep_state);
+void acpi_sleep_disable_s3(void);
 #else
 static inline bool acpi_sleep_state_supported(u8 sleep_state) { return false; }
+static inline void acpi_sleep_disable_s3(void) { }
 #endif
 
 #ifdef CONFIG_ACPI_SLEEP

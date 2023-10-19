@@ -1017,6 +1017,8 @@ static inline void kvm_irqfd_exit(void)
 #endif
 
 struct kvm_arch_gmem_ops {
+	int (*alloc_inode)(struct inode *inode);
+	void (*destroy_inode)(struct inode *inode);
 	void (*free_folio)(struct folio *folio);
 };
 

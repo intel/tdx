@@ -588,7 +588,7 @@ void tdx_mmu_release_hkid(struct kvm *kvm)
 		;
 }
 
-static void tdx_tdr_free(unsigned long tdr_pa)
+static void __tdx_tdr_free(unsigned long tdr_pa)
 {
 	u64 err;
 
@@ -608,6 +608,29 @@ static void tdx_tdr_free(unsigned long tdr_pa)
 	tdx_clear_page(tdr_pa, PAGE_SIZE);
 
 	free_page((unsigned long)__va(tdr_pa));
+}
+
+static void tdx_tdr_free_rcu(struct rcu_head *head)
+{
+	struct kvm_tdx_tdr *tdr = container_of(head, struct kvm_tdx_tdr, rcu);
+
+	kfree(tdr);
+}
+
+static void tdx_tdr_release(struct kref *kref)
+{
+	struct kvm_tdx_tdr *tdr = container_of(kref, struct kvm_tdx_tdr, kref);
+
+	if (tdr->tdr_pa)
+		__tdx_tdr_free(tdr->tdr_pa);
+	call_rcu(&tdr->rcu, tdx_tdr_free_rcu);
+}
+
+static void tdx_tdr_put(struct kvm_tdx_tdr *tdr)
+{
+	if (!tdr)
+		return;
+	kref_put(&tdr->kref, tdx_tdr_release);
 }
 
 static void __tdx_vm_free(struct kvm *kvm)
@@ -636,9 +659,10 @@ static void __tdx_vm_free(struct kvm *kvm)
 
 	if (!kvm_tdx->tdr_pa)
 		return;
-	tdx_tdr_free(kvm_tdx->tdr_pa);
+	tdx_tdr_put(kvm_tdx->tdr);
 	tdx_unaccount_ctl_page(kvm);
 	kvm_tdx->tdr_pa = 0;
+	kvm_tdx->tdr = NULL;
 
 	kfree(kvm_tdx->cpuid);
 	kvm_tdx->cpuid = NULL;
@@ -3546,6 +3570,11 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 	int ret, i;
 	u64 err;
 
+	kvm_tdx->tdr = kzalloc(sizeof(*kvm_tdx->tdr), GFP_KERNEL_ACCOUNT);
+	if (!kvm_tdx->tdr)
+		return -ENOMEM;
+	kref_init(&kvm_tdx->tdr->kref);
+
 	*seamcall_err = 0;
 	ret = tdx_guest_keyid_alloc();
 	if (ret < 0)
@@ -3623,6 +3652,7 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 		goto free_packages;
 	}
 	kvm_tdx->tdr_pa = tdr_pa;
+	kvm_tdx->tdr->tdr_pa = tdr_pa;
 	tdx_account_ctl_page(kvm);
 
 	for_each_online_cpu(i) {
@@ -4792,6 +4822,7 @@ static void tdx_free_folio(struct folio *folio)
 struct tdx_work {
 	struct work_struct work;
 	struct inode *inode;
+	struct kvm_tdx_tdr *tdr;
 };
 
 static int tdx_gmem_alloc_inode(struct inode *inode)
@@ -4800,14 +4831,22 @@ static int tdx_gmem_alloc_inode(struct inode *inode)
 
 	if (!work)
 		return -ENOMEM;
+	__module_get(THIS_MODULE);
+	kvm_hardware_get();
 	inode->i_mapping->i_private_data = work;
 	return 0;
 }
 
 static void tdx_gmem_destroy_inode(struct inode *inode)
 {
+	struct tdx_work *work = inode->i_mapping->i_private_data;
+
+	if (work->tdr)
+		tdx_tdr_put(work->tdr);
 	kfree(inode->i_mapping->i_private_data);
 	inode->i_mapping->i_private_data = NULL;
+	kvm_hardware_put();
+	module_put(THIS_MODULE);
 }
 
 struct workqueue_struct *tdx_gmem_release_wq;
@@ -4838,7 +4877,11 @@ static void tdx_gmem_release_work(struct work_struct *work_)
 static void tdx_gmem_release(struct kvm *kvm, struct inode *inode)
 {
 	struct tdx_work *work = inode->i_mapping->i_private_data;
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 
+	if (kvm_tdx->tdr)
+		kref_get(&kvm_tdx->tdr->kref);
+	work->tdr = kvm_tdx->tdr;
 	ihold(inode);
 
 	work->inode = inode;

@@ -1020,6 +1020,7 @@ struct kvm_arch_gmem_ops {
 	int (*alloc_inode)(struct inode *inode);
 	void (*destroy_inode)(struct inode *inode);
 	void (*free_folio)(struct folio *folio);
+	void (*gmem_release)(struct kvm *kvm, struct inode *inode);
 };
 
 void kvm_gmem_register(const struct kvm_arch_gmem_ops *ops);

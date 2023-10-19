@@ -20,12 +20,15 @@ static void (*gmem_destroy_inode)(struct inode *inode);
 
 static void (*free_folio)(struct folio *);
 
+static void (*gmem_release)(struct kvm *kvm, struct inode *inode);
+
 /* TODO: move this to kvm_init(). */
 void kvm_gmem_register(const struct kvm_arch_gmem_ops *ops)
 {
 	free_folio = ops->free_folio;
 	gmem_alloc_inode = ops->alloc_inode;
 	gmem_destroy_inode = ops->destroy_inode;
+	gmem_release = ops->gmem_release;
 }
 EXPORT_SYMBOL_GPL(kvm_gmem_register);
 
@@ -319,6 +322,18 @@ static int kvm_gmem_release(struct inode *inode, struct file *file)
 
 	if (free_folio)
 		kvm_gmem_clear_unevictable(inode);
+	if (gmem_release) {
+		mutex_lock(&kvm->lock);
+		spin_lock(&inode->i_lock);
+		if (inode->i_mapping->nrpages)
+			gmem_release(kvm, inode);
+		else
+			clear_nlink(inode);
+		spin_unlock(&inode->i_lock);
+		mutex_unlock(&kvm->lock);
+	}
+
+	/* kfree() accepts NULL. */
 	kfree(gmem);
 
 	kvm_put_kvm(kvm);

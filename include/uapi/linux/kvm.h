@@ -2317,6 +2317,8 @@ struct kvm_create_guest_memfd {
 	__u64 reserved[6];
 };
 
+#define KVM_GUEST_MEMFD_ALLOW_HUGEPAGE		(1ULL << 0)
+
 #define KVM_MEMORY_MAPPING	_IOWR(KVMIO, 0xd5, struct kvm_memory_mapping)
 
 struct kvm_memory_mapping {

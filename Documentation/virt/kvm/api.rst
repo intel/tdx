@@ -8076,6 +8076,20 @@ error/annotated fault.
 
 See KVM_EXIT_MEMORY_FAULT for more information.
 
+7.35 KVM_CAP_X86_BUS_FREQUENCY_CONTROL
+--------------------------------------
+
+:Architectures: x86
+:Target: VM
+:Parameters: args[0] is the value of apic bus clock frequency
+:Returns: 0 on success, -EINVAL if args[0] contains invalid value for the
+          frequency, or -ENXIO if virtual local APIC isn't enabled by
+          KVM_CREATE_IRQCHIP, or -EBUSY if any vcpu is created.
+
+This capability sets the APIC bus clock frequency (or core crystal clock
+frequency) for kvm to emulate APIC in the kernel.  The default value is 1000000
+(1GHz).
+
 8. Other capabilities.
 ======================
 

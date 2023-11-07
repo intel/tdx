@@ -39,6 +39,51 @@
 
 #define TDREPORT_SUBTYPE_0	0
 
+#define SERVICE_QUERY_TIMEOUT	5000
+
+/**
+ * struct service_query_req - Service query command buffer
+ * hdr: Command buffer header.
+ * @version: Command version (default is 0).
+ * @cmd: Command ID (0 for query command).
+ * @rsvd: Reserved for future use.
+ * @guid: Service GUID to query.
+ */
+struct service_query_req
+{
+	/* Command buffer header */
+	struct tdx_service_req_hdr hdr;
+
+	/* Command data */
+	u8 version;
+	u8 cmd;
+	u8 rsvd;
+	u8 guid[16];
+};
+
+/**
+ * struct service_query_resp - Service query response buffer
+ * @hdr: Response buffer header.
+ * @version: Command version (default is 0).
+ * @cmd: Command ID (0 for query command).
+ * @status: Response status (0: service supported 1: not supported).
+ * @guid: Service GUID to query.
+ */
+struct service_query_resp
+{
+	/* Response buffer header */
+	struct tdx_service_resp_hdr hdr;
+
+	/* Command data */
+	u8 version;
+	u8 cmd;
+	u8 status;
+	u8 guid[16];
+};
+
+static guid_t query_guid = GUID_INIT(0xfb6fc5e1, 0x3378, 0x4acb, 0x89, 0x64,
+				     0xfa, 0x5e, 0xe4, 0x3b, 0x9c, 0x8a);
+
 /* Called from __tdx_hypercall() for unrecoverable failure */
 noinstr void __tdx_hypercall_failed(void)
 {
@@ -181,6 +226,53 @@ u64 tdx_hcall_service(u8 *req, u8 *resp, u64 vector, u64 timeout)
 			      cc_mkdec(virt_to_phys(resp)), vector, timeout);
 }
 EXPORT_SYMBOL_GPL(tdx_hcall_service);
+
+/**
+ * tdx_hcall_query_service() - Wrapper to query service support.
+ *			       using Service.Query hypercall.
+ * @req: Address of the direct mapped command request buffer
+ *       which contains the service command.
+ * @resp: Address of the direct mapped command response buffer
+ *        to store service response.
+ * @guid: GUID of the service to be checked.
+ *
+ * Refer to section titled "TDG.VP.VMCALL<Service.Query>" in the
+ * TDX GHCI v1.5 specification for more information on hypercall.
+ *
+ * Return 0 for supported case and error number for other cases.
+ */
+int tdx_hcall_query_service(u8 *req, u8 *resp, u8 *guid)
+{
+	struct service_query_resp *sresp = (struct service_query_resp *)resp;
+	struct service_query_req *sreq = (struct service_query_req *)req;
+	u64 ret;
+
+	/* Initialize command buffer header */
+	memcpy(sreq->hdr.guid, &query_guid, sizeof(query_guid));
+	sreq->hdr.buf_len = sizeof(*sreq);
+
+	/* Initialize query request header */
+	sreq->version = 0;
+	sreq->cmd = 0;
+	memcpy(sreq->guid, guid, sizeof(guid_t));
+
+	ret = tdx_hcall_service(req, resp, 0, SERVICE_QUERY_TIMEOUT);
+	if (ret) {
+		pr_err("Service hypercall failed, ret=%llx\n", ret);
+		return -EIO;
+	}
+
+	if (sresp->hdr.status) {
+		pr_err("Service Query failed, err=%x\n", sresp->hdr.status);
+		return -EIO;
+	}
+
+	if (sresp->status)
+		return -ENOTSUPP;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(tdx_hcall_query_service);
 
 static void __noreturn tdx_panic(const char *msg)
 {

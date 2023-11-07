@@ -27,6 +27,19 @@
 #define TDVMCALL_REPORT_FATAL_ERROR	0x10003
 #define TDVMCALL_SERVICE		0x10005
 
+/* TDX service command response codes */
+#define TDX_SERVICE_CMD_SUCCESS			0x0
+#define TDX_SERVICE_CMD_DEVICE_ERR		0x1
+#define TDX_SERVICE_CMD_TIMEOUT			0x2
+#define TDX_SERVICE_CMD_RESP_BUF_SMALL		0x3
+#define TDX_SERVICE_CMD_BAD_CMD_BUF_SIZE	0x4
+#define TDX_SERVICE_CMD_BAD_RESP_BUF_SIZE	0x5
+#define TDX_SERVICE_CMD_BUSY			0x6
+#define TDX_SERVICE_CMD_INVALID_PARAM		0x7
+#define TDX_SERVICE_CMD_OUT_OF_RES		0x8
+#define TDX_SERVICE_CMD_UNSUPPORTED		0xFFFFFFFE
+#define TDX_SERVICE_CMD_RESERVED		0xFFFFFFFF
+
 #ifndef __ASSEMBLY__
 
 /*
@@ -106,6 +119,33 @@ static __always_inline u64 hcall_func(u64 exit_reason)
 {
         return exit_reason;
 }
+
+/**
+ * struct tdx_service_req_hdr - Service hypercall request command buffer
+ * 				header
+ * @guid: GUID of the service requested.
+ * @buf_len: Length of the command buffer including the header.
+ * @rsvd: Reserved for future use.
+ */
+struct tdx_service_req_hdr
+{
+	u8 guid[16];
+	u32 buf_len;
+	u32 rsvd1;
+};
+
+/**
+ * struct tdx_service_resp_hdr - Service hypercall response buffer header.
+ * @guid: GUID of the service requested.
+ * @buf_len: Length of the response buffer including the header.
+ * @status: Status of the request.
+ */
+struct tdx_service_resp_hdr
+{
+	u8 guid[16];
+	u32 buf_len;
+	u32 status;
+};
 
 #endif /* !__ASSEMBLY__ */
 #endif /* _ASM_X86_SHARED_TDX_H */

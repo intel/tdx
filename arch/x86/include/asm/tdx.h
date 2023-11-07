@@ -58,6 +58,8 @@ int tdx_mcall_extend_rtmr(u8 *data, u64 index);
 
 u64 tdx_hcall_service(u8 *req, u8 *resp, u64 vector, u64 timeout);
 
+int tdx_hcall_query_service(u8 *req, u8 *resp, u8 *guid);
+
 #else
 
 static inline void tdx_early_init(void) { };

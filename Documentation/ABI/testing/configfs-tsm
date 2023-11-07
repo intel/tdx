@@ -123,3 +123,12 @@ Description:
 		any input RTMR option is written. Userspace can use it detect conflicts
 		by making sure generation value matches the number of writes done by
 		the user.
+
+What:		/sys/kernel/config/tsm/rtmr/$name/remote_guid
+Date:		November, 2023
+KernelVersion:	v6.8
+Contact:	linux-coco@lists.linux.dev
+Description:
+		(RW) GUID of the report generation remote server. Used if the report
+		generation service is hosted in a remote VM. Userspace can read back
+		to verify whether a valid GUID is configured.

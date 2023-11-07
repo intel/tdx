@@ -11,6 +11,7 @@
 #include <linux/module.h>
 #include <linux/cleanup.h>
 #include <linux/configfs.h>
+#include <linux/ctype.h>
 
 static struct tsm_provider {
 	const struct tsm_ops *ops;
@@ -341,6 +342,60 @@ static ssize_t tsm_report_provider_show(struct config_item *cfg, char *buf)
 }
 CONFIGFS_ATTR_RO(tsm_report_, provider);
 
+static ssize_t tsm_report_remote_guid_show(struct config_item *cfg, char *buf)
+{
+	struct tsm_report *report = to_tsm_report(cfg);
+
+	guard(rwsem_read)(&tsm_rwsem);
+
+	return sysfs_emit(buf, "%pUb\n", &report->desc.remote_guid);
+}
+
+int str_to_guid(const char *buf, u8 *guid, size_t len)
+{
+	const char *p = buf;
+	int i;
+
+	for (i = 0; i < UUID_SIZE; i++) {
+		if (p + 2 > buf + len)
+			return -EINVAL;
+
+		if (!isxdigit(p[0]) || !isxdigit(p[1]))
+			return -EINVAL;
+
+		guid[i] = (hex_to_bin(p[0]) << 4) | hex_to_bin(p[1]);
+		p += 2;
+
+		if (*p == '-' || *p == ':')
+			p++;
+	}
+
+	return 0;
+}
+
+static ssize_t tsm_report_remote_guid_store(struct config_item *cfg,
+					    const char *buf, size_t len)
+{
+	struct tsm_report *report = to_tsm_report(cfg);
+	u8 guid[UUID_SIZE];
+	int rc;
+
+	guard(rwsem_write)(&tsm_rwsem);
+
+	rc = try_advance_write_generation(report);
+	if (rc)
+		return rc;
+
+	rc = str_to_guid(buf, guid, len);
+	if (rc)
+		return rc;
+
+	memcpy(&report->desc.remote_guid, guid, sizeof(guid));
+
+	return len;
+}
+CONFIGFS_ATTR(tsm_report_, remote_guid);
+
 static ssize_t __read_report(struct tsm_report *report, void *buf, size_t count,
 			     enum tsm_data_select select)
 {
@@ -442,7 +497,8 @@ CONFIGFS_BIN_ATTR_RO(tsm_report_, auxblob, NULL, TSM_OUTBLOB_MAX);
 
 #define TSM_DEFAULT_ATTRS() \
 	&tsm_report_attr_generation, \
-	&tsm_report_attr_provider
+	&tsm_report_attr_provider, \
+	&tsm_report_attr_remote_guid
 
 static struct configfs_attribute *tsm_report_attrs[] = {
 	TSM_DEFAULT_ATTRS(),

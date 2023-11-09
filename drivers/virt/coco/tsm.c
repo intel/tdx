@@ -53,9 +53,161 @@ struct tsm_rtmr_state {
 	struct config_item cfg;
 };
 
+struct tsm_misc_state {
+	struct tsm_misc misc;
+	unsigned long write_generation;
+	unsigned long read_generation;
+	struct config_item cfg;
+};
+
 enum tsm_data_select {
 	TSM_REPORT,
 	TSM_CERTS,
+};
+
+static struct tsm_misc *to_tsm_misc(struct config_item *cfg)
+{
+	struct tsm_misc_state *state =
+		container_of(cfg, struct tsm_misc_state, cfg);
+
+	return &state->misc;
+}
+
+static struct tsm_misc_state *to_misc_state(struct tsm_misc *misc)
+{
+	return container_of(misc, struct tsm_misc_state, misc);
+}
+
+static int try_misc_advance_write_generation(struct tsm_misc *misc)
+{
+	struct tsm_misc_state *state = to_misc_state(misc);
+
+	lockdep_assert_held_write(&tsm_rwsem);
+
+	/* Handle wrap of write_generation due to malicious user writes without any read */
+	if (state->write_generation == state->read_generation - 1)
+		return -EBUSY;
+
+	state->write_generation++;
+
+	return 0;
+}
+
+static ssize_t tsm_misc_report_data_write(struct config_item *cfg, const void *buf, size_t count)
+{
+	struct tsm_misc *misc = to_tsm_misc(cfg);
+	int rc;
+
+	guard(rwsem_write)(&tsm_rwsem);
+
+	rc = try_misc_advance_write_generation(misc);
+	if (rc)
+		return rc;
+
+	misc->report_data_len = count;
+
+	memcpy(misc->report_data, buf, count);
+
+	return count;
+}
+CONFIGFS_BIN_ATTR_WO(tsm_misc_, report_data, NULL, TSM_REPORT_DATA_MAX);
+
+static ssize_t tsm_misc_report_status_show(struct config_item *cfg, char *buf)
+{
+	struct tsm_misc *misc = to_tsm_misc(cfg);
+	struct tsm_misc_state *state = to_misc_state(misc);
+	const struct tsm_ops *ops;
+	size_t rc;
+
+	guard(rwsem_read)(&tsm_rwsem);
+
+	ops = provider.ops;
+
+	if (!misc->report_data_len)
+		return -EINVAL;
+
+	if (state->write_generation > 0 && state->read_generation == state->write_generation)
+		goto out;
+
+	rc = ops->verify_report(misc, provider.data);
+	if (rc < 0)
+		return rc;
+
+	state->read_generation = state->write_generation;
+	misc->report_status = rc;
+out:
+	return sysfs_emit(buf, "%d\n", misc->report_status);
+}
+CONFIGFS_ATTR_RO(tsm_misc_, report_status);
+
+static ssize_t tsm_misc_generation_show(struct config_item *cfg, char *buf)
+{
+	struct tsm_misc *misc = to_tsm_misc(cfg);
+	struct tsm_misc_state *state = to_misc_state(misc);
+
+	guard(rwsem_read)(&tsm_rwsem);
+
+	return sysfs_emit(buf, "%lu\n", state->write_generation);
+}
+CONFIGFS_ATTR_RO(tsm_misc_, generation);
+
+static struct configfs_bin_attribute *tsm_misc_bin_attrs[] = {
+	&tsm_misc_attr_report_data,
+	NULL,
+};
+
+static struct configfs_attribute *tsm_misc_attrs[] = {
+	&tsm_misc_attr_generation,
+	&tsm_misc_attr_report_status,
+	NULL,
+};
+
+static void tsm_misc_item_release(struct config_item *cfg)
+{
+	struct tsm_misc *misc = to_tsm_misc(cfg);
+	struct tsm_misc_state *state = to_misc_state(misc);
+
+	kfree(state);
+}
+
+static struct configfs_item_operations tsm_misc_item_ops = {
+	.release = tsm_misc_item_release,
+};
+
+const struct config_item_type tsm_misc_default_type = {
+	.ct_owner = THIS_MODULE,
+	.ct_bin_attrs = tsm_misc_bin_attrs,
+	.ct_attrs = tsm_misc_attrs,
+	.ct_item_ops = &tsm_misc_item_ops,
+};
+EXPORT_SYMBOL_GPL(tsm_misc_default_type);
+
+static struct config_item *tsm_misc_make_item(struct config_group *group,
+						     const char *name)
+{
+	struct tsm_misc_state *state;
+
+	guard(rwsem_read)(&tsm_rwsem);
+
+	if (!provider.ops)
+		return ERR_PTR(-ENXIO);
+
+	state = kzalloc(sizeof(*state), GFP_KERNEL);
+	if (!state)
+		return ERR_PTR(-ENOMEM);
+
+	config_item_init_type_name(&state->cfg, name, &tsm_misc_default_type);
+
+	return &state->cfg;
+}
+
+static struct configfs_group_operations tsm_misc_group_ops = {
+	.make_item = tsm_misc_make_item,
+};
+
+static const struct config_item_type tsm_misc_type = {
+	.ct_owner = THIS_MODULE,
+	.ct_group_ops = &tsm_misc_group_ops,
 };
 
 static struct tsm_rtmr *to_tsm_rtmr(struct config_item *cfg)
@@ -635,11 +787,12 @@ EXPORT_SYMBOL_GPL(tsm_unregister);
 
 static struct config_group *tsm_report_group;
 static struct config_group *tsm_rtmr_group;
+static struct config_group *tsm_misc_group;
 
 static int __init tsm_init(void)
 {
 	struct config_group *root = &tsm_configfs.su_group;
-	struct config_group *tsm, *tsm_rtmr;
+	struct config_group *tsm, *tsm_rtmr, *tsm_misc;
 	int rc;
 
 	config_group_init(root);
@@ -661,11 +814,21 @@ static int __init tsm_init(void)
 		goto free_report;
 	}
 
+	tsm_misc = configfs_register_default_group(root, "misc",
+					      &tsm_misc_type);
+	if (IS_ERR(tsm_misc)) {
+		rc = PTR_ERR(tsm_misc);
+		goto free_rtmr;
+	}
+
 	tsm_report_group = tsm;
 	tsm_rtmr_group = tsm_rtmr;
+	tsm_misc_group = tsm_misc;
 
 	return 0;
 
+free_rtmr:
+	configfs_unregister_default_group(tsm_rtmr);
 free_report:
 	configfs_unregister_default_group(tsm);
 free_subsys:
@@ -677,6 +840,7 @@ module_init(tsm_init);
 
 static void __exit tsm_exit(void)
 {
+	configfs_unregister_default_group(tsm_misc_group);
 	configfs_unregister_default_group(tsm_rtmr_group);
 	configfs_unregister_default_group(tsm_report_group);
 	configfs_unregister_subsystem(&tsm_configfs);

@@ -8,6 +8,7 @@
 
 #define TSM_INBLOB_MAX 64
 #define TSM_RTMR_DATA_MAX 48
+#define TSM_REPORT_DATA_MAX 256
 #define TSM_OUTBLOB_MAX SZ_32K
 
 /*
@@ -61,6 +62,18 @@ struct tsm_rtmr {
 };
 
 /**
+ * struct tsm_misc - track state of misc TSM operations
+ * @report_data: Report data to be validated.
+ * @report_data_len: sizeof @report_data
+ * @report_status: Validation status of the report data.
+ */
+struct tsm_misc {
+	u8 report_data[TSM_REPORT_DATA_MAX];
+	size_t report_data_len;
+	int report_status;
+};
+
+/**
  * struct tsm_ops - attributes and operations for tsm instances
  * @name: tsm id reflected in /sys/kernel/config/tsm/report/$report/provider
  * @privlevel_floor: convey base privlevel for nested scenarios
@@ -68,6 +81,7 @@ struct tsm_rtmr {
  * @min_rtmr_index: Minimum RTMR register index allowed to extend.
  * @report_new: Populate @report with the report blob and auxblob
  * @update_rtmr: Update RTMR register with RTMR data and index.
+ * @verify_report: Verify the integerity of the report and return status.
  * (optional), return 0 on successful population, or -errno otherwise
  *
  * Implementation specific ops, only one is expected to be registered at
@@ -80,6 +94,7 @@ struct tsm_ops {
 	const unsigned int max_rtmr_index;
 	int (*report_new)(struct tsm_report *report, void *data);
 	int (*update_rtmr)(struct tsm_rtmr *rtmr, void *data);
+	int (*verify_report)(struct tsm_misc *misc, void *data);
 };
 
 extern const struct config_item_type tsm_report_default_type;

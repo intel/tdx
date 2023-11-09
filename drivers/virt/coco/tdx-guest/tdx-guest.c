@@ -45,6 +45,8 @@
 #define SERVICE_QUOTE_SEND_CMD		0x03
 #define SERVICE_QUOTE_CMD_TIMEOUT	5000
 
+#define TDX_REPORTMAC_LEN		256
+
 /* struct tdx_quote_buf: Format of Quote request buffer.
  * @version: Quote format version, filled by TD.
  * @status: Status code of Quote request, filled by VMM.
@@ -426,6 +428,23 @@ static int tdx_update_rtmr(struct tsm_rtmr *rtmr, void *data)
 	return tdx_mcall_extend_rtmr(buf, rtmr->index);
 }
 
+static int tdx_verify_report(struct tsm_misc *misc, void *data)
+{
+	pr_info("%s:%d called len:%ld\n", __func__, __LINE__, misc->report_data_len);
+
+	if (misc->report_data_len != TDX_REPORTMAC_LEN)
+		return -EINVAL;
+
+	void *buf __free(kfree) = kzalloc(TDX_REPORTMAC_LEN, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	memcpy(buf, misc->report_data, misc->report_data_len);
+
+	/* Verify report integrity using "TDG.MR.VERIFYREPORT" TDCALL */
+	return tdx_mcall_verify_report(buf);
+}
+
 static const struct file_operations tdx_guest_fops = {
 	.owner = THIS_MODULE,
 	.unlocked_ioctl = tdx_guest_ioctl,
@@ -450,6 +469,7 @@ static const struct tsm_ops tdx_tsm_ops = {
 	.max_rtmr_index = 2,
 	.report_new = tdx_report_new,
 	.update_rtmr = tdx_update_rtmr,
+	.verify_report = tdx_verify_report,
 };
 
 static int __init tdx_guest_init(void)

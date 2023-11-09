@@ -60,6 +60,8 @@ u64 tdx_hcall_service(u8 *req, u8 *resp, u64 vector, u64 timeout);
 
 int tdx_hcall_query_service(u8 *req, u8 *resp, u8 *guid);
 
+int tdx_mcall_verify_report(u8 *data);
+
 #else
 
 static inline void tdx_early_init(void) { };

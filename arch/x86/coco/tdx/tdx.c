@@ -184,6 +184,25 @@ int tdx_mcall_extend_rtmr(u8 *data, u64 index)
 EXPORT_SYMBOL_GPL(tdx_mcall_extend_rtmr);
 
 /**
+ * tdx_mcall_verify_report() - Wrapper to verify report integrity using
+ *                             TDG.MR.VERIFYREPORT TDCALL.
+ * @data: Address of the input buffer with report data.
+ *
+ * Refer to section titled "TDG.MR.VERIFYREPORT leaf" in the TDX Module
+ * v1.0 specification for more information on TDG.MR.VERIFYREPORT TDCALL.
+ * It is used in the TDX guest driver to validate the integrity of the
+ * REPORT data.
+ *
+ * Return 0 on success, -EINVAL for invalid operands or -EIO on other
+ * TDCALL failures.
+ */
+int tdx_mcall_verify_report(u8 *data)
+{
+	return __tdx_module_call(TDX_VERIFY_REPORT, virt_to_phys(data), 0, 0, 0, NULL);
+}
+EXPORT_SYMBOL_GPL(tdx_mcall_verify_report);
+
+/**
  * tdx_hcall_get_quote() - Wrapper to request TD Quote using GetQuote
  *                         hypercall.
  * @buf: Address of the directly mapped shared kernel buffer which

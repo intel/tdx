@@ -235,8 +235,75 @@ err:
 	return ret;
 }
 
+static int read_sys_metadata_field(u64 field_id, u64 *data)
+{
+	struct tdx_module_args args = {};
+	int ret;
+
+	/*
+	 * TDH.SYS.RD -- reads one global metadata field
+	 *  - RDX (in): the field to read
+	 *  - R8 (out): the field data
+	 */
+	args.rdx = field_id;
+	ret = seamcall_prerr_ret(TDH_SYS_RD, &args);
+	if (ret)
+		return ret;
+
+	*data = args.r8;
+
+	return 0;
+}
+
+static int read_sys_metadata_field16(u64 field_id, u16 *data)
+{
+	u64 _data;
+	int ret;
+
+	if (WARN_ON_ONCE(MD_FIELD_ID_ELE_SIZE_CODE(field_id) !=
+			MD_FIELD_ID_ELE_SIZE_16BIT))
+		return -EINVAL;
+
+	ret = read_sys_metadata_field(field_id, &_data);
+	if (ret)
+		return ret;
+
+	*data = (u16)_data;
+
+	return 0;
+}
+
+static int get_tdx_tdmr_sysinfo(struct tdx_tdmr_sysinfo *tdmr_sysinfo)
+{
+	int ret;
+
+	ret = read_sys_metadata_field16(MD_FIELD_ID_MAX_TDMRS,
+			&tdmr_sysinfo->max_tdmrs);
+	if (ret)
+		return ret;
+
+	ret = read_sys_metadata_field16(MD_FIELD_ID_MAX_RESERVED_PER_TDMR,
+			&tdmr_sysinfo->max_reserved_per_tdmr);
+	if (ret)
+		return ret;
+
+	ret = read_sys_metadata_field16(MD_FIELD_ID_PAMT_4K_ENTRY_SIZE,
+			&tdmr_sysinfo->pamt_entry_size[TDX_PS_4K]);
+	if (ret)
+		return ret;
+
+	ret = read_sys_metadata_field16(MD_FIELD_ID_PAMT_2M_ENTRY_SIZE,
+			&tdmr_sysinfo->pamt_entry_size[TDX_PS_2M]);
+	if (ret)
+		return ret;
+
+	return read_sys_metadata_field16(MD_FIELD_ID_PAMT_1G_ENTRY_SIZE,
+			&tdmr_sysinfo->pamt_entry_size[TDX_PS_1G]);
+}
+
 static int init_tdx_module(void)
 {
+	struct tdx_tdmr_sysinfo tdmr_sysinfo;
 	int ret;
 
 	/*
@@ -255,10 +322,13 @@ static int init_tdx_module(void)
 	if (ret)
 		goto out_put_tdxmem;
 
+	ret = get_tdx_tdmr_sysinfo(&tdmr_sysinfo);
+	if (ret)
+		goto out_free_tdxmem;
+
 	/*
 	 * TODO:
 	 *
-	 *  - Get TDX module "TD Memory Region" (TDMR) global metadata.
 	 *  - Construct a list of TDMRs to cover all TDX-usable memory
 	 *    regions.
 	 *  - Configure the TDMRs and the global KeyID to the TDX module.
@@ -268,6 +338,9 @@ static int init_tdx_module(void)
 	 *  Return error before all steps are done.
 	 */
 	ret = -EINVAL;
+out_free_tdxmem:
+	if (ret)
+		free_tdx_memlist(&tdx_memlist);
 out_put_tdxmem:
 	/*
 	 * @tdx_memlist is written here and read at memory hotplug time.

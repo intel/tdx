@@ -1323,7 +1323,7 @@ static int init_tdx_module(void)
 	}
 
 	/* TDX seamcall trace is supported only with debug build. */
-	if (tdsysinfo->attributes & TDSYSINFO_ATTRIBUTES_DEBUG) {
+	if (tdsysinfo->attributes & TDSYSINFO_ATTRIBUTES_DEBUG || 1) {
 		if (trace_boot_seamcalls)
 			tdx_trace_seamcalls(DEBUGCONFIG_TRACE_ALL);
 		else

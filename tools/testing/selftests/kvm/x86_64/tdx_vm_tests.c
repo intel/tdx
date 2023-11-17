@@ -1279,8 +1279,8 @@ void verify_tdcall_vp_info(void)
 		TEST_ASSERT_EQ(ret_max_vcpus, TEST_VP_INFO_MAX_VCPUS);
 		/* VCPU_INDEX = i */
 		TEST_ASSERT_EQ(r9, i);
-		/* verify reserved registers are 0 */
-		TEST_ASSERT_EQ(r10, 0);
+		/* verify reserved registers are 0 except SYS_RD bit. */
+		TEST_ASSERT_EQ(r10 & ~TDG_VP_INFO, 0);
 		TEST_ASSERT_EQ(r11, 0);
 
 		/* Wait for guest to complete execution */

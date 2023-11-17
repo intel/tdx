@@ -93,11 +93,9 @@ static struct kvm_tdx_capabilities *tdx_read_capabilities(struct kvm_vm *vm)
 	return tdx_cap;
 }
 
-#define XFEATURE_LBR 15
 #define XFEATURE_CET_U 11
 #define XFEATURE_CET_S 12
 
-#define XFEATURE_MASK_LBR (1 << XFEATURE_LBR)
 #define XFEATURE_MASK_CET_U (1 << XFEATURE_CET_U)
 #define XFEATURE_MASK_CET_S (1 << XFEATURE_CET_S)
 #define XFEATURE_MASK_CET (XFEATURE_MASK_CET_U | XFEATURE_MASK_CET_S)
@@ -402,7 +400,7 @@ static void load_td_memory_region(struct kvm_vm *vm,
 		return;
 
 
-	if (region->region.gmem_fd != -1)
+	if (region->region.guest_memfd != -1)
 		register_encrypted_memory_region(vm, region);
 
 	sparsebit_for_each_set_range(pages, i, j) {
@@ -418,7 +416,7 @@ static void load_td_memory_region(struct kvm_vm *vm,
 		 * hence we have to make a copy if there's only one backing
 		 * memory source
 		 */
-		if (region->region.gmem_fd == -1) {
+		if (region->region.guest_memfd == -1) {
 			source_addr = mmap(NULL, size_to_load, PROT_READ | PROT_WRITE,
 					MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 			TEST_ASSERT(
@@ -431,7 +429,7 @@ static void load_td_memory_region(struct kvm_vm *vm,
 
 		tdx_init_mem_region(vm, source_addr, gpa, size_to_load);
 
-		if (region->region.gmem_fd == -1)
+		if (region->region.guest_memfd == -1)
 			munmap(source_addr, size_to_load);
 	}
 }

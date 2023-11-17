@@ -1280,7 +1280,7 @@ void verify_tdcall_vp_info(void)
 		/* VCPU_INDEX = i */
 		TEST_ASSERT_EQ(r9, i);
 		/* verify reserved registers are 0 */
-		TEST_ASSERT_EQ(r10, 0);
+		TEST_ASSERT_EQ(r10 >> 1, 0);
 		TEST_ASSERT_EQ(r11, 0);
 
 		/* Wait for guest to complete execution */

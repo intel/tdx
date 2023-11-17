@@ -145,6 +145,17 @@ enum {
 
 #define TDX_UPM_TEST_ACCEPT_PRINT_PORT 0x87
 
+static void implicit_conversion_vcpu_run(struct kvm_vcpu *vcpu)
+{
+	int r;
+
+	r = _vcpu_run(vcpu);
+	if (r) {
+		TEST_ASSERT(errno == EFAULT, KVM_IOCTL_ERROR(KVM_RUN, r));
+		TEST_ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_MEMORY_FAULT);
+	}
+}
+
 /**
  * Does vcpu_run, and also manages memory conversions if requested by the TD.
  */
@@ -152,7 +163,7 @@ void vcpu_run_and_manage_memory_conversions(struct kvm_vm *vm,
 					    struct kvm_vcpu *vcpu, bool handle_conversions)
 {
 	for (;;) {
-		vcpu_run(vcpu);
+		implicit_conversion_vcpu_run(vcpu);
 		if (vcpu->run->exit_reason == KVM_EXIT_TDX &&
 		    vcpu->run->tdx.type == KVM_EXIT_TDX_VMCALL &&
 		    vcpu->run->tdx.u.vmcall.subfunction ==
@@ -417,7 +428,7 @@ static void verify_upm_test(bool implicit)
 	test_area_npages = TDX_UPM_TEST_AREA_SIZE / vm->page_size;
 	vm_userspace_mem_region_add(vm,
 				    VM_MEM_SRC_ANONYMOUS, TDX_UPM_TEST_AREA_GPA,
-				    3, test_area_npages, KVM_MEM_PRIVATE);
+				    3, test_area_npages, KVM_MEM_GUEST_MEMFD);
 
 	test_area_gva_private = _vm_vaddr_alloc(
 		vm, TDX_UPM_TEST_AREA_SIZE, TDX_UPM_TEST_AREA_GVA_PRIVATE,

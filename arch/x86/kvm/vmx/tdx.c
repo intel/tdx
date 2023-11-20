@@ -4341,6 +4341,22 @@ static int tdx_vcpu_init_vcpu(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 	return 0;
 }
 
+static int tdx_vcpu_release_vm(struct kvm_vcpu *vcpu)
+{
+	struct kvm *kvm = vcpu->kvm;
+	int idx, ret = 0;
+
+	/* This requires VM TDX_VM_RELASE_VM to release hkid. */
+	if (!is_mmu_destructing(kvm))
+		return -EBUSY;
+
+	idx = srcu_read_lock(&kvm->srcu);
+	if (is_td_created(to_kvm_tdx(kvm)))
+		ret = kvm_tdp_mmu_zap_all_private(kvm);
+	srcu_read_unlock(&kvm->srcu, idx);
+	return ret;
+}
+
 int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 {
 	struct kvm_tdx_cmd cmd;
@@ -4359,6 +4375,14 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 	switch (cmd.id) {
 	case KVM_TDX_INIT_VCPU:
 		ret = tdx_vcpu_init_vcpu(vcpu, (u64)cmd.data);
+		break;
+	case KVM_TDX_RELEASE_VM:
+		/* cmd.data isn't used. */
+		if (cmd.data) {
+			ret = -EINVAL;
+			break;
+		}
+		ret = tdx_vcpu_release_vm(vcpu);
 		break;
 	default:
 		ret = -EINVAL;

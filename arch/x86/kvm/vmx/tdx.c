@@ -4044,12 +4044,25 @@ static int tdx_td_finalizemr(struct kvm *kvm)
 
 static int tdx_vm_release_vm(struct kvm *kvm)
 {
-	int idx;
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	int idx, r;
+
+	if (!is_hkid_assigned(kvm_tdx) && !is_td_created(kvm_tdx))
+		return -ENODEV;
+
+	if (is_hkid_assigned(kvm_tdx)) {
+		tdx_mmu_release_hkid(kvm);
+		/*
+		 * Give the user space VMM a chance to use per-vcpu
+		 * release vm.
+		 */
+		return -EAGAIN;
+	}
 
 	idx = srcu_read_lock(&kvm->srcu);
-	kvm_arch_flush_shadow_all(kvm);
+	r = kvm_tdp_mmu_zap_all_private(kvm);
 	srcu_read_unlock(&kvm->srcu, idx);
-	return 0;
+	return r;
 }
 
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)

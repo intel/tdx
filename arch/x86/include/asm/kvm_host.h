@@ -1527,6 +1527,17 @@ struct kvm_arch {
 	 * the code to do so.
 	 */
 	spinlock_t tdp_mmu_pages_lock;
+
+	/* zapping private mmu page is done as 2 step. */
+	enum {
+		ZAP_PHASE_NOT_STARTED = 0,
+		ZAP_PHASE_1G,
+		ZAP_PHASE_ROOT,
+		ZAP_PHASE_COMPLETED,
+	} zap_phase;
+	unsigned long zap_entries;
+	struct list_head zap_private;
+	struct completion zap_done;
 #endif /* CONFIG_X86_64 */
 	bool mmu_destructing;
 

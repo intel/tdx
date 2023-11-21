@@ -19,6 +19,10 @@ void kvm_mmu_init_tdp_mmu(struct kvm *kvm)
 #ifdef CONFIG_INTEL_TDX_HOST_DEBUG_MEMORY_CORRUPT
 	mutex_init(&kvm->arch.private_spt_for_split_lock);
 #endif
+#ifdef CONFIG_X86_64
+	INIT_LIST_HEAD(&kvm->arch.zap_private);
+	init_completion(&kvm->arch.zap_done);
+#endif
 }
 
 /* Arbitrarily returns true so that this may be used in if statements. */
@@ -554,8 +558,11 @@ static void handle_removed_private_spte(struct kvm *kvm, gfn_t gfn,
 	if (!was_leaf)
 		return;
 
-	/* Zapping leaf spte is allowed only when write lock is held. */
-	lockdep_assert_held_write(&kvm->mmu_lock);
+	/*
+	 * Zapping leaf spte is allowed only when write lock is held or
+	 * when destroying VM with shared lock.
+	 */
+	lockdep_assert_held(&kvm->mmu_lock);
 	ret = static_call(kvm_x86_zap_private_spte)(kvm, gfn, level);
 	if (is_private_zapped) {
 		/* page migration isn't supported yet. */
@@ -1314,19 +1321,164 @@ bool kvm_tdp_mmu_zap_leafs(struct kvm *kvm, gfn_t start, gfn_t end, bool flush,
 	return flush;
 }
 
-int kvm_tdp_mmu_zap_all_private(struct kvm *kvm)
+static void tdp_mmu_zap_private_root_pre(struct kvm *kvm,
+					 struct kvm_mmu_page *root, int zap_level)
+{
+	gfn_t end = tdp_mmu_max_gfn_exclusive();
+	gfn_t start = 0;
+
+	struct kvm_mmu_page *sp;
+	struct tdp_iter iter;
+	tdp_ptep_t child_pt;
+
+	rcu_read_lock();
+	WARN_ON_ONCE(start >= end);
+
+	for_each_tdp_pte_min_level(iter, root, zap_level, start, end) {
+		if (!is_shadow_present_pte(iter.old_spte))
+			continue;
+
+		if (iter.level > zap_level)
+			continue;
+
+		WARN_ON_ONCE(is_removed_spte(iter.old_spte));
+		child_pt = spte_to_child_pt(iter.old_spte, iter.level);
+		if (!child_pt)
+			continue;
+
+		sp = sptep_to_sp(child_pt);
+		sp->root = root;
+
+		list_add_tail(&sp->zap_link, &kvm->arch.zap_private);
+		kvm->arch.zap_entries++;
+	}
+	reinit_completion(&kvm->arch.zap_done);
+	rcu_read_unlock();
+}
+
+static void tdp_mmu_zap_all_private_pre(struct kvm *kvm, bool zap_root)
 {
 	struct kvm_mmu_page *root;
+	int zap_level;
 
-	write_lock(&kvm->mmu_lock);
+	kvm_lockdep_assert_mmu_lock_held(kvm, false);
+
 	for_each_tdp_mmu_root_yield_safe(kvm, root) {
 		if (!is_private_sp(root))
 			continue;
 
-		tdp_mmu_zap_root(kvm, root, false);
+		zap_level = zap_root ? root->role.level : PG_LEVEL_1G;
+		tdp_mmu_zap_private_root_pre(kvm, root, zap_level);
 	}
-	write_unlock(&kvm->mmu_lock);
+}
 
+static void tdp_mmu_zap_child(struct kvm *kvm, struct kvm_mmu_page *sp)
+{
+	struct tdp_iter iter;
+	int zap_level;
+
+	read_lock(&kvm->mmu_lock);
+
+retry:
+	rcu_read_lock();
+
+	/* Setup struct tdp_iter to zap from the parent of this sp. */
+	zap_level = sp->role.level + 1;
+	tdp_iter_start(&iter, sp->root, zap_level, sp->gfn);
+
+	/* Step down to the parent entry of sp. */
+	while (iter.level > zap_level)
+		tdp_iter_next(&iter);
+
+	if (tdp_mmu_set_spte_atomic(kvm, &iter, SHADOW_NONPRESENT_VALUE)) {
+		rcu_read_unlock();
+		cond_resched_rwlock_read(&kvm->mmu_lock);
+		goto retry;
+	}
+
+	rcu_read_unlock();
+	read_unlock(&kvm->mmu_lock);
+}
+
+static int tdp_mmu_zap_all_private(struct kvm *kvm)
+{
+	struct kvm_mmu_page *sp;
+	int r = 0;
+
+	kvm_lockdep_assert_mmu_lock_held(kvm, false);
+
+	while (!list_empty(&kvm->arch.zap_private)) {
+		sp = list_first_entry(&kvm->arch.zap_private, typeof(*sp),
+				      zap_link);
+		list_del(&sp->zap_link);
+		write_unlock(&kvm->mmu_lock);
+
+		tdp_mmu_zap_child(kvm, sp);
+
+		cond_resched();
+		write_lock(&kvm->mmu_lock);
+		kvm->arch.zap_entries--;
+
+		if (signal_pending(current)) {
+			r = -EINTR;
+			break;
+		}
+	}
+
+	return r;
+}
+
+int kvm_tdp_mmu_zap_all_private(struct kvm *kvm)
+{
+	int r = 0;
+
+	write_lock(&kvm->mmu_lock);
+
+	if (kvm->arch.zap_phase == ZAP_PHASE_NOT_STARTED) {
+		tdp_mmu_zap_all_private_pre(kvm, false);
+		kvm->arch.zap_phase = ZAP_PHASE_1G;
+	}
+
+	if (kvm->arch.zap_phase == ZAP_PHASE_1G) {
+		r = tdp_mmu_zap_all_private(kvm);
+		if (kvm->arch.zap_entries) {
+			write_unlock(&kvm->mmu_lock);
+			if (r)
+				return r;
+
+			r = wait_for_completion_killable(&kvm->arch.zap_done);
+			if (r)
+				return r;
+
+			write_lock(&kvm->mmu_lock);
+		} else {
+			tdp_mmu_zap_all_private_pre(kvm, true);
+			kvm->arch.zap_phase = ZAP_PHASE_ROOT;
+			write_unlock(&kvm->mmu_lock);
+			complete_all(&kvm->arch.zap_done);
+			if (r)
+				return r;
+
+			write_lock(&kvm->mmu_lock);
+		}
+	}
+
+	if (kvm->arch.zap_phase == ZAP_PHASE_ROOT) {
+		r = tdp_mmu_zap_all_private(kvm);
+		if (kvm->arch.zap_entries) {
+			write_unlock(&kvm->mmu_lock);
+			if (r)
+				return r;
+			r = wait_for_completion_killable(&kvm->arch.zap_done);
+		} else {
+			kvm->arch.zap_phase = ZAP_PHASE_COMPLETED;
+			write_unlock(&kvm->mmu_lock);
+			complete_all(&kvm->arch.zap_done);
+		}
+		return r;
+	}
+
+	write_unlock(&kvm->mmu_lock);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(kvm_tdp_mmu_zap_all_private);
@@ -1334,14 +1486,11 @@ EXPORT_SYMBOL_GPL(kvm_tdp_mmu_zap_all_private);
 void kvm_tdp_mmu_zap_all(struct kvm *kvm)
 {
 	struct kvm_mmu_page *root;
+	int r;
 
 	/*
 	 * Zap all roots, including invalid roots, as all SPTEs must be dropped
-	 * before returning to the caller.  Zap directly even if the root is
-	 * also being zapped by a worker.  Walking zapped top-level SPTEs isn't
-	 * all that expensive and mmu_lock is already held, which means the
-	 * worker has yielded, i.e. flushing the work instead of zapping here
-	 * isn't guaranteed to be any faster.
+	 * before returning to the caller.
 	 *
 	 * A TLB flush is unnecessary, KVM zaps everything if and only the VM
 	 * is being destroyed or the userspace VMM has exited.  In both cases,
@@ -1354,7 +1503,9 @@ void kvm_tdp_mmu_zap_all(struct kvm *kvm)
 	}
 	write_unlock(&kvm->mmu_lock);
 
-	WARN_ON_ONCE(kvm_tdp_mmu_zap_all_private(kvm));
+	do {
+		r = kvm_tdp_mmu_zap_all_private(kvm);
+	} while (r == -EAGAIN || r == -EINTR || r == -ERESTARTSYS);
 }
 
 /*

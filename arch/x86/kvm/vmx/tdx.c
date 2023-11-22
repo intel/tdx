@@ -287,13 +287,14 @@ static inline void tdx_disassociate_vp(struct kvm_vcpu *vcpu)
 	list_del(&to_tdx(vcpu)->cpu_list);
 
 	/*
-	 * Ensure tdx->cpu_list is updated is before setting vcpu->cpu to -1,
-	 * otherwise, a different CPU can see vcpu->cpu = -1 and add the vCPU
-	 * to its list before its deleted from this CPUs list.
+	 * Ensure tdx->cpu_list is updated is before setting
+	 * to_tdx(vcpu)->loaded_cpu to -1, otherwise, a different CPU can see
+	 * to_tdx(vcpu)->loaded_cpu = -1 and add the vCPU to its list before its
+	 * deleted from this CPUs list.
 	 */
 	smp_wmb();
 
-	vcpu->cpu = -1;
+	to_tdx(vcpu)->loaded_cpu = -1;
 }
 
 static void tdx_disassociate_vp_arg(void *vcpu)
@@ -303,7 +304,7 @@ static void tdx_disassociate_vp_arg(void *vcpu)
 
 static void tdx_disassociate_vp_on_cpu(struct kvm_vcpu *vcpu)
 {
-	int cpu = vcpu->cpu;
+	int cpu = to_tdx(vcpu)->loaded_cpu;
 
 	if (unlikely(cpu == -1))
 		return;
@@ -405,13 +406,14 @@ static void tdx_flush_vp(void *arg_)
 {
 	struct tdx_flush_vp_arg *arg = arg_;
 	struct kvm_vcpu *vcpu = arg->vcpu;
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
 	u64 err;
 
 	arg->err = 0;
 	lockdep_assert_irqs_disabled();
 
 	/* Task migration can race with CPU offlining. */
-	if (unlikely(vcpu->cpu != raw_smp_processor_id()))
+	if (unlikely(tdx->loaded_cpu != raw_smp_processor_id()))
 		return;
 
 	/*
@@ -419,14 +421,14 @@ static void tdx_flush_vp(void *arg_)
 	 * list tracking still needs to be updated so that it's correct if/when
 	 * the vCPU does get initialized.
 	 */
-	if (is_td_vcpu_created(to_tdx(vcpu))) {
+	if (is_td_vcpu_created(tdx)) {
 		/*
 		 * No need to retry.  TDX Resources needed for TDH.VP.FLUSH are,
 		 * TDVPR as exclusive, TDR as shared, and TDCS as shared.  This
 		 * vp flush function is called when destructing vcpu/TD or vcpu
 		 * migration.  No other thread uses TDVPR in those cases.
 		 */
-		err = tdh_vp_flush(to_tdx(vcpu)->tdvpr_pa);
+		err = tdh_vp_flush(tdx->tdvpr_pa);
 		if (unlikely(err && err != TDX_VCPU_NOT_ASSOCIATED)) {
 			/*
 			 * This function is called in IPI context. Do not use
@@ -446,7 +448,7 @@ static void tdx_flush_vp_on_cpu(struct kvm_vcpu *vcpu)
 	struct tdx_flush_vp_arg arg = {
 		.vcpu = vcpu,
 	};
-	int cpu = vcpu->cpu;
+	int cpu = to_tdx(vcpu)->loaded_cpu;
 
 	if (unlikely(cpu == -1))
 		return;
@@ -778,6 +780,7 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	if (!vcpu->arch.apic)
 		return -EINVAL;
 
+	tdx->loaded_cpu = -1;
 	fpstate_set_confidential(&vcpu->arch.guest_fpu);
 	vcpu->arch.apic->guest_apic_protected = true;
 	INIT_LIST_HEAD(&tdx->pi_wakeup_list);
@@ -848,7 +851,7 @@ void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 
 	vmx_vcpu_pi_load(vcpu, cpu);
-	if (vcpu->cpu == cpu)
+	if (tdx->loaded_cpu == cpu)
 		return;
 
 	tdx_flush_vp_on_cpu(vcpu);
@@ -856,8 +859,9 @@ void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	local_irq_disable();
 	/*
 	 * Pairs with the smp_wmb() in tdx_disassociate_vp() to ensure
-	 * vcpu->cpu is read before tdx->cpu_list.
+	 * to_tdx(vcpu)->loaded_cpu is read before tdx->cpu_list.
 	 */
+	tdx->loaded_cpu = cpu;
 	smp_rmb();
 
 	list_add(&tdx->cpu_list, &per_cpu(associated_tdvcpus, cpu));
@@ -928,7 +932,7 @@ void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 	 * list_{del,add}() on associated_tdvcpus list later.
 	 */
 	tdx_disassociate_vp_on_cpu(vcpu);
-	WARN_ON_ONCE(vcpu->cpu != -1);
+	WARN_ON_ONCE(tdx->loaded_cpu != -1);
 
 	/*
 	 * This methods can be called when vcpu allocation/initialization
@@ -4091,6 +4095,7 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 		pr_tdx_error(TDH_VP_CREATE, err, NULL);
 		goto free_tdvpx;
 	}
+
 	tdx->tdvpr_pa = tdvpr_pa;
 	tdx_account_ctl_page(vcpu->kvm);
 

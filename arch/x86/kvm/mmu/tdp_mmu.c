@@ -1314,6 +1314,23 @@ bool kvm_tdp_mmu_zap_leafs(struct kvm *kvm, gfn_t start, gfn_t end, bool flush,
 	return flush;
 }
 
+int kvm_tdp_mmu_zap_all_private(struct kvm *kvm)
+{
+	struct kvm_mmu_page *root;
+
+	write_lock(&kvm->mmu_lock);
+	for_each_tdp_mmu_root_yield_safe(kvm, root) {
+		if (!is_private_sp(root))
+			continue;
+
+		tdp_mmu_zap_root(kvm, root, false);
+	}
+	write_unlock(&kvm->mmu_lock);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(kvm_tdp_mmu_zap_all_private);
+
 void kvm_tdp_mmu_zap_all(struct kvm *kvm)
 {
 	struct kvm_mmu_page *root;
@@ -1331,9 +1348,13 @@ void kvm_tdp_mmu_zap_all(struct kvm *kvm)
 	 * KVM_RUN is unreachable, i.e. no vCPUs will ever service the request.
 	 */
 	write_lock(&kvm->mmu_lock);
-	for_each_tdp_mmu_root_yield_safe(kvm, root)
-		tdp_mmu_zap_root(kvm, root, false);
+	for_each_tdp_mmu_root_yield_safe(kvm, root) {
+		if (!is_private_sp(root))
+			tdp_mmu_zap_root(kvm, root, false);
+	}
 	write_unlock(&kvm->mmu_lock);
+
+	WARN_ON_ONCE(kvm_tdp_mmu_zap_all_private(kvm));
 }
 
 /*

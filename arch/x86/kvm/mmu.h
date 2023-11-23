@@ -260,6 +260,7 @@ static inline bool kvm_mmu_honors_guest_mtrrs(struct kvm *kvm)
 }
 
 void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end);
+int kvm_tdp_mmu_zap_all_private(struct kvm *kvm);
 
 #ifdef CONFIG_INTEL_TDX_HOST
 int kvm_tdp_mmu_is_page_private(struct kvm *kvm, struct kvm_memory_slot *memslot,

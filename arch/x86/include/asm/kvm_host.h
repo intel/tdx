@@ -1528,6 +1528,7 @@ struct kvm_arch {
 	 */
 	spinlock_t tdp_mmu_pages_lock;
 #endif /* CONFIG_X86_64 */
+	bool mmu_destructing;
 
 	/*
 	 * If set, at least one shadow root has been allocated. This flag

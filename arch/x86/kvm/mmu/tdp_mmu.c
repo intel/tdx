@@ -1202,6 +1202,8 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 	WARN_ON_ONCE(zap_private && !is_private);
 	if (!zap_private && is_private)
 		return flush;
+	if (is_private && kvm->arch.mmu_destructing)
+		return flush;
 
 	/*
 	 * start and end doesn't have GFN shared bit.  This function zaps

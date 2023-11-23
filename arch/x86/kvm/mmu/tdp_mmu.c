@@ -1328,9 +1328,10 @@ void kvm_tdp_mmu_zap_all(struct kvm *kvm)
 	 * is being destroyed or the userspace VMM has exited.  In both cases,
 	 * KVM_RUN is unreachable, i.e. no vCPUs will ever service the request.
 	 */
-	lockdep_assert_held_write(&kvm->mmu_lock);
+	write_lock(&kvm->mmu_lock);
 	for_each_tdp_mmu_root_yield_safe(kvm, root)
 		tdp_mmu_zap_root(kvm, root, false);
+	write_unlock(&kvm->mmu_lock);
 }
 
 /*

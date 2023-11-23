@@ -7407,10 +7407,8 @@ static void kvm_mmu_zap_all(struct kvm *kvm)
 		return;
 	}
 
-	write_lock(&kvm->mmu_lock);
 	WARN_ON_ONCE(!list_empty(&kvm->arch.active_mmu_pages));
 	kvm_tdp_mmu_zap_all(kvm);
-	write_unlock(&kvm->mmu_lock);
 }
 
 void kvm_arch_flush_shadow_all(struct kvm *kvm)

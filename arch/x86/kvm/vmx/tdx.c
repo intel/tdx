@@ -4045,13 +4045,42 @@ static int tdx_td_finalizemr(struct kvm *kvm)
 static int tdx_vm_release_vm(struct kvm *kvm)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct kvm_vcpu *vcpu;
+	unsigned long i;
 	int idx, r;
 
 	if (!is_hkid_assigned(kvm_tdx) && !is_td_created(kvm_tdx))
 		return -ENODEV;
 
 	if (is_hkid_assigned(kvm_tdx)) {
+		/* Prevent vcpu from running guest with KVM_RUN. */
+		kvm->arch.mmu_destructing = true;
+
+		/*
+		 * Ensure that all vcpu KVM_RUN exited to user space at
+		 * least once.  Because vcpu ioctl is protected under
+		 * vcpu->mutex, lock()/unlock() guarantees that vcpu
+		 * ioctl completed.
+		 */
+		kvm_make_all_cpus_request(kvm, KVM_REQ_UNBLOCK);
+		kvm_for_each_vcpu(i, vcpu, kvm) {
+			mutex_lock(&vcpu->mutex);
+			mutex_unlock(&vcpu->mutex);
+		}
+
+		/*
+		 * Ensure that there is no unmapping progress with VM ioctl,
+		 * KVM_SET_MEMORY_ATTRIBUTES.
+		 */
+		write_lock(&kvm->mmu_lock);
+		write_unlock(&kvm->mmu_lock);
+
+		/*
+		 * It's safe to release HKID as no vcpu is operating
+		 * Secure-EPT.
+		 */
 		tdx_mmu_release_hkid(kvm);
+
 		/*
 		 * Give the user space VMM a chance to use per-vcpu
 		 * release vm.

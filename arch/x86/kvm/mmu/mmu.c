@@ -7391,16 +7391,25 @@ restart:
 	kvm_mmu_commit_zap_page(kvm, &invalid_list);
 }
 
-static void kvm_mmu_zap_all(struct kvm *kvm)
+static void __kvm_mmu_zap_all(struct kvm *kvm)
 {
 	write_lock(&kvm->mmu_lock);
-
 	__kvm_mmu_zap_list(kvm, &kvm->arch.active_mmu_pages);
-	if (tdp_mmu_enabled)
-		kvm_tdp_mmu_zap_all(kvm);
-	else
-		__kvm_mmu_zap_list(kvm, &kvm->arch.private_mmu_pages);
+	__kvm_mmu_zap_list(kvm, &kvm->arch.private_mmu_pages);
+	write_unlock(&kvm->mmu_lock);
+}
 
+static void kvm_mmu_zap_all(struct kvm *kvm)
+{
+	/* Supportes only TDP MMU */
+	if (!tdp_mmu_enabled) {
+		__kvm_mmu_zap_all(kvm);
+		return;
+	}
+
+	write_lock(&kvm->mmu_lock);
+	WARN_ON_ONCE(!list_empty(&kvm->arch.active_mmu_pages));
+	kvm_tdp_mmu_zap_all(kvm);
 	write_unlock(&kvm->mmu_lock);
 }
 

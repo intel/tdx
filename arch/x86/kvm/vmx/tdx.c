@@ -280,6 +280,11 @@ static inline bool is_td_finalized(struct kvm_tdx *kvm_tdx)
 	return kvm_tdx->finalized;
 }
 
+static inline bool is_mmu_destructing(struct kvm *kvm)
+{
+	return kvm->arch.mmu_destructing;
+}
+
 static inline void tdx_disassociate_vp(struct kvm_vcpu *vcpu)
 {
 	lockdep_assert_irqs_disabled();
@@ -421,7 +426,8 @@ static void tdx_flush_vp(void *arg_)
 	 * list tracking still needs to be updated so that it's correct if/when
 	 * the vCPU does get initialized.
 	 */
-	if (is_td_vcpu_created(tdx)) {
+	if (is_td_vcpu_created(tdx) &&
+	    is_hkid_assigned(to_kvm_tdx(vcpu->kvm))) {
 		/*
 		 * No need to retry.  TDX Resources needed for TDH.VP.FLUSH are,
 		 * TDVPR as exclusive, TDR as shared, and TDCS as shared.  This
@@ -451,6 +457,8 @@ static void tdx_flush_vp_on_cpu(struct kvm_vcpu *vcpu)
 	int cpu = to_tdx(vcpu)->loaded_cpu;
 
 	if (unlikely(cpu == -1))
+		return;
+	if (unlikely(!is_hkid_assigned(to_kvm_tdx(vcpu->kvm))))
 		return;
 
 	smp_call_function_single(cpu, tdx_flush_vp, &arg, 1);
@@ -850,6 +858,10 @@ void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 
+	if (unlikely(!is_hkid_assigned(to_kvm_tdx(vcpu->kvm)) ||
+		     is_mmu_destructing(vcpu->kvm)))
+		return;
+
 	vmx_vcpu_pi_load(vcpu, cpu);
 	if (tdx->loaded_cpu == cpu)
 		return;
@@ -915,6 +927,9 @@ static void tdx_prepare_switch_to_host(struct kvm_vcpu *vcpu)
 
 void tdx_vcpu_put(struct kvm_vcpu *vcpu)
 {
+	if (unlikely(!is_hkid_assigned(to_kvm_tdx(vcpu->kvm))))
+		return;
+
 	vmx_vcpu_pi_put(vcpu);
 	tdx_prepare_switch_to_host(vcpu);
 }
@@ -1149,6 +1164,11 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu)
 	/* See tdx_handle_exit() to return error. */
 	if (unlikely(!tdx->initialized))
 		return EXIT_FASTPATH_EXIT_HANDLED;
+	if (unlikely(is_mmu_destructing(vcpu->kvm))) {
+		tdx->exit_reason.full = 0;
+		vcpu->run->exit_reason = KVM_EXIT_INTR;
+		return EXIT_FASTPATH_EXIT_HANDLED;
+	}
 	if (unlikely(vcpu->kvm->vm_bugged)) {
 		tdx->exit_reason.full = TDX_NON_RECOVERABLE_VCPU;
 		return EXIT_FASTPATH_NONE;
@@ -2714,6 +2734,10 @@ static int __tdx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t fastpath)
 	if (unlikely(fastpath == EXIT_FASTPATH_EXIT_HANDLED)) {
 		if (!to_tdx(vcpu)->initialized)
 			return -EINVAL;
+		if (vcpu->run->exit_reason == KVM_EXIT_INTR) {
+			WARN_ON_ONCE(!is_mmu_destructing(vcpu->kvm));
+			return -EINTR;
+		}
 	}
 	WARN_ON_ONCE(fastpath != EXIT_FASTPATH_NONE);
 
@@ -2974,6 +2998,8 @@ int tdx_get_cpl(struct kvm_vcpu *vcpu)
 	 */
 	if (unlikely(!to_tdx(vcpu)->initialized))
 		return 0;
+	if (unlikely(is_mmu_destructing(vcpu->kvm)))
+		return 0;
 
 	return VMX_AR_DPL(td_vmcs_read32(to_tdx(vcpu), GUEST_SS_AR_BYTES));
 }
@@ -3081,6 +3107,8 @@ bool tdx_get_if_flag(struct kvm_vcpu *vcpu)
 	if (!is_debug_td(vcpu))
 		return 0;
 
+	if (unlikely(is_mmu_destructing(vcpu->kvm)))
+		return 0;
 	return td_vmcs_read64(to_tdx(vcpu), GUEST_RFLAGS) & X86_EFLAGS_IF;
 }
 
@@ -3788,6 +3816,8 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 
 	if (is_hkid_assigned(kvm_tdx))
 		return -EINVAL;
+	if (is_mmu_destructing(kvm))
+		return -EINVAL;
 
 	if (cmd->flags)
 		return -EINVAL;
@@ -3907,6 +3937,9 @@ static int tdx_init_mem_region(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	u64 error_code;
 	int idx, ret = 0;
 	bool added = false;
+
+	if (is_mmu_destructing(kvm))
+		return -EINVAL;
 
 	/* Once TD is finalized, the initial guest memory is fixed. */
 	if (is_td_finalized(kvm_tdx))
@@ -4193,7 +4226,8 @@ static int tdx_vcpu_init_vcpu(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 	struct msr_data apic_base_msr;
 	int ret;
 
-	if (!is_hkid_assigned(kvm_tdx) || is_td_finalized(kvm_tdx))
+	if (!is_hkid_assigned(kvm_tdx) || is_td_finalized(kvm_tdx) ||
+	    is_mmu_destructing(vcpu->kvm))
 		return -EINVAL;
 
 	if (tdx->initialized)

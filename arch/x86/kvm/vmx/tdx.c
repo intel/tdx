@@ -579,7 +579,7 @@ static int __tdx_mmu_release_hkid(struct kvm *kvm)
 
 	for_each_online_cpu(i) {
 		if (packages_allocated &&
-		    cpumask_test_and_set_cpu(topology_physical_package_id(i),
+		    cpumask_test_and_set_cpu(per_cpu(wbinvd_domain_index, i),
 					     packages))
 			continue;
 		if (targets_allocated)
@@ -3677,9 +3677,9 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 	 * program all packages for host key id.  Check it.
 	 */
 	for_each_present_cpu(i)
-		cpumask_set_cpu(topology_physical_package_id(i), packages);
+		cpumask_set_cpu(per_cpu(wbinvd_domain_index, i), packages);
 	for_each_online_cpu(i)
-		cpumask_clear_cpu(topology_physical_package_id(i), packages);
+		cpumask_clear_cpu(per_cpu(wbinvd_domain_index, i), packages);
 	if (!cpumask_empty(packages)) {
 		ret = -EIO;
 		/*
@@ -3721,7 +3721,7 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 	tdx_account_ctl_page(kvm);
 
 	for_each_online_cpu(i) {
-		int pkg = topology_physical_package_id(i);
+		int pkg = per_cpu(wbinvd_domain_index, i);
 
 		if (cpumask_test_and_set_cpu(pkg, packages))
 			continue;
@@ -5235,16 +5235,6 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	if (misc_cg_set_capacity(MISC_CG_RES_TDX, tdx_nr_guest_keyids - 1))
 		return -EINVAL;
 
-	max_pkgs = topology_max_packages();
-	tdx_mng_key_config_lock = kcalloc(max_pkgs, sizeof(*tdx_mng_key_config_lock),
-				   GFP_KERNEL);
-	if (!tdx_mng_key_config_lock) {
-		r = -ENOMEM;
-		goto out;
-	}
-	for (i = 0; i < max_pkgs; i++)
-		mutex_init(&tdx_mng_key_config_lock[i]);
-
 	if (!zalloc_cpumask_var(&vmx_tdx.vmx_enabled, GFP_KERNEL)) {
 		r = -ENOMEM;
 		goto out;
@@ -5271,6 +5261,18 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	free_cpumask_var(vmx_tdx.vmx_enabled);
 	if (r)
 		goto out;
+
+	/* tdx_module_setup() initializes tdx_info. */
+	max_pkgs = tdx_info->num_wbinvd_domains;
+	WARN_ON_ONCE(max_pkgs > num_possible_cpus());
+	tdx_mng_key_config_lock = kcalloc(max_pkgs, sizeof(*tdx_mng_key_config_lock),
+					  GFP_KERNEL);
+	if (!tdx_mng_key_config_lock) {
+		r = -ENOMEM;
+		goto out;
+	}
+	for (i = 0; i < max_pkgs; i++)
+		mutex_init(&tdx_mng_key_config_lock[i]);
 
 	x86_ops->link_private_spt = tdx_sept_link_private_spt;
 	x86_ops->free_private_spt = tdx_sept_free_private_spt;
@@ -5351,10 +5353,10 @@ int tdx_offline_cpu(void)
 		return -ENOMEM;
 	for_each_online_cpu(i) {
 		if (i != curr_cpu)
-			cpumask_set_cpu(topology_physical_package_id(i), packages);
+			cpumask_set_cpu(per_cpu(wbinvd_domain_index, i), packages);
 	}
 	/* Check if this cpu is the last online cpu of this package. */
-	if (!cpumask_test_cpu(topology_physical_package_id(curr_cpu), packages))
+	if (!cpumask_test_cpu(per_cpu(wbinvd_domain_index, curr_cpu), packages))
 		ret = -EBUSY;
 	free_cpumask_var(packages);
 	if (ret)

@@ -41,7 +41,7 @@ static int vt_hardware_enable(void)
 	if (ret || !enable_tdx)
 		return ret;
 
-	ret = tdx_cpu_enable();
+	ret = tdx_hardware_enable();
 	if (ret)
 		/*
 		 * In error case, we keep the CPU offline in error case.  So

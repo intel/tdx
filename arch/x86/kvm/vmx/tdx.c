@@ -5313,6 +5313,23 @@ void tdx_hardware_unsetup(void)
 	tdx_gmem_release_wq = NULL;
 }
 
+int tdx_hardware_enable(void)
+{
+	int ret;
+	u64 err;
+
+	lockdep_assert_preemption_disabled();
+
+	ret = tdx_cpu_enable();
+	if (ret)
+		return ret;
+
+	err = __tdx_init_wbinvd_domain_id();
+	if (err)
+		return -EIO;
+	return 0;
+}
+
 int tdx_offline_cpu(void)
 {
 	int curr_cpu = smp_processor_id();

@@ -125,6 +125,7 @@ struct tdx_info {
 
 /* Info about the TDX module. */
 static struct tdx_info *tdx_info;
+static DEFINE_PER_CPU(u16, wbinvd_domain_index);
 
 static void tdx_info_free(struct tdx_info *tdx_info)
 {
@@ -4489,8 +4490,14 @@ static int __init tdx_module_wbinvd_setup(void)
 	u64 tmp;
 
 	tdx_info->wbinvd_domains = tdx_info->features0 & MD_FIELD_ID_FEATURES0_WBINVD_DOMAINS;
-	if (!tdx_info->wbinvd_domains)
+	if (!tdx_info->wbinvd_domains) {
+		/*
+		 * In this case, WBINVD domain is package.  Use logical package
+		 * id as index to WBINVD domain.
+		 */
+		tdx_info->num_wbinvd_domains = topology_max_packages();
 		return 0;
+	}
 
 	ret = tdx_sys_metadata_field_read(MD_FIELD_ID_WBINVD_DOMAINS_NUM, &tmp);
 	if (ret)
@@ -4525,11 +4532,56 @@ static int __init tdx_module_wbinvd_setup(void)
 	return 0;
 }
 
+static u64 __tdx_init_wbinvd_domain_id(void)
+{
+	u64 id, mask;
+	struct tdx_md_map mds[] = {
+		TDX_MD_MAP(CURR_WBINVD_DOMAIN_ID, &id),
+		TDX_MD_MAP(CURR_WBINVD_DOMAIN_MASK, &mask),
+	};
+	u16 index;
+	int ret;
+
+	lockdep_assert_preemption_disabled();
+
+	if (!tdx_info->wbinvd_domains) {
+		/* In this case. wbinvd domain == processor package. */
+		this_cpu_write(wbinvd_domain_index,
+			       topology_logical_package_id(smp_processor_id()));
+		return 0;
+	}
+
+	ret = tdx_md_read(mds, ARRAY_SIZE(mds));
+	if (ret)
+		return ret;
+
+	for (index = 0; index < tdx_info->num_wbinvd_domains; index++) {
+		if (id == tdx_info->wbinvd_domain_ids[index] &&
+		    mask == tdx_info->wbinvd_domain_masks[index]) {
+			this_cpu_write(wbinvd_domain_index, index);
+			return 0;
+		}
+	}
+
+	WARN_ON_ONCE(1);
+	return TDX_OPERAND_INVALID;
+}
+
+static void __init tdx_init_wbinvd_domain_id(void *err_)
+{
+	u64 err;
+
+	err = __tdx_init_wbinvd_domain_id();
+	if (err)
+		*(u64 *)err_ = err;
+}
+
 static int __init tdx_module_setup(void)
 {
 	u16 num_cpuid_config, tdcs_base_size, tdvps_base_size;
 	bool no_rbp_mod;
 	int ret = 0;
+	u64 err;
 	u32 i;
 
 	struct tdx_md_map mds[] = {
@@ -4620,6 +4672,13 @@ static int __init tdx_module_setup(void)
 	ret = tdx_module_wbinvd_setup();
 	if (ret)
 		goto error;
+
+	err = 0;
+	on_each_cpu(tdx_init_wbinvd_domain_id, &err, true);
+	if (err) {
+		ret = -EIO;
+		goto error;
+	}
 
 	pr_info("nr_tdcs %d nr_tdvpx %d\n",
 		tdx_info->nr_tdcs_pages, tdx_info->nr_tdvpx_pages);

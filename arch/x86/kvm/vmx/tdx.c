@@ -524,9 +524,9 @@ static void tdx_do_tdh_phymem_cache_wb(void *unused)
 
 static int __tdx_mmu_release_hkid(struct kvm *kvm)
 {
-	bool packages_allocated, targets_allocated;
+	bool domains_allocated, targets_allocated;
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
-	cpumask_var_t packages, targets;
+	cpumask_var_t domains, targets;
 	struct kvm_vcpu *vcpu;
 	unsigned long j;
 	int i, ret = 0;
@@ -540,7 +540,7 @@ static int __tdx_mmu_release_hkid(struct kvm *kvm)
 		return 0;
 	}
 
-	packages_allocated = zalloc_cpumask_var(&packages, GFP_KERNEL);
+	domains_allocated = zalloc_cpumask_var(&domains, GFP_KERNEL);
 	targets_allocated = zalloc_cpumask_var(&targets, GFP_KERNEL);
 	cpus_read_lock();
 
@@ -578,9 +578,9 @@ static int __tdx_mmu_release_hkid(struct kvm *kvm)
 	}
 
 	for_each_online_cpu(i) {
-		if (packages_allocated &&
+		if (domains_allocated &&
 		    cpumask_test_and_set_cpu(per_cpu(wbinvd_domain_index, i),
-					     packages))
+					     domains))
 			continue;
 		if (targets_allocated)
 			cpumask_set_cpu(i, targets);
@@ -607,7 +607,7 @@ out:
 	mutex_unlock(&tdx_lock);
 	cpus_read_unlock();
 	free_cpumask_var(targets);
-	free_cpumask_var(packages);
+	free_cpumask_var(domains);
 
 	return ret;
 }
@@ -3628,7 +3628,7 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	struct tdx_module_args out;
-	cpumask_var_t packages;
+	cpumask_var_t domains;
 	unsigned long *tdcs_pa = NULL;
 	unsigned long tdr_pa = 0;
 	unsigned long va;
@@ -3667,28 +3667,28 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 		tdcs_pa[i] = __pa(va);
 	}
 
-	if (!zalloc_cpumask_var(&packages, GFP_KERNEL)) {
+	if (!zalloc_cpumask_var(&domains, GFP_KERNEL)) {
 		ret = -ENOMEM;
 		goto free_tdcs;
 	}
 	cpus_read_lock();
 	/*
 	 * Need at least one CPU of the package to be online in order to
-	 * program all packages for host key id.  Check it.
+	 * program all domains for host key id.  Check it.
 	 */
 	for_each_present_cpu(i)
-		cpumask_set_cpu(per_cpu(wbinvd_domain_index, i), packages);
+		cpumask_set_cpu(per_cpu(wbinvd_domain_index, i), domains);
 	for_each_online_cpu(i)
-		cpumask_clear_cpu(per_cpu(wbinvd_domain_index, i), packages);
-	if (!cpumask_empty(packages)) {
+		cpumask_clear_cpu(per_cpu(wbinvd_domain_index, i), domains);
+	if (!cpumask_empty(domains)) {
 		ret = -EIO;
 		/*
 		 * Because it's hard for human operator to figure out the
 		 * reason, warn it.
 		 */
-#define MSG_ALLPKG	"All packages need to have online CPU to create TD. Online CPU and retry.\n"
-		pr_warn_ratelimited(MSG_ALLPKG);
-		goto free_packages;
+#define MSG_ALL_WBINVD_DOMAINS	"All WBINVD domains need to have online CPU to create TD. Online CPU and retry.\n"
+		pr_warn_ratelimited(MSG_ALL_WBINVD_DOMAINS);
+		goto free_domains;
 	}
 
 	/*
@@ -3709,21 +3709,21 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 	mutex_unlock(&tdx_lock);
 	if (err == TDX_RND_NO_ENTROPY) {
 		ret = -EAGAIN;
-		goto free_packages;
+		goto free_domains;
 	}
 	if (WARN_ON_ONCE(err)) {
 		pr_tdx_error(TDH_MNG_CREATE, err, NULL);
 		ret = -EIO;
-		goto free_packages;
+		goto free_domains;
 	}
 	kvm_tdx->tdr_pa = tdr_pa;
 	kvm_tdx->tdr->tdr_pa = tdr_pa;
 	tdx_account_ctl_page(kvm);
 
 	for_each_online_cpu(i) {
-		int pkg = per_cpu(wbinvd_domain_index, i);
+		int idx = per_cpu(wbinvd_domain_index, i);
 
-		if (cpumask_test_and_set_cpu(pkg, packages))
+		if (cpumask_test_and_set_cpu(idx, domains))
 			continue;
 
 		/*
@@ -3733,15 +3733,15 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 		 * controller results in TDX_OPERAND_BUSY.  Avoid this race by
 		 * mutex.
 		 */
-		mutex_lock(&tdx_mng_key_config_lock[pkg]);
+		mutex_lock(&tdx_mng_key_config_lock[idx]);
 		ret = smp_call_on_cpu(i, tdx_do_tdh_mng_key_config,
 				      &kvm_tdx->tdr_pa, true);
-		mutex_unlock(&tdx_mng_key_config_lock[pkg]);
+		mutex_unlock(&tdx_mng_key_config_lock[idx]);
 		if (ret)
 			break;
 	}
 	cpus_read_unlock();
-	free_cpumask_var(packages);
+	free_cpumask_var(domains);
 	if (ret) {
 		i = 0;
 		goto teardown;
@@ -3803,9 +3803,9 @@ teardown:
 	tdx_vm_free(kvm);
 	return ret;
 
-free_packages:
+free_domains:
 	cpus_read_unlock();
-	free_cpumask_var(packages);
+	free_cpumask_var(domains);
 free_tdcs:
 	for (i = 0; i < tdx_info->nr_tdcs_pages; i++) {
 		if (tdcs_pa[i])
@@ -5179,7 +5179,7 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 	struct vmx_tdx_enabled vmx_tdx = {
 		.err = ATOMIC_INIT(0),
 	};
-	int max_pkgs;
+	int max_domains;
 	int r = 0;
 	int i;
 
@@ -5263,15 +5263,15 @@ int __init tdx_hardware_setup(struct kvm_x86_ops *x86_ops)
 		goto out;
 
 	/* tdx_module_setup() initializes tdx_info. */
-	max_pkgs = tdx_info->num_wbinvd_domains;
-	WARN_ON_ONCE(max_pkgs > num_possible_cpus());
-	tdx_mng_key_config_lock = kcalloc(max_pkgs, sizeof(*tdx_mng_key_config_lock),
+	max_domains = tdx_info->num_wbinvd_domains;
+	WARN_ON_ONCE(max_domains > num_possible_cpus());
+	tdx_mng_key_config_lock = kcalloc(max_domains, sizeof(*tdx_mng_key_config_lock),
 					  GFP_KERNEL);
 	if (!tdx_mng_key_config_lock) {
 		r = -ENOMEM;
 		goto out;
 	}
-	for (i = 0; i < max_pkgs; i++)
+	for (i = 0; i < max_domains; i++)
 		mutex_init(&tdx_mng_key_config_lock[i]);
 
 	x86_ops->link_private_spt = tdx_sept_link_private_spt;
@@ -5335,7 +5335,7 @@ int tdx_hardware_enable(void)
 int tdx_offline_cpu(void)
 {
 	int curr_cpu = smp_processor_id();
-	cpumask_var_t packages;
+	cpumask_var_t domains;
 	int ret = 0;
 	int i;
 
@@ -5345,28 +5345,28 @@ int tdx_offline_cpu(void)
 
 	/*
 	 * In order to reclaim TDX HKID, (i.e. when deleting guest TD), need to
-	 * call TDH.PHYMEM.PAGE.WBINVD on all packages to program all memory
+	 * call TDH.PHYMEM.PAGE.WBINVD on all domains to program all memory
 	 * controller with pconfig.  If we have active TDX HKID, refuse to
 	 * offline the last online cpu.
 	 */
-	if (!zalloc_cpumask_var(&packages, GFP_KERNEL))
+	if (!zalloc_cpumask_var(&domains, GFP_KERNEL))
 		return -ENOMEM;
 	for_each_online_cpu(i) {
 		if (i != curr_cpu)
-			cpumask_set_cpu(per_cpu(wbinvd_domain_index, i), packages);
+			cpumask_set_cpu(per_cpu(wbinvd_domain_index, i), domains);
 	}
 	/* Check if this cpu is the last online cpu of this package. */
-	if (!cpumask_test_cpu(per_cpu(wbinvd_domain_index, curr_cpu), packages))
+	if (!cpumask_test_cpu(per_cpu(wbinvd_domain_index, curr_cpu), domains))
 		ret = -EBUSY;
-	free_cpumask_var(packages);
+	free_cpumask_var(domains);
 	if (ret)
 		/*
 		 * Because it's hard for human operator to understand the
 		 * reason, warn it.
 		 */
-#define MSG_ALLPKG_ONLINE \
-	"TDX requires all packages to have an online CPU. Delete all TDs in order to offline all CPUs of a package.\n"
-		pr_warn_ratelimited(MSG_ALLPKG_ONLINE);
+#define MSG_ALL_DOMAINS_ONLINE \
+	"TDX requires all WBINVD domains to have an online CPU. Delete all TDs in order to offline all CPUs of a package.\n"
+		pr_warn_ratelimited(MSG_ALL_DOMAINS_ONLINE);
 	return ret;
 }
 

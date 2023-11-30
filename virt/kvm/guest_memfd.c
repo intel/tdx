@@ -447,6 +447,11 @@ static const struct inode_operations kvm_gmem_iops = {
 	.setattr	= kvm_gmem_setattr,
 };
 
+bool __weak kvm_arch_guest_memory_unmovable(struct kvm *kvm)
+{
+	return true;
+}
+
 static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags,
 			     struct vfsmount *mnt)
 {
@@ -472,7 +477,8 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags,
 	i_size_write(inode, size);
 	mapping_set_gfp_mask(inode->i_mapping, GFP_HIGHUSER);
 	mapping_set_large_folios(inode->i_mapping);
-	mapping_set_unmovable(inode->i_mapping);
+	if (kvm_arch_guest_memory_unmovable(kvm))
+		mapping_set_unmovable(inode->i_mapping);
 	inode->i_mapping->flags |= AS_INACCESSIBLE;
 	/* Unmovable mappings are supposed to be marked unevictable as well. */
 	WARN_ON_ONCE(!mapping_unevictable(inode->i_mapping));

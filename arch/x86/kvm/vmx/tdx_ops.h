@@ -463,6 +463,19 @@ static inline u64 tdh_vp_init(hpa_t tdvpr, u64 rcx)
 	return tdx_seamcall(TDH_VP_INIT, &in, NULL);
 }
 
+static inline u64 tdh_vp_init_apicid(hpa_t tdvpr, u64 rcx, u32 x2apicid)
+{
+	struct tdx_module_args in = {
+		.rcx = tdvpr,
+		.rdx = rcx,
+		.r8 = x2apicid,
+	};
+
+	/* apicid requires version == 1. */
+	return tdx_seamcall(TDH_VP_INIT | (1ULL << TDX_VERSION_SHIFT), &in,
+			    NULL);
+}
+
 static inline u64 tdh_vp_rd(hpa_t tdvpr, u64 field,
 			    struct tdx_module_args *out)
 {

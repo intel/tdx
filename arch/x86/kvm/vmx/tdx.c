@@ -4218,7 +4218,10 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 		tdx_account_ctl_page(vcpu->kvm);
 	}
 
-	err = tdh_vp_init(tdx->tdvpr_pa, vcpu_rcx);
+	if (tdx_info->features0 & MD_FIELD_ID_FEATURES0_TOPOLOGY_ENUM)
+		err = tdh_vp_init_apicid(tdx->tdvpr_pa, vcpu_rcx, vcpu->vcpu_id);
+	else
+		err = tdh_vp_init(tdx->tdvpr_pa, vcpu_rcx);
 	if (KVM_BUG_ON(err, vcpu->kvm)) {
 		pr_tdx_error(TDH_VP_INIT, err, NULL);
 		return -EIO;

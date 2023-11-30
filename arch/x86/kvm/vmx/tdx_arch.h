@@ -6,6 +6,8 @@
 
 #include <linux/types.h>
 
+#define TDX_VERSION_SHIFT		16
+
 /*
  * TDX SEAMCALL API function leaves
  */

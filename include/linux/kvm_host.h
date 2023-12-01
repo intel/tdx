@@ -2309,6 +2309,9 @@ static inline long kvm_arch_vcpu_async_ioctl(struct file *filp,
 #endif /* CONFIG_HAVE_KVM_VCPU_ASYNC_IOCTL */
 
 bool kvm_arch_guest_memory_unmovable(struct kvm *kvm);
+int kvm_arch_gmem_migrate_folio(struct address_space *mapping,
+				struct folio *dst, struct folio *src,
+				enum migrate_mode mode);
 void kvm_arch_guest_memory_reclaimed(struct kvm *kvm);
 
 #ifdef CONFIG_HAVE_KVM_VCPU_RUN_PID_CHANGE

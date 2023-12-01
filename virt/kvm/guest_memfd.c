@@ -363,12 +363,19 @@ void kvm_gmem_init(struct module *module)
 	kvm_gmem_fops.owner = module;
 }
 
+int __weak kvm_arch_gmem_migrate_folio(struct address_space *mapping,
+				       struct folio *dst, struct folio *src,
+				       enum migrate_mode mode)
+{
+	WARN_ON_ONCE(1);
+	return -EINVAL;
+}
+
 static int kvm_gmem_migrate_folio(struct address_space *mapping,
 				  struct folio *dst, struct folio *src,
 				  enum migrate_mode mode)
 {
-	WARN_ON_ONCE(1);
-	return -EINVAL;
+	return kvm_arch_gmem_migrate_folio(mapping, dst, src, mode);
 }
 
 static int kvm_gmem_error_folio(struct address_space *mapping, struct folio *folio)

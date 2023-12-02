@@ -1396,12 +1396,32 @@ retry:
 	return ret;
 }
 
+static enum kvm_tdp_mmu_root_types kvm_process_to_root_types(struct kvm *kvm,
+							     enum kvm_process process)
+{
+	WARN_ON_ONCE(process == BUGGY_KVM_INVALIDATION);
+
+	/* Always process shared for cases where private is not on a separate root */
+	if (!kvm_gfn_shared_mask(kvm)) {
+		process |= KVM_PROCESS_SHARED;
+		process &= ~KVM_PROCESS_PRIVATE;
+	}
+
+	return (enum kvm_tdp_mmu_root_types)process;
+}
+
+/* Used by mmu notifier via kvm_unmap_gfn_range() */
 bool kvm_tdp_mmu_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range,
 				 bool flush)
 {
+	enum kvm_tdp_mmu_root_types types = kvm_process_to_root_types(kvm, range->process);
 	struct kvm_mmu_page *root;
 
-	__for_each_tdp_mmu_root_yield_safe(kvm, root, range->slot->as_id, KVM_ANY_ROOTS)
+	/* kvm_process_to_root_types() has WARN_ON_ONCE().  Don't warn it again. */
+	if (types == BUGGY_KVM_ROOTS)
+		return flush;
+
+	__for_each_tdp_mmu_root_yield_safe(kvm, root, range->slot->as_id, types)
 		flush = tdp_mmu_zap_leafs(kvm, root, range->start, range->end,
 					  range->may_block, flush);
 
@@ -1415,18 +1435,32 @@ static __always_inline bool kvm_tdp_mmu_handle_gfn(struct kvm *kvm,
 						   struct kvm_gfn_range *range,
 						   tdp_handler_t handler)
 {
+	enum kvm_tdp_mmu_root_types types = kvm_process_to_root_types(kvm, range->process);
 	struct kvm_mmu_page *root;
 	struct tdp_iter iter;
 	bool ret = false;
+
+	if (types == BUGGY_KVM_ROOTS)
+		return ret;
 
 	/*
 	 * Don't support rescheduling, none of the MMU notifiers that funnel
 	 * into this helper allow blocking; it'd be dead, wasteful code.
 	 */
-	for_each_tdp_mmu_root(kvm, root, range->slot->as_id) {
+	__for_each_tdp_mmu_root(kvm, root, range->slot->as_id, types) {
+		gfn_t start, end;
+
+		/*
+		 * For TDX shared mapping, set GFN shared bit to the range,
+		 * so the handler() doesn't need to set it, to avoid duplicated
+		 * code in multiple handler()s.
+		 */
+		start = kvm_gfn_for_root(kvm, root, range->start);
+		end = kvm_gfn_for_root(kvm, root, range->end);
+
 		rcu_read_lock();
 
-		tdp_root_for_each_leaf_pte(iter, root, range->start, range->end)
+		tdp_root_for_each_leaf_pte(iter, root, start, end)
 			ret |= handler(kvm, &iter, range);
 
 		rcu_read_unlock();

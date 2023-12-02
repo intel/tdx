@@ -1157,9 +1157,29 @@ static __always_inline bool kvm_tdp_mmu_handle_gfn(struct kvm *kvm,
 	 * into this helper allow blocking; it'd be dead, wasteful code.
 	 */
 	for_each_tdp_mmu_root(kvm, root, range->slot->as_id) {
+		gfn_t start, end;
+
+		/*
+		 * This function is called on behalf of mmu_notifier of
+		 * clear_flush_young(), clear_young(), test_young()(), and
+		 * change_pte().  They apply to only shared GPAs.
+		 */
+		WARN_ON_ONCE(range->only_private);
+		WARN_ON_ONCE(!range->only_shared);
+		if (is_private_sp(root))
+			continue;
+
+		/*
+		 * For TDX shared mapping, set GFN shared bit to the range,
+		 * so the handler() doesn't need to set it, to avoid duplicated
+		 * code in multiple handler()s.
+		 */
+		start = kvm_gfn_to_shared(kvm, range->start);
+		end = kvm_gfn_to_shared(kvm, range->end);
+
 		rcu_read_lock();
 
-		tdp_root_for_each_leaf_pte(iter, root, range->start, range->end)
+		tdp_root_for_each_leaf_pte(iter, root, start, end)
 			ret |= handler(kvm, &iter, range);
 
 		rcu_read_unlock();

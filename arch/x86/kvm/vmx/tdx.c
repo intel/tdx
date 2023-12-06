@@ -4579,6 +4579,101 @@ static void __init tdx_init_wbinvd_domain_id(void *err_)
 		*(u64 *)err_ = err;
 }
 
+
+/* TODO: Remove this workaround once the TDX module is fixed. */
+#if 1
+
+#define MAX_CMRS			32
+#define TDSYSINFO_STRUCT_SIZE		1024
+#define TDH_SYS_INFO			32
+#define TDX_TDSYSINFO_STRUCT_ALIGNEMNT	1024
+
+struct tdsysinfo_struct {
+	/* TDX-SEAM Module Info */
+	u32 attributes;
+	u32 vendor_id;
+	u32 build_date;
+	u16 build_num;
+	u16 minor_version;
+	u16 major_version;
+	u8 reserved0[14];
+
+	/* Memory Info */
+	u16 max_tdmrs;
+	u16 max_reserved_per_tdmr;
+	u16 pamt_entry_size;
+	u8 reserved1[10];
+
+	/* Control Struct Info */
+	u16 tdcs_base_size;
+	u8 reserved2[2];
+	u16 tdvps_base_size;
+	u8 tdvps_xfam_dependent_size;
+	u8 reserved3[9];
+
+	/* TD Capabilities */
+	u64 attributes_fixed0;
+	u64 attributes_fixed1;
+	u64 xfam_fixed0;
+	u64 xfam_fixed1;
+	u8 reserved4[32];
+	u32 num_cpuid_config;
+	union {
+		DECLARE_FLEX_ARRAY(struct kvm_tdx_cpuid_config, cpuid_configs);
+		u8 reserved5[892];
+	};
+} __packed __aligned(TDX_TDSYSINFO_STRUCT_ALIGNEMNT);
+
+static inline u64 tdh_sys_info(u64 tdsysinfo_pa, u64 tdsysinfo_size,
+			       u64 cmr_info_pa, u64 cmr_info_size)
+{
+	struct tdx_module_args in = {
+		.rcx = tdsysinfo_pa,
+		.rdx = tdsysinfo_size,
+		.r8 = cmr_info_pa,
+		.r9 = cmr_info_size,
+	};
+
+	return tdx_seamcall(TDH_SYS_INFO, &in, NULL);
+}
+
+/*
+ * Workaround: TDH.SYS.RD(CPUID_CONFIG_VALUES + i) for some i returns wrong
+ * value.  Use TDH.SYS.INFO() to fill cpuid_configs with right values.
+ */
+static int __init tdx_module_setup_workaround(void)
+{
+	struct tdsysinfo_struct *sysinfo = (void *)__get_free_page(GFP_KERNEL);
+	struct cmr_info *cmr_info = (void *)__get_free_page(GFP_KERNEL);
+	int r = 0;
+	u64 err;
+	u32 i;
+
+	if (!sysinfo || !cmr_info) {
+		r = -ENOMEM;
+		goto out;
+	}
+
+	err = tdh_sys_info(__pa(sysinfo), TDSYSINFO_STRUCT_SIZE,
+			   __pa(cmr_info), MAX_CMRS);
+	if (err) {
+		pr_tdx_error(TDH_SYS_INFO, err, NULL);
+		r = -EIO;
+		goto out;
+	}
+
+	WARN_ON_ONCE(tdx_info->num_cpuid_config != sysinfo->num_cpuid_config);
+	for (i = 0; i < sysinfo->num_cpuid_config; i++)
+		tdx_info->cpuid_configs[i] = sysinfo->cpuid_configs[i];
+
+out:
+	/* free_page() accepts NULL. */
+	free_page((unsigned long)sysinfo);
+	free_page((unsigned long)cmr_info);
+	return r;
+}
+#endif
+
 static int __init tdx_module_setup(void)
 {
 	u16 num_cpuid_config, tdcs_base_size, tdvps_base_size;
@@ -4645,6 +4740,7 @@ static int __init tdx_module_setup(void)
 		c->ecx = (u32)ecx_edx;
 		c->edx = ecx_edx >> 32;
 	}
+	tdx_module_setup_workaround();
 
 	tdx_info->nr_tdcs_pages = tdcs_base_size / PAGE_SIZE;
 	/*

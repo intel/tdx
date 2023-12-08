@@ -95,15 +95,6 @@ static inline void mem_encrypt_free_decrypted_mem(void) { }
 
 void add_encrypt_protection_map(void);
 
-#ifdef CONFIG_X86_MEM_ENCRYPT
-
-void __init mem_encrypt_setup_arch(void);
-
-#else	/* !CONFIG_X86_MEM_ENCRYPT */
-
-static inline void __init mem_encrypt_setup_arch(void) { }
-
-#endif	/* CONFIG_X86_MEM_ENCRYPT */
 /*
  * The __sme_pa() and __sme_pa_nodebug() macros are meant for use when
  * writing to or comparing values from the cr3 register.  Having the

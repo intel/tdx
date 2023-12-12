@@ -44,6 +44,9 @@ LIBKVM_x86_64 += lib/x86_64/ucall.c
 LIBKVM_x86_64 += lib/x86_64/vmx.c
 LIBKVM_x86_64 += lib/x86_64/tdx/tdx_util.c
 LIBKVM_x86_64 += lib/x86_64/tdx/td_boot.S
+LIBKVM_x86_64 += lib/x86_64/tdx/tdcall.S
+LIBKVM_x86_64 += lib/x86_64/tdx/tdx.c
+LIBKVM_x86_64 += lib/x86_64/tdx/test_util.c
 
 LIBKVM_aarch64 += lib/aarch64/gic.c
 LIBKVM_aarch64 += lib/aarch64/gic_v3.c
@@ -149,6 +152,7 @@ TEST_GEN_PROGS_x86_64 += steal_time
 TEST_GEN_PROGS_x86_64 += kvm_binary_stats_test
 TEST_GEN_PROGS_x86_64 += system_counter_offset_test
 TEST_GEN_PROGS_x86_64 += pre_fault_memory_test
+TEST_GEN_PROGS_x86_64 += x86_64/tdx_vm_tests
 
 # Compiled outputs used by test targets
 TEST_GEN_PROGS_EXTENDED_x86_64 += x86_64/nx_huge_pages_test

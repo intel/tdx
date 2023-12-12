@@ -580,7 +580,7 @@ void sync_exception_handlers_to_guest(struct kvm_vm *vm)
 	*(vm_vaddr_t *)addr_gva2hva(vm, (vm_vaddr_t)(&exception_handlers)) = vm->handlers;
 }
 
-static void vm_init_descriptor_tables(struct kvm_vm *vm)
+void vm_init_descriptor_tables(struct kvm_vm *vm)
 {
 	extern void *idt_handlers;
 	struct kvm_segment seg;

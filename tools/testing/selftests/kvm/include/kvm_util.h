@@ -72,6 +72,7 @@ enum kvm_mem_region_type {
 	MEM_REGION_DATA,
 	MEM_REGION_PT,
 	MEM_REGION_TEST_DATA,
+	MEM_REGION_TDX_BOOT_PARAMS,
 	NR_MEM_REGIONS,
 };
 
@@ -946,6 +947,9 @@ unsigned long vm_compute_max_gfn(struct kvm_vm *vm);
 unsigned int vm_calc_num_guest_pages(enum vm_guest_mode mode, size_t size);
 unsigned int vm_num_host_pages(enum vm_guest_mode mode, unsigned int num_guest_pages);
 unsigned int vm_num_guest_pages(enum vm_guest_mode mode, unsigned int num_host_pages);
+uint64_t vm_nr_pages_required(enum vm_guest_mode mode,
+			      uint32_t nr_runnable_vcpus,
+			      uint64_t extra_mem_pages);
 static inline unsigned int
 vm_adjust_num_guest_pages(enum vm_guest_mode mode, unsigned int num_guest_pages)
 {
@@ -1110,6 +1114,8 @@ static inline int __vm_disable_nx_huge_pages(struct kvm_vm *vm)
  * the default guest "mode".
  */
 void kvm_selftest_arch_init(void);
+
+void vm_init_descriptor_tables(struct kvm_vm *vm);
 
 void kvm_arch_vm_post_create(struct kvm_vm *vm);
 

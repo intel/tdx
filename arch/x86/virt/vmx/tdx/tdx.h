@@ -53,7 +53,8 @@
 #define MD_FIELD_ID_ELE_SIZE_CODE(_field_id)	\
 		(((_field_id) & GENMASK_ULL(33, 32)) >> 32)
 
-#define MD_FIELD_ID_ELE_SIZE_16BIT	1
+#define MD_FIELD_ELE_SIZE(_field_id)	\
+		(1 << MD_FIELD_ID_ELE_SIZE_CODE(_field_id))
 
 struct tdmr_reserved_area {
 	u64 offset;

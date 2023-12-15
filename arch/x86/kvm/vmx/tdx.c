@@ -6,6 +6,7 @@
 #include "capabilities.h"
 #include "x86_ops.h"
 #include "x86.h"
+#include "tdx_arch.h"
 #include "tdx.h"
 
 #undef pr_fmt
@@ -37,6 +38,50 @@ static void __used tdx_guest_keyid_free(int keyid)
 		return;
 
 	ida_free(&tdx_guest_keyid_pool, keyid);
+}
+
+#define TDX_MD_MAP(_fid, _ptr)			\
+	{ .fid = MD_FIELD_ID_##_fid,		\
+	  .ptr = (_ptr), }
+
+struct tdx_md_map {
+	u64 fid;
+	void *ptr;
+};
+
+static size_t tdx_md_element_size(u64 fid)
+{
+	switch (TDX_MD_ELEMENT_SIZE_CODE(fid)) {
+	case TDX_MD_ELEMENT_SIZE_8BITS:
+		return 1;
+	case TDX_MD_ELEMENT_SIZE_16BITS:
+		return 2;
+	case TDX_MD_ELEMENT_SIZE_32BITS:
+		return 4;
+	case TDX_MD_ELEMENT_SIZE_64BITS:
+		return 8;
+	default:
+		WARN_ON_ONCE(1);
+		return 0;
+	}
+}
+
+static int __used tdx_md_read(struct tdx_md_map *maps, int nr_maps)
+{
+	struct tdx_md_map *m;
+	int ret, i;
+	u64 tmp;
+
+	for (i = 0; i < nr_maps; i++) {
+		m = &maps[i];
+		ret = tdx_sys_metadata_field_read(m->fid, &tmp);
+		if (ret)
+			return ret;
+
+		memcpy(m->ptr, &tmp, tdx_md_element_size(m->fid));
+	}
+
+	return 0;
 }
 
 static int __init tdx_module_setup(void)

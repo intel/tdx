@@ -135,6 +135,7 @@ struct vcpu_tdx {
 	bool host_state_need_save;
 	bool host_state_need_restore;
 	bool emulate_inject_bp;
+	bool vcpu_dead;
 
 	u64 msr_host_kernel_gs_base;
 	u64 guest_perf_global_ctrl;
@@ -285,6 +286,19 @@ static __always_inline void tdvps_state_non_arch_check(u64 field, u8 bits) {}
 static __always_inline void tdvps_management_check(u64 field, u8 bits) {}
 static __always_inline void tdvps_state_check(u64 field, u8 bits) {}
 
+#define tdh_vp_wr_check_error(tdx_vcpu, uclass, field, err)		\
+{									\
+	if (!err)							\
+		return;							\
+									\
+	pr_err("TDH_VP_WR["#uclass".0x%x] failed: 0x%llx\n",		\
+	       field, err);						\
+									\
+	if (!tdx_vcpu->vcpu_dead)					\
+		KVM_BUG_ON(err, tdx_vcpu->vcpu.kvm);			\
+									\
+}
+
 #define TDX_BUILD_TDVPS_ACCESSORS(bits, uclass, lclass)				\
 static __always_inline u##bits td_##lclass##_read##bits(struct vcpu_tdx *tdx,	\
 							u32 field)		\
@@ -310,9 +324,7 @@ static __always_inline void td_##lclass##_write##bits(struct vcpu_tdx *tdx,	\
 	tdvps_##lclass##_check(field, bits);					\
 	err = tdh_vp_wr(tdx->tdvpr_pa, TDVPS_##uclass(field), val,		\
 		      GENMASK_ULL(bits - 1, 0), &out);				\
-	if (KVM_BUG_ON(err, tdx->vcpu.kvm))					\
-		pr_err("TDH_VP_WR["#uclass".0x%x] = 0x%llx failed: 0x%llx\n",	\
-		       field, (u64)val, err);					\
+	tdh_vp_wr_check_error(tdx, uclass, field, err);				\
 }										\
 static __always_inline void td_##lclass##_setbit##bits(struct vcpu_tdx *tdx,	\
 						       u32 field, u64 bit)	\
@@ -322,9 +334,7 @@ static __always_inline void td_##lclass##_setbit##bits(struct vcpu_tdx *tdx,	\
 										\
 	tdvps_##lclass##_check(field, bits);					\
 	err = tdh_vp_wr(tdx->tdvpr_pa, TDVPS_##uclass(field), bit, bit, &out);	\
-	if (KVM_BUG_ON(err, tdx->vcpu.kvm))					\
-		pr_err("TDH_VP_WR["#uclass".0x%x] |= 0x%llx failed: 0x%llx\n",	\
-		       field, bit, err);					\
+	tdh_vp_wr_check_error(tdx, uclass, field, err);				\
 }										\
 static __always_inline void td_##lclass##_clearbit##bits(struct vcpu_tdx *tdx,	\
 							 u32 field, u64 bit)	\
@@ -334,9 +344,7 @@ static __always_inline void td_##lclass##_clearbit##bits(struct vcpu_tdx *tdx,	\
 										\
 	tdvps_##lclass##_check(field, bits);					\
 	err = tdh_vp_wr(tdx->tdvpr_pa, TDVPS_##uclass(field), 0, bit, &out);	\
-	if (KVM_BUG_ON(err, tdx->vcpu.kvm))					\
-		pr_err("TDH_VP_WR["#uclass".0x%x] &= ~0x%llx failed: 0x%llx\n",	\
-		       field, bit,  err);					\
+	tdh_vp_wr_check_error(tdx, uclass, field, err);				\
 }
 
 TDX_BUILD_TDVPS_ACCESSORS(16, VMCS, vmcs);

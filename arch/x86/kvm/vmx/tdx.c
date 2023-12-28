@@ -1018,6 +1018,7 @@ void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	if (is_debug_td(vcpu))
 		vcpu->arch.regs_dirty = 0;
 	tdx->dr6 = vcpu->arch.dr6;
+	tdx->vcpu_dead = 0;
 
 	/*
 	 * Don't update mp_state to runnable because more initialization
@@ -1449,10 +1450,23 @@ static int tdx_handle_external_interrupt(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static int tdx_handle_non_recoverable_vcpu(struct kvm_vcpu *vcpu)
+{
+	if (to_kvm_tdx(vcpu->kvm)->attributes & TDX_TD_ATTRIBUTE_DEBUG) {
+		to_tdx(vcpu)->vcpu_dead = true;
+		pr_err("non recoverable vcpu at 0x%lx\n", kvm_rip_read(vcpu));
+	}
+	vcpu->run->exit_reason = KVM_EXIT_SHUTDOWN;
+	vcpu->mmio_needed = 0;
+	return 0;
+}
+
 static int tdx_handle_triple_fault(struct kvm_vcpu *vcpu)
 {
-	if (to_kvm_tdx(vcpu->kvm)->attributes & TDX_TD_ATTRIBUTE_DEBUG)
+	if (to_kvm_tdx(vcpu->kvm)->attributes & TDX_TD_ATTRIBUTE_DEBUG) {
+		to_tdx(vcpu)->vcpu_dead = true;
 		pr_err("triple fault at 0x%lx\n", kvm_rip_read(vcpu));
+	}
 	vcpu->run->exit_reason = KVM_EXIT_SHUTDOWN;
 	vcpu->mmio_needed = 0;
 	return 0;
@@ -2716,6 +2730,10 @@ static int __tdx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t fastpath)
 	if (unlikely(exit_reason.non_recoverable || exit_reason.error)) {
 		if (unlikely(exit_reason.basic == EXIT_REASON_TRIPLE_FAULT))
 			return tdx_handle_triple_fault(vcpu);
+
+		if (unlikely((exit_reason.full & TDX_SEAMCALL_STATUS_MASK) ==
+			     TDX_NON_RECOVERABLE_VCPU))
+			return tdx_handle_non_recoverable_vcpu(vcpu);
 
 		kvm_pr_unimpl("TD exit 0x%llx, %d hkid 0x%x hkid pa 0x%llx\n",
 			      exit_reason.full, exit_reason.basic,

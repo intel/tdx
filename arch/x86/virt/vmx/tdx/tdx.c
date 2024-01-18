@@ -20,6 +20,7 @@
 #include <linux/memblock.h>
 #include <linux/memory.h>
 #include <linux/minmax.h>
+#include <linux/kexec.h>
 #include <linux/sizes.h>
 #include <linux/pfn.h>
 #include <linux/align.h>
@@ -1706,6 +1707,11 @@ void __init tdx_init(void)
 				err);
 		return;
 	}
+
+#ifdef CONFIG_KEXEC_CORE
+    kexec_disable();
+    pr_info("Disable Kexec. Turn off TDX in the BIOS to use KEXEC.\n");
+#endif
 
 #if defined(CONFIG_ACPI) && defined(CONFIG_SUSPEND)
 	pr_info("Disable ACPI S3. Turn off TDX in the BIOS to use ACPI S3.\n");

@@ -507,6 +507,7 @@ extern bool kexec_file_dbg_print;
 	       kexec_file_dbg_print ? KERN_INFO : KERN_DEBUG,	\
 	       ##__VA_ARGS__)
 
+extern void kexec_disable(void);
 #else /* !CONFIG_KEXEC_CORE */
 struct pt_regs;
 struct task_struct;

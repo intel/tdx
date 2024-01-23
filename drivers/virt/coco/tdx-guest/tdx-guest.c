@@ -17,6 +17,7 @@
 #include <linux/delay.h>
 #include <linux/tsm.h>
 #include <linux/sizes.h>
+#include <linux/bits.h>
 
 #include <uapi/linux/tdx-guest.h>
 
@@ -34,6 +35,12 @@
 /* TDX GetQuote status codes */
 #define GET_QUOTE_SUCCESS		0
 #define GET_QUOTE_IN_FLIGHT		0xffffffffffffffff
+
+/* TDX RTMR macros */
+#define RTMR_IDX_USER_APPLICATION	2
+#define RTMR_BUF_LEN			64
+#define TDREPORT_RTMR_OFFSET		720
+#define NUM_RTMRS			4
 
 /* struct tdx_quote_buf: Format of Quote request buffer.
  * @version: Quote format version, filled by TD.
@@ -249,6 +256,75 @@ done:
 	return ret;
 }
 
+static int tdx_rtmr_extend(u32 idx, const u8 *digest, size_t digest_size)
+{
+	/*
+	 * Per Intel TDX Virtual Firmware Design Guide, section titled
+	 * "Measurement Register Usage in TD", only RTMR idx 2 is
+	 * mapped for userspace measurement extension.
+	 */
+	if (idx != RTMR_IDX_USER_APPLICATION) {
+		pr_err("RTMR extend failed, index %d is not allowed for user udpates\n",
+			idx);
+		return -EINVAL;
+	}
+
+	/*
+	 * Per TDX Module specification r1.0, section titled "RTMR: Run-Time
+	 * Measurement Registers", RTMR extend only uses SHA384. Ensure
+	 * digest size matches it.
+	 */
+	if (digest_size != SHA384_DIGEST_SIZE) {
+		pr_err("RTMR extend failed, invalid digest size:%ld\n", digest_size);
+		return -EINVAL;
+	}
+
+	void *buf __free(kfree) = kzalloc(RTMR_BUF_LEN, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	memcpy(buf, digest, digest_size);
+
+	/* Extend RTMR registers using "TDG.MR.RTMR.EXTEND" TDCALL */
+	return tdx_mcall_rtmr_extend(idx, buf);
+}
+
+static ssize_t tdx_rtmr_read(u32 idx, u8 *digest, size_t digest_size)
+{
+	u8 *rtmr;
+	int ret;
+
+	/*
+	 * Per TDX Module specification r1.0, section titled "RTMR: Run-Time
+	 * Measurement Registers", RTMR extend only uses SHA384. Ensure
+	 * digest size matches it.
+	 */
+	if (digest_size != SHA384_DIGEST_SIZE) {
+		pr_err("RTMR read failed, invalid digest size:%ld\n", digest_size);
+		return -EINVAL;
+	}
+
+	u8 *reportdata __free(kfree) = kmalloc(TDX_REPORTDATA_LEN, GFP_KERNEL);
+	if (!reportdata)
+		return -ENOMEM;
+
+	u8 *tdreport __free(kfree) = kzalloc(TDX_REPORT_LEN, GFP_KERNEL);
+	if (!tdreport)
+		return -ENOMEM;
+
+	ret = tdx_mcall_get_report0(reportdata, tdreport);
+	if (ret) {
+		pr_err("GetReport call failed\n");
+		return ret;
+	}
+
+	rtmr = (&tdreport[TDREPORT_RTMR_OFFSET] + (SHA384_DIGEST_SIZE * idx));
+
+	memcpy(digest, rtmr, digest_size);
+
+	return digest_size;
+}
+
 static long tdx_guest_ioctl(struct file *file, unsigned int cmd,
 			    unsigned long arg)
 {
@@ -278,9 +354,36 @@ static const struct x86_cpu_id tdx_guest_ids[] = {
 };
 MODULE_DEVICE_TABLE(x86cpu, tdx_guest_ids);
 
+const struct tsm_rtmr_desc rtmrs[NUM_RTMRS] = {
+	{
+		.hash_alg	= HASH_ALGO_SHA384,
+		/* RTMR 0 => PCR 1 & 7 */
+		.tcg_pcr_mask	= BIT(1) | BIT(7),
+	},
+	{
+		.hash_alg	= HASH_ALGO_SHA384,
+		/* RTMR 1 => PCR 2~6 */
+		.tcg_pcr_mask	= GENMASK(6, 2),
+	},
+	{
+		.hash_alg	= HASH_ALGO_SHA384,
+		/* RTMR 2 => PCR 8~15 */
+		.tcg_pcr_mask	= GENMASK(15, 8),
+	},
+	{
+		.hash_alg	= HASH_ALGO_SHA384,
+		/* No PCR mapping */
+		.tcg_pcr_mask	= 0,
+	},
+};
+
 static const struct tsm_ops tdx_tsm_ops = {
 	.name = KBUILD_MODNAME,
+	.capabilities.num_rtmrs = NUM_RTMRS,
+	.capabilities.rtmrs = rtmrs,
 	.report_new = tdx_report_new,
+	.rtmr_extend = tdx_rtmr_extend,
+	.rtmr_read = tdx_rtmr_read
 };
 
 static int __init tdx_guest_init(void)

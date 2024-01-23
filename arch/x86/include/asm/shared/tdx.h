@@ -12,6 +12,7 @@
 
 /* TDX module Call Leaf IDs */
 #define TDG_VP_VMCALL			0
+#define TDG_MR_RTMR_EXTEND		2
 #define TDG_VP_INFO			1
 #define TDG_VP_VEINFO_GET		3
 #define TDG_MR_REPORT			4

@@ -66,7 +66,7 @@ KVM_X86_OP(get_cr2)
 KVM_X86_OP(get_xcr)
 KVM_X86_OP(flush_tlb_all)
 KVM_X86_OP(flush_tlb_current)
-#if IS_ENABLED(CONFIG_HYPERV)
+#if IS_ENABLED(CONFIG_HYPERV) || IS_ENABLED(CONFIG_INTEL_TDX_HOST)
 KVM_X86_OP_OPTIONAL(flush_remote_tlbs)
 KVM_X86_OP_OPTIONAL(flush_remote_tlbs_range)
 #endif

@@ -81,6 +81,17 @@ Description:
 		(RO) Indicates the minimum permissible value that can be written
 		to @privlevel.
 
+What:		/sys/kernel/config/tsm/rtmrs/$name/digest
+Date:		January, 2024
+KernelVersion:	v6.8
+Contact:	linux-coco@lists.linux.dev
+Description:
+		(RW) The value in this attribute is the Runtime Measurement
+		Register (RTMR) digest. Callers can extend this digest with
+		additional hashes by writing into it. Binary blobs written to
+		this attribute must be of the exact length used by the hash
+		algorithm for this RTMR.
+
 What:		/sys/kernel/config/tsm/rtmrs/$name/index
 Date:		January, 2024
 KernelVersion:	v6.8

@@ -11,6 +11,7 @@
 #include <linux/module.h>
 #include <linux/cleanup.h>
 #include <linux/configfs.h>
+#include <linux/tpm.h>
 
 static struct tsm_provider {
 	const struct tsm_ops *ops;
@@ -49,6 +50,85 @@ enum tsm_data_select {
 	TSM_REPORT,
 	TSM_CERTS,
 };
+
+/**
+ * DOC: Trusted Security Module (TSM) Runtime Measurement Register (RTMR) Interface
+ *
+ * The TSM RTMR interface is a common ABI for allowing TVMs to extend
+ * and read measurement registers at runtime, i.e. after the TVM initial
+ * measurement is finalized. TSMs that support such capability will typically
+ * include all runtime measurement registers values into their signed
+ * attestation report, providing the TVM post-boot measurements to e.g. remote
+ * attestation services.
+ *
+ * A TVM uses the TSM RTMR configfs ABI to create all runtime measurement
+ * registers (RTMR) that it needs. Each created RTMR must be configured first
+ * before being readable and extensible. TVM configures an RTMR by setting its
+ * index and optionally by mapping it to one or more TCG PCR indexes.
+ *
+ * A TSM backend statically declares the number of RTMRs it supports and which
+ * hash algorithm must be used when extending them. This declaration is done
+ * through the tsm_capabilities structure, at TSM registration time (see
+ * tsm_register()).
+ */
+
+/**
+ * struct tsm_rtmr_state - tracks the state of a TSM RTMR.
+ * @index: The RTMR hardware index.
+ * @alg: The hash algorithm used for this RTMR.
+ * @digest: The RTMR cached digest value.
+ * @cached_digest: Is the RTMR cached digest valid or not.
+ * @cfg: The configfs item for this RTMR.
+ */
+struct tsm_rtmr_state {
+	u32 index;
+	enum hash_algo alg;
+	u8 digest[TSM_DIGEST_MAX];
+	bool cached_digest;
+	struct config_item cfg;
+};
+
+static bool is_rtmr_configured(struct tsm_rtmr_state *rtmr_state)
+{
+	return rtmr_state->index != U32_MAX;
+}
+
+/**
+ * struct tsm_rtmrs_state - tracks the state of all RTMRs for a TSM.
+ * @rtmrs: The array of all created RTMRs.
+ * @tcg_map: A mapping between TCG PCR and RTMRs, indexed by PCR indexes.
+ * Entry `i` on this map points to an RTMR that covers TCG PCR[i] for the TSM
+ * hash algorithm.
+ * @group: The configfs group for a TSM RTMRs.
+ */
+static struct tsm_rtmrs_state {
+	struct tsm_rtmr_state **rtmrs;
+	const struct tsm_rtmr_state *tcg_map[TPM2_PLATFORM_PCR];
+	struct config_group *group;
+} *tsm_rtmrs;
+
+static int tsm_rtmr_read(struct tsm_provider *tsm, u32 idx,
+			 u8 *digest, size_t digest_size)
+{
+	if (tsm->ops && tsm->ops->rtmr_read)
+		return tsm->ops->rtmr_read(idx, digest, digest_size);
+
+	return -ENXIO;
+}
+
+static int tsm_rtmr_extend(struct tsm_provider *tsm, u32 idx,
+			   const u8 *digest, size_t digest_size)
+{
+	if (tsm->ops && tsm->ops->rtmr_extend)
+		return tsm->ops->rtmr_extend(idx, digest, digest_size);
+
+	return -ENXIO;
+}
+
+static struct tsm_rtmr_state *to_tsm_rtmr_state(struct config_item *cfg)
+{
+	return container_of(cfg, struct tsm_rtmr_state, cfg);
+}
 
 static struct tsm_report *to_tsm_report(struct config_item *cfg)
 {

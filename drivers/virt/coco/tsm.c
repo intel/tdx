@@ -419,6 +419,108 @@ static const struct config_item_type tsm_reports_type = {
 	.ct_group_ops = &tsm_report_group_ops,
 };
 
+static ssize_t tsm_rtmr_index_store(struct config_item *cfg,
+				    const char *buf, size_t len)
+{
+	struct tsm_rtmr_state *rtmr_state = to_tsm_rtmr_state(cfg);
+	const struct tsm_ops *ops;
+	unsigned int val;
+	int rc;
+
+	rc = kstrtouint(buf, 0, &val);
+	if (rc)
+		return rc;
+
+	guard(rwsem_write)(&tsm_rwsem);
+
+	/* Index can only be configured once */
+	if (is_rtmr_configured(rtmr_state))
+		return -EBUSY;
+
+	/* Check that index stays within the TSM provided capabilities */
+	ops = provider.ops;
+	if (!ops)
+		return -ENOTTY;
+
+	if (val > ops->capabilities.num_rtmrs - 1)
+		return -EINVAL;
+
+	/* Check that this index is available */
+	if (tsm_rtmrs->rtmrs[val])
+		return -EINVAL;
+
+	rtmr_state->index = val;
+	rtmr_state->alg = ops->capabilities.rtmrs[val].hash_alg;
+
+	tsm_rtmrs->rtmrs[val] = rtmr_state;
+
+	return len;
+}
+
+static ssize_t tsm_rtmr_index_show(struct config_item *cfg,
+				   char *buf)
+{
+	struct tsm_rtmr_state *rtmr_state = to_tsm_rtmr_state(cfg);
+
+	guard(rwsem_read)(&tsm_rwsem);
+
+	/* An RTMR is not available if it has not been configured */
+	if (!is_rtmr_configured(rtmr_state))
+		return -ENXIO;
+
+	return sysfs_emit(buf, "%u\n", rtmr_state->index);
+}
+CONFIGFS_ATTR(tsm_rtmr_, index);
+
+static struct configfs_attribute *tsm_rtmr_attrs[] = {
+	&tsm_rtmr_attr_index,
+	NULL,
+};
+
+static void tsm_rtmr_item_release(struct config_item *cfg)
+{
+	struct tsm_rtmr_state *state = to_tsm_rtmr_state(cfg);
+
+	kfree(state);
+}
+
+static struct configfs_item_operations tsm_rtmr_item_ops = {
+	.release = tsm_rtmr_item_release,
+};
+
+const struct config_item_type tsm_rtmr_type = {
+	.ct_owner = THIS_MODULE,
+	.ct_attrs = tsm_rtmr_attrs,
+	.ct_item_ops = &tsm_rtmr_item_ops,
+};
+
+static struct config_item *tsm_rtmrs_make_item(struct config_group *group,
+					       const char *name)
+{
+	struct tsm_rtmr_state *state;
+
+	guard(rwsem_read)(&tsm_rwsem);
+	if (!(provider.ops && (provider.ops->capabilities.num_rtmrs > 0)))
+		return ERR_PTR(-ENXIO);
+
+	state = kzalloc(sizeof(*state), GFP_KERNEL);
+	if (!state)
+		return ERR_PTR(-ENOMEM);
+	state->index = U32_MAX;
+
+	config_item_init_type_name(&state->cfg, name, &tsm_rtmr_type);
+	return &state->cfg;
+}
+
+static struct configfs_group_operations tsm_rtmrs_group_ops = {
+	.make_item = tsm_rtmrs_make_item,
+};
+
+static const struct config_item_type tsm_rtmrs_type = {
+	.ct_owner = THIS_MODULE,
+	.ct_group_ops = &tsm_rtmrs_group_ops,
+};
+
 static const struct config_item_type tsm_root_group_type = {
 	.ct_owner = THIS_MODULE,
 };
@@ -433,10 +535,48 @@ static struct configfs_subsystem tsm_configfs = {
 	.su_mutex = __MUTEX_INITIALIZER(tsm_configfs.su_mutex),
 };
 
+static int tsm_rtmr_register(const struct tsm_ops *ops)
+{
+	struct config_group *rtmrs_group;
+
+	lockdep_assert_held_write(&tsm_rwsem);
+
+	if (!ops || !ops->capabilities.num_rtmrs)
+		return 0;
+
+	if (ops->capabilities.num_rtmrs > TSM_MAX_RTMR)
+		return -EINVAL;
+
+	tsm_rtmrs = kzalloc(sizeof(struct tsm_rtmrs_state), GFP_KERNEL);
+	if (!tsm_rtmrs)
+		return -ENOMEM;
+
+	tsm_rtmrs->rtmrs = kcalloc(ops->capabilities.num_rtmrs,
+				   sizeof(struct tsm_rtmr_state *),
+				   GFP_KERNEL);
+	if (!tsm_rtmrs->rtmrs) {
+		kfree(tsm_rtmrs);
+		return -ENOMEM;
+	}
+
+	rtmrs_group = configfs_register_default_group(&tsm_configfs.su_group, "rtmrs",
+						      &tsm_rtmrs_type);
+	if (IS_ERR(rtmrs_group)) {
+		kfree(tsm_rtmrs->rtmrs);
+		kfree(tsm_rtmrs);
+		return PTR_ERR(rtmrs_group);
+	}
+
+	tsm_rtmrs->group = rtmrs_group;
+
+	return 0;
+}
+
 int tsm_register(const struct tsm_ops *ops, void *priv,
 		 const struct config_item_type *type)
 {
 	const struct tsm_ops *conflict;
+	int rc;
 
 	if (!type)
 		type = &tsm_report_default_type;
@@ -450,6 +590,10 @@ int tsm_register(const struct tsm_ops *ops, void *priv,
 		return -EBUSY;
 	}
 
+	rc = tsm_rtmr_register(ops);
+	if (rc < 0)
+		return rc;
+
 	provider.ops = ops;
 	provider.data = priv;
 	provider.type = type;
@@ -457,11 +601,31 @@ int tsm_register(const struct tsm_ops *ops, void *priv,
 }
 EXPORT_SYMBOL_GPL(tsm_register);
 
+static int tsm_rtmr_unregister(const struct tsm_ops *ops)
+{
+	lockdep_assert_held_write(&tsm_rwsem);
+
+	if ((ops) && (ops->capabilities.num_rtmrs > 0)) {
+		configfs_unregister_default_group(tsm_rtmrs->group);
+		kfree(tsm_rtmrs->rtmrs);
+		kfree(tsm_rtmrs);
+	}
+
+	return 0;
+}
+
 int tsm_unregister(const struct tsm_ops *ops)
 {
+	int rc;
+
 	guard(rwsem_write)(&tsm_rwsem);
 	if (ops != provider.ops)
 		return -EBUSY;
+
+	rc = tsm_rtmr_unregister(ops);
+	if (rc < 0)
+		return rc;
+
 	provider.ops = NULL;
 	provider.data = NULL;
 	provider.type = NULL;

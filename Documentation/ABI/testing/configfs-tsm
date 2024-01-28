@@ -80,3 +80,14 @@ Contact:	linux-coco@lists.linux.dev
 Description:
 		(RO) Indicates the minimum permissible value that can be written
 		to @privlevel.
+
+What:		/sys/kernel/config/tsm/rtmrs/$name/index
+Date:		January, 2024
+KernelVersion:	v6.8
+Contact:	linux-coco@lists.linux.dev
+Description:
+		(RW) A Runtime Measurement Register (RTMR) hardware index.
+                Once created under /sys/kernel/config/tsm/rtmrs/, an RTMR entry
+                can be mapped to a hardware RTMR by writing into its index
+                attribute. The TSM provider will then map the configfs entry to
+                its corresponding hardware register.

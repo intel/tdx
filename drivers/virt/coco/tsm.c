@@ -551,6 +551,63 @@ static struct configfs_attribute *tsm_rtmr_attrs[] = {
 	NULL,
 };
 
+static ssize_t tsm_rtmr_digest_read(struct config_item *cfg, void *buf,
+				    size_t count)
+{
+	struct tsm_rtmr_state *rtmr_state = to_tsm_rtmr_state(cfg);
+	int rc, digest_size = hash_digest_size[rtmr_state->alg];
+
+	/* configfs is asking for the digest size */
+	if (!buf)
+		return digest_size;
+
+	if (!is_rtmr_configured(rtmr_state))
+		return -ENXIO;
+
+	if (count > TSM_DIGEST_MAX || count < digest_size)
+		return -EINVAL;
+
+	/* Read from the cached digest */
+	if (rtmr_state->cached_digest) {
+		memcpy(buf, rtmr_state->digest, count);
+		return digest_size;
+	}
+
+	/* Slow path, this RTMR got extended */
+	guard(rwsem_write)(&tsm_rwsem);
+	rc = tsm_rtmr_read(&provider, rtmr_state->index, buf, count);
+	if (rc < 0)
+		return rc;
+
+	/* Update the cached digest */
+	memcpy(rtmr_state->digest, buf, count);
+	rtmr_state->cached_digest = true;
+
+	return rc;
+}
+
+static ssize_t tsm_rtmr_digest_write(struct config_item *cfg,
+				     const void *buf, size_t count)
+{
+	struct tsm_rtmr_state *rtmr_state = to_tsm_rtmr_state(cfg);
+
+	if (!is_rtmr_configured(rtmr_state))
+		return -ENXIO;
+
+	if (count > TSM_DIGEST_MAX || count < hash_digest_size[rtmr_state->alg])
+		return -EINVAL;
+
+	guard(rwsem_write)(&tsm_rwsem);
+	rtmr_state->cached_digest = false;
+	return tsm_rtmr_extend(&provider, rtmr_state->index, buf, count);
+}
+CONFIGFS_BIN_ATTR(tsm_rtmr_, digest, NULL, TSM_DIGEST_MAX);
+
+static struct configfs_bin_attribute *tsm_rtmr_bin_attrs[] = {
+	&tsm_rtmr_attr_digest,
+	NULL,
+};
+
 static void tsm_rtmr_item_release(struct config_item *cfg)
 {
 	struct tsm_rtmr_state *state = to_tsm_rtmr_state(cfg);
@@ -564,6 +621,7 @@ static struct configfs_item_operations tsm_rtmr_item_ops = {
 
 const struct config_item_type tsm_rtmr_type = {
 	.ct_owner = THIS_MODULE,
+	.ct_bin_attrs = tsm_rtmr_bin_attrs,
 	.ct_attrs = tsm_rtmr_attrs,
 	.ct_item_ops = &tsm_rtmr_item_ops,
 };

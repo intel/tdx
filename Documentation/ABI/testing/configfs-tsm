@@ -91,3 +91,17 @@ Description:
                 can be mapped to a hardware RTMR by writing into its index
                 attribute. The TSM provider will then map the configfs entry to
                 its corresponding hardware register.
+
+What:		/sys/kernel/config/tsm/rtmrs/$name/tcg_map
+Date:		January, 2024
+KernelVersion:	v6.8
+Contact:	linux-coco@lists.linux.dev
+Description:
+		(RO) A representation of the architecturally defined mapping
+		between this RTMR and one or more TCG TPM PCRs [1]. When using
+		a TSM as Root of Trust for Storage (RTS), TCG TPM PCRs
+		associated semantics and indexes can be used when RTMRs are
+		logically mapped to TPM PCRs.
+
+		[1]: TCG PC Client Specific Platform Firmware Profile Specification
+		https://trustedcomputinggroup.org/resource/pc-client-specific-platform-firmware-profile-specification/

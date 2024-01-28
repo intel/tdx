@@ -419,6 +419,46 @@ static const struct config_item_type tsm_reports_type = {
 	.ct_group_ops = &tsm_report_group_ops,
 };
 
+static int tsm_rtmr_build_tcg_map(const struct tsm_provider *tsm,
+				const struct tsm_rtmr_state *rtmr_state,
+				u32 rtmr_idx)
+{
+	const struct tsm_ops *ops;
+	unsigned long pcr_mask;
+	int i;
+
+	lockdep_assert_held_write(&tsm_rwsem);
+
+	ops = tsm->ops;
+	if (!ops)
+		return -ENOTTY;
+
+	if (!ops->capabilities.rtmrs)
+		return -ENXIO;
+
+	pcr_mask = ops->capabilities.rtmrs[rtmr_idx].tcg_pcr_mask;
+
+	/* Check that the PCR mask is valid  */
+	for (i = 0; i < TPM2_PLATFORM_PCR; i++) {
+		if (!(pcr_mask & BIT(i)))
+			continue;
+
+		/* If another RTMR maps to this PCR, the mask is discarded */
+		if (tsm_rtmrs->tcg_map[i] &&
+			tsm_rtmrs->tcg_map[i] != rtmr_state)
+			return -EBUSY;
+	}
+
+	for (i = 0; i < TPM2_PLATFORM_PCR; i++) {
+		if (!(pcr_mask & BIT(i)))
+			continue;
+
+		tsm_rtmrs->tcg_map[i] = rtmr_state;
+	}
+
+	return 0;
+}
+
 static ssize_t tsm_rtmr_index_store(struct config_item *cfg,
 				    const char *buf, size_t len)
 {
@@ -449,6 +489,10 @@ static ssize_t tsm_rtmr_index_store(struct config_item *cfg,
 	if (tsm_rtmrs->rtmrs[val])
 		return -EINVAL;
 
+	rc = tsm_rtmr_build_tcg_map(&provider, rtmr_state, val);
+	if (rc)
+		return rc;
+
 	rtmr_state->index = val;
 	rtmr_state->alg = ops->capabilities.rtmrs[val].hash_alg;
 
@@ -472,8 +516,38 @@ static ssize_t tsm_rtmr_index_show(struct config_item *cfg,
 }
 CONFIGFS_ATTR(tsm_rtmr_, index);
 
+static ssize_t tsm_rtmr_tcg_map_show(struct config_item *cfg,
+				     char *buf)
+{
+	struct tsm_rtmr_state *rtmr_state = to_tsm_rtmr_state(cfg);
+	unsigned int nr_pcrs = ARRAY_SIZE(tsm_rtmrs->tcg_map), i;
+	unsigned long *pcr_mask;
+	ssize_t len;
+
+	/* Build a bitmap mask of all PCRs that this RTMR covers */
+	pcr_mask = bitmap_zalloc(nr_pcrs, GFP_KERNEL);
+	if (!pcr_mask)
+		return -ENOMEM;
+
+	guard(rwsem_read)(&tsm_rwsem);
+	for (i = 0; i < nr_pcrs; i++) {
+		if (tsm_rtmrs->tcg_map[i] != rtmr_state)
+			continue;
+
+		__set_bit(i, pcr_mask);
+	}
+
+	len = bitmap_print_list_to_buf(buf, pcr_mask, nr_pcrs, 0,
+				       nr_pcrs * 3 /* 2 ASCII digits and one comma */);
+	bitmap_free(pcr_mask);
+
+	return len;
+}
+CONFIGFS_ATTR_RO(tsm_rtmr_, tcg_map);
+
 static struct configfs_attribute *tsm_rtmr_attrs[] = {
 	&tsm_rtmr_attr_index,
+	&tsm_rtmr_attr_tcg_map,
 	NULL,
 };
 

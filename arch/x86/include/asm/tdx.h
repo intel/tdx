@@ -71,6 +71,10 @@ u64 tdx_hcall_get_quote(u8 *buf, size_t size);
 
 bool tdx_allowed_port(int port);
 
+int tdx_alloc_event_irq(void);
+
+void tdx_free_event_irq(int);
+
 #else
 
 static inline void tdx_early_init(void) { };

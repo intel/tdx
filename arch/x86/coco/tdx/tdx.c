@@ -19,6 +19,9 @@
 #include <asm/pgtable.h>
 #include <asm/irqdomain.h>
 
+#define CREATE_TRACE_POINTS
+#include <asm/trace/tdx.h>
+
 /* MMIO direction */
 #define EPT_READ	0
 #define EPT_WRITE	1
@@ -45,6 +48,35 @@
 /* Caches TD Attributes from TDG.VP.INFO TDCALL */
 static u64 td_attr;
 
+/* Traced version of __tdx_hypercall */
+static u64 __trace_tdx_hypercall(struct tdx_module_args *args)
+{
+	u64 err;
+
+	trace_tdx_hypercall_enter_rcuidle(args->r11, args->r12, args->r13,
+			args->r14, args->r15);
+	err = __tdx_hypercall(args);
+	trace_tdx_hypercall_exit_rcuidle(err, args->r11, args->r12,
+			args->r13, args->r14, args->r15);
+
+	return err;
+}
+
+
+/* Traced version of __tdcall */
+static u64 __trace_tdcall_ret(u64 fn, struct tdx_module_args *args)
+{
+	u64 err;
+
+	trace_tdx_module_call_enter_rcuidle(fn, args->rcx,
+		args->rdx, args->r8, args->r9);
+	err = __tdcall_ret(fn, args);
+	trace_tdx_module_call_exit_rcuidle(err, args->rcx, args->rdx,
+			args->r8, args->r9, args->r10, args->r11);
+
+	return err;
+}
+
 /* Called from __tdx_hypercall() for unrecoverable failure */
 noinstr void __noreturn __tdx_hypercall_failed(void)
 {
@@ -64,7 +96,7 @@ long tdx_kvm_hypercall(unsigned int nr, unsigned long p1, unsigned long p2,
 		.r14 = p4,
 	};
 
-	return __tdx_hypercall(&args);
+	return __trace_tdx_hypercall(&args);
 }
 EXPORT_SYMBOL_GPL(tdx_kvm_hypercall);
 #endif
@@ -76,7 +108,7 @@ EXPORT_SYMBOL_GPL(tdx_kvm_hypercall);
  */
 static inline void tdcall(u64 fn, struct tdx_module_args *args)
 {
-	if (__tdcall_ret(fn, args))
+	if (__trace_tdcall_ret(fn, args))
 		panic("TDCALL %lld failed (Buggy TDX module!)\n", fn);
 }
 
@@ -103,7 +135,7 @@ int tdx_mcall_get_report0(u8 *reportdata, u8 *tdreport)
 	};
 	u64 ret;
 
-	ret = __tdcall(TDG_MR_REPORT, &args);
+	ret = __trace_tdcall_ret(TDG_MR_REPORT, &args);
 	if (ret) {
 		if (TDCALL_RETURN_CODE(ret) == TDCALL_INVALID_OPERAND)
 			return -EINVAL;
@@ -281,7 +313,7 @@ static u64 __cpuidle __halt(const bool irq_disabled)
 	 * can keep the vCPU in virtual HLT, even if an IRQ is
 	 * pending, without hanging/breaking the guest.
 	 */
-	return __tdx_hypercall(&args);
+	return __trace_tdx_hypercall(&args);
 }
 
 static int handle_halt(struct ve_info *ve)
@@ -318,7 +350,7 @@ static int read_msr(struct pt_regs *regs, struct ve_info *ve)
 	 * can be found in TDX Guest-Host-Communication Interface
 	 * (GHCI), section titled "TDG.VP.VMCALL<Instruction.RDMSR>".
 	 */
-	if (__tdx_hypercall(&args))
+	if (__trace_tdx_hypercall(&args))
 		return -EIO;
 
 	regs->ax = lower_32_bits(args.r11);
@@ -340,7 +372,7 @@ static int write_msr(struct pt_regs *regs, struct ve_info *ve)
 	 * can be found in TDX Guest-Host-Communication Interface
 	 * (GHCI) section titled "TDG.VP.VMCALL<Instruction.WRMSR>".
 	 */
-	if (__tdx_hypercall(&args))
+	if (__trace_tdx_hypercall(&args))
 		return -EIO;
 
 	return ve_instr_len(ve);
@@ -372,7 +404,7 @@ static int handle_cpuid(struct pt_regs *regs, struct ve_info *ve)
 	 * ABI can be found in TDX Guest-Host-Communication Interface
 	 * (GHCI), section titled "VP.VMCALL<Instruction.CPUID>".
 	 */
-	if (__tdx_hypercall(&args))
+	if (__trace_tdx_hypercall(&args))
 		return -EIO;
 
 	/*
@@ -399,7 +431,7 @@ static bool mmio_read(int size, unsigned long addr, unsigned long *val)
 		.r15 = *val,
 	};
 
-	if (__tdx_hypercall(&args))
+	if (__trace_tdx_hypercall(&args))
 		return false;
 
 	*val = args.r11;
@@ -540,7 +572,7 @@ static bool handle_in(struct pt_regs *regs, int size, int port)
 	 * in TDX Guest-Host-Communication Interface (GHCI) section titled
 	 * "TDG.VP.VMCALL<Instruction.IO>".
 	 */
-	success = !__tdx_hypercall(&args);
+	success = !__trace_tdx_hypercall(&args);
 
 	/* Update part of the register affected by the emulated instruction */
 	regs->ax &= ~mask;
@@ -679,6 +711,11 @@ static inline bool is_private_gpa(u64 gpa)
  */
 static int virt_exception_kernel(struct pt_regs *regs, struct ve_info *ve)
 {
+
+	trace_tdx_virtualization_exception_rcuidle(regs->ip, ve->exit_reason,
+			ve->exit_qual, ve->gpa, ve->instr_len, ve->instr_info,
+			regs->cx, regs->ax, regs->dx);
+
 	switch (ve->exit_reason) {
 	case EXIT_REASON_HLT:
 		return handle_halt(ve);

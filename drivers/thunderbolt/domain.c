@@ -407,6 +407,7 @@ struct tb *tb_domain_alloc(struct tb_nhi *nhi, int timeout_msec, size_t privsize
 	tb->dev.groups = domain_attr_groups;
 	dev_set_name(&tb->dev, "domain%d", tb->index);
 	device_initialize(&tb->dev);
+	dev_set_authorizable(&tb->dev, false);
 
 	return tb;
 

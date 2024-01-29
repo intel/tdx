@@ -142,6 +142,7 @@
 #define ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_delete_raw_lock
 #define ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_acquire_raw_lock
 #define ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_release_raw_lock
+#define ACPI_USE_ALTERNATE_PROTOTYPE_acpi_os_map_memory_opregion
 
 /*
  * OSL interfaces used by debugger/disassembler

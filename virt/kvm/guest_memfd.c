@@ -602,3 +602,81 @@ int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
 	return r;
 }
 EXPORT_SYMBOL_GPL(kvm_gmem_get_pfn);
+
+static int kvm_gmem_undo_get_pfn(struct file *file, struct kvm_memory_slot *slot,
+				 gfn_t gfn, int order)
+{
+	pgoff_t index = gfn - slot->base_gfn + slot->gmem.pgoff;
+	struct kvm_gmem *gmem = file->private_data;
+
+	/*
+	 * Races with kvm_gmem_unbind() must have been detected by
+	 * __kvm_gmem_get_gfn(), because the invalidate_lock is
+	 * taken between __kvm_gmem_get_gfn() and kvm_gmem_undo_get_pfn().
+	 */
+	if (WARN_ON_ONCE(xa_load(&gmem->bindings, index) != slot))
+		return -EIO;
+
+	return __kvm_gmem_punch_hole(file_inode(file), index << PAGE_SHIFT, PAGE_SIZE << order);
+}
+
+long kvm_gmem_populate(struct kvm *kvm, gfn_t gfn, void __user *src, long npages,
+		       int (*post_populate)(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
+					    void __user *src, int order, void *opaque),
+		       void *opaque)
+{
+	struct file *file;
+	struct kvm_memory_slot *slot;
+
+	int ret = 0, max_order;
+	long i;
+
+	lockdep_assert_held(&kvm->slots_lock);
+	if (npages < 0)
+		return -EINVAL;
+
+	slot = gfn_to_memslot(kvm, gfn);
+	if (!kvm_slot_can_be_private(slot))
+		return -EINVAL;
+
+	file = kvm_gmem_get_file(slot);
+	if (!file)
+		return -EFAULT;
+
+	filemap_invalidate_lock(file->f_mapping);
+
+	npages = min_t(ulong, slot->npages - (gfn - slot->base_gfn), npages);
+	for (i = 0; i < npages; i += (1 << max_order)) {
+		gfn_t this_gfn = gfn + i;
+		kvm_pfn_t pfn;
+
+		ret = __kvm_gmem_get_pfn(file, slot, this_gfn, &pfn, &max_order, false);
+		if (ret)
+			break;
+
+		if (!IS_ALIGNED(this_gfn, (1 << max_order)) ||
+		    (npages - i) < (1 << max_order))
+			max_order = 0;
+
+		if (post_populate) {
+			void __user *p = src ? src + i * PAGE_SIZE : NULL;
+			ret = post_populate(kvm, this_gfn, pfn, p, max_order, opaque);
+		}
+
+		put_page(pfn_to_page(pfn));
+		if (ret) {
+			/*
+			 * Punch a hole so that FGP_CREAT_ONLY can succeed
+			 * again.
+			 */
+			kvm_gmem_undo_get_pfn(file, slot, this_gfn, max_order);
+			break;
+		}
+	}
+
+	filemap_invalidate_unlock(file->f_mapping);
+
+	fput(file);
+	return ret && !i ? ret : i;
+}
+EXPORT_SYMBOL_GPL(kvm_gmem_populate);

@@ -1863,6 +1863,10 @@ repeat:
 		folio = NULL;
 	if (!folio)
 		goto no_page;
+	if (fgp_flags & FGP_CREAT_ONLY) {
+		folio_put(folio);
+		return ERR_PTR(-EEXIST);
+	}
 
 	if (fgp_flags & FGP_LOCK) {
 		if (fgp_flags & FGP_NOWAIT) {

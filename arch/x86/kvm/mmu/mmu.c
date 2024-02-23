@@ -4324,7 +4324,8 @@ static int kvm_faultin_pfn_private(struct kvm_vcpu *vcpu,
 
 	max_level = kvm_max_level_for_order(max_order);
 	r = static_call(kvm_x86_gmem_max_level)(vcpu->kvm, fault->pfn,
-						fault->gfn, &max_level);
+						fault->gfn, fault->is_private,
+						&max_level);
 	if (r) {
 		kvm_release_pfn_clean(fault->pfn);
 		return r;

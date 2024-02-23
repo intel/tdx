@@ -252,6 +252,27 @@ static int vt_gmem_max_level(struct kvm *kvm, kvm_pfn_t pfn, gfn_t gfn,
 	return 0;
 }
 
+static int vt_pre_memory_mapping(struct kvm_vcpu *vcpu,
+				 struct kvm_memory_mapping *mapping,
+				 u64 *error_code, u8 *max_level)
+{
+	if (is_td_vcpu(vcpu))
+		return tdx_pre_memory_mapping(vcpu, mapping, error_code, max_level);
+
+	if (mapping->source)
+		return -EINVAL;
+	return 0;
+}
+
+static void vt_post_memory_mapping(struct kvm_vcpu *vcpu,
+				   struct kvm_memory_mapping *mapping)
+{
+	if (!is_td_vcpu(vcpu))
+		return;
+
+	tdx_post_memory_mapping(vcpu, mapping);
+}
+
 #define VMX_REQUIRED_APICV_INHIBITS				\
 	(BIT(APICV_INHIBIT_REASON_DISABLE)|			\
 	 BIT(APICV_INHIBIT_REASON_ABSENT) |			\
@@ -415,6 +436,8 @@ struct kvm_x86_ops vt_x86_ops __initdata = {
 	.vcpu_mem_enc_ioctl = vt_vcpu_mem_enc_ioctl,
 
 	.gmem_max_level = vt_gmem_max_level,
+	.pre_memory_mapping = vt_pre_memory_mapping,
+	.post_memory_mapping = vt_post_memory_mapping,
 };
 
 struct kvm_x86_init_ops vt_init_ops __initdata = {

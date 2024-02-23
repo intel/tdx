@@ -28,6 +28,9 @@ struct kvm_tdx {
 	atomic_t tdh_mem_track;
 
 	u64 tsc_offset;
+
+	/* For KVM_MAP_MEMORY and KVM_TDX_INIT_MEM_REGION. */
+	atomic64_t nr_premapped;
 };
 
 struct vcpu_tdx {

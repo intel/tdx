@@ -527,6 +527,33 @@ static int tdx_mem_page_aug(struct kvm *kvm, gfn_t gfn,
 	return 0;
 }
 
+/*
+ * KVM_MAP_MEMORY support to populate before finalize comes here for the initial
+ * memory. Defer TDH.MEM.PAGE.ADD() until KVM_TDX_INIT_MEM_REGION.  Account the
+ * number of pages only.
+ */
+static int tdx_mem_page_add(struct kvm *kvm, gfn_t gfn,
+			    enum pg_level level, kvm_pfn_t pfn)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+
+	/*
+	 * KVM_MAP_MEMORY for TD supports only 4K page because
+	 * tdh_mem_page_add() supports only 4K page.
+	 */
+	if (KVM_BUG_ON(level != PG_LEVEL_4K, kvm)) {
+		tdx_unpin(kvm, pfn);
+		return -EINVAL;
+	}
+
+	/*
+	 * KVM_TDX_INIT_MEM_REGION issues TDH.MEM.PAGE.ADD() and decrements
+	 * nr_premapped
+	 */
+	atomic64_inc(&kvm_tdx->nr_premapped);
+	return 0;
+}
+
 int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 			      enum pg_level level, kvm_pfn_t pfn)
 {
@@ -549,12 +576,7 @@ int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	if (likely(is_td_finalized(kvm_tdx)))
 		return tdx_mem_page_aug(kvm, gfn, level, pfn);
 
-	/*
-	 * TODO: KVM_MAP_MEMORY support to populate before finalize comes
-	 * here for the initial memory.
-	 */
-
-	return 0;
+	return tdx_mem_page_add(kvm, gfn, level, pfn);
 }
 
 static u64 tdx_reclaim_td_page(struct kvm *kvm, hpa_t pa, enum pg_level level)
@@ -564,8 +586,15 @@ static u64 tdx_reclaim_td_page(struct kvm *kvm, hpa_t pa, enum pg_level level)
 
 	err = ____tdx_reclaim_page(pa, &rcx, &rdx, &r8);
 	if (unlikely(!is_td_finalized(kvm_tdx) &&
-		     err == (TDX_PAGE_METADATA_INCORRECT | TDX_OPERAND_ID_RCX)))
+		     err == (TDX_PAGE_METADATA_INCORRECT | TDX_OPERAND_ID_RCX))) {
+		/*
+		 * Page is mapped by KVM_MAP_MEMORY, but not added by
+		 * KVM_TDX_INIT_MEM_REGION.
+		 */
+		WARN_ON_ONCE(!atomic64_read(&kvm_tdx->nr_premapped));
+		atomic64_dec(&kvm_tdx->nr_premapped);
 		return 0;
+	}
 	if (unlikely(err)) {
 		pr_tdx_error_3(TDH_PHYMEM_PAGE_RECLAIM, err, rcx, rdx, r8);
 		return err;
@@ -616,6 +645,8 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		 */
 		if (!is_last_spte(entry, level) ||
 				!(entry & VMX_EPT_RWX_MASK)) {
+			WARN_ON_ONCE(!atomic64_read(&kvm_tdx->nr_premapped));
+			atomic64_dec(&kvm_tdx->nr_premapped);
 			tdx_unpin(kvm, pfn);
 			return 0;
 		}

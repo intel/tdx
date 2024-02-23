@@ -4663,6 +4663,7 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 	case KVM_CAP_VM_DISABLE_NX_HUGE_PAGES:
 	case KVM_CAP_IRQFD_RESAMPLE:
 	case KVM_CAP_MEMORY_FAULT_INFO:
+	case KVM_CAP_MEMORY_MAPPING:
 		r = 1;
 		break;
 	case KVM_CAP_EXIT_HYPERCALL:
@@ -5799,6 +5800,31 @@ static int kvm_vcpu_ioctl_enable_cap(struct kvm_vcpu *vcpu,
 	default:
 		return -EINVAL;
 	}
+}
+
+void kvm_arch_vcpu_pre_memory_mapping(struct kvm_vcpu *vcpu)
+{
+	kvm_mmu_reload(vcpu);
+}
+
+int kvm_arch_vcpu_memory_mapping(struct kvm_vcpu *vcpu,
+				 struct kvm_memory_mapping *mapping)
+{
+	u8 max_level = KVM_MAX_HUGEPAGE_LEVEL;
+	u64 error_code = PFERR_WRITE_MASK;
+	u8 goal_level = PG_LEVEL_4K;
+	int r;
+
+	r = kvm_mmu_map_tdp_page(vcpu, gfn_to_gpa(mapping->base_gfn), error_code,
+				 max_level, &goal_level);
+	if (r)
+		return r;
+
+	if (mapping->source)
+		mapping->source += KVM_HPAGE_SIZE(goal_level);
+	mapping->base_gfn += KVM_PAGES_PER_HPAGE(goal_level);
+	mapping->nr_pages -= KVM_PAGES_PER_HPAGE(goal_level);
+	return r;
 }
 
 long kvm_arch_vcpu_ioctl(struct file *filp,

@@ -1839,6 +1839,11 @@ struct kvm_x86_ops {
 
 	int (*gmem_max_level)(struct kvm *kvm, kvm_pfn_t pfn, gfn_t gfn,
 			      bool is_private, u8 *max_level);
+	int (*pre_memory_mapping)(struct kvm_vcpu *vcpu,
+				  struct kvm_memory_mapping *mapping,
+				  u64 *error_code, u8 *max_level);
+	void (*post_memory_mapping)(struct kvm_vcpu *vcpu,
+				    struct kvm_memory_mapping *mapping);
 };
 
 struct kvm_x86_nested_ops {

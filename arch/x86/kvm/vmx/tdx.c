@@ -390,6 +390,7 @@ int tdx_vm_init(struct kvm *kvm)
 	 */
 	kvm->max_vcpus = min(kvm->max_vcpus, TDX_MAX_VCPUS);
 
+	mutex_init(&to_kvm_tdx(kvm)->source_lock);
 	return 0;
 }
 
@@ -541,6 +542,51 @@ static int tdx_mem_page_aug(struct kvm *kvm, gfn_t gfn,
 	return 0;
 }
 
+static int tdx_mem_page_add(struct kvm *kvm, gfn_t gfn,
+			    enum pg_level level, kvm_pfn_t pfn)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	hpa_t hpa = pfn_to_hpa(pfn);
+	gpa_t gpa = gfn_to_gpa(gfn);
+	struct tdx_module_args out;
+	hpa_t source_pa;
+	u64 err;
+
+	lockdep_assert_held(&kvm_tdx->source_lock);
+
+	/*
+	 * KVM_MEMORY_MAPPING for TD supports only 4K page because
+	 * tdh_mem_page_add() supports only 4K page.
+	 */
+	if (KVM_BUG_ON(level != PG_LEVEL_4K, kvm))
+		return -EINVAL;
+
+	if (KVM_BUG_ON(!kvm_tdx->source_page, kvm)) {
+		tdx_unpin(kvm, pfn);
+		return -EINVAL;
+	}
+
+	source_pa = pfn_to_hpa(page_to_pfn(kvm_tdx->source_page));
+	do {
+		err = tdh_mem_page_add(kvm_tdx->tdr_pa, gpa, hpa, source_pa,
+				       &out);
+		/*
+		 * This path is executed during populating initial guest memory
+		 * image. i.e. before running any vcpu.  Race is rare.
+		 */
+	} while (unlikely(err == TDX_ERROR_SEPT_BUSY));
+	/*
+	 * Don't warn: This is for KVM_MEMORY_MAPPING. So tdh_mem_page_add() can
+	 * fail with parameters user provided.
+	 */
+	if (err) {
+		tdx_unpin(kvm, pfn);
+		return -EIO;
+	}
+
+	return 0;
+}
+
 static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 				     enum pg_level level, kvm_pfn_t pfn)
 {
@@ -563,9 +609,7 @@ static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	if (likely(is_td_finalized(kvm_tdx)))
 		return tdx_mem_page_aug(kvm, gfn, level, pfn);
 
-	/* TODO: tdh_mem_page_add() comes here for the initial memory. */
-
-	return 0;
+	return tdx_mem_page_add(kvm, gfn, level, pfn);
 }
 
 static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
@@ -1467,6 +1511,49 @@ int tdx_gmem_max_level(struct kvm *kvm, kvm_pfn_t pfn, gfn_t gfn,
 	/* TODO: Enable 2mb and 1gb large page support. */
 	*max_level = min(*max_level, PG_LEVEL_4K);
 	return 0;
+}
+
+#define TDX_SEPT_PFERR	(PFERR_WRITE_MASK | PFERR_GUEST_ENC_MASK)
+
+int tdx_pre_memory_mapping(struct kvm_vcpu *vcpu,
+			   struct kvm_memory_mapping *mapping,
+			   u64 *error_code, u8 *max_level)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
+	struct page *page;
+	int r = 0;
+
+	/* memory contents is needed for encryption. */
+	if (!mapping->source)
+		return -EINVAL;
+
+	/* Once TD is finalized, the initial guest memory is fixed. */
+	if (is_td_finalized(to_kvm_tdx(vcpu->kvm)))
+		return -EINVAL;
+
+	/* TDX supports only 4K to pre-populate. */
+	*max_level = PG_LEVEL_4K;
+	*error_code = TDX_SEPT_PFERR;
+
+	r = get_user_pages_fast(mapping->source, 1, 0, &page);
+	if (r < 0)
+		return r;
+	if (r != 1)
+		return -ENOMEM;
+
+	mutex_lock(&kvm_tdx->source_lock);
+	kvm_tdx->source_page = page;
+	return 0;
+}
+
+void tdx_post_memory_mapping(struct kvm_vcpu *vcpu,
+			     struct kvm_memory_mapping *mapping)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
+
+	put_page(kvm_tdx->source_page);
+	kvm_tdx->source_page = NULL;
+	mutex_unlock(&kvm_tdx->source_lock);
 }
 
 #define TDX_MD_MAP(_fid, _ptr)			\

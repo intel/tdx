@@ -160,6 +160,11 @@ int tdx_sept_flush_remote_tlbs(struct kvm *kvm);
 void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int root_level);
 int tdx_gmem_max_level(struct kvm *kvm, kvm_pfn_t pfn, gfn_t gfn,
 		       bool is_private, u8 *max_level);
+int tdx_pre_memory_mapping(struct kvm_vcpu *vcpu,
+			   struct kvm_memory_mapping *mapping,
+			   u64 *error_code, u8 *max_level);
+void tdx_post_memory_mapping(struct kvm_vcpu *vcpu,
+			     struct kvm_memory_mapping *mapping);
 #else
 static inline int tdx_hardware_setup(struct kvm_x86_ops *x86_ops) { return -EOPNOTSUPP; }
 static inline void tdx_hardware_unsetup(void) {}
@@ -192,6 +197,13 @@ static inline int tdx_gmem_max_level(struct kvm *kvm, kvm_pfn_t pfn, gfn_t gfn,
 {
 	return -EOPNOTSUPP;
 }
+static inline int tdx_pre_memory_mapping(struct kvm_vcpu *vcpu,
+			   struct kvm_memory_mapping *mapping,
+			   u64 *error_code, u8 *max_level)
+{
+	return -EOPNOTSUPP;
+}
+static inline void tdx_post_memory_mapping(struct kvm_vcpu *vcpu, struct kvm_memory_mapping *mapping) {}
 #endif
 
 #endif /* __KVM_X86_VMX_X86_OPS_H */

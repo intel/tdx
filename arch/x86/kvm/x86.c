@@ -5826,10 +5826,21 @@ int kvm_arch_vcpu_memory_mapping(struct kvm_vcpu *vcpu,
 	u8 max_level = KVM_MAX_HUGEPAGE_LEVEL;
 	u64 error_code = PFERR_WRITE_MASK;
 	u8 goal_level = PG_LEVEL_4K;
-	int r;
+	int r = 0;
+
+	if (kvm_x86_ops.pre_memory_mapping)
+		r = static_call(kvm_x86_pre_memory_mapping)(vcpu, mapping, &error_code, &max_level);
+	else {
+		if (mapping->source)
+			r = -EINVAL;
+	}
+	if (r)
+		return r;
 
 	r = kvm_mmu_map_tdp_page(vcpu, gfn_to_gpa(mapping->base_gfn), error_code,
 				 max_level, &goal_level);
+	if (kvm_x86_ops.post_memory_mapping)
+		static_call(kvm_x86_post_memory_mapping)(vcpu, mapping);
 	if (r)
 		return r;
 

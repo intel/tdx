@@ -187,6 +187,7 @@ static inline void tdx_flush_tlb(struct kvm_vcpu *vcpu) {}
 static inline void tdx_flush_tlb_current(struct kvm_vcpu *vcpu) {}
 static inline int tdx_sept_flush_remote_tlbs(struct kvm *kvm) { return 0; }
 static inline void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int root_level) {}
+static inline void tdx_post_mmu_map_page(struct kvm_vcpu *vcpu, struct kvm_pre_fault_memory *mapping) {}
 #endif
 
 #endif /* __KVM_X86_VMX_X86_OPS_H */

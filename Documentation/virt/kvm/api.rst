@@ -6323,6 +6323,34 @@ a single guest_memfd file, but the bound ranges must not overlap).
 
 See KVM_SET_USER_MEMORY_REGION2 for additional details.
 
+4.143 KVM_MEMORY_MAPPING
+------------------------
+
+:Capability: KVM_CAP_MEMORY_MAPPING
+:Architectures: none
+:Type: vcpu ioctl
+:Parameters: struct kvm_memory_mapping(in/out)
+:Returns: 0 on success, <0 on error
+
+KVM_MEMORY_MAPPING populates guest memory without running vcpu.
+
+::
+
+  struct kvm_memory_mapping {
+	__u64 base_gfn;
+	__u64 nr_pages;
+	__u64 flags;
+	__u64 source;
+  };
+
+KVM_MEMORY_MAPPING populates guest memory in the underlying mapping. If source
+is not zero and it's supported (it depends on underlying technology), the guest
+memory content is populated with the source.  If nr_pages is large, it may
+return -EAGAIN and the values (base_gfn and nr_pages. source if not zero) are
+updated to point the remaining range.
+
+The "flags" field is reserved for future extensions and must be '0'.
+
 5. The kvm_run structure
 ========================
 

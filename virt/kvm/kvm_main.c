@@ -4409,6 +4409,62 @@ static int kvm_vcpu_ioctl_get_stats_fd(struct kvm_vcpu *vcpu)
 	return fd;
 }
 
+__weak void kvm_arch_vcpu_pre_memory_mapping(struct kvm_vcpu *vcpu)
+{
+}
+
+__weak int kvm_arch_vcpu_memory_mapping(struct kvm_vcpu *vcpu,
+					struct kvm_memory_mapping *mapping)
+{
+	return -EOPNOTSUPP;
+}
+
+static int kvm_vcpu_memory_mapping(struct kvm_vcpu *vcpu,
+				   struct kvm_memory_mapping *mapping)
+{
+	bool added = false;
+	int idx, r = 0;
+
+	/* flags isn't used yet. */
+	if (mapping->flags)
+		return -EINVAL;
+
+	/* Sanity check */
+	if (!IS_ALIGNED(mapping->source, PAGE_SIZE) ||
+	    !mapping->nr_pages ||
+	    mapping->nr_pages & GENMASK_ULL(63, 63 - PAGE_SHIFT) ||
+	    mapping->base_gfn + mapping->nr_pages <= mapping->base_gfn)
+		return -EINVAL;
+
+	vcpu_load(vcpu);
+	idx = srcu_read_lock(&vcpu->kvm->srcu);
+	kvm_arch_vcpu_pre_memory_mapping(vcpu);
+
+	while (mapping->nr_pages) {
+		if (signal_pending(current)) {
+			r = -ERESTARTSYS;
+			break;
+		}
+
+		if (need_resched())
+			cond_resched();
+
+		r = kvm_arch_vcpu_memory_mapping(vcpu, mapping);
+		if (r)
+			break;
+
+		added = true;
+	}
+
+	srcu_read_unlock(&vcpu->kvm->srcu, idx);
+	vcpu_put(vcpu);
+
+	if (added && mapping->nr_pages > 0)
+		r = -EAGAIN;
+
+	return r;
+}
+
 static long kvm_vcpu_ioctl(struct file *filp,
 			   unsigned int ioctl, unsigned long arg)
 {
@@ -4608,6 +4664,17 @@ out_free1:
 	}
 	case KVM_GET_STATS_FD: {
 		r = kvm_vcpu_ioctl_get_stats_fd(vcpu);
+		break;
+	}
+	case KVM_MEMORY_MAPPING: {
+		struct kvm_memory_mapping mapping;
+
+		r = -EFAULT;
+		if (copy_from_user(&mapping, argp, sizeof(mapping)))
+			break;
+		r = kvm_vcpu_memory_mapping(vcpu, &mapping);
+		if (copy_to_user(argp, &mapping, sizeof(mapping)))
+			r = -EFAULT;
 		break;
 	}
 	default:

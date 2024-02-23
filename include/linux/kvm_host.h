@@ -2389,4 +2389,8 @@ static inline int kvm_gmem_get_pfn(struct kvm *kvm,
 }
 #endif /* CONFIG_KVM_PRIVATE_MEM */
 
+void kvm_arch_vcpu_pre_memory_mapping(struct kvm_vcpu *vcpu);
+int kvm_arch_vcpu_memory_mapping(struct kvm_vcpu *vcpu,
+				 struct kvm_memory_mapping *mapping);
+
 #endif

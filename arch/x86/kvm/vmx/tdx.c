@@ -1339,6 +1339,67 @@ void tdx_flush_tlb_current(struct kvm_vcpu *vcpu)
 	tdx_track(vcpu->kvm);
 }
 
+static int tdx_extend_memory(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct kvm_memory_mapping mapping;
+	struct tdx_module_args out;
+	bool extended = false;
+	int idx, ret = 0;
+	gpa_t gpa;
+	u64 err;
+	int i;
+
+	/* Once TD is finalized, the initial guest memory is fixed. */
+	if (is_td_finalized(kvm_tdx))
+		return -EINVAL;
+
+	if (cmd->flags)
+		return -EINVAL;
+
+	if (copy_from_user(&mapping, (void __user *)cmd->data, sizeof(mapping)))
+		return -EFAULT;
+
+	/* Sanity check */
+	if (mapping.source || !mapping.nr_pages ||
+	    mapping.nr_pages & GENMASK_ULL(63, 63 - PAGE_SHIFT) ||
+	    mapping.base_gfn + (mapping.nr_pages << PAGE_SHIFT) <= mapping.base_gfn ||
+	    !kvm_is_private_gpa(kvm, mapping.base_gfn) ||
+	    !kvm_is_private_gpa(kvm, mapping.base_gfn + (mapping.nr_pages << PAGE_SHIFT)))
+		return -EINVAL;
+
+	idx = srcu_read_lock(&kvm->srcu);
+	while (mapping.nr_pages) {
+		if (signal_pending(current)) {
+			ret = -ERESTARTSYS;
+			break;
+		}
+
+		if (need_resched())
+			cond_resched();
+
+		gpa = gfn_to_gpa(mapping.base_gfn);
+		for (i = 0; i < PAGE_SIZE; i += TDX_EXTENDMR_CHUNKSIZE) {
+			err = tdh_mr_extend(kvm_tdx->tdr_pa, gpa + i, &out);
+			if (err) {
+				ret = -EIO;
+				break;
+			}
+		}
+		mapping.base_gfn++;
+		mapping.nr_pages--;
+		extended = true;
+	}
+	srcu_read_unlock(&kvm->srcu, idx);
+
+	if (extended && mapping.nr_pages > 0)
+		ret = -EAGAIN;
+	if (copy_to_user((void __user *)cmd->data, &mapping, sizeof(mapping)))
+		ret = -EFAULT;
+
+	return ret;
+}
+
 int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 {
 	struct kvm_tdx_cmd tdx_cmd;
@@ -1357,6 +1418,9 @@ int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 		break;
 	case KVM_TDX_INIT_VM:
 		r = tdx_td_init(kvm, &tdx_cmd);
+		break;
+	case KVM_TDX_EXTEND_MEMORY:
+		r = tdx_extend_memory(kvm, &tdx_cmd);
 		break;
 	default:
 		r = -EINVAL;

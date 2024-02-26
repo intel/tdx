@@ -2314,7 +2314,7 @@ static int setup_tdparams(struct kvm *kvm, struct td_params *td_params,
 
 	td_params->max_vcpus = kvm->max_vcpus;
 	td_params->attributes = init_vm->attributes;
-	td_params->exec_controls = TDX_CONTROL_FLAG_NO_RBP_MOD;
+	/* td_params->exec_controls = TDX_CONTROL_FLAG_NO_RBP_MOD; */
 	td_params->tsc_frequency = TDX_TSC_KHZ_TO_25MHZ(kvm->arch.default_tsc_khz);
 
 	ret = setup_tdparams_eptp_controls(cpuid, td_params);
@@ -3146,6 +3146,7 @@ static int __init tdx_module_setup(void)
 	 */
 	tdx_info->nr_tdcx_pages = st.tdvps_base_size / PAGE_SIZE - 1;
 
+#if 0
 	/*
 	 * Make TDH.VP.ENTER preserve RBP so that the stack unwinder
 	 * always work around it.  Query the feature.
@@ -3156,6 +3157,7 @@ static int __init tdx_module_setup(void)
 		ret = -EOPNOTSUPP;
 		goto error_out;
 	}
+#endif
 
 	return 0;
 

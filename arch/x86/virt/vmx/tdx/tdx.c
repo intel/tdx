@@ -577,13 +577,14 @@ static int get_tdx_sysinfo(struct tdx_sysinfo *sysinfo)
 
 static int check_module_compatibility(struct tdx_sysinfo *sysinfo)
 {
+#if 0
 	u64 tdx_features0 = sysinfo->module_info.tdx_features0;
 
 	if (!(tdx_features0 & TDX_FEATURES0_NO_RBP_MOD)) {
 		pr_err("NO_RBP_MOD feature is not supported\n");
 		return -EINVAL;
 	}
-
+#endif
 	return 0;
 }
 

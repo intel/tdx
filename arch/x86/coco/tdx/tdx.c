@@ -77,6 +77,17 @@ static inline void tdcall(u64 fn, struct tdx_module_args *args)
 		panic("TDCALL %lld failed (Buggy TDX module!)\n", fn);
 }
 
+static inline u64 tdg_vm_rd(u64 field)
+{
+	struct tdx_module_args args = {
+		.rdx = field,
+	};
+
+	tdcall(TDG_VM_RD, &args);
+
+	return args.r8;
+}
+
 static inline u64 tdg_vm_wr(u64 field, u64 value, u64 mask)
 {
 	struct tdx_module_args args = {
@@ -89,6 +100,28 @@ static inline u64 tdg_vm_wr(u64 field, u64 value, u64 mask)
 
 	/* Old value */
 	return args.r8;
+}
+
+static inline u64 tdg_sys_rd(u64 field)
+{
+	struct tdx_module_args args = {
+		.rdx = field,
+	};
+
+	tdcall(TDG_SYS_RD, &args);
+
+	return args.r8;
+}
+
+static bool tdcs_ctls_set(u64 mask)
+{
+	struct tdx_module_args args = {
+		.rdx = TDCS_TD_CTLS,
+		.r8 = mask,
+		.r9 = mask,
+	};
+
+	return __tdcall(TDG_VM_WR, &args) == TDX_SUCCESS;
 }
 
 /**
@@ -185,7 +218,8 @@ static void tdx_setup(u64 *cc_mask)
 {
 	struct tdx_module_args args = {};
 	unsigned int gpa_width;
-	u64 td_attr;
+	u64 td_attr, features;
+	bool sept_ve_disabled;
 
 	/*
 	 * TDINFO TDX module call is used to get the TD execution environment
@@ -206,19 +240,50 @@ static void tdx_setup(u64 *cc_mask)
 	gpa_width = args.rcx & GENMASK(5, 0);
 	*cc_mask = BIT_ULL(gpa_width - 1);
 
+	td_attr = args.rdx;
+
 	/* Kernel does not use NOTIFY_ENABLES and does not need random #VEs */
 	tdg_vm_wr(TDCS_NOTIFY_ENABLES, 0, -1ULL);
+
+	features = tdg_sys_rd(TDCS_TDX_FEATURES0);
 
 	/*
 	 * The kernel can not handle #VE's when accessing normal kernel
 	 * memory.  Ensure that no #VE will be delivered for accesses to
 	 * TD-private memory.  Only VMM-shared memory (MMIO) will #VE.
+	 *
+	 * Check if the TD is created with SEPT #VE disabled.
 	 */
-	td_attr = args.rdx;
-	if (!(td_attr & ATTR_SEPT_VE_DISABLE)) {
-		const char *msg = "TD misconfiguration: SEPT_VE_DISABLE attribute must be set.";
+	sept_ve_disabled = td_attr & ATTR_SEPT_VE_DISABLE;
 
-		/* Relax SEPT_VE_DISABLE check for debug TD. */
+	/*
+	 * Check if flexible control of SEPT #VE is supported.
+	 *
+	 * The check consists of verifying if the feature is supported by the
+	 * TDX module (the TDX_FEATURES0 check) and if the feature is enabled
+	 * for this TD (CONFIG_FLAGS check).
+	 *
+	 * If flexible control is supported, disable SEPT #VE.
+	 *
+	 * Disable SEPT #VE regardless of ATTR_SEPT_VE_DISABLE status as
+	 * flexible control allows software running before the kernel to
+	 * enable it.
+	 *
+	 * Skip SEPT disabling for debug TD. SEPT #VE is unsafe but can be
+	 * useful for debugging to produce a stack trace. Known to be useful
+	 * for debugging unaccepted memory problems.
+	 */
+	if (features & TDX_FEATURES0_PENDING_EPT_VIOLATION_V2 &&
+	    (tdg_vm_rd(TDCS_CONFIG_FLAGS) & TDCS_CONFIG_FLEXIBLE_PENDING_VE) &&
+	    !(td_attr & ATTR_DEBUG)) {
+		if (tdcs_ctls_set(TD_CTLS_PENDING_VE_DISABLE))
+			sept_ve_disabled = true;
+	}
+
+	if (!sept_ve_disabled) {
+		const char *msg = "TD misconfiguration: SEPT #VE has to be disabled";
+
+		/* Relax SEPT #VE disable check for debug TD. */
 		if (td_attr & ATTR_DEBUG)
 			pr_warn("%s\n", msg);
 		else

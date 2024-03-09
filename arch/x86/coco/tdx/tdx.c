@@ -289,6 +289,25 @@ static void tdx_setup(u64 *cc_mask)
 		else
 			tdx_panic(msg);
 	}
+
+	/*
+	 * TDX 1.0 generates a #VE when accessing topology-related CPUID leafs
+	 * (0xB and 0x1F) and the X2APIC_APICID MSR. The kernel returns all
+	 * zeros on CPUID #VEs. In practice, this means that the kernel can only
+	 * boot with a plain topology. Any complications will cause problems.
+	 *
+	 * The ENUM_TOPOLOGY feature allows the VMM to provide topology
+	 * information to the guest in a safe manner. Enabling the feature
+	 * eliminates topology-related #VEs: the TDX module virtualizes
+	 * accesses to the CPUID leafs and the MSR.
+	 *
+	 * Enable ENUM_TOPOLOGY if it is available.
+	 */
+	if ((features & TDX_FEATURES0_ENUM_TOPOLOGY) &&
+	    tdg_vm_rd(TDCS_TOPOLOGY_ENUM_CONFIGURED)) {
+		if (!tdcs_ctls_set(TD_CTLS_ENUM_TOPOLOGY))
+			pr_warn("Failed to enable ENUM_TOPOLOGY\n");
+	}
 }
 
 /*

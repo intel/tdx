@@ -75,6 +75,10 @@ int tdx_alloc_event_irq(void);
 
 void tdx_free_event_irq(int);
 
+u64 tdx_mcall_verify_report(u8 *reportmac);
+
+int tdx_mcall_extend_rtmr(u8 *data, u8 index);
+
 #else
 
 static inline void tdx_early_init(void) { };

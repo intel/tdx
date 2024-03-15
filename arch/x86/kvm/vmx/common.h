@@ -6,6 +6,13 @@
 
 #include "mmu.h"
 
+static inline bool kvm_is_private_gpa(const struct kvm *kvm, gpa_t gpa)
+{
+	/* For TDX the direct mask is the shared mask. */
+	return (kvm->arch.vm_type == KVM_X86_TDX_VM) &&
+		!(gpa_to_gfn(gpa) & kvm_gfn_direct_bits(kvm));
+}
+
 static inline int __vmx_handle_ept_violation(struct kvm_vcpu *vcpu, gpa_t gpa,
 					     unsigned long exit_qualification)
 {

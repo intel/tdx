@@ -1499,6 +1499,152 @@ static int tdx_vcpu_init(struct kvm_vcpu *vcpu, struct kvm_tdx_cmd *cmd)
 	return 0;
 }
 
+struct tdx_gmem_post_populate_arg {
+	struct kvm_vcpu *vcpu;
+	__u32 flags;
+};
+
+static int tdx_gmem_post_populate(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
+				  void __user *src, int order, void *_arg)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct tdx_gmem_post_populate_arg *arg = _arg;
+	struct kvm_vcpu *vcpu = arg->vcpu;
+	struct kvm_memory_slot *slot;
+	gpa_t gpa = gfn_to_gpa(gfn);
+	struct page *page;
+	kvm_pfn_t mmu_pfn;
+	int ret, i;
+	u64 err;
+
+	/* Pin the source page. */
+	ret = get_user_pages_fast((unsigned long)src, 1, 0, &page);
+	if (ret < 0)
+		return ret;
+	if (ret != 1)
+		return -ENOMEM;
+
+	slot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
+	if (!kvm_slot_can_be_private(slot) || !kvm_mem_is_private(kvm, gfn)) {
+		ret = -EFAULT;
+		goto out_put_page;
+	}
+
+	read_lock(&kvm->mmu_lock);
+
+	ret = kvm_tdp_mmu_get_walk_mirror_pfn(vcpu, gpa, &mmu_pfn);
+	if (ret < 0)
+		goto out;
+	if (ret > PG_LEVEL_4K) {
+		ret = -EINVAL;
+		goto out;
+	}
+	if (mmu_pfn != pfn) {
+		ret = -EAGAIN;
+		goto out;
+	}
+
+	ret = 0;
+	do {
+		err = tdh_mem_page_add(kvm_tdx, gpa, pfn_to_hpa(pfn),
+				       pfn_to_hpa(page_to_pfn(page)), NULL);
+	} while (err == TDX_ERROR_SEPT_BUSY);
+	if (err) {
+		ret = -EIO;
+		goto out;
+	}
+
+	WARN_ON_ONCE(!atomic64_read(&kvm_tdx->nr_premapped));
+	atomic64_dec(&kvm_tdx->nr_premapped);
+
+	if (arg->flags & KVM_TDX_MEASURE_MEMORY_REGION) {
+		for (i = 0; i < PAGE_SIZE; i += TDX_EXTENDMR_CHUNKSIZE) {
+			err = tdh_mr_extend(kvm_tdx, gpa + i, NULL);
+			if (err) {
+				ret = -EIO;
+				break;
+			}
+		}
+	}
+
+out:
+	read_unlock(&kvm->mmu_lock);
+out_put_page:
+	put_page(page);
+	return ret;
+}
+
+static int tdx_vcpu_init_mem_region(struct kvm_vcpu *vcpu, struct kvm_tdx_cmd *cmd)
+{
+	struct kvm *kvm = vcpu->kvm;
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct kvm_tdx_init_mem_region region;
+	struct tdx_gmem_post_populate_arg arg;
+	long gmem_ret;
+	int idx, ret;
+
+	if (!to_tdx(vcpu)->initialized)
+		return -EINVAL;
+
+	/* Once TD is finalized, the initial guest memory is fixed. */
+	if (is_td_finalized(kvm_tdx))
+		return -EINVAL;
+
+	if (cmd->flags & ~KVM_TDX_MEASURE_MEMORY_REGION)
+		return -EINVAL;
+
+	if (copy_from_user(&region, u64_to_user_ptr(cmd->data), sizeof(region)))
+		return -EFAULT;
+
+	if (!PAGE_ALIGNED(region.source_addr) || !PAGE_ALIGNED(region.gpa) ||
+	    !region.nr_pages ||
+	    region.gpa + (region.nr_pages << PAGE_SHIFT) <= region.gpa ||
+	    !kvm_is_private_gpa(kvm, region.gpa) ||
+	    !kvm_is_private_gpa(kvm, region.gpa + (region.nr_pages << PAGE_SHIFT)))
+		return -EINVAL;
+
+	mutex_lock(&kvm->slots_lock);
+	idx = srcu_read_lock(&kvm->srcu);
+
+	ret = 0;
+	while (region.nr_pages) {
+		if (signal_pending(current)) {
+			ret = -EINTR;
+			break;
+		}
+
+		arg = (struct tdx_gmem_post_populate_arg) {
+			.vcpu = vcpu,
+			.flags = cmd->flags,
+		};
+		gmem_ret = kvm_gmem_populate(kvm, gpa_to_gfn(region.gpa),
+					     u64_to_user_ptr(region.source_addr),
+					     1, tdx_gmem_post_populate, &arg);
+		if (gmem_ret < 0) {
+			ret = gmem_ret;
+			break;
+		}
+
+		if (gmem_ret != 1) {
+			ret = -EIO;
+			break;
+		}
+
+		region.source_addr += PAGE_SIZE;
+		region.gpa += PAGE_SIZE;
+		region.nr_pages--;
+
+		cond_resched();
+	}
+
+	srcu_read_unlock(&kvm->srcu, idx);
+	mutex_unlock(&kvm->slots_lock);
+
+	if (copy_to_user(u64_to_user_ptr(cmd->data), &region, sizeof(region)))
+		ret = -EFAULT;
+	return ret;
+}
+
 int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
@@ -1517,6 +1663,9 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 	switch (cmd.id) {
 	case KVM_TDX_INIT_VCPU:
 		ret = tdx_vcpu_init(vcpu, &cmd);
+		break;
+	case KVM_TDX_INIT_MEM_REGION:
+		ret = tdx_vcpu_init_mem_region(vcpu, &cmd);
 		break;
 	default:
 		ret = -EINVAL;

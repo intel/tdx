@@ -1789,6 +1789,55 @@ void __init tdx_init(void)
 	check_tdx_erratum();
 }
 
+void tdx_reset_memory(void)
+{
+	if (!boot_cpu_has(X86_FEATURE_TDX_HOST_PLATFORM))
+		return;
+
+	/*
+	 * Kernel read/write to TDX private memory doesn't cause
+	 * machine check on hardware w/o this erratum.
+	 */
+	if (!boot_cpu_has_bug(X86_BUG_TDX_PW_MCE))
+		return;
+
+	/*
+	 * Converting TDX private pages back to normal must be done
+	 * after all remote cpus have been stopped so that no more
+	 * TDX activity can happen and caches have been flushed.
+	 */
+	WARN_ON_ONCE(num_online_cpus() != 1);
+
+	/*
+	 * The system can only have TDX private memory after the TDX
+	 * module has been initialized.  tdx_reboot_notifier() has made
+	 * sure @tdx_module_status reflects the module initialization
+	 * status correctly and is immutable by now thus can be read
+	 * w/o holding lock.
+	 */
+	if (tdx_module_status != TDX_MODULE_INITIALIZED)
+		return;
+
+	/*
+	 * All remote cpus have been stopped, and their caches have
+	 * been flushed in stop_this_cpu().  Now flush cache for the
+	 * last running cpu _before_ converting TDX private pages.
+	 */
+	native_wbinvd();
+
+	/*
+	 * It's ideal to cover all types of TDX private pages here, but
+	 * currently there's no unified way to tell whether a given page
+	 * is TDX private page or not.
+	 *
+	 * Only convert PAMT here.  All in-kernel TDX users (e.g., KVM)
+	 * are responsible for converting TDX private pages that are
+	 * managed by them by either registering reboot notifier or
+	 * shutdown syscore ops.
+	 */
+	tdmrs_reset_pamt_all(&tdx_tdmr_list);
+}
+
 const struct tdx_sysinfo *tdx_get_sysinfo(void)
 {
 	const struct tdx_sysinfo *p = NULL;

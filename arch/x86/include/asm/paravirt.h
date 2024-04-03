@@ -5,6 +5,7 @@
  * para-virtualization: those hooks are defined here. */
 
 #include <asm/paravirt_types.h>
+#include <asm/msr.h>
 
 #ifndef __ASSEMBLY__
 struct mm_struct;

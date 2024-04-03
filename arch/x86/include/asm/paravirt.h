@@ -771,14 +771,11 @@ static inline void paravirt_enter_mmap(struct mm_struct *mm)
 #endif
 
 #ifndef CONFIG_PARAVIRT
+
 static inline void paravirt_arch_exit_mmap(struct mm_struct *mm)
 {
 }
 
-static inline void wrmsrl(unsigned msr, u64 val)
-{
-	native_write_msr(msr, (u32)val, (u32)(val>>32));
-}
 #endif
 
 #ifndef CONFIG_PARAVIRT_SPINLOCKS

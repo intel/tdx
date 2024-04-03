@@ -269,6 +269,13 @@ static inline void wrmsr(unsigned int msr, u32 low, u32 high)
 	native_write_msr(msr, low, high);
 }
 
+#ifndef CONFIG_PARAVIRT
+static inline void wrmsrl(unsigned int msr, u64 val)
+{
+	native_write_msr(msr, (u32)(val & 0xffffffffULL), (u32)(val >> 32));
+}
+#endif
+
 #define rdmsrl(msr, val)			\
 	((val) = native_read_msr((msr)))
 

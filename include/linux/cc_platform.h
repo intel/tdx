@@ -100,7 +100,46 @@ enum cc_attr {
 	 *
 	 * Examples include TDX guest.
 	 */
+
 	CC_ATTR_GUEST_DEVICE_FILTER,
+	/**
+	 * @CC_ATTR_GUEST_HARDENED: Filter out unnecessary and not-hardened
+	 * device drivers.
+	 *
+	 * Examples include TDX guest.
+	 */
+	CC_ATTR_GUEST_HARDENED,
+
+	/*
+	 * @CC_ATTR_GUEST_SECURE_TIME: Use secured TSC and disable kvmclock.
+	 *
+	 * The platform/OS is running as a guest/virtual machine and use
+	 * secured TSC and disable kvmclock.
+	 *
+	 * Examples include TDX guest.
+	 */
+	CC_ATTR_GUEST_SECURE_TIME,
+
+	/**
+	 * @CC_ATTR_GUEST_CPUID_FILTER: Enable CPUID based XEN/KVM filter
+	 *
+	 * The platform/OS is running as a guest/virtual machine and uses
+	 * CPUID to disable XEN and other KVM features.
+	 *
+	 * Examples include TDX guest.
+	 */
+	CC_ATTR_GUEST_CPUID_FILTER,
+
+	/**
+	 * @CC_ATTR_GUEST_RAND_LOOP: Make RDRAND/RDSEED loop forever to
+	 * harden the random number generation.
+	 *
+	 * The platform/OS is running as a guest/virtual machine and
+	 * harden the random number generation.
+	 *
+	 * Examples include TDX guest.
+	 */
+	CC_ATTR_GUEST_RAND_LOOP,
 };
 
 #ifdef CONFIG_ARCH_HAS_CC_PLATFORM

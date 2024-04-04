@@ -1,5 +1,6 @@
 #include <asm/tdx.h>
 #include <asm/pgtable.h>
+#include <linux/export.h>
 
 static unsigned long try_accept_one(phys_addr_t start, unsigned long len,
 				    enum pg_level pg_level)
@@ -89,3 +90,4 @@ noinstr u64 __tdx_hypercall(struct tdx_module_args *args)
 	/* TDVMCALL leaf return code is in R10 */
 	return args->r10;
 }
+EXPORT_SYMBOL(__tdx_hypercall);

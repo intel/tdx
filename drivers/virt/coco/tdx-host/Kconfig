@@ -3,4 +3,5 @@ config TDX_HOST_SERVICES
 	depends on INTEL_TDX_HOST
 	select FW_LOADER
 	select FW_UPLOAD
+	select PCI_TSM if PCI
 	default m

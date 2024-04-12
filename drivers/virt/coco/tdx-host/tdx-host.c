@@ -10,6 +10,9 @@
 #include <linux/module.h>
 #include <linux/mod_devicetable.h>
 #include <linux/sysfs.h>
+#include <linux/pci.h>
+#include <linux/pci-tsm.h>
+#include <linux/tsm.h>
 
 #include <asm/cpu_device_id.h>
 #include <asm/seamldr.h>
@@ -20,6 +23,120 @@ static const struct x86_cpu_id tdx_host_ids[] = {
 	{}
 };
 MODULE_DEVICE_TABLE(x86cpu, tdx_host_ids);
+
+static const struct tdx_sys_info *tdx_sysinfo;
+
+struct tdx_tsm_link {
+	struct pci_tsm_pf0 pci;
+};
+
+static struct tdx_tsm_link *to_tdx_tsm_link(struct pci_tsm *tsm)
+{
+	return container_of(tsm, struct tdx_tsm_link, pci.base_tsm);
+}
+
+static int tdx_tsm_link_connect(struct pci_dev *pdev)
+{
+	return -ENXIO;
+}
+
+static void tdx_tsm_link_disconnect(struct pci_dev *pdev)
+{
+}
+
+static struct pci_tsm *tdx_tsm_link_pf0_probe(struct tsm_dev *tsm_dev,
+					      struct pci_dev *pdev)
+{
+	struct tdx_tsm_link *tlink;
+	int ret;
+
+	tlink = kzalloc_obj(*tlink);
+	if (!tlink)
+		return NULL;
+
+	ret = pci_tsm_pf0_constructor(pdev, &tlink->pci, tsm_dev);
+	if (ret) {
+		kfree(tlink);
+		return NULL;
+	}
+
+	return &tlink->pci.base_tsm;
+}
+
+static void tdx_tsm_link_pf0_remove(struct pci_tsm *tsm)
+{
+	struct tdx_tsm_link *tlink = to_tdx_tsm_link(tsm);
+
+	pci_tsm_pf0_destructor(&tlink->pci);
+	kfree(tlink);
+}
+
+static struct pci_tsm *tdx_tsm_link_fn_probe(struct tsm_dev *tsm_dev,
+					     struct pci_dev *pdev)
+{
+	struct pci_tsm *tsm;
+	int ret;
+
+	tsm = kzalloc_obj(*tsm);
+	if (!tsm)
+		return NULL;
+
+	ret = pci_tsm_link_constructor(pdev, tsm, tsm_dev);
+	if (ret) {
+		kfree(tsm);
+		return NULL;
+	}
+
+	return tsm;
+}
+
+static struct pci_tsm *tdx_tsm_link_probe(struct tsm_dev *tsm_dev,
+					  struct pci_dev *pdev)
+{
+	if (is_pci_tsm_pf0(pdev))
+		return tdx_tsm_link_pf0_probe(tsm_dev, pdev);
+
+	return tdx_tsm_link_fn_probe(tsm_dev, pdev);
+}
+
+static void tdx_tsm_link_remove(struct pci_tsm *tsm)
+{
+	if (is_pci_tsm_pf0(tsm->pdev)) {
+		tdx_tsm_link_pf0_remove(tsm);
+		return;
+	}
+
+	/* for sub-functions */
+	kfree(tsm);
+}
+
+static struct pci_tsm_ops tdx_tsm_link_ops = {
+	.probe = tdx_tsm_link_probe,
+	.remove = tdx_tsm_link_remove,
+	.connect = tdx_tsm_link_connect,
+	.disconnect = tdx_tsm_link_disconnect,
+};
+
+static void unregister_link_tsm(void *link)
+{
+	tsm_unregister(link);
+}
+
+static int tdx_tdisp_init(struct device *dev)
+{
+	struct tsm_dev *link;
+	int ret;
+
+	if (!tdx_supports_tdisp(tdx_sysinfo))
+		return 0;
+
+	link = tsm_register(dev, &tdx_tsm_link_ops);
+	if (IS_ERR(link))
+		return dev_err_probe(dev, PTR_ERR(link),
+				     "failed to register TSM\n");
+
+	return devm_add_action_or_reset(dev, unregister_link_tsm, link);
+}
 
 static ssize_t version_show(struct device *dev, struct device_attribute *attr,
 			    char *buf)
@@ -205,7 +322,13 @@ static int seamldr_init(struct device *dev)
 
 static int tdx_host_probe(struct faux_device *fdev)
 {
-	return seamldr_init(&fdev->dev);
+	int ret;
+
+	ret = seamldr_init(&fdev->dev);
+	if (ret)
+		return ret;
+
+	return tdx_tdisp_init(&fdev->dev);
 }
 
 static const struct faux_device_ops tdx_host_ops = {
@@ -216,7 +339,11 @@ static struct faux_device *fdev;
 
 static int __init tdx_host_init(void)
 {
-	if (!x86_match_cpu(tdx_host_ids) || !tdx_get_sysinfo())
+	if (!x86_match_cpu(tdx_host_ids))
+		return -ENODEV;
+
+	tdx_sysinfo = tdx_get_sysinfo();
+	if (!tdx_sysinfo)
 		return -ENODEV;
 
 	fdev = faux_device_create_with_groups(KBUILD_MODNAME, NULL,

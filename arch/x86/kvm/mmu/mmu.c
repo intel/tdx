@@ -4236,7 +4236,7 @@ void kvm_arch_async_page_ready(struct kvm_vcpu *vcpu, struct kvm_async_pf *work)
 {
 	int r;
 
-	if (WARN_ON_ONCE(work->arch.error_code & PFERR_GUEST_ENC_MASK))
+	if (WARN_ON_ONCE(work->arch.error_code & PFERR_PRIVATE_ACCESS))
 		return;
 
 	if ((vcpu->arch.mmu->root_role.direct != work->arch.direct_map) ||
@@ -5844,7 +5844,7 @@ int noinline kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 err
 
 	/*
 	 * Except for reserved faults (emulated MMIO is shared-only), set the
-	 * PFERR_GUEST_ENC_MASK flag for software-protected VMs based on the gfn's
+	 * PFERR_PRIVATE_ACCESS flag for software-protected VMs based on the gfn's
 	 * current attributes, which are the source of truth for such VMs.  Note,
 	 * this wrong for nested MMUs as the GPA is an L2 GPA, but KVM doesn't
 	 * currently supported nested virtualization (among many other things)
@@ -5854,11 +5854,11 @@ int noinline kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 err
 	    !(error_code & PFERR_RSVD_MASK) &&
 	    vcpu->kvm->arch.vm_type == KVM_X86_SW_PROTECTED_VM &&
 	    kvm_mem_is_private(vcpu->kvm, gpa_to_gfn(cr2_or_gpa)))
-		error_code |= PFERR_GUEST_ENC_MASK;
+		error_code |= PFERR_PRIVATE_ACCESS;
 
 	r = RET_PF_INVALID;
 	if (unlikely(error_code & PFERR_RSVD_MASK)) {
-		if (WARN_ON_ONCE(error_code & PFERR_GUEST_ENC_MASK))
+		if (WARN_ON_ONCE(error_code & PFERR_PRIVATE_ACCESS))
 			return -EFAULT;
 
 		r = handle_mmio_page_fault(vcpu, cr2_or_gpa, direct);

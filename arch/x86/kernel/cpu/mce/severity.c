@@ -39,8 +39,8 @@ static struct severity {
 	u64 mask;
 	u64 result;
 	unsigned char sev;
-	unsigned char mcgmask;
-	unsigned char mcgres;
+	unsigned short mcgmask;
+	unsigned short mcgres;
 	unsigned char ser;
 	unsigned char context;
 	unsigned char excp;
@@ -174,6 +174,18 @@ static struct severity {
 		USER
 		),
 	MCESEV(
+		AR, "Data load error in SEAM non-root mode",
+		SER, MASK(MCI_STATUS_OVER|MCI_UC_SAR|MCI_ADDR|MCACOD, MCI_UC_SAR|MCI_ADDR|MCACOD_DATA),
+		MCGMASK(MCG_STATUS_SEAM_NR, MCG_STATUS_SEAM_NR),
+		KERNEL
+		),
+	MCESEV(
+		AR, "Instruction fetch error in SEAM non-root mode",
+		SER, MASK(MCI_STATUS_OVER|MCI_UC_SAR|MCI_ADDR|MCACOD, MCI_UC_SAR|MCI_ADDR|MCACOD_INSTR),
+		MCGMASK(MCG_STATUS_SEAM_NR, MCG_STATUS_SEAM_NR),
+		KERNEL
+		),
+	MCESEV(
 		PANIC, "Data load in unrecoverable area of kernel",
 		SER, MASK(MCI_STATUS_OVER|MCI_UC_SAR|MCI_ADDR|MCACOD, MCI_UC_SAR|MCI_ADDR|MCACOD_DATA),
 		KERNEL
@@ -290,7 +302,6 @@ static noinstr int error_context(struct mce *m, struct pt_regs *regs)
 
 	switch (fixup_type) {
 	case EX_TYPE_UACCESS:
-	case EX_TYPE_COPY:
 		if (!copy_user)
 			return IN_KERNEL;
 		m->kflags |= MCE_IN_KERNEL_COPYIN;

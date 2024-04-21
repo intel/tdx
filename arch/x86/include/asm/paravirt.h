@@ -5,7 +5,6 @@
  * para-virtualization: those hooks are defined here. */
 
 #include <asm/paravirt_types.h>
-#include <asm/msr.h>
 
 #ifndef __ASSEMBLY__
 struct mm_struct;
@@ -772,6 +771,9 @@ static inline void paravirt_enter_mmap(struct mm_struct *mm)
 #endif
 
 #ifndef CONFIG_PARAVIRT
+
+#include <asm/msr.h>
+
 static inline void paravirt_arch_exit_mmap(struct mm_struct *mm)
 {
 }

@@ -123,8 +123,6 @@ static bool authorized_node_match(struct device *dev,
 	 * and ACPI bus is supported.
 	 */
 	if (dev_is_pci(dev)) {
-		struct pci_dev *pdev = to_pci_dev(dev);
-
 		if (pci_match_id((struct pci_device_id *)node->dev_list,
 				 to_pci_dev(dev)))
 			return true;

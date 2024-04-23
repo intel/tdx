@@ -6528,8 +6528,17 @@ void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end)
 
 	flush = kvm_rmap_zap_gfn_range(kvm, gfn_start, gfn_end);
 
-	if (tdp_mmu_enabled)
+	if (tdp_mmu_enabled) {
+		/*
+		 * kvm_zap_gfn_range() is used when MTRR or PAT memory
+		 * type was changed.  TDX can't handle zapping the private
+		 * mapping, but it's ok because KVM doesn't support either of
+		 * those features for TDX. In case a new caller appears, BUG
+		 * the VM if it's called for solutions with private aliases.
+		 */
+		KVM_BUG_ON(kvm_gfn_shared_mask(kvm), kvm);
 		flush = kvm_tdp_mmu_zap_leafs(kvm, gfn_start, gfn_end, flush);
+	}
 
 	if (flush)
 		kvm_flush_remote_tlbs_range(kvm, gfn_start, gfn_end - gfn_start);

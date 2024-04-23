@@ -1135,6 +1135,7 @@ void kvm_tdp_mmu_zap_invalidated_roots(struct kvm *kvm)
 void kvm_tdp_mmu_invalidate_roots(struct kvm *kvm,
 				  enum kvm_process process_types)
 {
+	enum kvm_tdp_mmu_root_types root_types = kvm_process_to_root_types(kvm, process_types);
 	struct kvm_mmu_page *root;
 
 	/*
@@ -1158,6 +1159,9 @@ void kvm_tdp_mmu_invalidate_roots(struct kvm *kvm,
 	 * or get/put references to roots.
 	 */
 	list_for_each_entry(root, &kvm->arch.tdp_mmu_roots, link) {
+		if (!tdp_mmu_root_match(root, root_types))
+			continue;
+
 		/*
 		 * Note, invalid roots can outlive a memslot update!  Invalid
 		 * roots must be *zapped* before the memslot update completes,

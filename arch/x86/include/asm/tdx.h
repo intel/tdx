@@ -54,6 +54,8 @@ struct ve_info {
 
 void __init tdx_early_init(void);
 
+void __noreturn tdvmcall_report_fatal_error(u64 error_code, const char str[64]);
+
 void tdx_get_ve_info(struct ve_info *ve);
 
 bool tdx_handle_virt_exception(struct pt_regs *regs, struct ve_info *ve);

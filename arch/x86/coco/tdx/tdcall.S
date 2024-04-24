@@ -61,3 +61,26 @@ SYM_FUNC_END(__tdcall_ret)
 SYM_FUNC_START(__tdcall_saved_ret)
 	TDX_MODULE_CALL host=0 ret=1 saved=1
 SYM_FUNC_END(__tdcall_saved_ret)
+
+.pushsection .noinstr.text, "ax"
+SYM_FUNC_START(tdvmcall_trampoline)
+	movq	%rax, %r10
+	movq    %rbx, %r11
+	movq    %rdi, %r12
+	movq    %rsi, %r13
+	movq    %rdx, %r14
+	movq    %rcx, %r15
+
+	movq	$TDG_VP_VMCALL, %rax
+	movq    $(TDX_R10 | TDX_R11 | TDX_R12 | TDX_R13 | TDX_R14 | TDX_R15), %rcx
+
+	tdcall
+
+	testq   %rax, %rax
+	jnz     1f
+
+	RET
+1:
+	ud2
+SYM_FUNC_END(tdvmcall_trampoline)
+.popsection

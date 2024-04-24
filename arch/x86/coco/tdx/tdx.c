@@ -765,15 +765,10 @@ static bool tdx_map_gpa(phys_addr_t start, phys_addr_t end, bool enc)
 	}
 
 	while (retry_count < max_retries_per_page) {
-		struct tdx_module_args args = {
-			.r10 = TDX_HYPERCALL_STANDARD,
-			.r11 = TDVMCALL_MAP_GPA,
-			.r12 = start,
-			.r13 = end - start };
+		u64 map_fail_paddr, ret;
 
-		u64 map_fail_paddr;
-		u64 ret = __tdx_hypercall(&args);
-
+		ret = TDVMCALL_1(TDVMCALL_MAP_GPA,
+				 start, end - start, 0, 0, map_fail_paddr);
 		if (ret != TDVMCALL_STATUS_RETRY)
 			return !ret;
 		/*
@@ -781,7 +776,6 @@ static bool tdx_map_gpa(phys_addr_t start, phys_addr_t end, bool enc)
 		 * region starting at the GPA specified in R11. R11 comes
 		 * from the untrusted VMM. Sanity check it.
 		 */
-		map_fail_paddr = args.r11;
 		if (map_fail_paddr < start || map_fail_paddr >= end)
 			return false;
 

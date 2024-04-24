@@ -80,10 +80,44 @@
 #define TDX_PS_1G	2
 #define TDX_PS_NR	(TDX_PS_1G + 1)
 
+/* Port I/O direction */
+#define TDX_PORT_READ	0
+#define TDX_PORT_WRITE	1
+
 #ifndef __ASSEMBLY__
 
 #include <linux/compiler_attributes.h>
 
+#define TDVMCALL_0(reason, in_r12, in_r13, in_r14, in_r15)			\
+({										\
+	long __ret;								\
+										\
+	asm(									\
+		"call	tdvmcall_trampoline\n\t"				\
+		"movq	%%r10, %0\n\t"						\
+		: "=r" (__ret), ASM_CALL_CONSTRAINT				\
+		: "a" (TDX_HYPERCALL_STANDARD), "b" (reason),			\
+		  "D" (in_r12), "S"(in_r13), "d"(in_r14), "c" (in_r15)		\
+		: "r12", "r13", "r14", "r15"					\
+	);									\
+	__ret;									\
+})
+
+#define TDVMCALL_1(reason, in_r12, in_r13, in_r14, in_r15, out_r11)		\
+({										\
+	long __ret;								\
+										\
+	asm(									\
+		"call	tdvmcall_trampoline\n\t"				\
+		"movq	%%r10, %0\n\t"						\
+		"movq	%%r11, %1\n\t"						\
+		: "=r" (__ret), "=r" (out_r11), ASM_CALL_CONSTRAINT		\
+		: "a" (TDX_HYPERCALL_STANDARD), "b" (reason),			\
+		  "D" (in_r12), "S"(in_r13), "d"(in_r14), "c" (in_r15)		\
+		: "r10", "r11", "r12", "r13", "r14", "r15"			\
+	);									\
+	__ret;									\
+})
 /*
  * Used in __tdcall*() to gather the input/output registers' values of the
  * TDCALL instruction when requesting services from the TDX module. This is a

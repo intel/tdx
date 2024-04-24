@@ -18,32 +18,20 @@ void __tdx_hypercall_failed(void)
 
 static inline unsigned int tdx_io_in(int size, u16 port)
 {
-	struct tdx_module_args args = {
-		.r10 = TDX_HYPERCALL_STANDARD,
-		.r11 = hcall_func(EXIT_REASON_IO_INSTRUCTION),
-		.r12 = size,
-		.r13 = 0,
-		.r14 = port,
-	};
+	u64 out;
 
-	if (__tdx_hypercall(&args))
+	if (TDVMCALL_1(hcall_func(EXIT_REASON_IO_INSTRUCTION),
+		       size, TDX_PORT_READ, port, 0, out)) {
 		return UINT_MAX;
+	}
 
-	return args.r11;
+	return out;
 }
 
 static inline void tdx_io_out(int size, u16 port, u32 value)
 {
-	struct tdx_module_args args = {
-		.r10 = TDX_HYPERCALL_STANDARD,
-		.r11 = hcall_func(EXIT_REASON_IO_INSTRUCTION),
-		.r12 = size,
-		.r13 = 1,
-		.r14 = port,
-		.r15 = value,
-	};
-
-	__tdx_hypercall(&args);
+	TDVMCALL_0(hcall_func(EXIT_REASON_IO_INSTRUCTION),
+		   size, TDX_PORT_WRITE, port, value);
 }
 
 static inline u8 tdx_inb(u16 port)

@@ -21,10 +21,6 @@
 #define EPT_READ	0
 #define EPT_WRITE	1
 
-/* Port I/O direction */
-#define PORT_READ	0
-#define PORT_WRITE	1
-
 /* See Exit Qualification for I/O Instructions in VMX documentation */
 #define VE_IS_IO_IN(e)		((e) & BIT(3))
 #define VE_GET_IO_SIZE(e)	(((e) & GENMASK(2, 0)) + 1)
@@ -613,27 +609,17 @@ static int handle_mmio(struct pt_regs *regs, struct ve_info *ve)
 
 static bool handle_in(struct pt_regs *regs, int size, int port)
 {
-	struct tdx_module_args args = {
-		.r10 = TDX_HYPERCALL_STANDARD,
-		.r11 = hcall_func(EXIT_REASON_IO_INSTRUCTION),
-		.r12 = size,
-		.r13 = PORT_READ,
-		.r14 = port,
-	};
-	u64 mask = GENMASK(BITS_PER_BYTE * size, 0);
+	u64 mask, out;
 	bool success;
 
-	/*
-	 * Emulate the I/O read via hypercall. More info about ABI can be found
-	 * in TDX Guest-Host-Communication Interface (GHCI) section titled
-	 * "TDG.VP.VMCALL<Instruction.IO>".
-	 */
-	success = !__tdx_hypercall(&args);
+	success = !TDVMCALL_1(hcall_func(EXIT_REASON_IO_INSTRUCTION),
+			      size, TDX_PORT_READ, port, 0, out);
 
 	/* Update part of the register affected by the emulated instruction */
+	mask = GENMASK(BITS_PER_BYTE * size, 0);
 	regs->ax &= ~mask;
 	if (success)
-		regs->ax |= args.r11 & mask;
+		regs->ax |= out & mask;
 
 	return success;
 }
@@ -642,13 +628,8 @@ static bool handle_out(struct pt_regs *regs, int size, int port)
 {
 	u64 mask = GENMASK(BITS_PER_BYTE * size, 0);
 
-	/*
-	 * Emulate the I/O write via hypercall. More info about ABI can be found
-	 * in TDX Guest-Host-Communication Interface (GHCI) section titled
-	 * "TDG.VP.VMCALL<Instruction.IO>".
-	 */
-	return !_tdx_hypercall(hcall_func(EXIT_REASON_IO_INSTRUCTION), size,
-			       PORT_WRITE, port, regs->ax & mask);
+	return !TDVMCALL_0(hcall_func(EXIT_REASON_IO_INSTRUCTION),
+			   size, TDX_PORT_WRITE, port, regs->ax & mask);
 }
 
 /*

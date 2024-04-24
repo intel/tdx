@@ -591,32 +591,15 @@ __init bool tdx_early_handle_ve(struct pt_regs *regs)
 
 void tdx_get_ve_info(struct ve_info *ve)
 {
-	struct tdx_module_args args = {};
+	u64 instr_info, ret;
 
-	/*
-	 * Called during #VE handling to retrieve the #VE info from the
-	 * TDX module.
-	 *
-	 * This has to be called early in #VE handling.  A "nested" #VE which
-	 * occurs before this will raise a #DF and is not recoverable.
-	 *
-	 * The call retrieves the #VE info from the TDX module, which also
-	 * clears the "#VE valid" flag. This must be done before anything else
-	 * because any #VE that occurs while the valid flag is set will lead to
-	 * #DF.
-	 *
-	 * Note, the TDX module treats virtual NMIs as inhibited if the #VE
-	 * valid flag is set. It means that NMI=>#VE will not result in a #DF.
-	 */
-	tdcall(TDG_VP_VEINFO_GET, &args);
+	ret = TDCALL_5(TDG_VP_VEINFO_GET, 0, 0, 0, 0,
+		 ve->exit_reason, ve->exit_qual, ve->gla, ve->gpa, instr_info);
 
-	/* Transfer the output parameters */
-	ve->exit_reason = args.rcx;
-	ve->exit_qual   = args.rdx;
-	ve->gla         = args.r8;
-	ve->gpa         = args.r9;
-	ve->instr_len   = lower_32_bits(args.r10);
-	ve->instr_info  = upper_32_bits(args.r10);
+	BUG_ON(ret);
+
+	ve->instr_len   = lower_32_bits(instr_info);
+	ve->instr_info  = upper_32_bits(instr_info);
 }
 
 /*

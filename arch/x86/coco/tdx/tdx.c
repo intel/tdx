@@ -351,34 +351,9 @@ static int ve_instr_len(struct ve_info *ve)
 	}
 }
 
-static u64 __cpuidle __halt(const bool irq_disabled)
-{
-	struct tdx_module_args args = {
-		.r10 = TDX_HYPERCALL_STANDARD,
-		.r11 = hcall_func(EXIT_REASON_HLT),
-		.r12 = irq_disabled,
-	};
-
-	/*
-	 * Emulate HLT operation via hypercall. More info about ABI
-	 * can be found in TDX Guest-Host-Communication Interface
-	 * (GHCI), section 3.8 TDG.VP.VMCALL<Instruction.HLT>.
-	 *
-	 * The VMM uses the "IRQ disabled" param to understand IRQ
-	 * enabled status (RFLAGS.IF) of the TD guest and to determine
-	 * whether or not it should schedule the halted vCPU if an
-	 * IRQ becomes pending. E.g. if IRQs are disabled, the VMM
-	 * can keep the vCPU in virtual HLT, even if an IRQ is
-	 * pending, without hanging/breaking the guest.
-	 */
-	return __tdx_hypercall(&args);
-}
-
 static int handle_halt(struct ve_info *ve)
 {
-	const bool irq_disabled = irqs_disabled();
-
-	if (__halt(irq_disabled))
+	if (TDVMCALL_0(hcall_func(EXIT_REASON_HLT), irqs_disabled(), 0, 0, 0))
 		return -EIO;
 
 	return ve_instr_len(ve);
@@ -386,13 +361,8 @@ static int handle_halt(struct ve_info *ve)
 
 void __cpuidle tdx_safe_halt(void)
 {
-	const bool irq_disabled = false;
-
-	/*
-	 * Use WARN_ONCE() to report the failure.
-	 */
-	if (__halt(irq_disabled))
-		WARN_ONCE(1, "HLT instruction emulation failed\n");
+	WARN_ONCE(TDVMCALL_0(hcall_func(EXIT_REASON_HLT), false, 0, 0, 0),
+		  "HLT instruction emulation failed");
 }
 
 static int read_msr(struct pt_regs *regs, struct ve_info *ve)

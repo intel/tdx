@@ -106,6 +106,23 @@
 	__ret;									\
 })
 
+#define TDCALL_1(reason, in_rcx, in_rdx, in_r8, in_r9, out_r8)			\
+({										\
+	long __ret;								\
+										\
+	asm(									\
+		"movq	%6, %%r8\n\t"						\
+		"movq	%7, %%r9\n\t"						\
+		TDCALL								\
+		"movq	%%r8, %2\n\t"						\
+		: "=a" (__ret), ASM_CALL_CONSTRAINT, "=rm" (out_r8)		\
+		: "a" (reason), "c" (in_rcx), "d" (in_rdx),			\
+		  "rm" ((u64)in_r8), "rm" ((u64)in_r9)				\
+		: "r8", "r9"							\
+	);									\
+	__ret;									\
+})
+
 #define TDVMCALL_0(reason, in_r12, in_r13, in_r14, in_r15)			\
 ({										\
 	long __ret;								\

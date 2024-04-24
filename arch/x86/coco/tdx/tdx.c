@@ -77,13 +77,13 @@ static inline void tdcall(u64 fn, struct tdx_module_args *args)
 
 static inline u64 tdg_vm_rd(u64 field)
 {
-	struct tdx_module_args args = {
-		.rdx = field,
-	};
+	u64 value, ret;
 
-	tdcall(TDG_VM_RD, &args);
+	ret = TDCALL_1(TDG_VM_RD, 0, field, 0, 0, value);
 
-	return args.r8;
+	BUG_ON(ret);
+
+	return value;
 }
 
 static inline u64 tdg_vm_wr(u64 field, u64 value, u64 mask)

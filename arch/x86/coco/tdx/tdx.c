@@ -49,15 +49,17 @@ noinstr void __noreturn __tdx_hypercall_failed(void)
 long tdx_kvm_hypercall(unsigned int nr, unsigned long p1, unsigned long p2,
 		       unsigned long p3, unsigned long p4)
 {
-	struct tdx_module_args args = {
-		.r10 = nr,
-		.r11 = p1,
-		.r12 = p2,
-		.r13 = p3,
-		.r14 = p4,
-	};
+	long ret;
 
-	return __tdx_hypercall(&args);
+	asm(
+		"call	tdvmcall_trampoline\n\t"
+		"movq	%%r10, %0\n\t"
+		: "=r" (ret)
+		: "a" (nr), "b" (p1), "D" (p2), "S"(p3), "d"(p4), "c" (0)
+		: "r12", "r13", "r14", "r15"
+	);									\
+
+	return ret;
 }
 EXPORT_SYMBOL_GPL(tdx_kvm_hypercall);
 #endif

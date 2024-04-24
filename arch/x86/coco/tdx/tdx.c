@@ -134,19 +134,15 @@ static bool tdcs_ctls_set(u64 mask)
  */
 int tdx_mcall_get_report0(u8 *reportdata, u8 *tdreport)
 {
-	struct tdx_module_args args = {
-		.rcx = virt_to_phys(tdreport),
-		.rdx = virt_to_phys(reportdata),
-		.r8 = TDREPORT_SUBTYPE_0,
-	};
 	u64 ret;
 
-	ret = __tdcall(TDG_MR_REPORT, &args);
-	if (ret) {
-		if (TDCALL_RETURN_CODE(ret) == TDCALL_INVALID_OPERAND)
-			return -EINVAL;
+	ret = TDCALL_0(TDG_MR_REPORT, virt_to_phys(tdreport),
+		       virt_to_phys(reportdata), TDREPORT_SUBTYPE_0, 0);
+
+	if (TDCALL_RETURN_CODE(ret) == TDCALL_INVALID_OPERAND)
+		return -EINVAL;
+	else if (ret)
 		return -EIO;
-	}
 
 	return 0;
 }

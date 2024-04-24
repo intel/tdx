@@ -385,47 +385,22 @@ static inline void hv_ghcb_msr_read(u64 msr, u64 *value) {}
 #ifdef CONFIG_INTEL_TDX_GUEST
 static void hv_tdx_msr_write(u64 msr, u64 val)
 {
-	struct tdx_module_args args = {
-		.r10 = TDX_HYPERCALL_STANDARD,
-		.r11 = EXIT_REASON_MSR_WRITE,
-		.r12 = msr,
-		.r13 = val,
-	};
+	u64 ret;
 
-	u64 ret = __tdx_hypercall(&args);
+	ret = TDVMCALL_0(hcall_func(EXIT_REASON_MSR_WRITE), msr, val, 0, 0);
 
 	WARN_ONCE(ret, "Failed to emulate MSR write: %lld\n", ret);
 }
 
 static void hv_tdx_msr_read(u64 msr, u64 *val)
 {
-	struct tdx_module_args args = {
-		.r10 = TDX_HYPERCALL_STANDARD,
-		.r11 = EXIT_REASON_MSR_READ,
-		.r12 = msr,
-	};
+	u64 ret;
 
-	u64 ret = __tdx_hypercall(&args);
+	ret = TDVMCALL_1(hcall_func(EXIT_REASON_MSR_READ), msr, 0, 0, 0, *val);
 
 	if (WARN_ONCE(ret, "Failed to emulate MSR read: %lld\n", ret))
 		*val = 0;
-	else
-		*val = args.r11;
 }
-
-u64 hv_tdx_hypercall(u64 control, u64 param1, u64 param2)
-{
-	struct tdx_module_args args = { };
-
-	args.r10 = control;
-	args.rdx = param1;
-	args.r8  = param2;
-
-	(void)__tdx_hypercall(&args);
-
-	return args.r11;
-}
-
 #else
 static inline void hv_tdx_msr_write(u64 msr, u64 value) {}
 static inline void hv_tdx_msr_read(u64 msr, u64 *value) {}

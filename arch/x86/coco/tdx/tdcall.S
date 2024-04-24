@@ -112,3 +112,25 @@ SYM_FUNC_START(tdvmcall_report_fatal_error)
 
 	ud2
 SYM_FUNC_END(tdvmcall_report_fatal_error)
+
+#ifdef CONFIG_HYPERV
+SYM_FUNC_START(hv_tdx_hypercall)
+	movq	%rdi, %r10
+	movq    %rsi, %rdx
+	movq    %rcx, %r8
+
+	movq	$TDG_VP_VMCALL, %rax
+	movq    $(TDX_R8 | TDX_R10 | TDX_RDX), %rcx
+
+	tdcall
+
+	testq   %rax, %rax
+	jnz     1f
+
+	movq	%r11, %rax
+
+	RET
+1:
+	ud2
+SYM_FUNC_END(hv_tdx_hypercall)
+#endif

@@ -416,38 +416,34 @@ static int handle_cpuid(struct pt_regs *regs, struct ve_info *ve)
 	return ve_instr_len(ve);
 }
 
-static bool mmio_read(int size, unsigned long addr, unsigned long *val)
+static bool mmio_read(int size, unsigned long gpa, u64 *val)
 {
-	struct tdx_module_args args = {
-		.r10 = TDX_HYPERCALL_STANDARD,
-		.r11 = hcall_func(EXIT_REASON_EPT_VIOLATION),
-		.r12 = size,
-		.r13 = EPT_READ,
-		.r14 = addr,
-		.r15 = *val,
-	};
+	bool ret;
+	u64 out;
 
-	if (__tdx_hypercall(&args))
-		return false;
+	ret = !TDVMCALL_1(hcall_func(EXIT_REASON_EPT_VIOLATION),
+			  size, EPT_READ, gpa, 0, out);
+	if (ret)
+		*val = out;
 
-	*val = args.r11;
-	return true;
+	return ret;
 }
 
-static bool mmio_write(int size, unsigned long addr, unsigned long val)
+static bool mmio_write(int size, u64 gpa, u64 val)
 {
-	return !_tdx_hypercall(hcall_func(EXIT_REASON_EPT_VIOLATION), size,
-			       EPT_WRITE, addr, val);
+	return !TDVMCALL_0(hcall_func(EXIT_REASON_EPT_VIOLATION),
+			 size, EPT_WRITE, gpa, val);
 }
 
 static int handle_mmio(struct pt_regs *regs, struct ve_info *ve)
 {
-	unsigned long *reg, val, vaddr;
+	unsigned long *reg, vaddr;
 	char buffer[MAX_INSN_SIZE];
 	enum insn_mmio_type mmio;
 	struct insn insn = {};
 	int size, extend_size;
 	u8 extend_val = 0;
+	u64 val;
 
 	/* Only in-kernel MMIO is supported */
 	if (WARN_ON_ONCE(user_mode(regs)))

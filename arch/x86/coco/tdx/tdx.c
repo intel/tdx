@@ -111,13 +111,11 @@ static inline u64 tdg_sys_rd(u64 field)
 
 static bool tdcs_ctls_set(u64 mask)
 {
-	struct tdx_module_args args = {
-		.rdx = TDCS_TD_CTLS,
-		.r8 = mask,
-		.r9 = mask,
-	};
+	u64 ret;
 
-	return __tdcall(TDG_VM_WR, &args) == TDX_SUCCESS;
+	ret = TDCALL_0(TDG_VM_WR, 0, TDCS_TD_CTLS, mask, mask);
+
+	return !ret;
 }
 
 /**

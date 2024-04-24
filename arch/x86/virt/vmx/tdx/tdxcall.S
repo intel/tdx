@@ -4,33 +4,28 @@
 #include <asm/asm.h>
 #include <asm/tdx.h>
 
-/*
- * TDCALL and SEAMCALL are supported in Binutils >= 2.36.
- */
-#define tdcall		.byte 0x66,0x0f,0x01,0xcc
+/* SEAMCALL is supported in Binutils >= 2.36 */
 #define seamcall	.byte 0x66,0x0f,0x01,0xcf
 
 /*
  * TDX_MODULE_CALL - common helper macro for both
  *                 TDCALL and SEAMCALL instructions.
  *
- * TDCALL   - used by TDX guests to make requests to the
- *            TDX module and hypercalls to the VMM.
  * SEAMCALL - used by TDX hosts to make requests to the
  *            TDX module.
  *
  *-------------------------------------------------------------------------
- * TDCALL/SEAMCALL ABI:
+ * SEAMCALL ABI:
  *-------------------------------------------------------------------------
  * Input Registers:
  *
- * RAX                        - TDCALL/SEAMCALL Leaf number.
- * RCX,RDX,RDI,RSI,RBX,R8-R15 - TDCALL/SEAMCALL Leaf specific input registers.
+ * RAX                        - SEAMCALL Leaf number.
+ * RCX,RDX,RDI,RSI,RBX,R8-R15 - SEAMCALL Leaf specific input registers.
  *
  * Output Registers:
  *
- * RAX                        - TDCALL/SEAMCALL instruction error code.
- * RCX,RDX,RDI,RSI,RBX,R8-R15 - TDCALL/SEAMCALL Leaf specific output registers.
+ * RAX                        - SEAMCALL instruction error code.
+ * RCX,RDX,RDI,RSI,RBX,R8-R15 - SEAMCALL Leaf specific output registers.
  *
  *-------------------------------------------------------------------------
  *
@@ -42,7 +37,7 @@
  * also tramples on RDI,RSI.  This isn't strictly true, see for example
  * TDH.EXPORT.MEM.
  */
-.macro TDX_MODULE_CALL host:req ret=0 saved=0
+.macro TDX_MODULE_CALL ret=0 saved=0
 	FRAME_BEGIN
 
 	/* Move Leaf ID to RAX */
@@ -85,7 +80,6 @@
 	movq	TDX_MODULE_rsi(%rsi), %rsi
 .endif	/* \saved */
 
-.if \host
 .Lseamcall\@:
 	seamcall
 	/*
@@ -100,9 +94,6 @@
 	 * it is from the Reserved status code class.
 	 */
 	jc .Lseamcall_vmfailinvalid\@
-.else
-	tdcall
-.endif
 
 .if \ret
 .if \saved
@@ -172,11 +163,9 @@
 	xorl %r15d, %r15d
 	xorl %ebx,  %ebx
 	xorl %edi,  %edi
-.endif	/* \ret && \host */
+.endif	/* \saved && \ret */
 
-.if \host
 .Lout\@:
-.endif
 
 .if \saved
 	/* Restore callee-saved GPRs as mandated by the x86_64 ABI */
@@ -190,7 +179,6 @@
 	FRAME_END
 	RET
 
-.if \host
 .Lseamcall_vmfailinvalid\@:
 	mov $TDX_SEAMCALL_VMFAILINVALID, %rax
 	jmp .Lseamcall_fail\@
@@ -215,6 +203,5 @@
 	jmp .Lout\@
 
 	_ASM_EXTABLE_FAULT(.Lseamcall\@, .Lseamcall_trap\@)
-.endif	/* \host */
 
 .endm

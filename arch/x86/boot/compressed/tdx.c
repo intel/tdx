@@ -10,12 +10,6 @@
 
 #include <asm/shared/tdx.h>
 
-/* Called from __tdx_hypercall() for unrecoverable failure */
-void __tdx_hypercall_failed(void)
-{
-	error("TDVMCALL failed. TDX module bug?");
-}
-
 static inline unsigned int tdx_io_in(int size, u16 port)
 {
 	u64 out;

@@ -38,13 +38,6 @@
 
 static atomic_long_t nr_shared;
 
-/* Called from __tdx_hypercall() for unrecoverable failure */
-noinstr void __noreturn __tdx_hypercall_failed(void)
-{
-	instrumentation_begin();
-	panic("TDVMCALL failed. TDX module bug?");
-}
-
 #ifdef CONFIG_KVM_GUEST
 long tdx_kvm_hypercall(unsigned int nr, unsigned long p1, unsigned long p2,
 		       unsigned long p3, unsigned long p4)
@@ -63,17 +56,6 @@ long tdx_kvm_hypercall(unsigned int nr, unsigned long p1, unsigned long p2,
 }
 EXPORT_SYMBOL_GPL(tdx_kvm_hypercall);
 #endif
-
-/*
- * Used for TDX guests to make calls directly to the TD module.  This
- * should only be used for calls that have no legitimate reason to fail
- * or where the kernel can not survive the call failing.
- */
-static inline void tdcall(u64 fn, struct tdx_module_args *args)
-{
-	if (__tdcall_ret(fn, args))
-		panic("TDCALL %lld failed (Buggy TDX module!)\n", fn);
-}
 
 static inline u64 tdg_vm_rd(u64 field)
 {

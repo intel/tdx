@@ -63,17 +63,6 @@
 #define TDX_R14		BIT(14)
 #define TDX_R15		BIT(15)
 
-/*
- * These registers are clobbered to hold arguments for each
- * TDVMCALL. They are safe to expose to the VMM.
- * Each bit in this mask represents a register ID. Bit field
- * details can be found in TDX GHCI specification, section
- * titled "TDCALL [TDG.VP.VMCALL] leaf".
- */
-#define TDVMCALL_EXPOSE_REGS_MASK	\
-	(TDX_RDX | TDX_RBX | TDX_RSI | TDX_RDI | TDX_R8  | TDX_R9  | \
-	 TDX_R10 | TDX_R11 | TDX_R12 | TDX_R13 | TDX_R14 | TDX_R15)
-
 /* TDX supported page sizes from the TDX module ABI. */
 #define TDX_PS_4K	0
 #define TDX_PS_2M	1
@@ -198,7 +187,7 @@
 })
 
 /*
- * Used in __tdcall*() to gather the input/output registers' values of the
+ * Used in __seamcall*() to gather the input/output registers' values of the
  * TDCALL instruction when requesting services from the TDX module. This is a
  * software only structure and not part of the TDX module/VMM ABI
  */
@@ -220,36 +209,6 @@ struct tdx_module_args {
 	u64 rdi;
 	u64 rsi;
 };
-
-/* Used to communicate with the TDX module */
-u64 __tdcall(u64 fn, struct tdx_module_args *args);
-u64 __tdcall_ret(u64 fn, struct tdx_module_args *args);
-u64 __tdcall_saved_ret(u64 fn, struct tdx_module_args *args);
-
-/* Used to request services from the VMM */
-u64 __tdx_hypercall(struct tdx_module_args *args);
-
-/*
- * Wrapper for standard use of __tdx_hypercall with no output aside from
- * return code.
- */
-static inline u64 _tdx_hypercall(u64 fn, u64 r12, u64 r13, u64 r14, u64 r15)
-{
-	struct tdx_module_args args = {
-		.r10 = TDX_HYPERCALL_STANDARD,
-		.r11 = fn,
-		.r12 = r12,
-		.r13 = r13,
-		.r14 = r14,
-		.r15 = r15,
-	};
-
-	return __tdx_hypercall(&args);
-}
-
-
-/* Called from __tdx_hypercall() for unrecoverable failure */
-void __noreturn __tdx_hypercall_failed(void);
 
 bool tdx_accept_memory(phys_addr_t start, phys_addr_t end);
 

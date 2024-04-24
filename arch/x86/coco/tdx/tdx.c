@@ -88,16 +88,14 @@ static inline u64 tdg_vm_rd(u64 field)
 
 static inline u64 tdg_vm_wr(u64 field, u64 value, u64 mask)
 {
-	struct tdx_module_args args = {
-		.rdx = field,
-		.r8 = value,
-		.r9 = mask,
-	};
+	u64 ret;
 
-	tdcall(TDG_VM_WR, &args);
+	ret = TDCALL_1(TDG_VM_WR, 0, field, value, mask, value);
+
+	BUG_ON(ret);
 
 	/* Old value */
-	return args.r8;
+	return value;
 }
 
 static inline u64 tdg_sys_rd(u64 field)

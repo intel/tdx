@@ -382,20 +382,10 @@ static int read_msr(struct pt_regs *regs, struct ve_info *ve)
 
 static int write_msr(struct pt_regs *regs, struct ve_info *ve)
 {
-	struct tdx_module_args args = {
-		.r10 = TDX_HYPERCALL_STANDARD,
-		.r11 = hcall_func(EXIT_REASON_MSR_WRITE),
-		.r12 = regs->cx,
-		.r13 = (u64)regs->dx << 32 | regs->ax,
-	};
+	u64 val = (u64)regs->dx << 32 | regs->ax;
 
-	/*
-	 * Emulate the MSR write via hypercall. More info about ABI
-	 * can be found in TDX Guest-Host-Communication Interface
-	 * (GHCI) section titled "TDG.VP.VMCALL<Instruction.WRMSR>".
-	 */
-	if (__tdx_hypercall(&args))
-		return -EIO;
+        if (TDVMCALL_0(hcall_func(EXIT_REASON_MSR_WRITE), regs->cx, val, 0, 0))
+                return -EIO;
 
 	return ve_instr_len(ve);
 }

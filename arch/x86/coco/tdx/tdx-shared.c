@@ -5,8 +5,8 @@ static unsigned long try_accept_one(phys_addr_t start, unsigned long len,
 				    enum pg_level pg_level)
 {
 	unsigned long accept_size = page_level_size(pg_level);
-	struct tdx_module_args args = {};
 	u8 page_size;
+	u64 ret;
 
 	if (!IS_ALIGNED(start, accept_size))
 		return 0;
@@ -34,8 +34,8 @@ static unsigned long try_accept_one(phys_addr_t start, unsigned long len,
 		return 0;
 	}
 
-	args.rcx = start | page_size;
-	if (__tdcall(TDG_MEM_PAGE_ACCEPT, &args))
+	ret = TDCALL_0(TDG_MEM_PAGE_ACCEPT, start | page_size, 0, 0, 0);
+	if (ret)
 		return 0;
 
 	return accept_size;

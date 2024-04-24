@@ -88,6 +88,24 @@
 
 #include <linux/compiler_attributes.h>
 
+#define TDCALL	".byte	0x66,0x0f,0x01,0xcc\n\t"
+
+#define TDCALL_0(reason, in_rcx, in_rdx, in_r8, in_r9)				\
+({										\
+	long __ret;								\
+										\
+	asm(									\
+		"movq	%5, %%r8\n\t"						\
+		"movq	%6, %%r9\n\t"						\
+		TDCALL								\
+		: "=a" (__ret), ASM_CALL_CONSTRAINT				\
+		: "a" (reason), "c" (in_rcx), "d" (in_rdx),			\
+		  "rm" ((u64)in_r8), "rm" ((u64)in_r9)				\
+		: "r8", "r9"							\
+	);									\
+	__ret;									\
+})
+
 #define TDVMCALL_0(reason, in_r12, in_r13, in_r14, in_r15)			\
 ({										\
 	long __ret;								\

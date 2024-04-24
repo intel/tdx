@@ -118,6 +118,28 @@
 	);									\
 	__ret;									\
 })
+
+#define TDVMCALL_4(reason, in_r12, in_r13, in_r14, in_r15,			\
+		   out_r12, out_r13, out_r14, out_r15)				\
+({										\
+	long __ret;								\
+										\
+	asm(									\
+		"call	tdvmcall_trampoline\n\t"				\
+		"movq	%%r10, %0\n\t"						\
+		"movq	%%r12, %2\n\t"						\
+		"movq	%%r13, %3\n\t"						\
+		"movq	%%r14, %4\n\t"						\
+		"movq	%%r15, %5\n\t"						\
+		: "=r" (__ret), ASM_CALL_CONSTRAINT,				\
+		  "=r" (out_r12), "=r" (out_r13), "=r" (out_r14), "=r" (out_r15)\
+		: "a" (TDX_HYPERCALL_STANDARD), "b" (reason),			\
+		  "D" (in_r12), "S"(in_r13), "d"(in_r14), "c" (in_r15)		\
+		: "r10", "r12", "r13", "r14", "r15"				\
+	);									\
+	__ret;									\
+})
+
 /*
  * Used in __tdcall*() to gather the input/output registers' values of the
  * TDCALL instruction when requesting services from the TDX module. This is a

@@ -392,13 +392,6 @@ static int write_msr(struct pt_regs *regs, struct ve_info *ve)
 
 static int handle_cpuid(struct pt_regs *regs, struct ve_info *ve)
 {
-	struct tdx_module_args args = {
-		.r10 = TDX_HYPERCALL_STANDARD,
-		.r11 = hcall_func(EXIT_REASON_CPUID),
-		.r12 = regs->ax,
-		.r13 = regs->cx,
-	};
-
 	/*
 	 * Only allow VMM to control range reserved for hypervisor
 	 * communication.
@@ -416,18 +409,9 @@ static int handle_cpuid(struct pt_regs *regs, struct ve_info *ve)
 	 * ABI can be found in TDX Guest-Host-Communication Interface
 	 * (GHCI), section titled "VP.VMCALL<Instruction.CPUID>".
 	 */
-	if (__tdx_hypercall(&args))
+        if (TDVMCALL_4(EXIT_REASON_CPUID, regs->ax, regs->cx, 0, 0,
+		       regs->ax, regs->bx, regs->cx, regs->dx))
 		return -EIO;
-
-	/*
-	 * As per TDX GHCI CPUID ABI, r12-r15 registers contain contents of
-	 * EAX, EBX, ECX, EDX registers after the CPUID instruction execution.
-	 * So copy the register contents back to pt_regs.
-	 */
-	regs->ax = args.r12;
-	regs->bx = args.r13;
-	regs->cx = args.r14;
-	regs->dx = args.r15;
 
 	return ve_instr_len(ve);
 }

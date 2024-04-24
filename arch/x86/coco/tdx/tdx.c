@@ -180,21 +180,23 @@ static void __noreturn tdx_panic(const char *msg)
 	tdvmcall_report_fatal_error(0, str);
 }
 
+static void tdg_vp_info(u64 *gpa_width, u64 *attributes)
+{
+	u64 dummy, ret;
+
+	ret = TDCALL_5(TDG_VP_INFO, 0, 0, 0, 0, *gpa_width, *attributes, dummy,
+		       dummy, dummy);
+	BUG_ON(ret);
+
+	*gpa_width &= GENMASK(5,0);
+}
+
 static void tdx_setup(u64 *cc_mask)
 {
-	struct tdx_module_args args = {};
-	unsigned int gpa_width;
-	u64 td_attr, features;
+	u64 gpa_width, td_attr, features;
 	bool sept_ve_disabled;
 
-	/*
-	 * TDINFO TDX module call is used to get the TD execution environment
-	 * information like GPA width, number of available vcpus, debug mode
-	 * information, etc. More details about the ABI can be found in TDX
-	 * Guest-Host-Communication Interface (GHCI), section 2.4.2 TDCALL
-	 * [TDG.VP.INFO].
-	 */
-	tdcall(TDG_VP_INFO, &args);
+	tdg_vp_info(&gpa_width, &td_attr);
 
 	/*
 	 * The highest bit of a guest physical address is the "sharing" bit.
@@ -203,10 +205,7 @@ static void tdx_setup(u64 *cc_mask)
 	 * The GPA width that comes out of this call is critical. TDX guests
 	 * can not meaningfully run without it.
 	 */
-	gpa_width = args.rcx & GENMASK(5, 0);
 	*cc_mask = BIT_ULL(gpa_width - 1);
-
-	td_attr = args.rdx;
 
 	/* Kernel does not use NOTIFY_ENABLES and does not need random #VEs */
 	tdg_vm_wr(TDCS_NOTIFY_ENABLES, 0, -1ULL);

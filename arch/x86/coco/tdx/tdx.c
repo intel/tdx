@@ -171,7 +171,8 @@ EXPORT_SYMBOL_GPL(tdx_mcall_get_report0);
 u64 tdx_hcall_get_quote(u8 *buf, size_t size)
 {
 	/* Since buf is a shared memory, set the shared (decrypted) bits */
-	return _tdx_hypercall(TDVMCALL_GET_QUOTE, cc_mkdec(virt_to_phys(buf)), size, 0, 0);
+	return TDVMCALL_0(TDVMCALL_GET_QUOTE,
+			  cc_mkdec(virt_to_phys(buf)), size, 0, 0);
 }
 EXPORT_SYMBOL_GPL(tdx_hcall_get_quote);
 

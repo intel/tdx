@@ -367,22 +367,16 @@ void __cpuidle tdx_safe_halt(void)
 
 static int read_msr(struct pt_regs *regs, struct ve_info *ve)
 {
-	struct tdx_module_args args = {
-		.r10 = TDX_HYPERCALL_STANDARD,
-		.r11 = hcall_func(EXIT_REASON_MSR_READ),
-		.r12 = regs->cx,
-	};
+        u64 val;
 
-	/*
-	 * Emulate the MSR read via hypercall. More info about ABI
-	 * can be found in TDX Guest-Host-Communication Interface
-	 * (GHCI), section titled "TDG.VP.VMCALL<Instruction.RDMSR>".
-	 */
-	if (__tdx_hypercall(&args))
-		return -EIO;
+        if (TDVMCALL_1(hcall_func(EXIT_REASON_MSR_READ),
+		       regs->cx, 0, 0, 0, val)) {
+                return -EIO;
+	}
 
-	regs->ax = lower_32_bits(args.r11);
-	regs->dx = upper_32_bits(args.r11);
+	regs->ax = lower_32_bits(val);
+	regs->dx = upper_32_bits(val);
+
 	return ve_instr_len(ve);
 }
 

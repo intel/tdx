@@ -4708,6 +4708,9 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 	case KVM_CAP_PRE_FAULT_MEMORY:
 		r = tdp_enabled;
 		break;
+	case KVM_CAP_X86_APIC_BUS_CYCLES_NS:
+		r = APIC_BUS_CYCLE_NS_DEFAULT;
+		break;
 	case KVM_CAP_EXIT_HYPERCALL:
 		r = KVM_EXIT_HYPERCALL_VALID_MASK;
 		break;
@@ -6748,6 +6751,30 @@ split_irqchip_unlock:
 		}
 		mutex_unlock(&kvm->lock);
 		break;
+	case KVM_CAP_X86_APIC_BUS_CYCLES_NS: {
+		u64 bus_cycle_ns = cap->args[0];
+		u64 unused;
+
+		/*
+		 * Guard against overflow in tmict_to_ns(). 128 is the highest
+		 * divide value that can be programmed in APIC_TDCR.
+		 */
+		r = -EINVAL;
+		if (!bus_cycle_ns ||
+		    check_mul_overflow((u64)U32_MAX * 128, bus_cycle_ns, &unused))
+			break;
+
+		r = 0;
+		mutex_lock(&kvm->lock);
+		if (!irqchip_in_kernel(kvm))
+			r = -ENXIO;
+		else if (kvm->created_vcpus)
+			r = -EINVAL;
+		else
+			kvm->arch.apic_bus_cycle_ns = bus_cycle_ns;
+		mutex_unlock(&kvm->lock);
+		break;
+	}
 	default:
 		r = -EINVAL;
 		break;

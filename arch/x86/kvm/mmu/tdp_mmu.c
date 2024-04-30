@@ -1772,15 +1772,13 @@ bool kvm_tdp_mmu_write_protect_gfn(struct kvm *kvm,
  *
  * Must be called between kvm_tdp_mmu_walk_lockless_{begin,end}.
  */
-int kvm_tdp_mmu_get_walk(struct kvm_vcpu *vcpu, u64 addr, u64 *sptes,
-			 int *root_level)
+static int __kvm_tdp_mmu_get_walk(struct kvm_vcpu *vcpu, u64 addr, u64 *sptes,
+				  bool is_private)
 {
 	struct tdp_iter iter;
 	struct kvm_mmu *mmu = vcpu->arch.mmu;
 	gfn_t gfn = addr >> PAGE_SHIFT;
 	int leaf = -1;
-
-	*root_level = vcpu->arch.mmu->root_role.level;
 
 	tdp_mmu_for_each_pte(iter, mmu, gfn, gfn + 1) {
 		leaf = iter.level;
@@ -1789,6 +1787,37 @@ int kvm_tdp_mmu_get_walk(struct kvm_vcpu *vcpu, u64 addr, u64 *sptes,
 
 	return leaf;
 }
+
+int kvm_tdp_mmu_get_walk(struct kvm_vcpu *vcpu, u64 addr, u64 *sptes,
+			 int *root_level)
+{
+	*root_level = vcpu->arch.mmu->root_role.level;
+
+	return __kvm_tdp_mmu_get_walk(vcpu, addr, sptes, false);
+}
+
+int kvm_tdp_mmu_get_walk_private_pfn(struct kvm_vcpu *vcpu, u64 gpa,
+				     kvm_pfn_t *pfn)
+{
+	u64 sptes[PT64_ROOT_MAX_LEVEL + 1], spte;
+	int leaf;
+
+	lockdep_assert_held(&vcpu->kvm->mmu_lock);
+
+	rcu_read_lock();
+	leaf = __kvm_tdp_mmu_get_walk(vcpu, gpa, sptes, true);
+	rcu_read_unlock();
+	if (leaf < 0)
+		return -ENOENT;
+
+	spte = sptes[leaf];
+	if (!(is_shadow_present_pte(spte) && is_last_spte(spte, leaf)))
+		return -ENOENT;
+
+	*pfn = spte_to_pfn(spte);
+	return leaf;
+}
+EXPORT_SYMBOL_GPL(kvm_tdp_mmu_get_walk_private_pfn);
 
 /*
  * Returns the last level spte pointer of the shadow page walk for the given

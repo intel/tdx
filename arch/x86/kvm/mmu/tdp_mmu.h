@@ -20,11 +20,17 @@ __must_check static inline bool kvm_tdp_mmu_get_root(struct kvm_mmu_page *root)
 void kvm_tdp_mmu_put_root(struct kvm *kvm, struct kvm_mmu_page *root);
 
 enum kvm_tdp_mmu_root_types {
-	KVM_VALID_ROOTS = BIT(0),
-
-	KVM_ANY_ROOTS = 0,
-	KVM_ANY_VALID_ROOTS = KVM_VALID_ROOTS,
+	BUGGY_KVM_ROOTS = BUGGY_KVM_INVALIDATION,
+	KVM_SHARED_ROOTS = KVM_PROCESS_SHARED,
+	KVM_PRIVATE_ROOTS = KVM_PROCESS_PRIVATE,
+	KVM_VALID_ROOTS = BIT(2),
+	KVM_ANY_VALID_ROOTS = KVM_SHARED_ROOTS | KVM_PRIVATE_ROOTS | KVM_VALID_ROOTS,
+	KVM_ANY_ROOTS = KVM_SHARED_ROOTS | KVM_PRIVATE_ROOTS,
 };
+
+static_assert(!(KVM_SHARED_ROOTS & KVM_VALID_ROOTS));
+static_assert(!(KVM_PRIVATE_ROOTS & KVM_VALID_ROOTS));
+static_assert(KVM_PRIVATE_ROOTS == (KVM_SHARED_ROOTS << 1));
 
 bool kvm_tdp_mmu_zap_leafs(struct kvm *kvm, gfn_t start, gfn_t end, bool flush);
 bool kvm_tdp_mmu_zap_sp(struct kvm *kvm, struct kvm_mmu_page *sp);

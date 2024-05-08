@@ -95,10 +95,20 @@ void kvm_tdp_mmu_put_root(struct kvm *kvm, struct kvm_mmu_page *root)
 static bool tdp_mmu_root_match(struct kvm_mmu_page *root,
 			       enum kvm_tdp_mmu_root_types types)
 {
+	if (WARN_ON_ONCE(types == BUGGY_KVM_ROOTS))
+		return false;
+	if (WARN_ON_ONCE(!(types & (KVM_SHARED_ROOTS | KVM_PRIVATE_ROOTS))))
+		return false;
+
 	if ((types & KVM_VALID_ROOTS) && root->role.invalid)
 		return false;
 
-	return true;
+	if ((types & KVM_SHARED_ROOTS) && !is_private_sp(root))
+		return true;
+	if ((types & KVM_PRIVATE_ROOTS) && is_private_sp(root))
+		return true;
+
+	return false;
 }
 
 /*

@@ -12952,6 +12952,23 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
 		if ((new->base_gfn + new->npages - 1) > kvm_mmu_max_gfn())
 			return -EINVAL;
 
+		/*
+		 * Since TDX private pages requires re-accepting after zap,
+		 * and TDX private root page should not be zapped, TDX requires
+		 * memslots for private memory must have flag
+		 * KVM_MEM_ZAP_LEAFS_ONLY set too, so that only leaf SPTEs of
+		 * the deleting memslot will be zapped and SPTEs in other
+		 * memslots would not be affected.
+		 */
+		if (kvm->arch.vm_type == KVM_X86_TDX_VM &&
+		    (new->flags & KVM_MEM_GUEST_MEMFD) &&
+		    !(new->flags & KVM_MEM_ZAP_LEAFS_ONLY))
+			return -EINVAL;
+
+		/* zap-leafs-only works only when TDP MMU is enabled for now */
+		if ((new->flags & KVM_MEM_ZAP_LEAFS_ONLY) && !tdp_mmu_enabled)
+			return -EINVAL;
+
 		return kvm_alloc_memslot_metadata(kvm, new);
 	}
 

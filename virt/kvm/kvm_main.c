@@ -1568,6 +1568,8 @@ static int check_memory_region_flags(struct kvm *kvm,
 	if (kvm_arch_has_private_mem(kvm))
 		valid_flags |= KVM_MEM_GUEST_MEMFD;
 
+	valid_flags |= KVM_MEM_ZAP_LEAFS_ONLY;
+
 	/* Dirty logging private memory is not currently supported. */
 	if (mem->flags & KVM_MEM_GUEST_MEMFD)
 		valid_flags &= ~KVM_MEM_LOG_DIRTY_PAGES;
@@ -2052,7 +2054,8 @@ int __kvm_set_memory_region(struct kvm *kvm,
 			return -EINVAL;
 		if ((mem->userspace_addr != old->userspace_addr) ||
 		    (npages != old->npages) ||
-		    ((mem->flags ^ old->flags) & KVM_MEM_READONLY))
+		    ((mem->flags ^ old->flags) &
+		     (KVM_MEM_READONLY | KVM_MEM_ZAP_LEAFS_ONLY)))
 			return -EINVAL;
 
 		if (base_gfn != old->base_gfn)

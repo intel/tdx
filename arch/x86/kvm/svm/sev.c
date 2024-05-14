@@ -3965,13 +3965,10 @@ static int __snp_handle_guest_req(struct kvm *kvm, gpa_t req_gpa, gpa_t resp_gpa
 				  sev_ret_code *fw_err)
 {
 	struct sev_data_snp_guest_request data = {0};
-	struct kvm_sev_info *sev;
 	int ret;
 
 	if (!sev_snp_guest(kvm))
 		return -EINVAL;
-
-	sev = &to_kvm_svm(kvm)->sev_info;
 
 	ret = snp_setup_guest_buf(kvm, &data, req_gpa, resp_gpa);
 	if (ret)

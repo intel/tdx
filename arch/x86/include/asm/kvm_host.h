@@ -1535,6 +1535,8 @@ struct kvm_arch {
 	 */
 #define SPLIT_DESC_CACHE_MIN_NR_OBJECTS (SPTE_ENT_PER_PAGE + 1)
 	struct kvm_mmu_memory_cache split_desc_cache;
+
+	gfn_t gfn_direct_mask;
 };
 
 struct kvm_vm_stat {
@@ -1908,14 +1910,7 @@ static inline int kvm_arch_flush_remote_tlbs(struct kvm *kvm)
 }
 
 #define __KVM_HAVE_ARCH_FLUSH_REMOTE_TLBS_RANGE
-static inline int kvm_arch_flush_remote_tlbs_range(struct kvm *kvm, gfn_t gfn,
-						   u64 nr_pages)
-{
-	if (!kvm_x86_ops.flush_remote_tlbs_range)
-		return -EOPNOTSUPP;
-
-	return static_call(kvm_x86_flush_remote_tlbs_range)(kvm, gfn, nr_pages);
-}
+int kvm_arch_flush_remote_tlbs_range(struct kvm *kvm, gfn_t gfn, u64 nr_pages);
 #endif /* CONFIG_HYPERV */
 
 enum kvm_intr_type {

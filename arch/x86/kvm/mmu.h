@@ -347,4 +347,9 @@ static inline bool kvm_on_direct(const struct kvm *kvm, enum kvm_process process
 
 	return process & KVM_PROCESS_SHARED;
 }
+
+static inline bool kvm_zap_leafs_only(const struct kvm *kvm)
+{
+	return kvm->arch.vm_type == KVM_X86_TDX_VM;
+}
 #endif

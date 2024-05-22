@@ -328,4 +328,20 @@ static inline gfn_t kvm_gfn_direct_mask(const struct kvm *kvm)
 {
 	return kvm->arch.gfn_direct_mask;
 }
+
+static inline bool kvm_on_mirror(const struct kvm *kvm, enum kvm_process process)
+{
+	if (!kvm_has_mirrored_tdp(kvm))
+		return false;
+
+	return process & KVM_PROCESS_PRIVATE;
+}
+
+static inline bool kvm_on_direct(const struct kvm *kvm, enum kvm_process process)
+{
+	if (!kvm_has_mirrored_tdp(kvm))
+		return true;
+
+	return process & KVM_PROCESS_SHARED;
+}
 #endif

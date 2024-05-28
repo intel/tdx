@@ -6,6 +6,7 @@
  */
 
 #include <linux/device/faux.h>
+#include <linux/dmar.h>
 #include <linux/firmware.h>
 #include <linux/module.h>
 #include <linux/mod_devicetable.h>
@@ -122,6 +123,11 @@ static void unregister_link_tsm(void *link)
 	tsm_unregister(link);
 }
 
+static void release_intel_tdxc(void *data)
+{
+	intel_tdxc_exit();
+}
+
 static int tdx_tdisp_init(struct device *dev)
 {
 	struct tsm_dev *link;
@@ -129,6 +135,14 @@ static int tdx_tdisp_init(struct device *dev)
 
 	if (!tdx_supports_tdisp(tdx_sysinfo))
 		return 0;
+
+	ret = intel_tdxc_init();
+	if (ret)
+		return dev_err_probe(dev, ret, "Enable tdx iommu failed\n");
+
+	ret = devm_add_action_or_reset(dev, release_intel_tdxc, NULL);
+	if (ret)
+		return ret;
 
 	link = tsm_register(dev, &tdx_tsm_link_ops);
 	if (IS_ERR(link))

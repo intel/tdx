@@ -1748,6 +1748,13 @@ struct kvm_x86_ops {
 	void (*load_mmu_pgd)(struct kvm_vcpu *vcpu, hpa_t root_hpa,
 			     int root_level);
 
+	/* Update mirrored mapping with page table link */
+	int (*reflect_link_spt)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+				void *mirrored_spt);
+	/* Update the mirrored page table from spte getting set */
+	int (*reflect_set_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+				kvm_pfn_t pfn);
+
 	bool (*has_wbinvd_exit)(void);
 
 	u64 (*get_l2_tsc_offset)(struct kvm_vcpu *vcpu);

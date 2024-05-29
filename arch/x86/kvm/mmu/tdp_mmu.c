@@ -346,6 +346,29 @@ static void tdp_mmu_unlink_sp(struct kvm *kvm, struct kvm_mmu_page *sp)
 	spin_unlock(&kvm->arch.tdp_mmu_pages_lock);
 }
 
+static void reflect_removed_spte(struct kvm *kvm, gfn_t gfn,
+					u64 old_spte, u64 new_spte,
+					int level)
+{
+	bool was_present = is_shadow_present_pte(old_spte);
+	bool was_leaf = was_present && is_last_spte(old_spte, level);
+	kvm_pfn_t old_pfn = spte_to_pfn(old_spte);
+	int ret;
+
+	/*
+	 * Allow only leaf page to be zapped. Reclaim non-leaf page tables page
+	 * at destroying VM.
+	 */
+	if (!was_leaf)
+		return;
+
+	/* Zapping leaf spte is allowed only when write lock is held. */
+	lockdep_assert_held_write(&kvm->mmu_lock);
+	/* Because write lock is held, operation should success. */
+	ret = static_call(kvm_x86_reflect_remove_spte)(kvm, gfn, level, old_pfn);
+	KVM_BUG_ON(ret, kvm);
+}
+
 /**
  * handle_removed_pt() - handle a page table removed from the TDP structure
  *
@@ -441,6 +464,22 @@ static void handle_removed_pt(struct kvm *kvm, tdp_ptep_t pt, bool shared)
 		}
 		handle_changed_spte(kvm, kvm_mmu_page_as_id(sp), gfn,
 				    old_spte, REMOVED_SPTE, sp->role, shared);
+		if (is_mirror_sp(sp)) {
+			KVM_BUG_ON(shared, kvm);
+			reflect_removed_spte(kvm, gfn, old_spte, REMOVED_SPTE, level);
+		}
+	}
+
+	if (is_mirror_sp(sp) &&
+	    WARN_ON(static_call(kvm_x86_reflect_free_spt)(kvm, sp->gfn, sp->role.level,
+							  kvm_mmu_mirrored_spt(sp)))) {
+		/*
+		 * Failed to free page table page in mirror page table and
+		 * there is nothing to do further.
+		 * Intentionally leak the page to prevent the kernel from
+		 * accessing the encrypted page.
+		 */
+		sp->mirrored_spt = NULL;
 	}
 
 	call_rcu(&sp->rcu_head, tdp_mmu_free_sp_rcu_callback);
@@ -778,9 +817,11 @@ static u64 tdp_mmu_set_spte(struct kvm *kvm, int as_id, tdp_ptep_t sptep,
 	role.level = level;
 	handle_changed_spte(kvm, as_id, gfn, old_spte, new_spte, role, false);
 
-	/* Don't support setting for the non-atomic case */
-	if (is_mirror_sptep(sptep))
+	if (is_mirror_sptep(sptep)) {
+		/* Only support zapping for the non-atomic case */
 		KVM_BUG_ON(is_shadow_present_pte(new_spte), kvm);
+		reflect_removed_spte(kvm, gfn, old_spte, REMOVED_SPTE, level);
+	}
 
 	return old_spte;
 }

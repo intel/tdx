@@ -1755,6 +1755,14 @@ struct kvm_x86_ops {
 	int (*reflect_set_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 				kvm_pfn_t pfn);
 
+	/* Update mirrored page tables for page table about to be freed */
+	int (*reflect_free_spt)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+				void *mirrored_spt);
+
+	/* Update mirrored page table from spte getting removed, and flush TLB */
+	int (*reflect_remove_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+				   kvm_pfn_t pfn);
+
 	bool (*has_wbinvd_exit)(void);
 
 	u64 (*get_l2_tsc_offset)(struct kvm_vcpu *vcpu);

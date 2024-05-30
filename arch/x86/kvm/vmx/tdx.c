@@ -1884,6 +1884,7 @@ bool tdx_has_emulated_msr(u32 index)
 	case MSR_MISC_FEATURES_ENABLES:
 	case MSR_IA32_APICBASE:
 	case MSR_EFER:
+	case MSR_IA32_FEAT_CTL:
 	case MSR_IA32_MCG_CAP:
 	case MSR_IA32_MCG_STATUS:
 	case MSR_IA32_MCG_CTL:
@@ -1916,12 +1917,27 @@ bool tdx_has_emulated_msr(u32 index)
 
 static bool tdx_is_read_only_msr(u32 index)
 {
-	return  index == MSR_IA32_APICBASE || index == MSR_EFER;
+	return  index == MSR_IA32_APICBASE || index == MSR_EFER ||
+		index == MSR_IA32_FEAT_CTL;
 }
 
 int tdx_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 {
 	switch (msr->index) {
+	case MSR_IA32_FEAT_CTL:
+		/*
+		 * MCE and MCA are advertised via cpuid. guest kernel could
+		 * check if LMCE is enabled or not.
+		 */
+		msr->data = FEAT_CTL_LOCKED;
+		if (vcpu->arch.mcg_cap & MCG_LMCE_P)
+			msr->data |= FEAT_CTL_LMCE_ENABLED;
+		return 0;
+	case MSR_IA32_MCG_EXT_CTL:
+		if (!msr->host_initiated && !(vcpu->arch.mcg_cap & MCG_LMCE_P))
+			return 1;
+		msr->data = vcpu->arch.mcg_ext_ctl;
+		return 0;
 	case MSR_MTRRcap:
 		/*
 		 * Override kvm_mtrr_get_msr() which hardcodes the value.
@@ -1941,6 +1957,11 @@ int tdx_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 int tdx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 {
 	switch (msr->index) {
+	case MSR_IA32_MCG_EXT_CTL:
+		if (!msr->host_initiated && !(vcpu->arch.mcg_cap & MCG_LMCE_P))
+			return 1;
+		vcpu->arch.mcg_ext_ctl = msr->data;
+		return 0;
 	case MSR_MTRRdefType:
 		/*
 		 * Allow writeback only for all memory.

@@ -843,8 +843,11 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 
 	trace_kvm_entry(vcpu, force_immediate_exit);
 
-	if (pi_test_on(&tdx->pi_desc))
+	if (pi_test_on(&tdx->pi_desc)) {
 		apic->send_IPI_self(POSTED_INTR_VECTOR);
+
+		kvm_wait_lapic_expire(vcpu);
+	}
 
 	tdx_vcpu_enter_exit(vcpu);
 

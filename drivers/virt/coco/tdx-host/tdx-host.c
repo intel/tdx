@@ -14,6 +14,7 @@
 #include <linux/sysfs.h>
 #include <linux/pci.h>
 #include <linux/pci-doe.h>
+#include <linux/pci-ide.h>
 #include <linux/pci-tsm.h>
 #include <linux/tsm.h>
 
@@ -65,6 +66,10 @@ struct tdx_tsm_link {
 	struct page *out_msg;
 	unsigned int spdm_mt_nr_pages;
 	void *spdm_mt;
+
+	struct pci_ide *ide;
+	struct page *stream_mt;
+	unsigned int stream_id;
 };
 
 static struct tdx_tsm_link *to_tdx_tsm_link(struct pci_tsm *tsm)
@@ -364,17 +369,184 @@ static void tdx_spdm_session_teardown(struct tdx_tsm_link *tlink)
 	tdx_spdm_delete(tlink);
 }
 
+static void sel_stream_block_regs(struct pci_dev *pdev, struct pci_ide *ide,
+				  struct pci_ide_regs *regs)
+{
+	struct pci_dev *rp = pcie_find_root_port(pdev);
+	struct pci_ide_partner *setting = pci_ide_to_settings(rp, ide);
+
+	/* only support address association for prefetchable memory */
+	setting->mem_assoc = (struct pci_bus_region) { 0, -1 };
+	pci_ide_stream_to_regs(rp, ide, regs);
+}
+
+#define STREAM_INFO_RP_DEVFN		GENMASK_ULL(7, 0)
+#define STREAM_INFO_TYPE		BIT_ULL(8)
+#define  STREAM_INFO_TYPE_LINK		0
+#define  STREAM_INFO_TYPE_SEL		1
+
+static int tdx_ide_stream_create(struct tdx_tsm_link *tlink,
+				 struct pci_ide *ide)
+{
+	u64 stream_info, stream_ctrl, stream_id;
+	struct pci_dev *pdev = tlink->pci.base_tsm.pdev;
+	struct pci_dev *rp = pcie_find_root_port(pdev);
+	struct pci_ide_regs regs;
+	struct page *stream_mt;
+	u64 sret;
+	int ret;
+
+
+	stream_mt = alloc_page(GFP_KERNEL | __GFP_ZERO);
+	if (!stream_mt)
+		return -ENOMEM;
+
+	stream_info = FIELD_PREP(STREAM_INFO_RP_DEVFN, rp->devfn);
+	stream_info |= FIELD_PREP(STREAM_INFO_TYPE, STREAM_INFO_TYPE_SEL);
+
+	/*
+	 * For Selective IDE stream, below values must be 0:
+	 *   NPR_AGG/PR_AGG/CPL_AGG/CONF_REQ/ALGO/DEFAULT/STREAM_ID
+	 *
+	 * below values are configurable but now hardcode to 0:
+	 *   PCRC/TC
+	 */
+	stream_ctrl = FIELD_PREP(PCI_IDE_SEL_CTL_EN, 0) |
+		      FIELD_PREP(PCI_IDE_SEL_CTL_TX_AGGR_NPR, 0) |
+		      FIELD_PREP(PCI_IDE_SEL_CTL_TX_AGGR_PR, 0) |
+		      FIELD_PREP(PCI_IDE_SEL_CTL_TX_AGGR_CPL, 0) |
+		      FIELD_PREP(PCI_IDE_SEL_CTL_PCRC_EN, 0) |
+		      FIELD_PREP(PCI_IDE_SEL_CTL_CFG_EN, 0) |
+		      FIELD_PREP(PCI_IDE_SEL_CTL_ALG, 0) |
+		      FIELD_PREP(PCI_IDE_SEL_CTL_TC, 0) |
+		      FIELD_PREP(PCI_IDE_SEL_CTL_ID, 0);
+
+	sel_stream_block_regs(pdev, ide, &regs);
+	if (regs.nr_addr != 1) {
+		ret = -EFAULT;
+		goto out_free_stream_mt;
+	}
+
+	sret = tdh_ide_stream_create(stream_info, tlink->spdm_id,
+				     stream_mt, stream_ctrl,
+				     regs.rid1, regs.rid2, regs.addr[0].assoc1,
+				     regs.addr[0].assoc2, regs.addr[0].assoc3,
+				     &stream_id);
+	if (sret) {
+		ret = -EFAULT;
+		goto out_free_stream_mt;
+	}
+
+	tlink->stream_id = stream_id;
+	tlink->stream_mt = stream_mt;
+
+	return 0;
+
+out_free_stream_mt:
+	__free_page(stream_mt);
+
+	return ret;
+}
+
+static void tdx_ide_stream_delete(struct tdx_tsm_link *tlink)
+{
+	struct pci_dev *pdev = tlink->pci.base_tsm.pdev;
+	u64 sret;
+
+	sret = tdh_ide_stream_block(tlink->spdm_id, tlink->stream_id);
+	if (sret) {
+		/* leak the metadata pages */
+		pci_err(pdev, "ide stream block fail 0x%llx\n", sret);
+		return;
+	}
+
+	sret = tdh_ide_stream_delete(tlink->spdm_id, tlink->stream_id);
+	if (sret) {
+		pci_err(pdev, "ide stream delete fail 0x%llx\n", sret);
+		return;
+	}
+
+	__free_page(tlink->stream_mt);
+}
+
+static int tdx_ide_stream_setup(struct tdx_tsm_link *tlink)
+{
+	struct pci_dev *pdev = tlink->pci.base_tsm.pdev;
+	struct pci_ide *ide;
+	int ret;
+
+	ide = pci_ide_stream_alloc(pdev);
+	if (!ide)
+		return -ENOMEM;
+
+	/* Configure IDE capability for RP & get stream_id */
+	ret = tdx_ide_stream_create(tlink, ide);
+	if (ret)
+		goto out_pci_ide_stream_free;
+
+	ide->stream_id = tlink->stream_id;
+	ret = pci_ide_stream_register(ide);
+	if (ret)
+		goto out_tdx_ide_stream_delete;
+
+	/*
+	 * Configure IDE capability for target device
+	 *
+	 * Some test devices work only with DEFAULT_STREAM enabled. For
+	 * simplicity, enable DEFAULT_STREAM for all devices. A future decent
+	 * solution may be to have a quirk table to specify which devices need
+	 * DEFAULT_STREAM.
+	 */
+	ide->partner[PCI_IDE_EP].default_stream = 1;
+	pci_ide_stream_setup(pdev, ide);
+
+	tlink->ide = ide;
+
+	return 0;
+
+out_tdx_ide_stream_delete:
+	tdx_ide_stream_delete(tlink);
+out_pci_ide_stream_free:
+	pci_ide_stream_free(ide);
+
+	return ret;
+}
+
+static void tdx_ide_stream_teardown(struct tdx_tsm_link *tlink)
+{
+	struct pci_ide *ide = tlink->ide;
+
+	pci_ide_stream_teardown(ide->pdev, ide);
+	pci_ide_stream_unregister(ide);
+	tdx_ide_stream_delete(tlink);
+	pci_ide_stream_free(ide);
+}
+
 static int tdx_tsm_link_connect(struct pci_dev *pdev)
 {
 	struct tdx_tsm_link *tlink = to_tdx_tsm_link(pdev->tsm);
+	int ret;
 
-	return tdx_spdm_session_setup(tlink);
+	ret = tdx_spdm_session_setup(tlink);
+	if (ret)
+		return ret;
+
+	ret = tdx_ide_stream_setup(tlink);
+	if (ret)
+		goto out_spdm_teardown;
+
+	return 0;
+
+out_spdm_teardown:
+	tdx_spdm_session_teardown(tlink);
+	return ret;
 }
 
 static void tdx_tsm_link_disconnect(struct pci_dev *pdev)
 {
 	struct tdx_tsm_link *tlink = to_tdx_tsm_link(pdev->tsm);
 
+	tdx_ide_stream_teardown(tlink);
 	tdx_spdm_session_teardown(tlink);
 }
 

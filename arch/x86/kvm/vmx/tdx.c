@@ -31,6 +31,19 @@ static void __used tdx_guest_keyid_free(int keyid)
 	ida_free(&tdx_guest_keyid_pool, keyid);
 }
 
+#define KVM_TDX_CPUID_NO_SUBLEAF	((__u32)-1)
+
+struct kvm_tdx_caps {
+	u64 supported_attrs;
+	u64 supported_xfam;
+
+	u16 num_cpuid_config;
+	/* This must the last member. */
+	DECLARE_FLEX_ARRAY(struct kvm_tdx_cpuid_config, cpuid_configs);
+};
+
+static struct kvm_tdx_caps *kvm_tdx_caps;
+
 static int tdx_get_capabilities(struct kvm_tdx_cmd *cmd)
 {
 	const struct tdx_sysinfo_td_conf *td_conf = &tdx_sysinfo->td_conf;
@@ -131,6 +144,52 @@ out:
 	return r;
 }
 
+#define KVM_SUPPORTED_TD_ATTRS (TDX_TD_ATTR_SEPT_VE_DISABLE)
+
+static int __init setup_kvm_tdx_caps(void)
+{
+	const struct tdx_sysinfo_td_conf *td_conf = &tdx_sysinfo->td_conf;
+	u64 kvm_supported;
+	int i;
+
+	kvm_tdx_caps = kzalloc(sizeof(*kvm_tdx_caps) +
+			       sizeof(struct kvm_tdx_cpuid_config) * td_conf->num_cpuid_config + 1,
+			       GFP_KERNEL);
+	if (!kvm_tdx_caps)
+		return -ENOMEM;
+
+	kvm_supported = KVM_SUPPORTED_TD_ATTRS;
+	if (((kvm_supported | td_conf->attributes_fixed1) & td_conf->attributes_fixed0) != kvm_supported)
+		return -EIO;
+	kvm_tdx_caps->supported_attrs = kvm_supported;
+
+	kvm_supported = kvm_caps.supported_xcr0 | kvm_caps.supported_xss;
+	if (((kvm_supported | td_conf->xfam_fixed1) & td_conf->xfam_fixed0) != kvm_supported)
+		return -EIO;
+	kvm_tdx_caps->supported_xfam = kvm_supported;
+
+	kvm_tdx_caps->num_cpuid_config = td_conf->num_cpuid_config;
+	for (i = 0; i < td_conf->num_cpuid_config; i++)
+	{
+		struct kvm_tdx_cpuid_config source = {
+			.leaf = (u32)td_conf->cpuid_config_leaves[i],
+			.sub_leaf = td_conf->cpuid_config_leaves[i] >> 32,
+			.eax = (u32)td_conf->cpuid_config_values[i].eax_ebx,
+			.ebx = td_conf->cpuid_config_values[i].eax_ebx >> 32,
+			.ecx = (u32)td_conf->cpuid_config_values[i].ecx_edx,
+			.edx = td_conf->cpuid_config_values[i].ecx_edx >> 32,
+		};
+		struct kvm_tdx_cpuid_config *dest =
+			&kvm_tdx_caps->cpuid_configs[i];
+
+		memcpy(dest, &source, sizeof(struct kvm_tdx_cpuid_config));
+		if (dest->sub_leaf == KVM_TDX_CPUID_NO_SUBLEAF)
+			dest->sub_leaf = 0;
+	}
+
+	return 0;
+}
+
 static int tdx_online_cpu(unsigned int cpu)
 {
 	unsigned long flags;
@@ -217,11 +276,16 @@ static int __init __tdx_bringup(void)
 		goto get_sysinfo_err;
 	}
 
+	r = setup_kvm_tdx_caps();
+	if (r)
+		goto setup_tdx_caps_err;
+
 	/*
 	 * Leave hardware virtualization enabled after TDX is enabled
 	 * successfully.  TDX CPU hotplug depends on this.
 	 */
 	return 0;
+setup_tdx_caps_err:
 get_sysinfo_err:
 	__do_tdx_cleanup();
 tdx_bringup_err:

@@ -951,8 +951,6 @@ struct kvm_tdx_cmd {
 	__u64 hw_error;
 };
 
-#define KVM_TDX_CPUID_NO_SUBLEAF	((__u32)-1)
-
 struct kvm_tdx_cpuid_config {
 	__u32 leaf;
 	__u32 sub_leaf;

@@ -29,6 +29,9 @@ struct kvm_tdx {
 	bool finalized;
 
 	u64 tsc_offset;
+
+	/* For KVM_MAP_MEMORY and KVM_TDX_INIT_MEM_REGION. */
+	atomic64_t nr_premapped;
 };
 
 struct vcpu_tdx {

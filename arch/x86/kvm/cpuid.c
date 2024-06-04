@@ -1487,6 +1487,31 @@ out_free:
 	return r;
 }
 
+int kvm_get_supported_cpuid_internal(struct kvm_cpuid2 *cpuid, const u32 *funcs,
+				     int funcs_len)
+{
+	struct kvm_cpuid_array array = {
+		.nent = 0,
+	};
+	int i, r;
+
+	if (cpuid->nent < 1 || cpuid->nent > KVM_MAX_CPUID_ENTRIES)
+		return -E2BIG;
+
+	array.maxnent = cpuid->nent;
+	array.entries = cpuid->entries;
+
+	for (i = 0; i < funcs_len; i++) {
+		r = get_cpuid_func(&array, funcs[i], KVM_GET_SUPPORTED_CPUID);
+		if (r)
+			return r;
+	}
+
+	cpuid->nent = array.nent;
+	return 0;
+}
+EXPORT_SYMBOL_GPL(kvm_get_supported_cpuid_internal);
+
 struct kvm_cpuid_entry2 *kvm_find_cpuid_entry2(
 	struct kvm_cpuid_entry2 *entries, int nent, u32 function, u64 index)
 {

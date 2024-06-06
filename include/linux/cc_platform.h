@@ -98,6 +98,17 @@ enum cc_attr {
 	 * enabled to run SEV-SNP guests.
 	 */
 	CC_ATTR_HOST_SEV_SNP,
+
+	/**
+	 * @CC_ATTR_GUEST_DEVICE_FILTER: Filter device enumeration as per
+	 * platform specific allow list.
+	 *
+	 * The platform/OS is running as a guest/virtual machine and allows or
+	 * dis-allows device enumeration as per platform specific allow list.
+	 *
+	 * Examples include TDX guest.
+	 */
+	CC_ATTR_GUEST_DEVICE_FILTER,
 };
 
 #ifdef CONFIG_ARCH_HAS_CC_PLATFORM

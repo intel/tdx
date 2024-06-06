@@ -10,8 +10,10 @@
 #include <linux/irq.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
+#include <linux/pci.h>
 #include <asm/coco.h>
 #include <asm/tdx.h>
+#include <asm/i8259.h>
 #include <asm/vmx.h>
 #include <asm/ia32.h>
 #include <asm/insn.h>
@@ -893,6 +895,9 @@ void __init tdx_early_init(void)
 		return;
 
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
+	setup_clear_cpu_cap(X86_FEATURE_MCE);
+	setup_clear_cpu_cap(X86_FEATURE_MTRR);
+	setup_clear_cpu_cap(X86_FEATURE_TME);
 
 	/* TSC is the only reliable clock in TDX guest */
 	setup_force_cpu_cap(X86_FEATURE_TSC_RELIABLE);
@@ -947,6 +952,11 @@ void __init tdx_early_init(void)
 	 * Until that is in place, disable parallel bringup for TDX.
 	 */
 	x86_cpuinit.parallel_bringup = false;
+
+	legacy_pic = &null_legacy_pic;
+
+	pci_disable_early();
+	pci_disable_mmconf();
 
 	pr_info("Guest detected\n");
 }

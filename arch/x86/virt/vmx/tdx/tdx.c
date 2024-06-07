@@ -302,6 +302,55 @@ static int __read_sys_metadata_field(u64 field_id, void *val, int size)
 					&_stbuf->_member);			\
 	})
 
+static int get_tdx_sys_info_features(struct tdx_sys_info_features *sysinfo_features)
+{
+	int ret = 0;
+
+#define TD_SYSINFO_MAP_MOD_FEATURES(_field_id, _member)	\
+	TD_SYSINFO_MAP(_field_id, sysinfo_features, _member)
+
+	TD_SYSINFO_MAP_MOD_FEATURES(TDX_FEATURES0, tdx_features0);
+
+	return ret;
+}
+
+static int get_tdx_sys_info_version(struct tdx_sys_info_version *sysinfo_version)
+{
+	int ret = 0;
+
+#define TD_SYSINFO_MAP_MOD_VERSION(_field_id, _member)	\
+	TD_SYSINFO_MAP(_field_id, sysinfo_version, _member)
+
+	TD_SYSINFO_MAP_MOD_VERSION(MAJOR_VERSION,    major);
+	TD_SYSINFO_MAP_MOD_VERSION(MINOR_VERSION,    minor);
+	TD_SYSINFO_MAP_MOD_VERSION(UPDATE_VERSION,   update);
+	TD_SYSINFO_MAP_MOD_VERSION(INTERNAL_VERSION, internal);
+	TD_SYSINFO_MAP_MOD_VERSION(BUILD_NUM,	     build_num);
+	TD_SYSINFO_MAP_MOD_VERSION(BUILD_DATE,	     build_date);
+
+	return ret;
+}
+
+static void print_basic_sys_info(struct tdx_sys_info *sysinfo)
+{
+	struct tdx_sys_info_features *features = &sysinfo->features;
+	struct tdx_sys_info_version *version = &sysinfo->version;
+
+	/*
+	 * TDX module version encoding:
+	 *
+	 *   <major>.<minor>.<update>.<internal>.<build_num>
+	 *
+	 * When printed as text, <major> and <minor> are 1-digit,
+	 * <update> and <internal> are 2-digits and <build_num>
+	 * is 4-digits.
+	 */
+	pr_info("Initializing TDX module: %u.%u.%02u.%02u.%04u (build_date %u), TDX_FEATURES0 0x%llx\n",
+			version->major, version->minor,	version->update,
+			version->internal, version->build_num,
+			version->build_date, features->tdx_features0);
+}
+
 static int get_tdx_sys_info_tdmr(struct tdx_sys_info_tdmr *sysinfo_tdmr)
 {
 	int ret = 0;
@@ -320,6 +369,16 @@ static int get_tdx_sys_info_tdmr(struct tdx_sys_info_tdmr *sysinfo_tdmr)
 
 static int get_tdx_sys_info(struct tdx_sys_info *sysinfo)
 {
+	int ret;
+
+	ret = get_tdx_sys_info_features(&sysinfo->features);
+	if (ret)
+		return ret;
+
+	ret = get_tdx_sys_info_version(&sysinfo->version);
+	if (ret)
+		return ret;
+
 	return get_tdx_sys_info_tdmr(&sysinfo->tdmr);
 }
 
@@ -1101,6 +1160,8 @@ static int init_tdx_module(void)
 	ret = get_tdx_sys_info(&sysinfo);
 	if (ret)
 		return ret;
+
+	print_basic_sys_info(&sysinfo);
 
 	/*
 	 * To keep things simple, assume that all TDX-protected memory

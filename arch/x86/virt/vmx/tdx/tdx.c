@@ -286,6 +286,7 @@ static int __read_sys_metadata_field##_size(u64 field_id, u##_size *val)	\
 }
 
 build_sysmd_read(16)
+build_sysmd_read(32)
 
 #define read_sys_metadata_field(_field_id, _val, _size)		\
 ({								\
@@ -294,6 +295,26 @@ build_sysmd_read(16)
 	BUILD_BUG_ON(_size != sizeof(*_val) * 8);		\
 	__read_sys_metadata_field##_size(_field_id, _val);	\
 })
+
+static int get_tdx_sys_info_version(struct tdx_sys_info_version *sysinfo_version)
+{
+	int ret = 0;
+
+#define READ_SYS_INFO(_field_id, _member, _size)			\
+	ret = ret ?: read_sys_metadata_field(MD_FIELD_ID_##_field_id,	\
+					&sysinfo_version->_member, _size)
+
+	READ_SYS_INFO(MAJOR_VERSION,    major,      16);
+	READ_SYS_INFO(MINOR_VERSION,    minor,      16);
+	READ_SYS_INFO(UPDATE_VERSION,   update,     16);
+	READ_SYS_INFO(INTERNAL_VERSION, internal,   16);
+	READ_SYS_INFO(BUILD_NUM,	build_num,  16);
+	READ_SYS_INFO(BUILD_DATE,	build_date, 32);
+
+#undef READ_SYS_INFO
+
+	return ret;
+}
 
 static int get_tdx_sys_info_tdmr(struct tdx_sys_info_tdmr *sysinfo_tdmr)
 {
@@ -316,7 +337,35 @@ static int get_tdx_sys_info_tdmr(struct tdx_sys_info_tdmr *sysinfo_tdmr)
 
 static int get_tdx_sys_info(struct tdx_sys_info *sysinfo)
 {
+	int ret;
+
+	ret = get_tdx_sys_info_version(&sysinfo->version);
+	if (ret)
+		return ret;
+
 	return get_tdx_sys_info_tdmr(&sysinfo->tdmr);
+}
+
+static void print_sys_info_version(struct tdx_sys_info_version *version)
+{
+	/*
+	 * TDX module version encoding:
+	 *
+	 *   <major>.<minor>.<update>.<internal>.<build_num>
+	 *
+	 * When printed as text, <major> and <minor> are 1-digit,
+	 * <update> and <internal> are 2-digits and <build_num>
+	 * is 4-digits.
+	 */
+	pr_info("Initializing TDX module: %u.%u.%02u.%02u.%04u (build_date %u).\n",
+			version->major, version->minor,	version->update,
+			version->internal, version->build_num,
+			version->build_date);
+}
+
+static void print_basic_sys_info(struct tdx_sys_info *sysinfo)
+{
+	print_sys_info_version(&sysinfo->version);
 }
 
 /* Calculate the actual TDMR size */
@@ -1097,6 +1146,8 @@ static int init_tdx_module(void)
 	ret = get_tdx_sys_info(&sysinfo);
 	if (ret)
 		return ret;
+
+	print_basic_sys_info(&sysinfo);
 
 	/*
 	 * To keep things simple, assume that all TDX-protected memory

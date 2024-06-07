@@ -320,11 +320,11 @@ static int stbuf_read_sysmd_multi(const struct field_mapping *fields,
 }
 
 #define TD_SYSINFO_MAP_TDMR_INFO(_field_id, _member)	\
-	TD_SYSINFO_MAP(_field_id, struct tdx_tdmr_sysinfo, _member)
+	TD_SYSINFO_MAP(_field_id, struct tdx_sysinfo_tdmr_info, _member)
 
-static int get_tdx_tdmr_sysinfo(struct tdx_tdmr_sysinfo *tdmr_sysinfo)
+static int get_tdx_tdmr_sysinfo(struct tdx_sysinfo_tdmr_info *tdmr_sysinfo)
 {
-	/* Map TD_SYSINFO fields into 'struct tdx_tdmr_sysinfo': */
+	/* Map TD_SYSINFO fields into 'struct tdx_sysinfo_tdmr_info': */
 	static const struct field_mapping fields[] = {
 		TD_SYSINFO_MAP_TDMR_INFO(MAX_TDMRS,		max_tdmrs),
 		TD_SYSINFO_MAP_TDMR_INFO(MAX_RESERVED_PER_TDMR, max_reserved_per_tdmr),
@@ -335,6 +335,11 @@ static int get_tdx_tdmr_sysinfo(struct tdx_tdmr_sysinfo *tdmr_sysinfo)
 
 	/* Populate 'tdmr_sysinfo' fields using the mapping structure above: */
 	return stbuf_read_sysmd_multi(fields, ARRAY_SIZE(fields), tdmr_sysinfo);
+}
+
+static int get_tdx_sysinfo(struct tdx_sysinfo *sysinfo)
+{
+	return get_tdx_tdmr_sysinfo(&sysinfo->tdmr_info);
 }
 
 /* Calculate the actual TDMR size */
@@ -353,7 +358,7 @@ static int tdmr_size_single(u16 max_reserved_per_tdmr)
 }
 
 static int alloc_tdmr_list(struct tdmr_info_list *tdmr_list,
-			   struct tdx_tdmr_sysinfo *tdmr_sysinfo)
+			   struct tdx_sysinfo_tdmr_info *tdmr_sysinfo)
 {
 	size_t tdmr_sz, tdmr_array_sz;
 	void *tdmr_array;
@@ -936,7 +941,7 @@ static int tdmrs_populate_rsvd_areas_all(struct tdmr_info_list *tdmr_list,
  */
 static int construct_tdmrs(struct list_head *tmb_list,
 			   struct tdmr_info_list *tdmr_list,
-			   struct tdx_tdmr_sysinfo *tdmr_sysinfo)
+			   struct tdx_sysinfo_tdmr_info *tdmr_sysinfo)
 {
 	int ret;
 
@@ -1109,8 +1114,12 @@ static int init_tdmrs(struct tdmr_info_list *tdmr_list)
 
 static int init_tdx_module(void)
 {
-	struct tdx_tdmr_sysinfo tdmr_sysinfo;
+	struct tdx_sysinfo sysinfo;
 	int ret;
+
+	ret = get_tdx_sysinfo(&sysinfo);
+	if (ret)
+		return ret;
 
 	/*
 	 * To keep things simple, assume that all TDX-protected memory
@@ -1128,17 +1137,13 @@ static int init_tdx_module(void)
 	if (ret)
 		goto out_put_tdxmem;
 
-	ret = get_tdx_tdmr_sysinfo(&tdmr_sysinfo);
-	if (ret)
-		goto err_free_tdxmem;
-
 	/* Allocate enough space for constructing TDMRs */
-	ret = alloc_tdmr_list(&tdx_tdmr_list, &tdmr_sysinfo);
+	ret = alloc_tdmr_list(&tdx_tdmr_list, &sysinfo.tdmr_info);
 	if (ret)
 		goto err_free_tdxmem;
 
 	/* Cover all TDX-usable memory regions in TDMRs */
-	ret = construct_tdmrs(&tdx_memlist, &tdx_tdmr_list, &tdmr_sysinfo);
+	ret = construct_tdmrs(&tdx_memlist, &tdx_tdmr_list, &sysinfo.tdmr_info);
 	if (ret)
 		goto err_free_tdmrs;
 

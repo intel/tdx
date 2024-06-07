@@ -5,6 +5,15 @@
 
 #include <linux/types.h>
 
+struct tdx_sys_info_version {
+	u32 build_date;
+	u16 build_num;
+	u16 minor_version;
+	u16 major_version;
+	u16 update_version;
+	u16 internal_version;
+};
+
 struct tdx_sys_info_features {
 	u64 tdx_features0;
 };
@@ -24,6 +33,7 @@ struct tdx_sys_info_cmr {
 };
 
 struct tdx_sys_info {
+	struct tdx_sys_info_version version;
 	struct tdx_sys_info_features features;
 	struct tdx_sys_info_tdmr tdmr;
 	struct tdx_sys_info_cmr cmr;

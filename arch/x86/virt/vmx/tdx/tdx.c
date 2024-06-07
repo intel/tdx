@@ -304,6 +304,21 @@ struct field_mapping {
 	  .offset   = offsetof(_struct, _member),		\
 	  .size	    = sizeof(typeof(((_struct *)0)->_member)) }
 
+static int stbuf_read_sysmd_multi(const struct field_mapping *fields,
+				  int nr_fields, void *stbuf)
+{
+	int i, ret;
+
+	for (i = 0; i < nr_fields; i++) {
+		ret = stbuf_read_sysmd_field(fields[i].field_id, stbuf,
+				      fields[i].offset, fields[i].size);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
 #define TD_SYSINFO_MAP_TDMR_INFO(_field_id, _member)	\
 	TD_SYSINFO_MAP(_field_id, struct tdx_tdmr_sysinfo, _member)
 
@@ -318,18 +333,8 @@ static const struct field_mapping fields[] = {
 
 static int get_tdx_tdmr_sysinfo(struct tdx_tdmr_sysinfo *tdmr_sysinfo)
 {
-	int ret;
-	int i;
-
 	/* Populate 'tdmr_sysinfo' fields using the mapping structure above: */
-	for (i = 0; i < ARRAY_SIZE(fields); i++) {
-		ret = stbuf_read_sysmd_field(fields[i].field_id, tdmr_sysinfo,
-				fields[i].offset, fields[i].size);
-		if (ret)
-			return ret;
-	}
-
-	return 0;
+	return stbuf_read_sysmd_multi(fields, ARRAY_SIZE(fields), tdmr_sysinfo);
 }
 
 /* Calculate the actual TDMR size */

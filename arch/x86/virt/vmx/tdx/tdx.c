@@ -312,6 +312,23 @@ static void print_cmrs(struct tdx_sys_info_cmr *sysinfo_cmr)
 	}
 }
 
+static void print_module_version(struct tdx_sys_info_version *version)
+{
+       /*
+	* TDX module version encoding:
+	*
+	*   <major>.<minor>.<update>.<internal>.<build_num>
+	*
+	* When printed as text, <major> and <minor> are 1-digit,
+	* <update> and <internal> are 2-digits and <build_num>
+	* is 4-digits.
+	*/
+	pr_info("module version: %u.%u.%02u.%02u.%04u (build_date %u).\n",
+			version->major_version,	 version->minor_version,
+			version->update_version, version->internal_version,
+			version->build_num,	 version->build_date);
+}
+
 static int init_tdx_sys_info(struct tdx_sys_info *sysinfo)
 {
 	int ret;
@@ -322,6 +339,7 @@ static int init_tdx_sys_info(struct tdx_sys_info *sysinfo)
 
 	trim_null_tail_cmrs(&sysinfo->cmr);
 	print_cmrs(&sysinfo->cmr);
+	print_module_version(&sysinfo->version);
 
 	return 0;
 }

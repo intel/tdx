@@ -78,7 +78,6 @@ static void __init fpu__init_system_early_generic(void)
 	int this_cpu = smp_processor_id();
 
 	fpstate_reset(&x86_init_fpu);
-	current->thread.fpu = &x86_init_fpu;
 	per_cpu(fpu_fpregs_owner_ctx, this_cpu) = &x86_init_fpu;
 	x86_init_fpu.last_cpu = this_cpu;
 

@@ -5571,7 +5571,7 @@ static struct miscdevice kvm_dev = {
 };
 
 #ifdef CONFIG_KVM_GENERIC_HARDWARE_ENABLING
-static bool enable_virt_at_load;
+static bool enable_virt_at_load = true;
 module_param(enable_virt_at_load, bool, 0444);
 
 __visible bool kvm_rebooting;

@@ -71,8 +71,17 @@ static bool __init fpu__probe_without_cpuid(void)
 	return fsw == 0 && (fcw & 0x103f) == 0x003f;
 }
 
+static struct fpu x86_init_fpu __read_mostly;
+
 static void __init fpu__init_system_early_generic(void)
 {
+	int this_cpu = smp_processor_id();
+
+	fpstate_reset(&x86_init_fpu);
+	current->thread.fpu = &x86_init_fpu;
+	per_cpu(fpu_fpregs_owner_ctx, this_cpu) = &x86_init_fpu;
+	x86_init_fpu.last_cpu = this_cpu;
+
 	if (!boot_cpu_has(X86_FEATURE_CPUID) &&
 	    !test_bit(X86_FEATURE_FPU, (unsigned long *)cpu_caps_cleared)) {
 		if (fpu__probe_without_cpuid())
@@ -150,6 +159,8 @@ static void __init fpu__init_task_struct_size(void)
 {
 	int task_size = sizeof(struct task_struct);
 
+	task_size += sizeof(struct fpu);
+
 	/*
 	 * Subtract off the static size of the register state.
 	 * It potentially has a bunch of padding.
@@ -164,14 +175,9 @@ static void __init fpu__init_task_struct_size(void)
 
 	/*
 	 * We dynamically size 'struct fpu', so we require that
-	 * it be at the end of 'thread_struct' and that
-	 * 'thread_struct' be at the end of 'task_struct'.  If
-	 * you hit a compile error here, check the structure to
-	 * see if something got added to the end.
+	 * 'state' be at the end of 'it:
 	 */
 	CHECK_MEMBER_AT_END_OF(struct fpu, __fpstate);
-	CHECK_MEMBER_AT_END_OF(struct thread_struct, fpu);
-	CHECK_MEMBER_AT_END_OF(struct task_struct, thread);
 
 	arch_task_struct_size = task_size;
 }
@@ -213,7 +219,6 @@ static void __init fpu__init_system_xstate_size_legacy(void)
  */
 void __init fpu__init_system(void)
 {
-	fpstate_reset(x86_task_fpu(current));
 	fpu__init_system_early_generic();
 
 	/*

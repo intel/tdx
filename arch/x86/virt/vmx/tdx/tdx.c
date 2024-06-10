@@ -294,6 +294,10 @@ static int stbuf_read_sysmd_field(u64 field_id, void *stbuf, int offset,
 	return 0;
 }
 
+/* Wrapper to read one metadata field to u8/u16/u32/u64 */
+#define stbuf_read_sysmd_single(_field_id, _pdata)	\
+	stbuf_read_sysmd_field(_field_id, _pdata, 0, sizeof(typeof(*(_pdata))))
+
 struct field_mapping {
 	u64 field_id;
 	int offset;
@@ -350,6 +354,78 @@ static int get_tdx_module_version(struct tdx_sysinfo_module_version *modver)
 	return stbuf_read_sysmd_multi(fields, ARRAY_SIZE(fields), modver);
 }
 
+/* Update the @cmr_info->num_cmrs to trim tail empty CMRs */
+static void trim_empty_tail_cmrs(struct tdx_sysinfo_cmr_info *cmr_info)
+{
+	int i;
+
+	for (i = 0; i < cmr_info->num_cmrs; i++) {
+		u64 cmr_base = cmr_info->cmr_base[i];
+		u64 cmr_size = cmr_info->cmr_size[i];
+
+		if (!cmr_size) {
+			WARN_ON_ONCE(cmr_base);
+			break;
+		}
+
+		/* TDX architecture: CMR must be 4KB aligned */
+		WARN_ON_ONCE(!PAGE_ALIGNED(cmr_base) ||
+				!PAGE_ALIGNED(cmr_size));
+	}
+
+	cmr_info->num_cmrs = i;
+}
+
+#define TD_SYSINFO_MAP_CMR_INFO(_field_id, _member)	\
+	TD_SYSINFO_MAP(_field_id, struct tdx_sysinfo_cmr_info, _member)
+
+static int get_tdx_cmr_info(struct tdx_sysinfo_cmr_info *cmr_info)
+{
+	int i, ret;
+
+	ret = stbuf_read_sysmd_single(MD_FIELD_ID_NUM_CMRS,
+			&cmr_info->num_cmrs);
+	if (ret)
+		return ret;
+
+	for (i = 0; i < cmr_info->num_cmrs; i++) {
+		const struct field_mapping fields[] = {
+			TD_SYSINFO_MAP_CMR_INFO(CMR_BASE0 + i, cmr_base[i]),
+			TD_SYSINFO_MAP_CMR_INFO(CMR_SIZE0 + i, cmr_size[i]),
+		};
+
+		ret = stbuf_read_sysmd_multi(fields, ARRAY_SIZE(fields),
+				cmr_info);
+		if (ret)
+			return ret;
+	}
+
+	/*
+	 * The TDX module may just report the maximum number of CMRs that
+	 * TDX architecturally supports as the actual number of CMRs,
+	 * despite the latter is smaller.  In this case all the tail
+	 * CMRs will be empty.  Trim them away.
+	 */
+	trim_empty_tail_cmrs(cmr_info);
+
+	return 0;
+}
+
+static void print_cmr_info(struct tdx_sysinfo_cmr_info *cmr_info)
+{
+	int i;
+
+	pr_info("Convertible Memory Regions (CMRs):\n");
+
+	for (i = 0; i < cmr_info->num_cmrs; i++) {
+		u64 cmr_base = cmr_info->cmr_base[i];
+		u64 cmr_size = cmr_info->cmr_size[i];
+
+		pr_info("\tCMR[%d]: [0x%llx, 0x%llx)\n", i, cmr_base,
+				cmr_base + cmr_size);
+	}
+}
+
 static void print_basic_sysinfo(struct tdx_sysinfo *sysinfo)
 {
 	struct tdx_sysinfo_module_version *modver = &sysinfo->module_version;
@@ -373,6 +449,8 @@ static void print_basic_sysinfo(struct tdx_sysinfo *sysinfo)
 			modver->major,		modver->minor,
 			modver->update,		modver->internal,
 			modver->build_num,	modver->build_date);
+
+	print_cmr_info(&sysinfo->cmr_info);
 }
 
 #define TD_SYSINFO_MAP_TDMR_INFO(_field_id, _member)	\
@@ -402,6 +480,10 @@ static int get_tdx_sysinfo(struct tdx_sysinfo *sysinfo)
 		return ret;
 
 	ret = get_tdx_module_version(&sysinfo->module_version);
+	if (ret)
+		return ret;
+
+	ret = get_tdx_cmr_info(&sysinfo->cmr_info);
 	if (ret)
 		return ret;
 
@@ -828,6 +910,23 @@ static int tdmr_add_rsvd_area(struct tdmr_info *tdmr, int *p_idx, u64 addr,
 	return 0;
 }
 
+/* Return whether a given region [start, end) is a sub-region of any CMR */
+static bool is_cmr_subregion(struct tdx_sysinfo_cmr_info *cmr_info, u64 start,
+			    u64 end)
+{
+	int i;
+
+	for (i = 0; i < cmr_info->num_cmrs; i++) {
+		u64 cmr_base = cmr_info->cmr_base[i];
+		u64 cmr_size = cmr_info->cmr_size[i];
+
+		if (start >= cmr_base && end <= (cmr_base + cmr_size))
+			return true;
+	}
+
+	return false;
+}
+
 /*
  * Go through @tmb_list to find holes between memory areas.  If any of
  * those holes fall within @tdmr, set up a TDMR reserved area to cover
@@ -836,7 +935,8 @@ static int tdmr_add_rsvd_area(struct tdmr_info *tdmr, int *p_idx, u64 addr,
 static int tdmr_populate_rsvd_holes(struct list_head *tmb_list,
 				    struct tdmr_info *tdmr,
 				    int *rsvd_idx,
-				    u16 max_reserved_per_tdmr)
+				    u16 max_reserved_per_tdmr,
+				    struct tdx_sysinfo_cmr_info *cmr_info)
 {
 	struct tdx_memblock *tmb;
 	u64 prev_end;
@@ -865,10 +965,16 @@ static int tdmr_populate_rsvd_holes(struct list_head *tmb_list,
 		 * Skip over memory areas that
 		 * have already been dealt with.
 		 */
-		if (start <= prev_end) {
-			prev_end = end;
-			continue;
-		}
+		if (start <= prev_end)
+			goto next_tmb;
+
+		/*
+		 * Found the hole [prev_end, start) before this region.
+		 * Skip the hole if it is within any CMR to reduce the
+		 * consumption of reserved areas.
+		 */
+		if (is_cmr_subregion(cmr_info, prev_end, start))
+			goto next_tmb;
 
 		/* Add the hole before this region */
 		ret = tdmr_add_rsvd_area(tdmr, rsvd_idx, prev_end,
@@ -877,11 +983,16 @@ static int tdmr_populate_rsvd_holes(struct list_head *tmb_list,
 		if (ret)
 			return ret;
 
+next_tmb:
 		prev_end = end;
 	}
 
-	/* Add the hole after the last region if it exists. */
-	if (prev_end < tdmr_end(tdmr)) {
+	/*
+	 * Add the hole after the last region if it exists, but skip
+	 * if it is within any CMR.
+	 */
+	if (prev_end < tdmr_end(tdmr) &&
+			!is_cmr_subregion(cmr_info, prev_end, tdmr_end(tdmr))) {
 		ret = tdmr_add_rsvd_area(tdmr, rsvd_idx, prev_end,
 				tdmr_end(tdmr) - prev_end,
 				max_reserved_per_tdmr);
@@ -957,12 +1068,13 @@ static int rsvd_area_cmp_func(const void *a, const void *b)
 static int tdmr_populate_rsvd_areas(struct tdmr_info *tdmr,
 				    struct list_head *tmb_list,
 				    struct tdmr_info_list *tdmr_list,
-				    u16 max_reserved_per_tdmr)
+				    u16 max_reserved_per_tdmr,
+				    struct tdx_sysinfo_cmr_info *cmr_info)
 {
 	int ret, rsvd_idx = 0;
 
 	ret = tdmr_populate_rsvd_holes(tmb_list, tdmr, &rsvd_idx,
-			max_reserved_per_tdmr);
+			max_reserved_per_tdmr, cmr_info);
 	if (ret)
 		return ret;
 
@@ -980,11 +1092,13 @@ static int tdmr_populate_rsvd_areas(struct tdmr_info *tdmr,
 
 /*
  * Populate reserved areas for all TDMRs in @tdmr_list, including memory
- * holes (via @tmb_list) and PAMTs.
+ * holes (via @tmb_list) and PAMTs.  Exclude the memory holes within any
+ * CMR to reduce number of consumed reserved areas.
  */
 static int tdmrs_populate_rsvd_areas_all(struct tdmr_info_list *tdmr_list,
 					 struct list_head *tmb_list,
-					 u16 max_reserved_per_tdmr)
+					 u16 max_reserved_per_tdmr,
+					 struct tdx_sysinfo_cmr_info *cmr_info)
 {
 	int i;
 
@@ -992,7 +1106,8 @@ static int tdmrs_populate_rsvd_areas_all(struct tdmr_info_list *tdmr_list,
 		int ret;
 
 		ret = tdmr_populate_rsvd_areas(tdmr_entry(tdmr_list, i),
-				tmb_list, tdmr_list, max_reserved_per_tdmr);
+				tmb_list, tdmr_list, max_reserved_per_tdmr,
+				cmr_info);
 		if (ret)
 			return ret;
 	}
@@ -1003,11 +1118,13 @@ static int tdmrs_populate_rsvd_areas_all(struct tdmr_info_list *tdmr_list,
 /*
  * Construct a list of TDMRs on the preallocated space in @tdmr_list
  * to cover all TDX memory regions in @tmb_list based on the TDX module
- * TDMR global information in @tdmr_sysinfo.
+ * TDMR global information in @tdmr_sysinfo and CMR information in
+ * @cmr_info.
  */
 static int construct_tdmrs(struct list_head *tmb_list,
 			   struct tdmr_info_list *tdmr_list,
-			   struct tdx_sysinfo_tdmr_info *tdmr_sysinfo)
+			   struct tdx_sysinfo_tdmr_info *tdmr_sysinfo,
+			   struct tdx_sysinfo_cmr_info *cmr_info)
 {
 	int ret;
 
@@ -1021,7 +1138,8 @@ static int construct_tdmrs(struct list_head *tmb_list,
 		return ret;
 
 	ret = tdmrs_populate_rsvd_areas_all(tdmr_list, tmb_list,
-			tdmr_sysinfo->max_reserved_per_tdmr);
+			tdmr_sysinfo->max_reserved_per_tdmr,
+			cmr_info);
 	if (ret)
 		tdmrs_free_pamt_all(tdmr_list);
 
@@ -1211,7 +1329,8 @@ static int init_tdx_module(void)
 		goto err_free_tdxmem;
 
 	/* Cover all TDX-usable memory regions in TDMRs */
-	ret = construct_tdmrs(&tdx_memlist, &tdx_tdmr_list, &sysinfo.tdmr_info);
+	ret = construct_tdmrs(&tdx_memlist, &tdx_tdmr_list, &sysinfo.tdmr_info,
+			&sysinfo.cmr_info);
 	if (ret)
 		goto err_free_tdmrs;
 

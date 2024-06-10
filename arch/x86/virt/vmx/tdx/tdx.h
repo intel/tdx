@@ -43,6 +43,9 @@
 #define MD_FIELD_ID_PAMT_4K_ENTRY_SIZE		0x9100000100000010ULL
 #define MD_FIELD_ID_PAMT_2M_ENTRY_SIZE		0x9100000100000011ULL
 #define MD_FIELD_ID_PAMT_1G_ENTRY_SIZE		0x9100000100000012ULL
+#define MD_FIELD_ID_NUM_CMRS			0x9000000100000000ULL
+#define MD_FIELD_ID_CMR_BASE			0x9000000300000080ULL
+#define MD_FIELD_ID_CMR_SIZE			0x9000000300000100ULL
 
 /*
  * Sub-field definition of metadata field ID.
@@ -130,6 +133,14 @@ struct tdx_sys_info_version {
 	u32 build_date;
 };
 
+/* Class "CMR Info" */
+#define TDX_MAX_CMRS	32
+struct tdx_sys_info_cmr {
+	u16 num_cmrs;
+	u64 cmr_base[TDX_MAX_CMRS];
+	u64 cmr_size[TDX_MAX_CMRS];
+};
+
 /* Class "TDMR info" */
 struct tdx_sys_info_tdmr {
 	u16 max_tdmrs;
@@ -140,6 +151,7 @@ struct tdx_sys_info_tdmr {
 struct tdx_sys_info {
 	struct tdx_sys_info_features	features;
 	struct tdx_sys_info_version	version;
+	struct tdx_sys_info_cmr		cmr;
 	struct tdx_sys_info_tdmr	tdmr;
 };
 

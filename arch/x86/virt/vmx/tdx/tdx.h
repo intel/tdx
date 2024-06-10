@@ -40,6 +40,10 @@
 #define MD_FIELD_ID_UPDATE_VERSION		0x0800000100000005ULL
 #define MD_FIELD_ID_INTERNAL_VERSION		0x0800000100000006ULL
 
+#define MD_FIELD_ID_NUM_CMRS			0x9000000100000000ULL
+#define MD_FIELD_ID_CMR_BASE(_i)		(0x9000000300000080ULL + (u16)_i)
+#define MD_FIELD_ID_CMR_SIZE(_i)		(0x9000000300000100ULL + (u16)_i)
+
 #define MD_FIELD_ID_MAX_TDMRS			0x9100000100000008ULL
 #define MD_FIELD_ID_MAX_RESERVED_PER_TDMR	0x9100000100000009ULL
 #define MD_FIELD_ID_PAMT_4K_ENTRY_SIZE		0x9100000100000010ULL
@@ -160,6 +164,14 @@ struct tdx_sys_info_version {
 	u32 build_date;
 };
 
+/* Class "CMR Info" */
+#define TDX_MAX_CMRS	32	/* architectural */
+struct tdx_sys_info_cmr {
+	u16 num_cmrs;
+	u64 cmr_base[TDX_MAX_CMRS];
+	u64 cmr_size[TDX_MAX_CMRS];
+};
+
 /* Class "TDMR info" */
 struct tdx_sys_info_tdmr {
 	u16 max_tdmrs;
@@ -170,6 +182,7 @@ struct tdx_sys_info_tdmr {
 struct tdx_sys_info {
 	struct tdx_sys_info_features	features;
 	struct tdx_sys_info_version	version;
+	struct tdx_sys_info_cmr		cmr;
 	struct tdx_sys_info_tdmr	tdmr;
 };
 

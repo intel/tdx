@@ -31,6 +31,7 @@
  *
  * See the "global_metadata.json" in the "TDX 1.5 ABI definitions".
  */
+#define MD_FIELD_ID_TDX_FEATURES0		0x0A00000300000008ULL
 #define MD_FIELD_ID_BUILD_DATE			0x8800000200000001ULL
 #define MD_FIELD_ID_BUILD_NUM			0x8800000100000002ULL
 #define MD_FIELD_ID_MINOR_VERSION		0x0800000100000003ULL
@@ -61,6 +62,7 @@
 
 #define MD_FIELD_ID_ELE_SIZE_16BIT	1
 #define MD_FIELD_ID_ELE_SIZE_32BIT	2
+#define MD_FIELD_ID_ELE_SIZE_64BIT	3
 
 struct tdmr_reserved_area {
 	u64 offset;
@@ -105,6 +107,20 @@ struct tdmr_info {
  * those used by the kernel are.
  */
 
+/*
+ * Class "TDX Module Info".
+ *
+ * This class also contains other fields like SYS_ATTRIBUTES and the
+ * NUM_TDX_FEATURES.  For now only TDX_FEATURES0 is needed, but still
+ * keep the structure to follow the spec (and for future extension).
+ */
+struct tdx_sys_info_features {
+	u64 tdx_features0;
+};
+
+/* Bit definitions of TDX_FEATURES0 metadata field */
+#define TDX_FEATURES0_NO_RBP_MOD	_BITULL(18)
+
 /* Class "TDX Module Version" */
 struct tdx_sys_info_version {
 	u16 major;
@@ -123,6 +139,7 @@ struct tdx_sys_info_tdmr {
 };
 
 struct tdx_sys_info {
+	struct tdx_sys_info_features	features;
 	struct tdx_sys_info_version	version;
 	struct tdx_sys_info_tdmr	tdmr;
 };

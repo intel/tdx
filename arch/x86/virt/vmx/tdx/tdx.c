@@ -292,6 +292,21 @@ static int __read_sys_metadata_field(u64 field_id, void *val, int size)
 	__read_sys_metadata_field(_field_id, _val, sizeof(*(_val)));	\
 })
 
+static int get_tdx_sys_info_features(struct tdx_sys_info_features *sysinfo_features)
+{
+	int ret = 0;
+
+#define READ_SYS_INFO(_field_id, _member)				\
+	ret = ret ?: read_sys_metadata_field(MD_FIELD_ID_##_field_id,	\
+					&sysinfo_features->_member)
+
+	READ_SYS_INFO(TDX_FEATURES0, tdx_features0);
+
+#undef READ_SYS_INFO
+
+	return ret;
+}
+
 static int get_tdx_sys_info_version(struct tdx_sys_info_version *sysinfo_version)
 {
 	int ret = 0;
@@ -335,6 +350,10 @@ static int get_tdx_sys_info(struct tdx_sys_info *sysinfo)
 {
 	int ret;
 
+	ret = get_tdx_sys_info_features(&sysinfo->features);
+	if (ret)
+		return ret;
+
 	ret = get_tdx_sys_info_version(&sysinfo->version);
 	if (ret)
 		return ret;
@@ -362,6 +381,18 @@ static void print_sys_info_version(struct tdx_sys_info_version *version)
 static void print_basic_sys_info(struct tdx_sys_info *sysinfo)
 {
 	print_sys_info_version(&sysinfo->version);
+}
+
+static int check_features(struct tdx_sys_info *sysinfo)
+{
+	u64 tdx_features0 = sysinfo->features.tdx_features0;
+
+	if (!(tdx_features0 & TDX_FEATURES0_NO_RBP_MOD)) {
+		pr_err("frame pointer (RBP) clobber bug present, upgrade TDX module\n");
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
 /* Calculate the actual TDMR size */
@@ -1144,6 +1175,11 @@ static int init_tdx_module(void)
 		return ret;
 
 	print_basic_sys_info(&sysinfo);
+
+	/* Check whether the kernel can support this module */
+	ret = check_features(&sysinfo);
+	if (ret)
+		return ret;
 
 	/*
 	 * To keep things simple, assume that all TDX-protected memory

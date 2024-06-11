@@ -484,6 +484,18 @@ static int get_tdx_sysinfo(struct tdx_sysinfo *sysinfo)
 	return get_tdx_tdmr_sysinfo(&sysinfo->tdmr_info);
 }
 
+static int check_module_compatibility(struct tdx_sysinfo *sysinfo)
+{
+	u64 tdx_features0 = sysinfo->module_info.tdx_features0;
+
+	if (!(tdx_features0 & TDX_FEATURES0_NO_RBP_MOD)) {
+		pr_err("NO_RBP_MOD feature is not supported\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 /* Calculate the actual TDMR size */
 static int tdmr_size_single(u16 max_reserved_per_tdmr)
 {
@@ -1265,6 +1277,11 @@ static int init_tdx_module(void)
 		return ret;
 
 	print_basic_sysinfo(&sysinfo);
+
+	/* Check whether the kernel can support this module */
+	ret = check_module_compatibility(&sysinfo);
+	if (ret)
+		return ret;
 
 	/*
 	 * To keep things simple, assume that all TDX-protected memory

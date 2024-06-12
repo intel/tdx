@@ -2825,6 +2825,8 @@ static int vmx_hardware_enable(void)
 		return r;
 	}
 
+	r = tdx_cpu_enable();
+
 	if (enable_ept)
 		ept_sync_global();
 

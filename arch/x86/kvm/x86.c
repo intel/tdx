@@ -86,6 +86,8 @@
 #include <asm/sgx.h>
 #include <clocksource/hyperv_timer.h>
 
+#include <asm/tdx.h>
+
 #define CREATE_TRACE_POINTS
 #include "trace.h"
 
@@ -12588,6 +12590,13 @@ out:
 
 int kvm_arch_post_init_vm(struct kvm *kvm)
 {
+	int r;
+	pr_info("%s: try to enable TDX\n", __func__);
+	cpus_read_lock();
+	r = tdx_enable();
+	cpus_read_unlock();
+	pr_info("%s: tdx_enable() returns %d\n", __func__, r);
+
 	return kvm_mmu_post_init_vm(kvm);
 }
 

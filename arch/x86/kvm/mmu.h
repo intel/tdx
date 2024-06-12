@@ -328,4 +328,11 @@ static inline gfn_t kvm_gfn_direct_bits(const struct kvm *kvm)
 {
 	return kvm->arch.gfn_direct_bits;
 }
+
+static inline bool kvm_is_addr_direct(struct kvm *kvm, gpa_t gpa)
+{
+	gpa_t gpa_direct_bits = gfn_to_gpa(kvm_gfn_direct_bits(kvm));
+
+	return !gpa_direct_bits || (gpa & gpa_direct_bits);
+}
 #endif

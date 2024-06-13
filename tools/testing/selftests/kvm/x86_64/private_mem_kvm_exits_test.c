@@ -44,7 +44,7 @@ const struct vm_shape protected_vm_shape = {
 	.type = KVM_X86_SW_PROTECTED_VM,
 };
 
-static void test_private_access_memslot_deleted(void)
+static void test_private_access_memslot_deleted(bool disable_slot_zap_quirk)
 {
 	struct kvm_vm *vm;
 	struct kvm_vcpu *vcpu;
@@ -54,6 +54,9 @@ static void test_private_access_memslot_deleted(void)
 
 	vm = vm_create_shape_with_one_vcpu(protected_vm_shape, &vcpu,
 					   guest_repeatedly_read);
+
+	if (disable_slot_zap_quirk)
+		vm_enable_cap(vm, KVM_CAP_DISABLE_QUIRKS2, KVM_X86_QUIRK_SLOT_ZAP_ALL);
 
 	vm_userspace_mem_region_add(vm, VM_MEM_SRC_ANONYMOUS,
 				    EXITS_TEST_GPA, EXITS_TEST_SLOT,
@@ -115,6 +118,10 @@ int main(int argc, char *argv[])
 {
 	TEST_REQUIRE(kvm_check_cap(KVM_CAP_VM_TYPES) & BIT(KVM_X86_SW_PROTECTED_VM));
 
-	test_private_access_memslot_deleted();
+	test_private_access_memslot_deleted(false);
+
+	if (kvm_check_cap(KVM_CAP_DISABLE_QUIRKS2) & KVM_X86_QUIRK_SLOT_ZAP_ALL)
+		test_private_access_memslot_deleted(true);
+
 	test_private_access_memslot_not_private();
 }

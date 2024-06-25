@@ -88,6 +88,73 @@ static inline long tdx_kvm_hypercall(unsigned int nr, unsigned long p1,
 #endif /* CONFIG_INTEL_TDX_GUEST && CONFIG_KVM_GUEST */
 
 #ifdef CONFIG_INTEL_TDX_HOST
+
+/*
+ * Kernel-defined structures to contain "Global Scope Metadata".
+ *
+ * TDX global metadata fields are categorized by "Class"es.  See the
+ * "global_metadata.json" in the "TDX 1.5 ABI Definitions".
+ *
+ * 'struct tdx_sys_info' is the main structure to contain all metadata
+ * used by the kernel.  It contains sub-structures with each reflecting
+ * the "Class" in the 'global_metadata.json'.
+ *
+ * Note the structure name may not exactly follow the name of the
+ * "Class" in the TDX spec, but the comment of that structure always
+ * reflect that.
+ *
+ * Also note not all metadata fields in each class are defined, only
+ * those used by the kernel are.
+ */
+
+/*
+ * Class "TDX Module Info".
+ *
+ * This class also contains other fields like SYS_ATTRIBUTES and the
+ * NUM_TDX_FEATURES.  For now only TDX_FEATURES0 is needed, but still
+ * keep the structure to follow the spec (and for future extension).
+ */
+struct tdx_sys_info_features {
+	u64 tdx_features0;
+};
+
+/* Architectural bit definitions of TDX_FEATURES0 metadata field */
+#define TDX_FEATURES0_NO_RBP_MOD	_BITULL(18)
+
+/* Class "TDX Module Version" */
+struct tdx_sys_info_version {
+	u16 major;
+	u16 minor;
+	u16 update;
+	u16 internal;
+	u16 build_num;
+	u32 build_date;
+};
+
+/* Class "CMR Info" */
+#define TDX_MAX_CMRS	32	/* architectural */
+struct tdx_sys_info_cmr {
+	u16 num_cmrs;
+	u64 cmr_base[TDX_MAX_CMRS];
+	u64 cmr_size[TDX_MAX_CMRS];
+};
+
+/* Class "TDMR info" */
+struct tdx_sys_info_tdmr {
+	u16 max_tdmrs;
+	u16 max_reserved_per_tdmr;
+	u16 pamt_entry_size[TDX_PS_NR];
+};
+
+struct tdx_sys_info {
+	struct tdx_sys_info_features	features;
+	struct tdx_sys_info_version	version;
+	struct tdx_sys_info_cmr		cmr;
+	struct tdx_sys_info_tdmr	tdmr;
+};
+
+const struct tdx_sys_info *tdx_get_sys_info(void);
+
 u64 __seamcall(u64 fn, struct tdx_module_args *args);
 u64 __seamcall_ret(u64 fn, struct tdx_module_args *args);
 u64 __seamcall_saved_ret(u64 fn, struct tdx_module_args *args);

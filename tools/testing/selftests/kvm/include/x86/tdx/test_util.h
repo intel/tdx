@@ -10,6 +10,19 @@
 #define TDX_TEST_SUCCESS_SIZE 4
 
 /*
+ * Assert that some IO operation involving tdg_vp_vmcall_instruction_io() was
+ * called in the guest.
+ */
+void tdx_test_assert_io(struct kvm_vcpu *vcpu, uint16_t port, uint8_t size,
+			uint8_t direction);
+
+/*
+ * Check and report if there was some failure in the guest, either an exception
+ * like a triple fault, or if a tdx_test_fatal() was hit.
+ */
+void tdx_test_check_guest_failure(struct kvm_vcpu *vcpu);
+
+/*
  * Run a test in a new process.
  *
  * There might be multiple tests we are running and if one test fails, it will

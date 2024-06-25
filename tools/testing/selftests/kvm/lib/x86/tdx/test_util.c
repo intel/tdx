@@ -10,6 +10,33 @@
 #include "tdx/tdx.h"
 #include "tdx/test_util.h"
 
+void tdx_test_assert_io(struct kvm_vcpu *vcpu, uint16_t port, uint8_t size,
+			uint8_t direction)
+{
+	TEST_ASSERT(vcpu->run->exit_reason == KVM_EXIT_IO,
+		    "Got exit_reason other than KVM_EXIT_IO: %u (%s)\n",
+		    vcpu->run->exit_reason,
+		    exit_reason_str(vcpu->run->exit_reason));
+
+	TEST_ASSERT(vcpu->run->exit_reason == KVM_EXIT_IO &&
+		    vcpu->run->io.port == port &&
+		    vcpu->run->io.size == size &&
+		    vcpu->run->io.direction == direction,
+		    "Got unexpected IO exit values: %u (%s) %u %u %u\n",
+		    vcpu->run->exit_reason,
+		    exit_reason_str(vcpu->run->exit_reason),
+		    vcpu->run->io.port, vcpu->run->io.size,
+		    vcpu->run->io.direction);
+}
+
+void tdx_test_check_guest_failure(struct kvm_vcpu *vcpu)
+{
+	if (vcpu->run->exit_reason == KVM_EXIT_SYSTEM_EVENT)
+		TEST_FAIL("Guest reported error. error code: %lld (0x%llx)\n",
+			  vcpu->run->system_event.data[0],
+			  vcpu->run->system_event.data[0]);
+}
+
 int run_in_new_process(void (*func)(void))
 {
 	int wstatus;

@@ -4,9 +4,11 @@
 
 #include "tdx/tdcall.h"
 #include "tdx/tdx.h"
+#include "tdx/tdx_util.h"
 
 void handle_userspace_tdg_vp_vmcall_exit(struct kvm_vcpu *vcpu)
 {
+	struct kvm_vm *vm = vcpu->vm;
 	struct kvm_tdx_vmcall *vmcall_info = &vcpu->run->tdx.u.vmcall;
 	uint64_t vmcall_subfunction = vmcall_info->subfunction;
 
@@ -20,6 +22,16 @@ void handle_userspace_tdg_vp_vmcall_exit(struct kvm_vcpu *vcpu)
 		vcpu->run->system_event.data[2] = vmcall_info->in_r13;
 		vmcall_info->status_code = 0;
 		break;
+	case TDG_VP_VMCALL_MAP_GPA:
+		{
+		uint64_t gpa = vmcall_info->in_r12 & ~vm->arch.s_bit;
+		bool shared_to_private = !(vm->arch.s_bit &
+					   vmcall_info->in_r12);
+		handle_memory_conversion(vm, gpa, vmcall_info->in_r13,
+					 shared_to_private);
+		vmcall_info->status_code = 0;
+		break;
+		}
 	default:
 		TEST_FAIL("TD VMCALL subfunction %lu is unsupported.\n",
 			  vmcall_subfunction);
@@ -208,5 +220,21 @@ uint64_t tdg_vp_info(uint64_t *rcx, uint64_t *rdx,
 	if (r11)
 		*r11 = out.r11;
 
+	return ret;
+}
+
+uint64_t tdg_vp_vmcall_map_gpa(uint64_t address, uint64_t size, uint64_t *data_out)
+{
+	uint64_t ret;
+	struct tdx_hypercall_args args = {
+		.r11 = TDG_VP_VMCALL_MAP_GPA,
+		.r12 = address,
+		.r13 = size
+	};
+
+	ret = __tdx_hypercall(&args, TDX_HCALL_HAS_OUTPUT);
+
+	if (data_out)
+		*data_out = args.r11;
 	return ret;
 }

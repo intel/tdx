@@ -1452,7 +1452,7 @@ va_found:
 	return pgidx_start * vm->page_size;
 }
 
-static vm_vaddr_t ____vm_vaddr_alloc(struct kvm_vm *vm, size_t sz,
+vm_vaddr_t ____vm_vaddr_alloc(struct kvm_vm *vm, size_t sz,
 				     vm_vaddr_t vaddr_min, vm_paddr_t paddr_min,
 				     enum kvm_mem_region_type type,
 				     bool protected)

@@ -1786,6 +1786,10 @@ void vcpu_run(struct kvm_vcpu *vcpu)
 {
 	int ret = _vcpu_run(vcpu);
 
+	// Allow this scenario to be handled by the caller.
+	if (ret == -1 && errno == EFAULT)
+		return;
+
 	TEST_ASSERT(!ret, KVM_IOCTL_ERROR(KVM_RUN, ret));
 }
 

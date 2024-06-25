@@ -9,6 +9,9 @@
 #define TDX_TEST_SUCCESS_PORT 0x30
 #define TDX_TEST_SUCCESS_SIZE 4
 
+#define TDX_TEST_REPORT_PORT 0x31
+#define TDX_TEST_REPORT_SIZE 4
+
 /**
  * Assert that some IO operation involving tdg_vp_vmcall_instruction_io() was
  * called in the guest.
@@ -101,5 +104,11 @@ void tdx_test_fatal(uint64_t error_code);
  * is not expected to continue beyond this point.
  */
 void tdx_test_fatal_with_data(uint64_t error_code, uint64_t data_gpa);
+
+/**
+ * Report a 32 bit value from the guest to user space using TDG.VP.VMCALL
+ * <Instruction.IO> call. Data is reported on port TDX_TEST_REPORT_PORT.
+ */
+uint64_t tdx_test_report_to_user_space(uint32_t data);
 
 #endif // SELFTEST_TDX_TEST_UTIL_H

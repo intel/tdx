@@ -8,6 +8,7 @@
 
 #include "kvm_util.h"
 #include "test_util.h"
+#include "tdx/tdx.h"
 #include "tdx/td_boot.h"
 #include "processor.h"
 
@@ -630,4 +631,9 @@ void td_finalize(struct kvm_vm *vm)
 	load_td_private_memory(vm);
 
 	tdx_td_finalizemr(vm);
+}
+
+void td_vcpu_run(struct kvm_vcpu *vcpu)
+{
+	vcpu_run(vcpu);
 }

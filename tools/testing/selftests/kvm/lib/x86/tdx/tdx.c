@@ -6,6 +6,7 @@
 #include "tdx/tdcall.h"
 #include "tdx/tdx.h"
 #include "tdx/tdx_util.h"
+#include "processor.h"
 
 void handle_userspace_map_gpa(struct kvm_vcpu *vcpu)
 {
@@ -213,4 +214,10 @@ uint64_t tdg_vp_vmcall_map_gpa(uint64_t address, uint64_t size, uint64_t *data_o
 	if (data_out)
 		*data_out = args.r11;
 	return ret;
+}
+
+uint64_t tdg_mem_page_accept(uint64_t gpa, uint8_t level)
+{
+	return __tdx_module_call(TDG_MEM_PAGE_ACCEPT, (gpa & PAGE_MASK) | level,
+				 0, 0, 0, NULL);
 }

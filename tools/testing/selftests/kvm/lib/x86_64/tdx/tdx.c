@@ -1,9 +1,19 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 #include <string.h>
+#include <linux/kvm_para.h>
 
 #include "tdx/tdcall.h"
 #include "tdx/tdx.h"
+#include "tdx/tdx_util.h"
+
+void handle_userspace_map_gpa(struct kvm_vcpu *vcpu)
+{
+	handle_memory_conversion(vcpu->vm, vcpu->run->hypercall.args[0],
+				 vcpu->run->hypercall.args[1] << 12,
+				 vcpu->run->hypercall.args[2] & KVM_MAP_GPA_RANGE_ENCRYPTED);
+	vcpu->run->hypercall.ret = 0;
+}
 
 uint64_t tdg_vp_vmcall_instruction_io(uint64_t port, uint64_t size,
 				      uint64_t write, uint64_t *data)
@@ -187,5 +197,21 @@ uint64_t tdg_vp_info(uint64_t *rcx, uint64_t *rdx,
 	if (r11)
 		*r11 = out.r11;
 
+	return ret;
+}
+
+uint64_t tdg_vp_vmcall_map_gpa(uint64_t address, uint64_t size, uint64_t *data_out)
+{
+	uint64_t ret;
+	struct tdx_hypercall_args args = {
+		.r11 = TDG_VP_VMCALL_MAP_GPA,
+		.r12 = address,
+		.r13 = size
+	};
+
+	ret = __tdx_hypercall(&args, TDX_HCALL_HAS_OUTPUT);
+
+	if (data_out)
+		*data_out = args.r11;
 	return ret;
 }

@@ -6,7 +6,6 @@
 #include <linux/compiler_attributes.h>
 #include <linux/stddef.h>
 #include <linux/bits.h>
-#include "tdx_global_metadata.h"
 
 /*
  * This file contains both macros and data structures defined by the TDX

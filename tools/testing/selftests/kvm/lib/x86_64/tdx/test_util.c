@@ -32,3 +32,13 @@ void tdx_test_success(void)
 				     TDX_TEST_SUCCESS_SIZE,
 				     TDG_VP_VMCALL_INSTRUCTION_IO_WRITE, &code);
 }
+
+void tdx_test_fatal_with_data(uint64_t error_code, uint64_t data_gpa)
+{
+	tdg_vp_vmcall_report_fatal_error(error_code, data_gpa);
+}
+
+void tdx_test_fatal(uint64_t error_code)
+{
+	tdx_test_fatal_with_data(error_code, 0);
+}

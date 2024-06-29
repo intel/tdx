@@ -6,6 +6,7 @@
 #include "nested.h"
 #include "pmu.h"
 #include "posted_intr.h"
+#include "tdx.h"
 
 #define VMX_REQUIRED_APICV_INHIBITS				\
 	(BIT(APICV_INHIBIT_REASON_DISABLE)|			\
@@ -171,6 +172,7 @@ struct kvm_x86_init_ops vt_init_ops __initdata = {
 static void vt_exit(void)
 {
 	kvm_exit();
+	tdx_cleanup();
 	vmx_exit();
 }
 module_exit(vt_exit);
@@ -182,6 +184,9 @@ static int __init vt_init(void)
 	r = vmx_init();
 	if (r)
 		return r;
+
+	/* tdx_init() has been taken */
+	tdx_bringup();
 
 	/*
 	 * Common KVM initialization _must_ come last, after this, /dev/kvm is
@@ -195,6 +200,7 @@ static int __init vt_init(void)
 	return 0;
 
 err_kvm_init:
+	tdx_cleanup();
 	vmx_exit();
 	return r;
 }

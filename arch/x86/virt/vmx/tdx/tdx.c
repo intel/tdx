@@ -27,6 +27,7 @@
 #include <linux/log2.h>
 #include <linux/acpi.h>
 #include <linux/suspend.h>
+#include <linux/limits.h>
 #include <asm/page.h>
 #include <asm/special_insns.h>
 #include <asm/msr-index.h>
@@ -467,6 +468,81 @@ static int get_tdx_tdmr_sysinfo(struct tdx_sysinfo_tdmr_info *tdmr_sysinfo)
 	return stbuf_read_sysmd_multi(fields, ARRAY_SIZE(fields), tdmr_sysinfo);
 }
 
+#define TD_SYSINFO_MAP_TD_CTRL(_field_id, _member)	\
+	TD_SYSINFO_MAP(_field_id, struct tdx_sysinfo_td_ctrl, _member)
+
+static int get_tdx_td_ctrl(struct tdx_sysinfo_td_ctrl *td_ctrl)
+{
+	static const struct field_mapping fields[] = {
+		TD_SYSINFO_MAP_TD_CTRL(TDR_BASE_SIZE,	tdr_base_size),
+		TD_SYSINFO_MAP_TD_CTRL(TDCS_BASE_SIZE,	tdcs_base_size),
+		TD_SYSINFO_MAP_TD_CTRL(TDVPS_BASE_SIZE,	tdvps_base_size),
+	};
+
+	return stbuf_read_sysmd_multi(fields, ARRAY_SIZE(fields), td_ctrl);
+}
+
+#define TD_SYSINFO_MAP_TD_CONF(_field_id, _member)	\
+	TD_SYSINFO_MAP(_field_id, struct tdx_sysinfo_td_conf, _member)
+
+static int get_tdx_td_conf_cpuid_config(struct tdx_sysinfo_td_conf *td_conf)
+{
+	int i;
+
+	for (i = 0; i < td_conf->num_cpuid_config; i++) {
+		const struct field_mapping fields[] = {
+			TD_SYSINFO_MAP_TD_CONF(CPUID_CONFIG_LEAVES + i,
+					       cpuid_config_leaves[i]),
+			TD_SYSINFO_MAP_TD_CONF(CPUID_CONFIG_VALUES + i * 2,
+					       cpuid_config_values[i].eax_ebx),
+			TD_SYSINFO_MAP_TD_CONF(CPUID_CONFIG_VALUES + i * 2 + 1,
+					       cpuid_config_values[i].ecx_edx),
+		};
+		int ret;
+
+		ret = stbuf_read_sysmd_multi(fields, ARRAY_SIZE(fields), td_conf);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+static int get_tdx_td_conf(struct tdx_sysinfo_td_conf *td_conf)
+{
+	static const struct field_mapping fields[] = {
+		TD_SYSINFO_MAP_TD_CONF(ATTRIBUTES_FIXED0, attributes_fixed0),
+		TD_SYSINFO_MAP_TD_CONF(ATTRIBUTES_FIXED1, attributes_fixed1),
+		TD_SYSINFO_MAP_TD_CONF(XFAM_FIXED0,	  xfam_fixed0),
+		TD_SYSINFO_MAP_TD_CONF(XFAM_FIXED1,       xfam_fixed1),
+		TD_SYSINFO_MAP_TD_CONF(NUM_CPUID_CONFIG,  num_cpuid_config),
+	};
+	u16 max_vcpus_per_td;
+	int ret;
+
+	ret = stbuf_read_sysmd_multi(fields, ARRAY_SIZE(fields), td_conf);
+	if (ret)
+		return ret;
+
+	ret = get_tdx_td_conf_cpuid_config(td_conf);
+	if (ret)
+		return ret;
+
+	/*
+	 * Special handling of @max_vcpus_per_td:
+	 *
+	 * Some old TDX modules may not support the MAX_VCPUS_PER_TD
+	 * metadata field, in which case TDX module supports up to
+	 * U16_MAX vCPUs for TDX guests.
+	 */
+	td_conf->max_vcpus_per_td = U16_MAX;
+	if (!stbuf_read_sysmd_single(MD_FIELD_ID_MAX_VCPUS_PER_TD,
+				&max_vcpus_per_td))
+		td_conf->max_vcpus_per_td = max_vcpus_per_td;
+
+	return 0;
+}
+
 static int get_tdx_sysinfo(struct tdx_sysinfo *sysinfo)
 {
 	int ret;
@@ -483,7 +559,15 @@ static int get_tdx_sysinfo(struct tdx_sysinfo *sysinfo)
 	if (ret)
 		return ret;
 
-	return get_tdx_tdmr_sysinfo(&sysinfo->tdmr_info);
+	ret = get_tdx_tdmr_sysinfo(&sysinfo->tdmr_info);
+	if (ret)
+		return ret;
+
+	ret = get_tdx_td_ctrl(&sysinfo->td_ctrl);
+	if (ret)
+		return ret;
+
+	return get_tdx_td_conf(&sysinfo->td_conf);
 }
 
 static int check_module_compatibility(struct tdx_sysinfo *sysinfo)

@@ -27,6 +27,7 @@
 #include <linux/log2.h>
 #include <linux/acpi.h>
 #include <linux/suspend.h>
+#include <linux/limits.h>
 #include <asm/page.h>
 #include <asm/special_insns.h>
 #include <asm/msr-index.h>
@@ -437,6 +438,62 @@ static int get_tdx_sys_info_tdmr(struct tdx_sys_info_tdmr *sysinfo_tdmr)
 	return ret;
 }
 
+static int get_tdx_sys_info_td_ctrl(struct tdx_sys_info_td_ctrl *td_ctrl)
+{
+	int ret = 0;
+
+#define TD_SYSINFO_MAP_TD_CTRL(_field_id, _member)	\
+	TD_SYSINFO_MAP(_field_id, td_ctrl, _member)
+
+	TD_SYSINFO_MAP_TD_CTRL(TDR_BASE_SIZE,	tdr_base_size);
+	TD_SYSINFO_MAP_TD_CTRL(TDCS_BASE_SIZE,	tdcs_base_size);
+	TD_SYSINFO_MAP_TD_CTRL(TDVPS_BASE_SIZE,	tdvps_base_size);
+#undef	TD_SYSINFO_MAP_TD_CTRL
+
+	return ret;
+}
+
+static int get_tdx_sys_info_td_conf(struct tdx_sys_info_td_conf *td_conf)
+{
+	u16 max_vcpus_per_td;
+	int ret = 0;
+
+#define TD_SYSINFO_MAP_TD_CONF(_field_id, _member)	\
+	TD_SYSINFO_MAP(_field_id, td_conf, _member)
+
+	TD_SYSINFO_MAP_TD_CONF(ATTRIBUTES_FIXED0, attributes_fixed0);
+	TD_SYSINFO_MAP_TD_CONF(ATTRIBUTES_FIXED1, attributes_fixed1);
+	TD_SYSINFO_MAP_TD_CONF(XFAM_FIXED0,	  xfam_fixed0);
+	TD_SYSINFO_MAP_TD_CONF(XFAM_FIXED1,       xfam_fixed1);
+	TD_SYSINFO_MAP_TD_CONF(NUM_CPUID_CONFIG,  num_cpuid_config);
+
+	for (u16 i = 0; i < td_conf->num_cpuid_config; i++) {
+		TD_SYSINFO_MAP_TD_CONF(CPUID_CONFIG_LEAVES + i,
+				       cpuid_config_leaves[i]);
+		TD_SYSINFO_MAP_TD_CONF(CPUID_CONFIG_VALUES + i * 2,
+				       cpuid_config_values[i].eax_ebx);
+		TD_SYSINFO_MAP_TD_CONF(CPUID_CONFIG_VALUES + i * 2 + 1,
+				       cpuid_config_values[i].ecx_edx);
+	}
+#undef	TD_SYSINFO_MAP_TD_CONF
+	if (ret)
+		return ret;
+
+	/*
+	 * Special handling of @max_vcpus_per_td:
+	 *
+	 * Some old TDX modules may not support the MAX_VCPUS_PER_TD
+	 * metadata field, in which case TDX module supports up to
+	 * U16_MAX vCPUs for TDX guests.
+	 */
+	td_conf->max_vcpus_per_td = U16_MAX;
+	if (!read_sys_metadata_field(MD_FIELD_ID_MAX_VCPUS_PER_TD,
+				     &max_vcpus_per_td))
+		td_conf->max_vcpus_per_td = max_vcpus_per_td;
+
+	return 0;
+}
+
 static int get_tdx_sys_info(struct tdx_sys_info *sysinfo)
 {
 	int ret;
@@ -453,7 +510,15 @@ static int get_tdx_sys_info(struct tdx_sys_info *sysinfo)
 	if (ret)
 		return ret;
 
-	return get_tdx_sys_info_tdmr(&sysinfo->tdmr);
+	ret = get_tdx_sys_info_tdmr(&sysinfo->tdmr);
+	if (ret)
+		return ret;
+
+	ret = get_tdx_sys_info_td_ctrl(&sysinfo->td_ctrl);
+	if (ret)
+		return ret;
+
+	return get_tdx_sys_info_td_conf(&sysinfo->td_conf);
 }
 
 static int check_features(struct tdx_sys_info *sysinfo)

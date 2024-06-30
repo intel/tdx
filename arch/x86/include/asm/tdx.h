@@ -147,11 +147,39 @@ struct tdx_sys_info_tdmr {
 	u16 pamt_entry_size[TDX_PS_NR];
 };
 
+/* Class "TD Control Structures" */
+struct tdx_sys_info_td_ctrl {
+	u16 tdr_base_size;
+	u16 tdcs_base_size;
+	u16 tdvps_base_size;
+};
+
+/* Class "TD Configurability" */
+#define MAX_CPUID_CONFIG	32
+
+struct tdx_cpuid_config_value {
+	u64 eax_ebx;
+	u64 ecx_edx;
+};
+
+struct tdx_sys_info_td_conf {
+	u64 attributes_fixed0;
+	u64 attributes_fixed1;
+	u64 xfam_fixed0;
+	u64 xfam_fixed1;
+	u16 num_cpuid_config;
+	u16 max_vcpus_per_td;
+	u64 cpuid_config_leaves[MAX_CPUID_CONFIG];
+	struct tdx_cpuid_config_value cpuid_config_values[MAX_CPUID_CONFIG];
+};
+
 struct tdx_sys_info {
 	struct tdx_sys_info_features	features;
 	struct tdx_sys_info_version	version;
 	struct tdx_sys_info_cmr		cmr;
 	struct tdx_sys_info_tdmr	tdmr;
+	struct tdx_sys_info_td_ctrl	td_ctrl;
+	struct tdx_sys_info_td_conf	td_conf;
 };
 
 const struct tdx_sys_info *tdx_get_sysinfo(void);

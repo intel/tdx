@@ -27,6 +27,7 @@
 #include <linux/log2.h>
 #include <linux/acpi.h>
 #include <linux/suspend.h>
+#include <linux/limits.h>
 #include <asm/page.h>
 #include <asm/special_insns.h>
 #include <asm/msr-index.h>
@@ -400,6 +401,65 @@ static int get_tdx_sys_info_tdmr(struct tdx_sys_info_tdmr *sysinfo_tdmr)
 	return ret;
 }
 
+static int get_tdx_sys_info_td_ctrl(struct tdx_sys_info_td_ctrl *td_ctrl)
+{
+	int ret = 0;
+
+#define READ_SYS_INFO(_field_id, _member)				\
+	ret = ret ?: read_sys_metadata_field(MD_FIELD_ID_##_field_id,	\
+					&td_ctrl->_member)
+
+	READ_SYS_INFO(TDR_BASE_SIZE,	tdr_base_size);
+	READ_SYS_INFO(TDCS_BASE_SIZE,	tdcs_base_size);
+	READ_SYS_INFO(TDVPS_BASE_SIZE,	tdvps_base_size);
+
+#undef READ_SYS_INFO
+
+	return ret;
+}
+
+static int get_tdx_sys_info_td_conf(struct tdx_sys_info_td_conf *td_conf)
+{
+	int ret = 0;
+
+#define READ_SYS_INFO(_field_id, _member)				\
+	ret = ret ?: read_sys_metadata_field(MD_FIELD_ID_##_field_id,	\
+					&td_conf->_member)
+
+	READ_SYS_INFO(ATTRIBUTES_FIXED0, attributes_fixed0);
+	READ_SYS_INFO(ATTRIBUTES_FIXED1, attributes_fixed1);
+	READ_SYS_INFO(XFAM_FIXED0,	 xfam_fixed0);
+	READ_SYS_INFO(XFAM_FIXED1,       xfam_fixed1);
+	READ_SYS_INFO(NUM_CPUID_CONFIG,  num_cpuid_config);
+
+	for (u16 i = 0; i < td_conf->num_cpuid_config; i++) {
+		READ_SYS_INFO(CPUID_CONFIG_LEAVES + i,
+				cpuid_config_leaves[i]);
+		READ_SYS_INFO(CPUID_CONFIG_VALUES + i * 2,
+				cpuid_config_values[i].eax_ebx);
+		READ_SYS_INFO(CPUID_CONFIG_VALUES + i * 2 + 1,
+				cpuid_config_values[i].ecx_edx);
+	}
+
+	if (ret)
+		return ret;
+
+	/*
+	 * Special handling of @max_vcpus_per_td:
+	 *
+	 * Some old TDX modules may not support the MAX_VCPUS_PER_TD
+	 * metadata field, in which case TDX module supports up to
+	 * U16_MAX vCPUs for TDX guests.
+	 */
+	READ_SYS_INFO(MAX_VCPUS_PER_TD, max_vcpus_per_td);
+	if (ret)
+		td_conf->max_vcpus_per_td = U16_MAX;
+
+#undef READ_SYS_INFO
+
+	return 0;
+}
+
 static int get_tdx_sys_info(struct tdx_sys_info *sysinfo)
 {
 	int ret;
@@ -416,7 +476,15 @@ static int get_tdx_sys_info(struct tdx_sys_info *sysinfo)
 	if (ret)
 		return ret;
 
-	return get_tdx_sys_info_tdmr(&sysinfo->tdmr);
+	ret = get_tdx_sys_info_tdmr(&sysinfo->tdmr);
+	if (ret)
+		return ret;
+
+	ret = get_tdx_sys_info_td_ctrl(&sysinfo->td_ctrl);
+	if (ret)
+		return ret;
+
+	return get_tdx_sys_info_td_conf(&sysinfo->td_conf);
 }
 
 static void print_sys_info_version(struct tdx_sys_info_version *version)

@@ -473,18 +473,15 @@ static int tdx_mem_page_aug(struct kvm *kvm, gfn_t gfn,
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	hpa_t hpa = pfn_to_hpa(pfn);
 	gpa_t gpa = gfn_to_gpa(gfn);
-	struct tdx_module_args out;
 	u64 entry, level_state;
 	u64 err;
 
-	err = tdh_mem_page_aug(kvm_tdx, gpa, hpa, &out);
+	err = tdh_mem_page_aug(kvm_tdx, gpa, hpa, &entry, &level_state);
 	if (unlikely(err == TDX_ERROR_SEPT_BUSY)) {
 		tdx_unpin(kvm, pfn);
 		return -EAGAIN;
 	}
 	if (unlikely(err == (TDX_EPT_ENTRY_STATE_INCORRECT | TDX_OPERAND_ID_RCX))) {
-		entry = out.rcx;
-		level_state = out.rdx;
 		if (tdx_get_sept_level(level_state) == tdx_level &&
 		    tdx_get_sept_state(level_state) == TDX_SEPT_PENDING &&
 		    is_last_spte(entry, level) &&
@@ -497,7 +494,7 @@ static int tdx_mem_page_aug(struct kvm *kvm, gfn_t gfn,
 		}
 	}
 	if (KVM_BUG_ON(err, kvm)) {
-		pr_tdx_error(TDH_MEM_PAGE_AUG, err, &out);
+		pr_tdx_error_2(TDH_MEM_PAGE_AUG, err, entry, level_state);
 		tdx_unpin(kvm, pfn);
 		return -EIO;
 	}
@@ -538,15 +535,14 @@ static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 static u64 tdx_reclaim_td_page(struct kvm *kvm, hpa_t pa, enum pg_level level)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
-	struct tdx_module_args out;
-	u64 err;
+	u64 err, rcx, rdx, r8;
 
-	err = ____tdx_reclaim_page(pa, &out);
+	err = ____tdx_reclaim_page(pa, &rcx, &rdx, &r8);
 	if (unlikely(!is_td_finalized(kvm_tdx) &&
 		     err == (TDX_PAGE_METADATA_INCORRECT | TDX_OPERAND_ID_RCX)))
 		return 0;
 	if (unlikely(err)) {
-		pr_tdx_error(TDH_PHYMEM_PAGE_RECLAIM, err, &out);
+		pr_tdx_error_3(TDH_PHYMEM_PAGE_RECLAIM, err, rcx, rdx, r8);
 		return err;
 	}
 	return 0;
@@ -557,11 +553,10 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 {
 	int tdx_level = pg_level_to_tdx_sept_level(level);
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
-	struct tdx_module_args out;
 	gpa_t gpa = gfn_to_gpa(gfn);
 	hpa_t hpa = pfn_to_hpa(pfn);
 	hpa_t hpa_with_hkid;
-	u64 err;
+	u64 err, entry, level_state;
 
 	/* TODO: handle large pages. */
 	if (KVM_BUG_ON(level != PG_LEVEL_4K, kvm))
@@ -585,7 +580,8 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		 * condition with other vcpu sept operation.  Race only with
 		 * TDH.VP.ENTER.
 		 */
-		err = tdh_mem_page_remove(kvm_tdx, gpa, tdx_level, &out);
+		err = tdh_mem_page_remove(kvm_tdx, gpa, tdx_level, &entry,
+				&level_state);
 	} while (unlikely(err == TDX_ERROR_SEPT_BUSY));
 	if (unlikely(!is_td_finalized(kvm_tdx) &&
 		     err == (TDX_EPT_WALK_FAILED | TDX_OPERAND_ID_RCX))) {
@@ -593,8 +589,6 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		 * This page was mapped with KVM_MAP_MEMORY, but
 		 * KVM_TDX_INIT_MEM_REGION is not issued yet.
 		 */
-		u64 entry = out.rcx;
-
 		if (!is_last_spte(entry, level) ||
 				!(entry & VMX_EPT_RWX_MASK)) {
 			tdx_unpin(kvm, pfn);
@@ -602,7 +596,7 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		}
 	}
 	if (KVM_BUG_ON(err, kvm)) {
-		pr_tdx_error(TDH_MEM_PAGE_REMOVE, err, &out);
+		pr_tdx_error_2(TDH_MEM_PAGE_REMOVE, err, entry, level_state);
 		return -EIO;
 	}
 
@@ -616,7 +610,7 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		err = tdh_phymem_page_wbinvd(hpa_with_hkid);
 	} while (unlikely(err == (TDX_OPERAND_BUSY | TDX_OPERAND_ID_RCX)));
 	if (KVM_BUG_ON(err, kvm)) {
-		pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
+		// TDDO: pr_tdx_err()
 		return -EIO;
 	}
 	tdx_clear_page(hpa);
@@ -631,14 +625,14 @@ static int tdx_sept_link_private_spt(struct kvm *kvm, gfn_t gfn,
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	gpa_t gpa = gfn_to_gpa(gfn);
 	hpa_t hpa = __pa(private_spt);
-	struct tdx_module_args out;
-	u64 err;
+	u64 err, entry, level_state;
 
-	err = tdh_mem_sept_add(kvm_tdx, gpa, tdx_level, hpa, &out);
+	err = tdh_mem_sept_add(kvm_tdx, gpa, tdx_level, hpa, &entry,
+			&level_state);
 	if (unlikely(err == TDX_ERROR_SEPT_BUSY))
 		return -EAGAIN;
 	if (KVM_BUG_ON(err, kvm)) {
-		pr_tdx_error(TDH_MEM_SEPT_ADD, err, &out);
+		pr_tdx_error_2(TDH_MEM_SEPT_ADD, err, entry, level_state);
 		return -EIO;
 	}
 
@@ -651,8 +645,7 @@ static int tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn,
 	int tdx_level = pg_level_to_tdx_sept_level(level);
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	gpa_t gpa = gfn_to_gpa(gfn) & KVM_HPAGE_MASK(level);
-	struct tdx_module_args out;
-	u64 err;
+	u64 err, entry, level_state;
 
 	/* This can be called when destructing guest TD after freeing HKID. */
 	if (unlikely(!is_hkid_assigned(kvm_tdx)))
@@ -660,11 +653,12 @@ static int tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn,
 
 	/* For now large page isn't supported yet. */
 	WARN_ON_ONCE(level != PG_LEVEL_4K);
-	err = tdh_mem_range_block(kvm_tdx, gpa, tdx_level, &out);
+	err = tdh_mem_range_block(kvm_tdx, gpa, tdx_level, &entry,
+			&level_state);
 	if (unlikely(err == TDX_ERROR_SEPT_BUSY))
 		return -EAGAIN;
 	if (KVM_BUG_ON(err, kvm)) {
-		pr_tdx_error(TDH_MEM_RANGE_BLOCK, err, &out);
+		pr_tdx_error_2(TDH_MEM_RANGE_BLOCK, err, entry, level_state);
 		return -EIO;
 	}
 	return 0;
@@ -738,8 +732,7 @@ static void tdx_track(struct kvm *kvm)
 	atomic_dec(&kvm_tdx->tdh_mem_track);
 
 	if (KVM_BUG_ON(err, kvm))
-		pr_tdx_error(TDH_MEM_TRACK, err, NULL);
-
+		pr_tdx_error(TDH_MEM_TRACK, err);
 }
 
 static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,

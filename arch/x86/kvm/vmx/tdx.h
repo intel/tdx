@@ -111,27 +111,25 @@ static __always_inline void tdvps_vmcs_check(u32 field, u8 bits)
 static __always_inline u##bits td_##lclass##_read##bits(struct vcpu_tdx *tdx,	\
 							u32 field)		\
 {										\
-	struct tdx_module_args out;						\
-	u64 err;								\
+	u64 err, data;								\
 										\
 	tdvps_##lclass##_check(field, bits);					\
-	err = tdh_vp_rd(tdx, TDVPS_##uclass(field), &out);			\
+	err = tdh_vp_rd(tdx, TDVPS_##uclass(field), &data);			\
 	if (KVM_BUG_ON(err, tdx->vcpu.kvm)) {					\
 		pr_err("TDH_VP_RD["#uclass".0x%x] failed: 0x%llx\n",		\
 		       field, err);						\
 		return 0;							\
 	}									\
-	return (u##bits)out.r8;							\
+	return (u##bits)data;							\
 }										\
 static __always_inline void td_##lclass##_write##bits(struct vcpu_tdx *tdx,	\
 						      u32 field, u##bits val)	\
 {										\
-	struct tdx_module_args out;						\
 	u64 err;								\
 										\
 	tdvps_##lclass##_check(field, bits);					\
 	err = tdh_vp_wr(tdx, TDVPS_##uclass(field), val,			\
-		      GENMASK_ULL(bits - 1, 0), &out);				\
+		      GENMASK_ULL(bits - 1, 0));				\
 	if (KVM_BUG_ON(err, tdx->vcpu.kvm))					\
 		pr_err("TDH_VP_WR["#uclass".0x%x] = 0x%llx failed: 0x%llx\n",	\
 		       field, (u64)val, err);					\
@@ -139,11 +137,10 @@ static __always_inline void td_##lclass##_write##bits(struct vcpu_tdx *tdx,	\
 static __always_inline void td_##lclass##_setbit##bits(struct vcpu_tdx *tdx,	\
 						       u32 field, u64 bit)	\
 {										\
-	struct tdx_module_args out;						\
 	u64 err;								\
 										\
 	tdvps_##lclass##_check(field, bits);					\
-	err = tdh_vp_wr(tdx, TDVPS_##uclass(field), bit, bit, &out);		\
+	err = tdh_vp_wr(tdx, TDVPS_##uclass(field), bit, bit);			\
 	if (KVM_BUG_ON(err, tdx->vcpu.kvm))					\
 		pr_err("TDH_VP_WR["#uclass".0x%x] |= 0x%llx failed: 0x%llx\n",	\
 		       field, bit, err);					\
@@ -151,11 +148,10 @@ static __always_inline void td_##lclass##_setbit##bits(struct vcpu_tdx *tdx,	\
 static __always_inline void td_##lclass##_clearbit##bits(struct vcpu_tdx *tdx,	\
 							 u32 field, u64 bit)	\
 {										\
-	struct tdx_module_args out;						\
 	u64 err;								\
 										\
 	tdvps_##lclass##_check(field, bits);					\
-	err = tdh_vp_wr(tdx, TDVPS_##uclass(field), 0, bit, &out);		\
+	err = tdh_vp_wr(tdx, TDVPS_##uclass(field), 0, bit);			\
 	if (KVM_BUG_ON(err, tdx->vcpu.kvm))					\
 		pr_err("TDH_VP_WR["#uclass".0x%x] &= ~0x%llx failed: 0x%llx\n",	\
 		       field, bit,  err);					\

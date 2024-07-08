@@ -981,14 +981,14 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 	if (KVM_BUG_ON(err, vcpu->kvm)) {
 		tdx->tdvpr_pa = 0;
 		ret = -EIO;
-		pr_tdx_error(TDH_VP_CREATE, err, NULL);
+		pr_tdx_error(TDH_VP_CREATE, err);
 		goto free_tdvpx;
 	}
 
 	for (i = 0; i < tdx_info->nr_tdcx_pages; i++) {
 		err = tdh_vp_addcx(tdx, tdcx_pa[i]);
 		if (KVM_BUG_ON(err, vcpu->kvm)) {
-			pr_tdx_error(TDH_VP_ADDCX, err, NULL);
+			pr_tdx_error(TDH_VP_ADDCX, err);
 			for (; i < tdx_info->nr_tdcx_pages; i++) {
 				free_page((unsigned long)__va(tdcx_pa[i]));
 				tdcx_pa[i] = 0;
@@ -1003,7 +1003,7 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 	else
 		err = tdh_vp_init(tdx, vcpu_rcx);
 	if (KVM_BUG_ON(err, vcpu->kvm)) {
-		pr_tdx_error(TDH_VP_INIT, err, NULL);
+		pr_tdx_error(TDH_VP_INIT, err);
 		return -EIO;
 	}
 

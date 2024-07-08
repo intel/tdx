@@ -306,7 +306,7 @@ static void tdx_flush_vp_on_cpu(struct kvm_vcpu *vcpu)
 
 	smp_call_function_single(cpu, tdx_flush_vp, &arg, 1);
 	if (KVM_BUG_ON(arg.err, vcpu->kvm))
-		pr_tdx_error(TDH_VP_FLUSH, arg.err, NULL);
+		pr_tdx_error(TDH_VP_FLUSH, arg.err);
 }
 
 void tdx_hardware_disable(void)
@@ -391,7 +391,7 @@ static int __tdx_mmu_release_hkid(struct kvm *kvm)
 		goto out;
 	}
 	if (WARN_ON_ONCE(err)) {
-		pr_tdx_error(TDH_MNG_VPFLUSHDONE, err, NULL);
+		pr_tdx_error(TDH_MNG_VPFLUSHDONE, err);
 		pr_err("tdh_mng_vpflushdone() failed. HKID %d is leaked.\n",
 		       kvm_tdx->hkid);
 		ret = -EIO;

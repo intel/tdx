@@ -11,6 +11,7 @@
 #include "vmx.h"
 #include "x86.h"
 #include "mmu/spte.h"
+#include "posted_intr.h"
 
 #include <trace/events/kvm.h>
 #include "trace.h"

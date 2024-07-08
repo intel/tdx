@@ -401,15 +401,14 @@ static inline u64 tdh_vp_wr(struct vcpu_tdx *tdx, u64 field, u64 val, u64 mask)
 
 static __always_inline u64 td_tdcs_exec_read64(struct kvm_tdx *kvm_tdx, u32 field)
 {
-	struct tdx_module_args out;
-	u64 err;
+	u64 err, data;
 
-	err = tdh_mng_rd(kvm_tdx, TDCS_EXEC(field), &out);
+	err = tdh_mng_rd(kvm_tdx, TDCS_EXEC(field), &data);
 	if (unlikely(err)) {
 		pr_err("TDH_MNG_RD[EXEC.0x%x] failed: 0x%llx\n", field, err);
 		return 0;
 	}
-	return out.r8;
+	return data;
 }
 
 #endif /* __KVM_X86_TDX_OPS_H */

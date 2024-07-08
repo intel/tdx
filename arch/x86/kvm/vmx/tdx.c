@@ -568,13 +568,12 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 			 u64 *seamcall_err)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
-	struct tdx_module_args out;
 	cpumask_var_t packages;
 	unsigned long *tdcs_pa = NULL;
 	unsigned long tdr_pa = 0;
 	unsigned long va;
 	int ret, i;
-	u64 err;
+	u64 err, rcx;
 
 	*seamcall_err = 0;
 	ret = tdx_guest_keyid_alloc();
@@ -693,7 +692,7 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 		}
 	}
 
-	err = tdh_mng_init(kvm_tdx, __pa(td_params), &out);
+	err = tdh_mng_init(kvm_tdx, __pa(td_params), &rcx);
 	if ((err & TDX_SEAMCALL_STATUS_MASK) == TDX_OPERAND_INVALID) {
 		/*
 		 * Because a user gives operands, don't warn.
@@ -705,7 +704,7 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 		ret = -EINVAL;
 		goto teardown;
 	} else if (WARN_ON_ONCE(err)) {
-		pr_tdx_error(TDH_MNG_INIT, err, &out);
+		pr_tdx_error_1(TDH_MNG_INIT, err, rcx);
 		ret = -EIO;
 		goto teardown;
 	}

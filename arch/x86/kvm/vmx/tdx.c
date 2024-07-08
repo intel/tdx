@@ -1515,7 +1515,7 @@ static int tdx_gmem_post_populate(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
 	struct page *page;
 	kvm_pfn_t mmu_pfn;
 	int ret, i;
-	u64 err;
+	u64 err, entry, level_state;
 
 	/* Pin the source page. */
 	ret = get_user_pages_fast((unsigned long)src, 1, 0, &page);
@@ -1547,7 +1547,8 @@ static int tdx_gmem_post_populate(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
 	ret = 0;
 	do {
 		err = tdh_mem_page_add(kvm_tdx, gpa, pfn_to_hpa(pfn),
-				       pfn_to_hpa(page_to_pfn(page)), NULL);
+				       pfn_to_hpa(page_to_pfn(page)),
+				       &entry, &level_state);
 	} while (err == TDX_ERROR_SEPT_BUSY);
 	if (err) {
 		ret = -EIO;
@@ -1559,7 +1560,8 @@ static int tdx_gmem_post_populate(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
 
 	if (arg->flags & KVM_TDX_MEASURE_MEMORY_REGION) {
 		for (i = 0; i < PAGE_SIZE; i += TDX_EXTENDMR_CHUNKSIZE) {
-			err = tdh_mr_extend(kvm_tdx, gpa + i, NULL);
+			err = tdh_mr_extend(kvm_tdx, gpa + i, &entry,
+					&level_state);
 			if (err) {
 				ret = -EIO;
 				break;

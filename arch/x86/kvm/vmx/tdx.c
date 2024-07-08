@@ -1362,7 +1362,7 @@ static int tdx_td_finalizemr(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	if ((cmd->error & TDX_SEAMCALL_STATUS_MASK) == TDX_OPERAND_BUSY)
 		return -EAGAIN;
 	if (KVM_BUG_ON(cmd->error, kvm)) {
-		pr_tdx_error(TDH_MR_FINALIZE, cmd->error, NULL);
+		pr_tdx_error(TDH_MR_FINALIZE, cmd->error);
 		return -EIO;
 	}
 

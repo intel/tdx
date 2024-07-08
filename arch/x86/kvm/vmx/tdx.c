@@ -130,12 +130,12 @@ static void tdx_clear_page(unsigned long page_pa)
 	__mb();
 }
 
-static u64 ____tdx_reclaim_page(hpa_t pa, struct tdx_module_args *out)
+static u64 ____tdx_reclaim_page(hpa_t pa, u64 *rcx, u64 *rdx, u64 *r8)
 {
 	u64 err;
 
 	do {
-		err = tdh_phymem_page_reclaim(pa, out);
+		err = tdh_phymem_page_reclaim(pa, rcx, rdx, r8);
 		/*
 		 * TDH.PHYMEM.PAGE.RECLAIM is allowed only when TD is shutdown.
 		 * state.  i.e. destructing TD.
@@ -149,12 +149,11 @@ static u64 ____tdx_reclaim_page(hpa_t pa, struct tdx_module_args *out)
 
 static int __tdx_reclaim_page(hpa_t pa)
 {
-	struct tdx_module_args out;
-	u64 err;
+	u64 err, rcx, rdx, r8;
 
-	err = ____tdx_reclaim_page(pa, &out);
+	err = ____tdx_reclaim_page(pa, &rcx, &rdx, &r8);
 	if (WARN_ON_ONCE(err)) {
-		pr_tdx_error(TDH_PHYMEM_PAGE_RECLAIM, err, &out);
+		pr_tdx_error_3(TDH_PHYMEM_PAGE_RECLAIM, err, rcx, rdx, r8);
 		return -EIO;
 	}
 
@@ -205,7 +204,7 @@ static void tdx_do_tdh_phymem_cache_wb(void *unused)
 	if (err == TDX_NO_HKID_READY_TO_WBCACHE)
 		err = TDX_SUCCESS;
 	if (WARN_ON_ONCE(err))
-		pr_tdx_error(TDH_PHYMEM_CACHE_WB, err, NULL);
+		pr_tdx_error(TDH_PHYMEM_CACHE_WB, err);
 }
 
 void tdx_mmu_release_hkid(struct kvm *kvm)
@@ -263,7 +262,7 @@ void tdx_mmu_release_hkid(struct kvm *kvm)
 	 */
 	err = tdh_mng_key_freeid(kvm_tdx);
 	if (WARN_ON_ONCE(err)) {
-		pr_tdx_error(TDH_MNG_KEY_FREEID, err, NULL);
+		pr_tdx_error(TDH_MNG_KEY_FREEID, err);
 		pr_err("tdh_mng_key_freeid() failed. HKID %d is leaked.\n",
 		       kvm_tdx->hkid);
 	} else
@@ -311,7 +310,7 @@ void tdx_vm_free(struct kvm *kvm)
 	err = tdh_phymem_page_wbinvd(set_hkid_to_hpa(kvm_tdx->tdr_pa,
 						     tdx_global_keyid));
 	if (WARN_ON_ONCE(err)) {
-		pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err, NULL);
+		pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err);
 		return;
 	}
 	tdx_clear_page(kvm_tdx->tdr_pa);
@@ -336,7 +335,7 @@ static int tdx_do_tdh_mng_key_config(void *param)
 	} while (err == TDX_KEY_GENERATION_FAILED);
 
 	if (KVM_BUG_ON(err, &kvm_tdx->kvm)) {
-		pr_tdx_error(TDH_MNG_KEY_CONFIG, err, NULL);
+		pr_tdx_error(TDH_MNG_KEY_CONFIG, err);
 		return -EIO;
 	}
 
@@ -490,7 +489,7 @@ static int __tdx_td_init(struct kvm *kvm)
 	}
 	if (WARN_ON_ONCE(err)) {
 		kvm_tdx->tdr_pa = 0;
-		pr_tdx_error(TDH_MNG_CREATE, err, NULL);
+		pr_tdx_error(TDH_MNG_CREATE, err);
 		ret = -EIO;
 		goto free_packages;
 	}
@@ -531,7 +530,7 @@ static int __tdx_td_init(struct kvm *kvm)
 			goto teardown;
 		}
 		if (WARN_ON_ONCE(err)) {
-			pr_tdx_error(TDH_MNG_ADDCX, err, NULL);
+			pr_tdx_error(TDH_MNG_ADDCX, err);
 			ret = -EIO;
 			goto teardown;
 		}

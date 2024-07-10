@@ -1032,6 +1032,8 @@ void __init tdx_early_init(void)
 	if (memcmp(TDX_IDENT, sig, sizeof(sig)))
 		return;
 
+	pr_info("Guest detected\n");
+
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
 
 	/* TSC is the only reliable clock in TDX guest */
@@ -1090,6 +1092,4 @@ void __init tdx_early_init(void)
 	 * Until that is in place, disable parallel bringup for TDX.
 	 */
 	x86_cpuinit.parallel_bringup = false;
-
-	pr_info("Guest detected\n");
 }

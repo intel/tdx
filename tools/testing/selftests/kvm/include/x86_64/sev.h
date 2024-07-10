@@ -37,14 +37,16 @@ enum sev_guest_state {
 #define GHCB_MSR_TERM_REQ	0x100
 
 void sev_vm_launch(struct kvm_vm *vm, uint32_t policy);
-void sev_vm_launch_measure(struct kvm_vm *vm, uint8_t *measurement);
-void sev_vm_launch_finish(struct kvm_vm *vm);
+int sev_vm_launch_start(struct kvm_vm *vm, uint32_t policy);
+int sev_vm_launch_update(struct kvm_vm *vm, uint32_t policy);
+int sev_vm_launch_measure(struct kvm_vm *vm, uint8_t *measurement);
+int sev_vm_launch_finish(struct kvm_vm *vm);
 
 bool is_kvm_snp_supported(void);
 
-void snp_vm_launch(struct kvm_vm *vm, uint32_t policy);
-void snp_vm_launch_update(struct kvm_vm *vm);
-void snp_vm_launch_finish(struct kvm_vm *vm);
+int snp_vm_launch(struct kvm_vm *vm, uint32_t policy, uint8_t flags);
+int snp_vm_launch_update(struct kvm_vm *vm, uint8_t page_type);
+int snp_vm_launch_finish(struct kvm_vm *vm, uint16_t flags);
 
 struct kvm_vm *vm_sev_create_with_one_vcpu(uint32_t type, void *guest_code,
 					   struct kvm_vcpu **cpu);
@@ -98,7 +100,7 @@ static inline void sev_register_encrypted_memory(struct kvm_vm *vm,
 	vm_ioctl(vm, KVM_MEMORY_ENCRYPT_REG_REGION, &range);
 }
 
-static inline void snp_launch_update_data(struct kvm_vm *vm, vm_paddr_t gpa,
+static inline int snp_launch_update_data(struct kvm_vm *vm, vm_paddr_t gpa,
 					   uint64_t size, uint8_t type)
 {
 	struct kvm_sev_snp_launch_update update_data = {
@@ -108,10 +110,10 @@ static inline void snp_launch_update_data(struct kvm_vm *vm, vm_paddr_t gpa,
 		.type = type,
 	};
 
-	vm_sev_ioctl(vm, KVM_SEV_SNP_LAUNCH_UPDATE, &update_data);
+	return __vm_sev_ioctl(vm, KVM_SEV_SNP_LAUNCH_UPDATE, &update_data);
 }
 
-static inline void sev_launch_update_data(struct kvm_vm *vm, vm_paddr_t gpa,
+static inline int sev_launch_update_data(struct kvm_vm *vm, vm_paddr_t gpa,
 					  uint64_t size)
 {
 	struct kvm_sev_launch_update_data update_data = {
@@ -119,7 +121,7 @@ static inline void sev_launch_update_data(struct kvm_vm *vm, vm_paddr_t gpa,
 		.len = size,
 	};
 
-	vm_sev_ioctl(vm, KVM_SEV_LAUNCH_UPDATE_DATA, &update_data);
+	return __vm_sev_ioctl(vm, KVM_SEV_LAUNCH_UPDATE_DATA, &update_data);
 }
 
 #endif /* SELFTEST_KVM_SEV_H */

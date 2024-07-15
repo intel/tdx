@@ -286,6 +286,7 @@ extern bool tdp_mmu_enabled;
 #endif
 
 int kvm_tdp_mmu_get_walk_mirror_pfn(struct kvm_vcpu *vcpu, u64 gpa, kvm_pfn_t *pfn);
+int kvm_tdp_map_page(struct kvm_vcpu *vcpu, gpa_t gpa, u64 error_code, u8 *level);
 
 static inline bool kvm_memslots_have_rmaps(struct kvm *kvm)
 {

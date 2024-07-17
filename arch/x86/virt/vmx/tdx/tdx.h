@@ -40,6 +40,10 @@
 #define MD_FIELD_ID_UPDATE_VERSION		0x0800000100000005ULL
 #define MD_FIELD_ID_INTERNAL_VERSION		0x0800000100000006ULL
 
+#define MD_FIELD_ID_NUM_CMRS			0x9000000100000000ULL
+#define MD_FIELD_ID_CMR_BASE0			0x9000000300000080ULL
+#define MD_FIELD_ID_CMR_SIZE0			0x9000000300000100ULL
+
 #define MD_FIELD_ID_MAX_TDMRS			0x9100000100000008ULL
 #define MD_FIELD_ID_MAX_RESERVED_PER_TDMR	0x9100000100000009ULL
 #define MD_FIELD_ID_PAMT_4K_ENTRY_SIZE		0x9100000100000010ULL
@@ -134,7 +138,7 @@ struct tdmr_info_list {
  * Note not all metadata fields in each class are defined, only those
  * used by the kernel are.
  *
- * Also note the "bit definitions" are architectural.
+ * Also note the "bit/constant definitions" are architectural.
  */
 
 /* Class "TDX Module Info" */
@@ -155,6 +159,14 @@ struct tdx_sysinfo_module_version {
 	u32 build_date;
 };
 
+/* Class "CMR Info" */
+#define TDX_MAX_CMRS	32
+struct tdx_sysinfo_cmr_info {
+	u16 num_cmrs;
+	u64 cmr_base[TDX_MAX_CMRS];
+	u64 cmr_size[TDX_MAX_CMRS];
+};
+
 /* Class "TDMR Info" */
 struct tdx_sysinfo_tdmr_info {
 	u16 max_tdmrs;
@@ -165,6 +177,7 @@ struct tdx_sysinfo_tdmr_info {
 struct tdx_sysinfo {
 	struct tdx_sysinfo_module_info		module_info;
 	struct tdx_sysinfo_module_version	module_version;
+	struct tdx_sysinfo_cmr_info		cmr_info;
 	struct tdx_sysinfo_tdmr_info		tdmr_info;
 };
 

@@ -148,6 +148,7 @@ struct tdx_sysinfo_module_info {
 };
 
 #define TDX_SYS_ATTR_DEBUG_MODULE	0x1
+#define TDX_FEATURES0_NO_RBP_MOD	_BITULL(18)
 
 /* Class "TDX Module Version" */
 struct tdx_sysinfo_module_version {

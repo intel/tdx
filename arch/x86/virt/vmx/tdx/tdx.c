@@ -270,23 +270,25 @@ static int read_sys_metadata_field(u64 field_id, u64 *data)
 	return 0;
 }
 
-static int read_sys_metadata_field16(u64 field_id,
-				     int offset,
-				     void *stbuf)
+/*
+ * Read one global metadata field and store the data to a location of a
+ * given buffer specified by the offset and size (in bytes).
+ */
+static int stbuf_read_sysmd_field(u64 field_id, void *stbuf, int offset,
+				  int size)
 {
-	u16 *member = stbuf + offset;
+	void *member = stbuf + offset;
 	u64 tmp;
 	int ret;
 
-	if (WARN_ON_ONCE(MD_FIELD_ID_ELE_SIZE_CODE(field_id) !=
-			MD_FIELD_ID_ELE_SIZE_16BIT))
+	if (WARN_ON_ONCE(MD_FIELD_ELE_SIZE(field_id) != size))
 		return -EINVAL;
 
 	ret = read_sys_metadata_field(field_id, &tmp);
 	if (ret)
 		return ret;
 
-	*member = tmp;
+	memcpy(member, &tmp, size);
 
 	return 0;
 }
@@ -294,11 +296,13 @@ static int read_sys_metadata_field16(u64 field_id,
 struct field_mapping {
 	u64 field_id;
 	int offset;
+	int size;
 };
 
-#define TD_SYSINFO_MAP(_field_id, _struct, _member)	\
-	{ .field_id = MD_FIELD_ID_##_field_id,		\
-	  .offset   = offsetof(_struct, _member) }
+#define TD_SYSINFO_MAP(_field_id, _struct, _member)		\
+	{ .field_id = MD_FIELD_ID_##_field_id,			\
+	  .offset   = offsetof(_struct, _member),		\
+	  .size	    = sizeof(typeof(((_struct *)0)->_member)) }
 
 #define TD_SYSINFO_MAP_TDMR_INFO(_field_id, _member)	\
 	TD_SYSINFO_MAP(_field_id, struct tdx_tdmr_sysinfo, _member)
@@ -319,9 +323,8 @@ static int get_tdx_tdmr_sysinfo(struct tdx_tdmr_sysinfo *tdmr_sysinfo)
 
 	/* Populate 'tdmr_sysinfo' fields using the mapping structure above: */
 	for (i = 0; i < ARRAY_SIZE(fields); i++) {
-		ret = read_sys_metadata_field16(fields[i].field_id,
-						fields[i].offset,
-						tdmr_sysinfo);
+		ret = stbuf_read_sysmd_field(fields[i].field_id, tdmr_sysinfo,
+				fields[i].offset, fields[i].size);
 		if (ret)
 			return ret;
 	}

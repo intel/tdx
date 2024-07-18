@@ -6,6 +6,12 @@
 
 #include "mmu.h"
 
+static inline bool kvm_is_private_gpa(struct kvm *kvm, gpa_t gpa)
+{
+	/* For TDX the direct mask is the shared mask. */
+	return !kvm_is_addr_direct(kvm, gpa);
+}
+
 static inline int __vmx_handle_ept_violation(struct kvm_vcpu *vcpu, gpa_t gpa,
 					     unsigned long exit_qualification)
 {
@@ -26,6 +32,13 @@ static inline int __vmx_handle_ept_violation(struct kvm_vcpu *vcpu, gpa_t gpa,
 
 	error_code |= (exit_qualification & EPT_VIOLATION_GVA_TRANSLATED) != 0 ?
 	       PFERR_GUEST_FINAL_MASK : PFERR_GUEST_PAGE_MASK;
+
+	/*
+	 * Don't rely on GFN's attribute tracking xarray to prevent EPT violation
+	 * loops.
+	 */
+	if (kvm_is_private_gpa(vcpu->kvm, gpa))
+		error_code |= PFERR_PRIVATE_ACCESS;
 
 	return kvm_mmu_page_fault(vcpu, gpa, error_code, NULL, 0);
 }

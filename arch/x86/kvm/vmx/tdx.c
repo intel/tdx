@@ -1057,8 +1057,9 @@ free_tdvpr:
 	return ret;
 }
 
-static int __maybe_unused tdx_get_kvm_supported_cpuid(struct kvm_cpuid2 **cpuid)
+static int tdx_get_kvm_supported_cpuid(struct kvm_cpuid2 **cpuid)
 {
+
 	int r;
 	static const u32 funcs[] = {
 		0, 0x80000000, KVM_CPUID_SIGNATURE,
@@ -1206,8 +1207,10 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 static int __init setup_kvm_tdx_caps(void)
 {
 	const struct tdx_sysinfo_td_conf *td_conf = &tdx_sysinfo->td_conf;
+	struct kvm_cpuid_entry2 *cpuid_e;
+	struct kvm_cpuid2 *supported_cpuid;
 	u64 kvm_supported;
-	int i;
+	int i, r = -EIO;
 
 	kvm_tdx_caps = kzalloc(sizeof(*kvm_tdx_caps) +
 			       sizeof(struct kvm_tdx_cpuid_config) * td_conf->num_cpuid_config,
@@ -1234,6 +1237,10 @@ static int __init setup_kvm_tdx_caps(void)
 
 	kvm_tdx_caps->supported_xfam = kvm_supported & td_conf->xfam_fixed0;
 
+	r = tdx_get_kvm_supported_cpuid(&supported_cpuid);
+	if (r)
+		goto err;
+
 	kvm_tdx_caps->num_cpuid_config = td_conf->num_cpuid_config;
 	for (i = 0; i < td_conf->num_cpuid_config; i++) {
 		struct kvm_tdx_cpuid_config source = {
@@ -1254,12 +1261,24 @@ static int __init setup_kvm_tdx_caps(void)
 		/* Work around missing support on old TDX modules */
 		if (dest->leaf == 0x80000008)
 			dest->eax |= 0x00ff0000;
+
+		cpuid_e = kvm_find_cpuid_entry2(supported_cpuid->entries, supported_cpuid->nent,
+						dest->leaf, dest->sub_leaf);
+		if (!cpuid_e) {
+			dest->eax = dest->ebx = dest->ecx = dest->edx = 0;
+		} else {
+			dest->eax &= cpuid_e->eax;
+			dest->ebx &= cpuid_e->ebx;
+			dest->ecx &= cpuid_e->ecx;
+			dest->edx &= cpuid_e->edx;
+		}
 	}
 
+	kfree(supported_cpuid);
 	return 0;
 err:
 	kfree(kvm_tdx_caps);
-	return -EIO;
+	return r;
 }
 
 static void free_kvm_tdx_cap(void)

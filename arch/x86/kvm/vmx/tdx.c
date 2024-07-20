@@ -985,6 +985,30 @@ free_tdvpr:
 	return ret;
 }
 
+static int __maybe_unused tdx_get_kvm_supported_cpuid(struct kvm_cpuid2 **cpuid)
+{
+	int r;
+	static const u32 funcs[] = {
+		0, 0x80000000, KVM_CPUID_SIGNATURE,
+	};
+
+	*cpuid = kzalloc(sizeof(struct kvm_cpuid2) +
+			sizeof(struct kvm_cpuid_entry2) * KVM_MAX_CPUID_ENTRIES,
+			GFP_KERNEL);
+	if (!*cpuid)
+		return -ENOMEM;
+	(*cpuid)->nent = KVM_MAX_CPUID_ENTRIES;
+	r = kvm_get_supported_cpuid_internal(*cpuid, funcs, ARRAY_SIZE(funcs));
+	if (r)
+		goto err;
+
+	return 0;
+err:
+	kfree(*cpuid);
+	*cpuid = NULL;
+	return r;
+}
+
 static int tdx_vcpu_init(struct kvm_vcpu *vcpu, struct kvm_tdx_cmd *cmd)
 {
 	struct msr_data apic_base_msr;

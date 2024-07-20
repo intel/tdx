@@ -1057,13 +1057,24 @@ free_tdvpr:
 	return ret;
 }
 
+/*
+ * This function is used in two cases:
+ * 1. mask KVM unsupported/unknown bits from the configurable CPUIDs reported
+ *    by TDX module. in setup_kvm_tdx_caps().
+ * 2. mask KVM unsupported/unknown bits from the actual CPUID value of TD that
+ *    read from TDX module. in tdx_vcpu_get_cpuid().
+ *
+ * For both cases, it needs fixup for the field that consists of multiple bits.
+ * For multi-bits field, we need a mask however what
+ * kvm_get_supported_cpuid_internal() returns is just a default value.
+ */
 static int tdx_get_kvm_supported_cpuid(struct kvm_cpuid2 **cpuid)
 {
-
 	int r;
 	static const u32 funcs[] = {
 		0, 0x80000000, KVM_CPUID_SIGNATURE,
 	};
+	struct kvm_cpuid_entry2 *entry;
 
 	*cpuid = kzalloc(sizeof(struct kvm_cpuid2) +
 			sizeof(struct kvm_cpuid_entry2) * KVM_MAX_CPUID_ENTRIES,
@@ -1074,6 +1085,89 @@ static int tdx_get_kvm_supported_cpuid(struct kvm_cpuid2 **cpuid)
 	r = kvm_get_supported_cpuid_internal(*cpuid, funcs, ARRAY_SIZE(funcs));
 	if (r)
 		goto err;
+
+	entry = kvm_find_cpuid_entry2((*cpuid)->entries, (*cpuid)->nent, 0x0, 0);
+	if (WARN_ON(!entry))
+		goto err;
+	/* Fixup of maximum basic leaf */
+	entry->eax |= 0x000000FF;
+
+	entry = kvm_find_cpuid_entry2((*cpuid)->entries, (*cpuid)->nent, 0x1, 0);
+	if (WARN_ON(!entry))
+		goto err;
+	/* Fixup of FMS */
+	entry->eax |= 0x0fff3fff;
+	/* Fixup of maximum logical processors per package */
+	entry->ebx |= 0x00ff0000;
+
+	/*
+	 * Fixup of CPUID leaf 4, which enmerates cache info, all of the
+	 * non-reserved fields except EBX[11:0] (System Coherency Line Size)
+	 * are configurable for TDs.
+	 */
+	entry = kvm_find_cpuid_entry2((*cpuid)->entries, (*cpuid)->nent, 0x4, 0);
+	if (WARN_ON(!entry))
+		goto err;
+	entry->eax |= 0xffffc3ff;
+	entry->ebx |= 0xfffff000;
+	entry->ecx |= 0xffffffff;
+	entry->edx |= 0x00000007;
+
+	entry = kvm_find_cpuid_entry2((*cpuid)->entries, (*cpuid)->nent, 0x4, 1);
+	if (WARN_ON(!entry))
+		goto err;
+	entry->eax |= 0xffffc3ff;
+	entry->ebx |= 0xfffff000;
+	entry->ecx |= 0xffffffff;
+	entry->edx |= 0x00000007;
+
+	entry = kvm_find_cpuid_entry2((*cpuid)->entries, (*cpuid)->nent, 0x4, 2);
+	if (WARN_ON(!entry))
+		goto err;
+	entry->eax |= 0xffffc3ff;
+	entry->ebx |= 0xfffff000;
+	entry->ecx |= 0xffffffff;
+	entry->edx |= 0x00000007;
+
+	entry = kvm_find_cpuid_entry2((*cpuid)->entries, (*cpuid)->nent, 0x4, 3);
+	if (WARN_ON(!entry))
+		goto err;
+	entry->eax |= 0xffffc3ff;
+	entry->ebx |= 0xfffff000;
+	entry->ecx |= 0xffffffff;
+	entry->edx |= 0x00000007;
+
+	/* Fixup of CPUID leaf 0xB */
+	entry = kvm_find_cpuid_entry2((*cpuid)->entries, (*cpuid)->nent, 0xb, 0);
+	if (WARN_ON(!entry))
+		goto err;
+	entry->eax = 0x0000001f;
+	entry->ebx = 0x0000ffff;
+	entry->ecx = 0x0000ffff;
+
+	/*
+	 * Fixup of CPUID leaf 0x1f, which is totally configurable for TDs.
+	 */
+	entry = kvm_find_cpuid_entry2((*cpuid)->entries, (*cpuid)->nent, 0x1f, 0);
+	if (WARN_ON(!entry))
+		goto err;
+	entry->eax = 0x0000001f;
+	entry->ebx = 0x0000ffff;
+	entry->ecx = 0x0000ffff;
+
+	for (int i = 1; i <= 5; i++) {
+		entry = kvm_find_cpuid_entry2((*cpuid)->entries, (*cpuid)->nent, 0x1f, i);
+		if (!entry) {
+			entry = &(*cpuid)->entries[(*cpuid)->nent];
+			entry->function = 0x1f;
+			entry->index = i;
+			entry->flags = KVM_CPUID_FLAG_SIGNIFCANT_INDEX;
+			(*cpuid)->nent++;
+		}
+		entry->eax = 0x0000001f;
+		entry->ebx = 0x0000ffff;
+		entry->ecx = 0x0000ffff;
+	}
 
 	return 0;
 err:

@@ -1088,6 +1088,7 @@ static int tdx_get_kvm_supported_cpuid(struct kvm_cpuid2 **cpuid) {
 	static const u32 funcs[] = {
 		0, 0x80000000, KVM_CPUID_SIGNATURE,
 	};
+	struct kvm_cpuid_entry2 *entry;
 
 	*cpuid = kzalloc(sizeof(struct kvm_cpuid2) +
 			sizeof(struct kvm_cpuid_entry2) * KVM_MAX_CPUID_ENTRIES,
@@ -1098,6 +1099,87 @@ static int tdx_get_kvm_supported_cpuid(struct kvm_cpuid2 **cpuid) {
 	r = kvm_get_supported_cpuid_internal(*cpuid, funcs, ARRAY_SIZE(funcs));
 	if (r)
 		goto err;
+
+	entry = kvm_find_cpuid_entry2((*cpuid)->entries, (*cpuid)->nent, 0x0, 0);
+	if (WARN_ON(!entry))
+		goto err;
+	entry->eax |= 0x000000FF;
+
+	entry = kvm_find_cpuid_entry2((*cpuid)->entries, (*cpuid)->nent, 0x1, 0);
+	if (WARN_ON(!entry))
+		goto err;
+
+	/* 
+	 * TODO: Drop the below, if this makes it upstream:
+	 * https://lore.kernel.org/kvm/20240517173926.965351-34-seanjc@google.com/#t
+	 */
+	cpuid_entry_set(entry, X86_FEATURE_TSC_DEADLINE_TIMER);
+	cpuid_entry_set(entry, X86_FEATURE_HT);
+	entry->eax |= 0x0000000F;
+	entry->ebx |= 0x00ff0000;
+	entry->ecx |= 0xF0000011;
+
+	entry = kvm_find_cpuid_entry2((*cpuid)->entries, (*cpuid)->nent, 0x4, 0);
+	if (WARN_ON(!entry))
+		goto err;
+	entry->eax |= 0x0FF3390D;
+	entry->ebx |= 0xFF000000;
+	entry->ecx |= 0x00044988;
+	entry->edx |= 0xA0400001;
+
+	entry = kvm_find_cpuid_entry2((*cpuid)->entries, (*cpuid)->nent, 0x4, 1);
+	if (WARN_ON(!entry))
+		goto err;
+	entry->ebx |= 0xFF000000;
+	entry->edx |= 0x00000001;
+
+	entry = kvm_find_cpuid_entry2((*cpuid)->entries, (*cpuid)->nent, 0x4, 2);
+	if (WARN_ON(!entry))
+		goto err;
+	entry->ecx |= 0x00000F00;
+	entry->edx |= 0x00000001;
+
+	entry = kvm_find_cpuid_entry2((*cpuid)->entries, (*cpuid)->nent, 0x4, 3);
+	if (WARN_ON(!entry))
+		goto err;
+	entry->ebx |= 0x0F000000;
+	entry->edx |= 0x00000007;
+
+	entry = kvm_find_cpuid_entry2((*cpuid)->entries, (*cpuid)->nent, 0x7, 0);
+	if (WARN_ON(!entry))
+		goto err;
+	cpuid_entry_set(entry, X86_FEATURE_AVX512_4VNNIW);
+	cpuid_entry_set(entry, X86_FEATURE_FLUSH_L1D);
+	cpuid_entry_set(entry, X86_FEATURE_ARCH_CAPABILITIES);
+	cpuid_entry_set(entry, X86_FEATURE_CORE_CAPABILITIES);
+	cpuid_entry_set(entry, X86_FEATURE_SPEC_CTRL_SSBD);
+
+	entry = kvm_find_cpuid_entry2((*cpuid)->entries, (*cpuid)->nent, 0xb, 0);
+	if (WARN_ON(!entry))
+		goto err;
+	entry->ebx |= 0x00000001;
+	entry->ecx |= 0x00000100;
+
+	entry = kvm_find_cpuid_entry2((*cpuid)->entries, (*cpuid)->nent, 0x1f, 0);
+	if (WARN_ON(!entry))
+		goto err;
+	entry->eax |= 0x0000011F;
+	entry->ebx |= 0x00000101;
+	entry->ecx |= 0x0000FFFF;
+
+	for(int i = 1; i <= 5; i++) {
+		entry = kvm_find_cpuid_entry2((*cpuid)->entries, (*cpuid)->nent, 0x1f, i);
+		if (!entry) {
+			entry = &(*cpuid)->entries[(*cpuid)->nent];
+			entry->function = 0x1f;
+			entry->index = 0;
+			entry->flags = 0;
+			(*cpuid)->nent++;
+		}
+		entry->eax |= 0x0000FFFF;
+		entry->ebx |= 0x0000FFFF;
+		entry->ecx |= 0x0000FFFF;
+	}
 
 	return 0;
 err:

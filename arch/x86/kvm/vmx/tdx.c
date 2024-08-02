@@ -190,6 +190,11 @@ static int __init setup_kvm_tdx_caps(void)
 	return 0;
 }
 
+static void free_kvm_tdx_cap(void)
+{
+	kfree(kvm_tdx_caps);
+}
+
 static int tdx_online_cpu(unsigned int cpu)
 {
 	unsigned long flags;
@@ -296,6 +301,7 @@ tdx_bringup_err:
 void tdx_cleanup(void)
 {
 	if (enable_tdx) {
+		free_kvm_tdx_cap();
 		__do_tdx_cleanup();
 		kvm_disable_virtualization();
 	}

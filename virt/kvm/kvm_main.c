@@ -5749,8 +5749,6 @@ static void kvm_uninit_virtualization(void)
 {
 	if (enable_virt_at_load)
 		kvm_disable_virtualization();
-
-	WARN_ON(kvm_usage_count);
 }
 #else /* CONFIG_KVM_GENERIC_HARDWARE_ENABLING */
 static int kvm_init_virtualization(void)

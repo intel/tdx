@@ -1227,6 +1227,7 @@ void verify_tdcall_vp_info(void)
 	cpuid_entry = get_cpuid_entry(kvm_get_supported_cpuid(), 0x80000008, 0);
 	TEST_ASSERT(cpuid_entry, "CPUID entry missing\n");
 	max_pa = cpuid_entry->eax & 0xff;
+	TEST_ASSERT_EQ((1UL << (max_pa - 1)), tdx_s_bit);
 
 	for (i = 0; i < num_vcpus; i++) {
 		struct kvm_vcpu *vcpu = vcpus[i];

@@ -136,18 +136,78 @@ static void tdx_check_attributes(struct kvm_vm *vm, uint64_t attributes)
 	free(tdx_cap);
 }
 
+#define KVM_MAX_CPUID_ENTRIES 256
+
+#define CPUID_EXT_VMX      (1U << 5)
+#define CPUID_EXT_SMX      (1U << 6)
+#define CPUID_PSE36   (1U << 17)
+#define CPUID_7_0_EBX_TSC_ADJUST        (1U << 1)
+#define CPUID_7_0_EBX_SGX               (1U << 2)
+#define CPUID_7_0_EBX_INTEL_PT          (1U << 25)
+#define CPUID_7_0_ECX_SGX_LC            (1U << 30)
+#define CPUID_APM_INVTSC       (1U << 8)
+#define CPUID_8000_0008_EBX_WBNOINVD    (1U << 9)
+#define CPUID_EXT_PDCM     (1U << 15)
+
+#define TDX_SUPPORTED_KVM_FEATURES  ((1U << KVM_FEATURE_NOP_IO_DELAY) | \
+				     (1U << KVM_FEATURE_PV_UNHALT) |	\
+				     (1U << KVM_FEATURE_PV_TLB_FLUSH) | \
+				     (1U << KVM_FEATURE_PV_SEND_IPI) |	\
+				     (1U << KVM_FEATURE_POLL_CONTROL) | \
+				     (1U << KVM_FEATURE_PV_SCHED_YIELD) | \
+				     (1U << KVM_FEATURE_MSI_EXT_DEST_ID))
+
+
+void __tdx_mask_cpuid_features(struct kvm_cpuid_entry2 *entry)
+{
+	switch (entry->function) {
+	case 0x1:
+		entry->ecx &= ~(CPUID_EXT_VMX | CPUID_EXT_SMX);
+		entry->edx &= ~CPUID_PSE36;
+		break;
+	case 0x7:
+		entry->ebx &= ~(CPUID_7_0_EBX_TSC_ADJUST | CPUID_7_0_EBX_SGX);
+		entry->ebx &= ~CPUID_7_0_EBX_INTEL_PT;
+		entry->ecx &= ~CPUID_7_0_ECX_SGX_LC;
+		break;
+	case 0x40000001:
+		entry->eax &= TDX_SUPPORTED_KVM_FEATURES;
+		break;
+	case 0x80000007:
+		entry->edx |= CPUID_APM_INVTSC;
+		break;
+	case 0x80000008:
+		entry->ebx &= CPUID_8000_0008_EBX_WBNOINVD;
+		break;
+	default:
+		break;
+	}
+}
+
+static void tdx_mask_cpuid_features(struct kvm_cpuid2 *cpuid_data)
+{
+	for (int i = 0; i < cpuid_data->nent; i++)
+		__tdx_mask_cpuid_features(&cpuid_data->entries[i]);
+}
+
 static void tdx_td_init(struct kvm_vm *vm, uint64_t attributes)
 {
-	const struct kvm_cpuid2 *cpuid;
 	struct kvm_tdx_init_vm *init_vm;
+	const struct kvm_cpuid2 *tmp;
+	struct kvm_cpuid2 *cpuid;
 
-	cpuid = kvm_get_supported_cpuid();
+	tmp = kvm_get_supported_cpuid();
+
+	cpuid = allocate_kvm_cpuid2(KVM_MAX_CPUID_ENTRIES);
+	memcpy(cpuid, tmp, kvm_cpuid2_size(tmp->nent));
+	tdx_mask_cpuid_features(cpuid);
 
 	init_vm = malloc(sizeof(*init_vm) +
 			 sizeof(init_vm->cpuid.entries[0]) * cpuid->nent);
 
 	memset(init_vm, 0, sizeof(*init_vm));
 	memcpy(&init_vm->cpuid, cpuid, kvm_cpuid2_size(cpuid->nent));
+	free(cpuid);
 
 	tdx_check_attributes(vm, attributes);
 
@@ -160,9 +220,15 @@ static void tdx_td_init(struct kvm_vm *vm, uint64_t attributes)
 
 static void tdx_td_vcpu_init(struct kvm_vcpu *vcpu)
 {
-	const struct kvm_cpuid2 *cpuid = kvm_get_supported_cpuid();
+	const struct kvm_cpuid2 *tmp = kvm_get_supported_cpuid();
+	struct kvm_cpuid2 *cpuid;
+
+	cpuid = allocate_kvm_cpuid2(KVM_MAX_CPUID_ENTRIES);
+	memcpy(cpuid, tmp, kvm_cpuid2_size(tmp->nent));
+	tdx_mask_cpuid_features(cpuid);
 
 	vcpu_init_cpuid(vcpu, cpuid);
+	free(cpuid);
 	tdx_ioctl(vcpu->fd, KVM_TDX_INIT_VCPU, 0, NULL);
 }
 

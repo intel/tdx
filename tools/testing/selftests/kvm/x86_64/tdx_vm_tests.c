@@ -1206,7 +1206,6 @@ void verify_tdcall_vp_info(void)
 	vm = td_create();
 
 #define TDX_TDPARAM_ATTR_SEPT_VE_DISABLE_BIT	(1UL << 28)
-#define TDX_TDPARAM_ATTR_PKS_BIT		(1UL << 30)
 	/* Setting attributes parameter used by TDH.MNG.INIT to 0x50000000 */
 	attributes = TDX_TDPARAM_ATTR_SEPT_VE_DISABLE_BIT;
 

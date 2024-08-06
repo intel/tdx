@@ -190,6 +190,33 @@ static void tdx_mask_cpuid_features(struct kvm_cpuid2 *cpuid_data)
 		__tdx_mask_cpuid_features(&cpuid_data->entries[i]);
 }
 
+static void __tdx_adjust_cpuid(struct kvm_cpuid_entry2 *entry)
+{
+	switch (entry->function) {
+	case 0x1:
+		/* TDX always advertise IA32_PERF_CAPABILITIES */
+		entry->ecx |= CPUID_EXT_PDCM;
+		break;
+	case 0x2:
+		/* TDX module hardcodes the values for leaf 0x2 */
+		entry->eax = 0x00feff01;
+		entry->ebx = entry->ecx = entry->edx = 0;
+		break;
+	case 0x80000000:
+		entry->ebx = entry->ecx = entry->edx = 0;
+		break;
+	case 0x80000001:
+		entry->eax = 0;
+	}
+}
+
+static void tdx_adjust_cpuid(struct kvm_cpuid2 *cpuid_data)
+
+{
+	for (int i = 0; i < cpuid_data->nent; i++)
+		__tdx_adjust_cpuid(&cpuid_data->entries[i]);
+}
+
 static void tdx_td_init(struct kvm_vm *vm, uint64_t attributes)
 {
 	struct kvm_tdx_init_vm *init_vm;
@@ -226,6 +253,7 @@ static void tdx_td_vcpu_init(struct kvm_vcpu *vcpu)
 	cpuid = allocate_kvm_cpuid2(KVM_MAX_CPUID_ENTRIES);
 	memcpy(cpuid, tmp, kvm_cpuid2_size(tmp->nent));
 	tdx_mask_cpuid_features(cpuid);
+	tdx_adjust_cpuid(cpuid);
 
 	vcpu_init_cpuid(vcpu, cpuid);
 	free(cpuid);

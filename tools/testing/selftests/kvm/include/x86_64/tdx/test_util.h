@@ -66,7 +66,7 @@
 	do {								\
 		if ((VCPU)->run->exit_reason == KVM_EXIT_SYSTEM_EVENT)	\
 			TEST_FAIL("Guest reported error. error code: %lld (0x%llx)\n", \
-				(VCPU)->run->system_event.data[1],	\
+				(VCPU)->run->system_event.data[0],	\
 				(VCPU)->run->system_event.data[1]);	\
 	} while (0)
 

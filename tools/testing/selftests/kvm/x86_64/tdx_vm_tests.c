@@ -228,7 +228,8 @@ void verify_td_cpuid(void)
 	printf("\t ... Verifying CPUID values from guest\n");
 
 	/* Get KVM CPUIDs for reference */
-	cpuid_entry = get_cpuid_entry(kvm_get_supported_cpuid(), 1, 0);
+	tdx_filter_cpuid(vm, vcpu->cpuid);
+	cpuid_entry = vcpu_get_cpuid_entry(vcpu, 1);
 	TEST_ASSERT(cpuid_entry, "CPUID entry missing\n");
 
 	host_max_addressable_ids = (cpuid_entry->ebx >> 16) & 0xFF;
@@ -247,7 +248,7 @@ void verify_td_cpuid(void)
 	 * "As Configured (if Native)" we need to override this value
 	 * in the TD params
 	 */
-	TEST_ASSERT_EQ(guest_fma_enabled, 1);
+	TEST_ASSERT_EQ(guest_fma_enabled, (cpuid_entry->ecx >> 12) & 0x1);
 
 	/* TODO: guest_initial_apic_id is calculated based on the number of
 	 * VCPUs in the TD. From the spec: "Virtual CPU index, starting from 0

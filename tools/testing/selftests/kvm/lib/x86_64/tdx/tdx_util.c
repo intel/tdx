@@ -130,6 +130,9 @@ static void tdx_check_attributes(struct kvm_vm *vm, uint64_t attributes)
 	/* TDX spec: any bits 0 in supported_attrs must be 0 in attributes */
 	TEST_ASSERT_EQ(attributes & ~tdx_cap->supported_attrs, 0);
 
+	/* TDX spec: any bits 1 in attributes must be 1 in supported_attrs */
+	TEST_ASSERT_EQ(attributes & tdx_cap->supported_attrs, attributes);
+
 	free(tdx_cap);
 }
 

@@ -1011,7 +1011,8 @@ void verify_td_cpuid_tdcall(void)
 	struct kvm_vcpu *vcpu;
 
 	uint32_t eax, ebx, ecx, edx;
-	const struct kvm_cpuid_entry2 *cpuid_entry;
+	const struct kvm_cpuid_entry2 *tmp;
+	struct kvm_cpuid_entry2 cpuid_entry;
 
 	vm = td_create();
 	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);
@@ -1050,14 +1051,17 @@ void verify_td_cpuid_tdcall(void)
 	TDX_TEST_ASSERT_SUCCESS(vcpu);
 
 	/* Get KVM CPUIDs for reference */
-	cpuid_entry = get_cpuid_entry(kvm_get_supported_cpuid(), 1, 0);
-	TEST_ASSERT(cpuid_entry, "CPUID entry missing\n");
+	tmp = get_cpuid_entry(kvm_get_supported_cpuid(), 1, 0);
+	TEST_ASSERT(tmp, "CPUID entry missing\n");
 
-	TEST_ASSERT_EQ(cpuid_entry->eax, eax);
+	cpuid_entry = *tmp;
+	__tdx_mask_cpuid_features(&cpuid_entry);
+
+	TEST_ASSERT_EQ(cpuid_entry.eax, eax);
 	// Mask lapic ID when comparing ebx.
-	TEST_ASSERT_EQ(cpuid_entry->ebx & ~0xFF000000, ebx & ~0xFF000000);
-	TEST_ASSERT_EQ(cpuid_entry->ecx, ecx);
-	TEST_ASSERT_EQ(cpuid_entry->edx, edx);
+	TEST_ASSERT_EQ(cpuid_entry.ebx & ~0xFF000000, ebx & ~0xFF000000);
+	TEST_ASSERT_EQ(cpuid_entry.ecx, ecx);
+	TEST_ASSERT_EQ(cpuid_entry.edx, edx);
 
 	kvm_vm_free(vm);
 	printf("\t ... PASSED\n");

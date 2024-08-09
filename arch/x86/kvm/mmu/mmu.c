@@ -5970,17 +5970,29 @@ static int kvm_mmu_write_protect_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 	bool direct = vcpu->arch.mmu->root_role.direct;
 
 	/*
-	 * Before emulating the instruction, check if the error code
-	 * was due to a RO violation while translating the guest page.
-	 * This can occur when using nested virtualization with nested
-	 * paging in both guests. If true, we simply unprotect the page
-	 * and resume the guest.
+	 * Before emulating the instruction, check to see if the access may be
+	 * due to L1 accessing nested NPT/EPT entries used for L2, i.e. if the
+	 * gfn being written is for gPTEs that KVM is shadowing and has write-
+	 * protected.  Because AMD CPUs walk nested page table using a write
+	 * operation, walking NPT entries in L1 can trigger write faults even
+	 * when L1 isn't modifying PTEs, and thus result in KVM emulating an
+	 * excessive number of L1 instructions without triggering KVM's write-
+	 * flooding detection, i.e. without unprotecting the gfn.
+	 *
+	 * If the error code was due to a RO violation while translating the
+	 * guest page, the current MMU is direct (L1 is active), and KVM has
+	 * shadow pages, then the above scenario is likely being hit.  Try to
+	 * unprotect the gfn, i.e. zap any shadow pages, so that L1 can walk
+	 * its NPT entries without triggering emulation.  If one or more shadow
+	 * pages was zapped, skip emulation and resume L1 to let it natively
+	 * execute the instruction.  If no shadow pages were zapped, then the
+	 * write-fault is due to something else entirely, i.e. KVM needs to
+	 * emulate, as resuming the guest will put it into an infinite loop.
 	 */
 	if (direct &&
-	    (error_code & PFERR_NESTED_GUEST_PAGE) == PFERR_NESTED_GUEST_PAGE) {
-		kvm_mmu_unprotect_page(vcpu->kvm, gpa_to_gfn(cr2_or_gpa));
+	    (error_code & PFERR_NESTED_GUEST_PAGE) == PFERR_NESTED_GUEST_PAGE &&
+	    kvm_mmu_unprotect_page(vcpu->kvm, gpa_to_gfn(cr2_or_gpa)))
 		return RET_PF_FIXED;
-	}
 
 	/*
 	 * The gfn is write-protected, but if emulation fails we can still

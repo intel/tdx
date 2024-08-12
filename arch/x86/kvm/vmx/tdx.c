@@ -813,6 +813,76 @@ free_hkid:
 	return ret;
 }
 
+static u64 tdx_td_metadata_field_read(struct kvm_tdx *tdx, u64 field_id,
+				      u64 *data)
+{
+	u64 err;
+
+	err = tdh_mng_rd(tdx, field_id, data);
+
+	return err;
+}
+
+#define TDX_MD_UNREADABLE_LEAF_MASK	GENMASK(30, 7)
+#define TDX_MD_UNREADABLE_SUBLEAF_MASK	GENMASK(31, 7)
+
+static int tdx_mask_cpuid(struct kvm_tdx *tdx, struct kvm_cpuid_entry2 *entry)
+{
+	u64 field_id = TD_MD_FIELD_ID_CPUID_VALUES;
+	u64 ebx_eax, edx_ecx;
+	u64 err = 0;
+
+	if (entry->function & TDX_MD_UNREADABLE_LEAF_MASK ||
+	    entry->index & TDX_MD_UNREADABLE_SUBLEAF_MASK)
+		return -EINVAL;
+
+	/*
+	 * bit 23:17, REVSERVED: reserved, must be 0;
+	 * bit 16,    LEAF_31: leaf number bit 31;
+	 * bit 15:9,  LEAF_6_0: leaf number bits 6:0, leaf bits 30:7 are
+	 *                      implicitly 0;
+	 * bit 8,     SUBLEAF_NA: sub-leaf not applicable flag;
+	 * bit 7:1,   SUBLEAF_6_0: sub-leaf number bits 6:0. If SUBLEAF_NA is 1,
+	 *                         the SUBLEAF_6_0 is all-1.
+	 *                         sub-leaf bits 31:7 are implicitly 0;
+	 * bit 0,     ELEMENT_I: Element index within field;
+	 */
+	field_id |= ((entry->function & 0x80000000) ? 1 : 0) << 16;
+	field_id |= (entry->function & 0x7f) << 9;
+	if (entry->flags & KVM_CPUID_FLAG_SIGNIFCANT_INDEX)
+		field_id |= (entry->index & 0x7f) << 1;
+	else
+		field_id |= 0x1fe;
+
+	err = tdx_td_metadata_field_read(tdx, field_id, &ebx_eax);
+	if (err) //TODO check for specific errors
+		goto err_out;
+
+	entry->eax &= (u32) ebx_eax;
+	entry->ebx &= (u32) (ebx_eax >> 32);
+
+	field_id++;
+	err = tdx_td_metadata_field_read(tdx, field_id, &edx_ecx);
+	/*
+	 * It's weird that reading edx_ecx fails while reading ebx_eax
+	 * succeeded.
+	 */
+	if (WARN_ON_ONCE(err))
+		goto err_out;
+
+	entry->ecx &= (u32) edx_ecx;
+	entry->edx &= (u32) (edx_ecx >> 32);
+	return 0;
+
+err_out:
+	entry->eax = 0;
+	entry->ebx = 0;
+	entry->ecx = 0;
+	entry->edx = 0;
+
+	return -EIO;
+}
+
 static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
@@ -1038,6 +1108,64 @@ err:
 	return r;
 }
 
+static int tdx_vcpu_get_cpuid(struct kvm_vcpu *vcpu, struct kvm_tdx_cmd *cmd)
+{
+	struct kvm_cpuid2 __user *output, *td_cpuid;
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
+	struct kvm_cpuid2 *supported_cpuid;
+	int r = 0, i, j = 0;
+
+	output = u64_to_user_ptr(cmd->data);
+	td_cpuid = kzalloc(sizeof(*td_cpuid) +
+			sizeof(output->entries[0]) * KVM_MAX_CPUID_ENTRIES,
+			GFP_KERNEL);
+	if (!td_cpuid)
+		return -ENOMEM;
+
+	r = tdx_get_kvm_supported_cpuid(&supported_cpuid);
+	if (r)
+		goto out;
+
+	for (i = 0; i < supported_cpuid->nent; i++) {
+		struct kvm_cpuid_entry2 *supported = &supported_cpuid->entries[i];
+		struct kvm_cpuid_entry2 *output_e = &td_cpuid->entries[j];
+
+		*output_e = *supported;
+
+		/* Only allow values of bits that KVM's supports to be exposed */
+		if (tdx_mask_cpuid(kvm_tdx, output_e))
+			continue;
+
+		/*
+		 * Work around missing support on old TDX modules, fetch
+		 * guest maxpa from gfn_direct_bits.
+		 */
+		if (output_e->function == 0x80000008) {
+			gpa_t gpa_bits = gfn_to_gpa(kvm_gfn_direct_bits(vcpu->kvm));
+			unsigned int g_maxpa = __ffs(gpa_bits) + 1;
+
+			output_e->eax &= ~0x00ff0000;
+			output_e->eax |= g_maxpa << 16;
+		}
+
+		j++;
+	}
+	td_cpuid->nent = j;
+
+	if (copy_to_user(output, td_cpuid, sizeof(*output))) {
+		r = -EFAULT;
+		goto out;
+	}
+	if (copy_to_user(output->entries, td_cpuid->entries,
+			 td_cpuid->nent * sizeof(struct kvm_cpuid_entry2)))
+		r = -EFAULT;
+
+out:
+	kfree(td_cpuid);
+	kfree(supported_cpuid);
+	return r;
+}
+
 static int tdx_vcpu_init(struct kvm_vcpu *vcpu, struct kvm_tdx_cmd *cmd)
 {
 	struct msr_data apic_base_msr;
@@ -1088,6 +1216,9 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 	switch (cmd.id) {
 	case KVM_TDX_INIT_VCPU:
 		ret = tdx_vcpu_init(vcpu, &cmd);
+		break;
+	case KVM_TDX_GET_CPUID:
+		ret = tdx_vcpu_get_cpuid(vcpu, &cmd);
 		break;
 	default:
 		ret = -EINVAL;

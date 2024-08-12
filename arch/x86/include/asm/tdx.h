@@ -176,6 +176,10 @@ struct tdx_sysinfo {
 
 const struct tdx_sysinfo *tdx_get_sysinfo(void);
 
+extern u32 tdx_global_keyid;
+extern u32 tdx_guest_keyid_start;
+extern u32 tdx_nr_guest_keyids;
+
 u64 __seamcall(u64 fn, struct tdx_module_args *args);
 u64 __seamcall_ret(u64 fn, struct tdx_module_args *args);
 u64 __seamcall_saved_ret(u64 fn, struct tdx_module_args *args);

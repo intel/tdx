@@ -14,6 +14,9 @@ struct kvm_tdx {
 	struct kvm kvm;
 
 	unsigned long tdr_pa;
+	unsigned long *tdcs_pa;
+
+	int hkid;
 };
 
 struct vcpu_tdx {

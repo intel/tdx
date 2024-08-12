@@ -49,7 +49,7 @@ static int tdx_get_capabilities(struct kvm_tdx_cmd *cmd)
 	const struct tdx_sysinfo_td_conf *td_conf = &tdx_sysinfo->td_conf;
 	struct kvm_tdx_capabilities __user *user_caps;
 	struct kvm_tdx_capabilities *caps = NULL;
-	int i, ret = 0;
+	int ret = 0;
 
 	/* flags is reserved for future use */
 	if (cmd->flags)
@@ -70,39 +70,19 @@ static int tdx_get_capabilities(struct kvm_tdx_cmd *cmd)
 		goto out;
 	}
 
-	*caps = (struct kvm_tdx_capabilities) {
-		.attrs_fixed0 = td_conf->attributes_fixed0,
-		.attrs_fixed1 = td_conf->attributes_fixed1,
-		.xfam_fixed0 = td_conf->xfam_fixed0,
-		.xfam_fixed1 = td_conf->xfam_fixed1,
-		.supported_gpaw = TDX_CAP_GPAW_48 |
-		((kvm_host.maxphyaddr >= 52 &&
-		  cpu_has_vmx_ept_5levels()) ? TDX_CAP_GPAW_52 : 0),
-		.nr_cpuid_configs = td_conf->num_cpuid_config,
-		.padding = 0,
-	};
+	caps->supported_attrs = kvm_tdx_caps->supported_attrs;
+	caps->supported_xfam = kvm_tdx_caps->supported_xfam;
+	caps->nr_cpuid_configs = kvm_tdx_caps->num_cpuid_config;
 
 	if (copy_to_user(user_caps, caps, sizeof(*caps))) {
 		ret = -EFAULT;
 		goto out;
 	}
 
-	for (i = 0; i < td_conf->num_cpuid_config; i++) {
-		struct kvm_tdx_cpuid_config cpuid_config = {
-			.leaf = (u32)td_conf->cpuid_config_leaves[i],
-			.sub_leaf = td_conf->cpuid_config_leaves[i] >> 32,
-			.eax = (u32)td_conf->cpuid_config_values[i].eax_ebx,
-			.ebx = td_conf->cpuid_config_values[i].eax_ebx >> 32,
-			.ecx = (u32)td_conf->cpuid_config_values[i].ecx_edx,
-			.edx = td_conf->cpuid_config_values[i].ecx_edx >> 32,
-		};
-
-		if (copy_to_user(&(user_caps->cpuid_configs[i]), &cpuid_config,
-					sizeof(struct kvm_tdx_cpuid_config))) {
-			ret = -EFAULT;
-			break;
-		}
-	}
+	if (copy_to_user(user_caps->cpuid_configs, &kvm_tdx_caps->cpuid_configs,
+			 kvm_tdx_caps->num_cpuid_config *
+			 sizeof(kvm_tdx_caps->cpuid_configs[0])))
+		ret = -EFAULT;
 
 out:
 	/* kfree() accepts NULL. */

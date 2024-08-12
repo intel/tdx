@@ -14,6 +14,21 @@ static enum cpuhp_state tdx_cpuhp_state;
 
 static const struct tdx_sysinfo *tdx_sysinfo;
 
+/* TDX KeyID pool */
+static DEFINE_IDA(tdx_guest_keyid_pool);
+
+static int __used tdx_guest_keyid_alloc(void)
+{
+	return ida_alloc_range(&tdx_guest_keyid_pool, tdx_guest_keyid_start,
+			       tdx_guest_keyid_start + tdx_nr_guest_keyids - 1,
+			       GFP_KERNEL);
+}
+
+static void __used tdx_guest_keyid_free(int keyid)
+{
+	ida_free(&tdx_guest_keyid_pool, keyid);
+}
+
 static int tdx_online_cpu(unsigned int cpu)
 {
 	unsigned long flags;

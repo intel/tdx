@@ -89,6 +89,11 @@ static __always_inline hpa_t set_hkid_to_hpa(hpa_t pa, u16 hkid)
 	return pa | ((hpa_t)hkid << boot_cpu_data.x86_phys_bits);
 }
 
+static inline bool is_td_vcpu_created(struct vcpu_tdx *tdx)
+{
+	return tdx->td_vcpu_created;
+}
+
 static inline bool is_td_created(struct kvm_tdx *kvm_tdx)
 {
 	return kvm_tdx->tdr_pa;
@@ -103,6 +108,11 @@ static inline void tdx_hkid_free(struct kvm_tdx *kvm_tdx)
 static inline bool is_hkid_assigned(struct kvm_tdx *kvm_tdx)
 {
 	return kvm_tdx->hkid > 0;
+}
+
+static inline bool is_td_finalized(struct kvm_tdx *kvm_tdx)
+{
+	return kvm_tdx->finalized;
 }
 
 static void tdx_clear_page(unsigned long page_pa)
@@ -293,6 +303,15 @@ static inline u8 tdx_sysinfo_nr_tdcs_pages(void)
 	return tdx_sysinfo->td_ctrl.tdcs_base_size / PAGE_SIZE;
 }
 
+static inline u8 tdx_sysinfo_nr_tdcx_pages(void)
+{
+	/*
+	 * TDVPS = TDVPR(4K page) + TDCX(multiple 4K pages).
+	 * -1 for TDVPR.
+	 */
+	return tdx_sysinfo->td_ctrl.tdvps_base_size / PAGE_SIZE - 1;
+}
+
 void tdx_vm_free(struct kvm *kvm)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
@@ -405,7 +424,29 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 
 void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 {
-	/* This is stub for now.  More logic will come. */
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	int i;
+
+	/*
+	 * This methods can be called when vcpu allocation/initialization
+	 * failed. So it's possible that hkid, tdvpx and tdvpr are not assigned
+	 * yet.
+	 */
+	if (is_hkid_assigned(to_kvm_tdx(vcpu->kvm)))
+		return;
+
+	if (tdx->tdcx_pa) {
+		for (i = 0; i < tdx_sysinfo_nr_tdcx_pages(); i++) {
+			if (tdx->tdcx_pa[i])
+				tdx_reclaim_control_page(tdx->tdcx_pa[i]);
+		}
+		kfree(tdx->tdcx_pa);
+		tdx->tdcx_pa = NULL;
+	}
+	if (tdx->tdvpr_pa) {
+		tdx_reclaim_control_page(tdx->tdvpr_pa);
+		tdx->tdvpr_pa = 0;
+	}
 }
 
 void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
@@ -414,8 +455,13 @@ void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	/* Ignore INIT silently because TDX doesn't support INIT event. */
 	if (init_event)
 		return;
+	if (is_td_vcpu_created(to_tdx(vcpu)))
+		return;
 
-	/* This is stub for now. More logic will come here. */
+	/*
+	 * Don't update mp_state to runnable because more initialization
+	 * is needed by TDX_VCPU_INIT.
+	 */
 }
 
 static int tdx_get_capabilities(struct kvm_tdx_cmd *cmd)
@@ -882,6 +928,149 @@ int tdx_vm_ioctl(struct kvm *kvm, void __user *argp)
 out:
 	mutex_unlock(&kvm->lock);
 	return r;
+}
+
+/* VMM can pass one 64bit auxiliary data to vcpu via RCX for guest BIOS. */
+static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
+{
+	const struct tdx_sysinfo_module_info *modinfo = &tdx_sysinfo->module_info;
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	unsigned long va;
+	int ret, i;
+	u64 err;
+
+	if (is_td_vcpu_created(tdx))
+		return -EINVAL;
+
+	/*
+	 * vcpu_free method frees allocated pages.  Avoid partial setup so
+	 * that the method can't handle it.
+	 */
+	va = __get_free_page(GFP_KERNEL_ACCOUNT);
+	if (!va)
+		return -ENOMEM;
+	tdx->tdvpr_pa = __pa(va);
+
+	tdx->tdcx_pa = kcalloc(tdx_sysinfo_nr_tdcx_pages(), sizeof(*tdx->tdcx_pa),
+			   GFP_KERNEL_ACCOUNT);
+	if (!tdx->tdcx_pa) {
+		ret = -ENOMEM;
+		goto free_tdvpr;
+	}
+
+	err = tdh_vp_create(tdx);
+	if (KVM_BUG_ON(err, vcpu->kvm)) {
+		tdx->tdvpr_pa = 0;
+		ret = -EIO;
+		pr_tdx_error(TDH_VP_CREATE, err);
+		goto free_tdvpx;
+	}
+
+	for (i = 0; i < tdx_sysinfo_nr_tdcx_pages(); i++) {
+		va = __get_free_page(GFP_KERNEL_ACCOUNT);
+		if (!va) {
+			ret = -ENOMEM;
+			goto free_tdvpx;
+		}
+		tdx->tdcx_pa[i] = __pa(va);
+
+		err = tdh_vp_addcx(tdx, tdx->tdcx_pa[i]);
+		if (KVM_BUG_ON(err, vcpu->kvm)) {
+			pr_tdx_error(TDH_VP_ADDCX, err);
+			/* vcpu_free method frees TDCX and TDR donated to TDX */
+			return -EIO;
+		}
+	}
+
+	if (modinfo->tdx_features0 & MD_FIELD_ID_FEATURES0_TOPOLOGY_ENUM)
+		err = tdh_vp_init_apicid(tdx, vcpu_rcx, vcpu->vcpu_id);
+	else
+		err = tdh_vp_init(tdx, vcpu_rcx);
+
+	if (KVM_BUG_ON(err, vcpu->kvm)) {
+		pr_tdx_error(TDH_VP_INIT, err);
+		return -EIO;
+	}
+
+	vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
+	tdx->td_vcpu_created = true;
+
+	return 0;
+
+free_tdvpx:
+	for (i = 0; i < tdx_sysinfo_nr_tdcx_pages(); i++) {
+		if (tdx->tdcx_pa[i])
+			free_page((unsigned long)__va(tdx->tdcx_pa[i]));
+		tdx->tdcx_pa[i] = 0;
+	}
+	kfree(tdx->tdcx_pa);
+	tdx->tdcx_pa = NULL;
+
+free_tdvpr:
+	if (tdx->tdvpr_pa)
+		free_page((unsigned long)__va(tdx->tdvpr_pa));
+	tdx->tdvpr_pa = 0;
+
+	return ret;
+}
+
+static int tdx_vcpu_init(struct kvm_vcpu *vcpu, struct kvm_tdx_cmd *cmd)
+{
+	struct msr_data apic_base_msr;
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	int ret;
+
+	if (cmd->flags)
+		return -EINVAL;
+	if (tdx->initialized)
+		return -EINVAL;
+
+	/*
+	 * As TDX requires X2APIC, set local apic mode to X2APIC.  User space
+	 * VMM, e.g. qemu, is required to set CPUID[0x1].ecx.X2APIC=1 by
+	 * KVM_SET_CPUID2.  Otherwise kvm_set_apic_base() will fail.
+	 */
+	apic_base_msr = (struct msr_data) {
+		.host_initiated = true,
+		.data = APIC_DEFAULT_PHYS_BASE | LAPIC_MODE_X2APIC |
+		(kvm_vcpu_is_reset_bsp(vcpu) ? MSR_IA32_APICBASE_BSP : 0),
+	};
+	if (kvm_set_apic_base(vcpu, &apic_base_msr))
+		return -EINVAL;
+
+	ret = tdx_td_vcpu_init(vcpu, (u64)cmd->data);
+	if (ret)
+		return ret;
+
+	tdx->initialized = true;
+	return 0;
+}
+
+int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
+	struct kvm_tdx_cmd cmd;
+	int ret;
+
+	if (!is_hkid_assigned(kvm_tdx) || is_td_finalized(kvm_tdx))
+		return -EINVAL;
+
+	if (copy_from_user(&cmd, argp, sizeof(cmd)))
+		return -EFAULT;
+
+	if (cmd.hw_error)
+		return -EINVAL;
+
+	switch (cmd.id) {
+	case KVM_TDX_INIT_VCPU:
+		ret = tdx_vcpu_init(vcpu, &cmd);
+		break;
+	default:
+		ret = -EINVAL;
+		break;
+	}
+
+	return ret;
 }
 
 #define KVM_SUPPORTED_TD_ATTRS (TDX_TD_ATTR_SEPT_VE_DISABLE)

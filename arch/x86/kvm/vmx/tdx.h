@@ -12,12 +12,14 @@ extern bool enable_tdx;
 
 struct kvm_tdx {
 	struct kvm kvm;
-	/* TDX specific members follow. */
+
+	unsigned long tdr_pa;
 };
 
 struct vcpu_tdx {
 	struct kvm_vcpu	vcpu;
-	/* TDX specific members follow. */
+
+	unsigned long tdvpr_pa;
 };
 
 static inline bool is_td(struct kvm *kvm)
@@ -39,6 +41,14 @@ static __always_inline struct vcpu_tdx *to_tdx(struct kvm_vcpu *vcpu)
 {
 	return container_of(vcpu, struct vcpu_tdx, vcpu);
 }
+
+/*
+ * SEAMCALL wrappers
+ *
+ * Put it here as most of those wrappers need declaration of
+ * 'struct kvm_tdx' and 'struct vcpu_tdx'.
+ */
+#include "tdx_ops.h"
 
 #else
 static inline void tdx_bringup(void) {}

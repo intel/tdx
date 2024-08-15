@@ -5,6 +5,10 @@
 #include "tdx_errno.h"
 
 #ifdef CONFIG_INTEL_TDX_HOST
+
+#include <linux/list.h>
+#include <linux/sched.h>
+
 void tdx_bringup(void);
 void tdx_cleanup(void);
 
@@ -16,6 +20,9 @@ extern bool enable_tdx;
 
 struct kvm_tdx {
 	struct kvm kvm;
+
+	struct task_struct *task;
+	struct list_head td_list;
 
 	unsigned long tdr_pa;
 	unsigned long *tdcs_pa;

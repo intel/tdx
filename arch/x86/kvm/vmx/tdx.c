@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/cpu.h>
 #include <linux/mmu_context.h>
+#include <linux/reboot.h>
 #include <asm/fpu/xcr.h>
 #include <asm/tdx.h>
 #include "capabilities.h"
@@ -29,6 +30,9 @@ static const struct tdx_sys_info *tdx_sysinfo;
 
 /* TDX KeyID pool */
 static DEFINE_IDA(tdx_guest_keyid_pool);
+
+static DEFINE_MUTEX(td_lock);
+static LIST_HEAD(td_list);
 
 static int tdx_guest_keyid_alloc(void)
 {
@@ -535,6 +539,17 @@ void tdx_vm_free(struct kvm *kvm)
 
 	free_page((unsigned long)__va(kvm_tdx->tdr_pa));
 	kvm_tdx->tdr_pa = 0;
+
+	/*
+	 * Only remove TD from @td_list _after_ all TDX private pages
+	 * are actually freed and cleared, otherwise tdx_reboot_notify()
+	 * can return before all TDX privates are reset to normal which
+	 * may result in the CPU which is resetting TDX private pages
+	 * being stopped early before it finishes resetting all.
+	 */
+	mutex_lock(&td_lock);
+	list_del(&kvm_tdx->td_list);
+	mutex_unlock(&td_lock);
 }
 
 static int tdx_do_tdh_mng_key_config(void *param)
@@ -555,6 +570,12 @@ static int tdx_do_tdh_mng_key_config(void *param)
 
 int tdx_vm_init(struct kvm *kvm)
 {
+	/* Keep the task, KVM may need to explicitly kill TD when rebooting. */
+	to_kvm_tdx(kvm)->task = current;
+	mutex_lock(&td_lock);
+	list_add(&to_kvm_tdx(kvm)->td_list, &td_list);
+	mutex_unlock(&td_lock);
+
 	kvm->arch.has_private_mem = true;
 
 	/*
@@ -3302,6 +3323,31 @@ static int __init __do_tdx_bringup(void)
 	return r;
 }
 
+static int tdx_reboot_notify(struct notifier_block *nb,
+			     unsigned long code, void *unused)
+{
+	struct kvm_tdx *kvm_tdx;
+
+	/*
+	 * Explicitly send SIGKILL to kill all TDs to reset all TDX
+	 * guest private pages and secure-EPT pages.  Mark TD as buggy
+	 * doesn't guarantee userspace will just quit.
+	 */
+	mutex_lock(&td_lock);
+	list_for_each_entry(kvm_tdx, &td_list, td_list)
+		send_sig(SIGKILL, kvm_tdx->task, 1);
+	mutex_unlock(&td_lock);
+
+	/* Wait until all TDs are gone. */
+	while (!list_empty(&td_list))
+		cpu_relax();
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block tdx_reboot_nb = {
+	.notifier_call = tdx_reboot_notify,
+};
 static int __init __tdx_bringup(void)
 {
 	const struct tdx_sys_info_td_conf *td_conf;
@@ -3406,11 +3452,25 @@ static int __init __tdx_bringup(void)
 		goto get_sysinfo_err;
 
 	/*
+	 * If the platform has "partial write machine check" erratum,
+	 * KVM needs to use MOVDIR64B to reset all TDX private pages
+	 * (guest private pages and secure-EPT pages) to support kexec,
+	 * otherwise the second kernel may see unexpected machine check.
+	 */
+	if (boot_cpu_has_bug(X86_BUG_TDX_PW_MCE)) {
+		r = register_reboot_notifier(&tdx_reboot_nb);
+		if (r)
+			goto reboot_notifier_err;
+	}
+
+	/*
 	 * Leave hardware virtualization enabled after TDX is enabled
 	 * successfully.  TDX CPU hotplug depends on this.
 	 */
 	return 0;
 
+reboot_notifier_err:
+	free_kvm_tdx_cap();
 get_sysinfo_err:
 	__do_tdx_cleanup();
 tdx_bringup_err:
@@ -3421,6 +3481,8 @@ tdx_bringup_err:
 void tdx_cleanup(void)
 {
 	if (enable_tdx) {
+		if (boot_cpu_has_bug(X86_BUG_TDX_PW_MCE))
+			unregister_reboot_notifier(&tdx_reboot_nb);
 		free_kvm_tdx_cap();
 		__do_tdx_cleanup();
 		kvm_disable_virtualization();

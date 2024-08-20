@@ -65,6 +65,9 @@ struct vcpu_tdx {
 	u64 msr_host_kernel_gs_base;
 
 	unsigned long host_debugctlmsr;
+
+	u64 map_gpa_next;
+	u64 map_gpa_end;
 };
 
 void tdh_vp_rd_failed(struct vcpu_tdx *tdx, char *uclass, u32 field, u64 err);

@@ -1175,6 +1175,54 @@ error:
 	return 1;
 }
 
+static int tdx_report_fatal_error(struct kvm_vcpu *vcpu)
+{
+	u64 reg_mask = kvm_rcx_read(vcpu);
+	u64* opt_regs;
+
+	/*
+	 * Skip sanity checks and let userspace decide what to do if sanity
+	 * checks fail.
+	 */
+	vcpu->run->exit_reason = KVM_EXIT_SYSTEM_EVENT;
+	vcpu->run->system_event.type = KVM_SYSTEM_EVENT_TDX_FATAL;
+	vcpu->run->system_event.ndata = 10;
+	/* Error codes. */
+	vcpu->run->system_event.data[0] = tdvmcall_a0_read(vcpu);
+	/* GPA of additional information page. */
+	vcpu->run->system_event.data[1] = tdvmcall_a1_read(vcpu);
+	/* Information passed via registers (up to 64 bytes). */
+	opt_regs = &vcpu->run->system_event.data[2];
+
+#define COPY_REG(REG, MASK)						\
+	do {								\
+		if (reg_mask & MASK) {					\
+			*opt_regs = kvm_ ## REG ## _read(vcpu);		\
+			opt_regs++;					\
+		}							\
+	} while (0)
+
+	/* The order is defined in GHCI. */
+	COPY_REG(r14, BIT_ULL(14));
+	COPY_REG(r15, BIT_ULL(15));
+	COPY_REG(rbx, BIT_ULL(3));
+	COPY_REG(rdi, BIT_ULL(7));
+	COPY_REG(rsi, BIT_ULL(6));
+	COPY_REG(r8, BIT_ULL(8));
+	COPY_REG(r9, BIT_ULL(9));
+	COPY_REG(rdx, BIT_ULL(2));
+	*opt_regs = 0;
+
+	/*
+	 * Set the status code according to GHCI spec, although the vCPU may
+	 * not return back to guest.
+	 */
+	tdvmcall_set_return_code(vcpu, TDVMCALL_STATUS_SUCCESS);
+
+	/* Forward request to userspace. */
+	return 0;
+}
+
 static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 {
 	if (tdvmcall_exit_type(vcpu))
@@ -1183,6 +1231,8 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 	switch (tdvmcall_leaf(vcpu)) {
 	case TDVMCALL_MAP_GPA:
 		return tdx_map_gpa(vcpu);
+	case TDVMCALL_REPORT_FATAL_ERROR:
+		return tdx_report_fatal_error(vcpu);
 	default:
 		break;
 	}

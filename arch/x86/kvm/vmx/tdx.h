@@ -71,6 +71,9 @@ struct vcpu_tdx {
 
 	enum tdx_prepare_switch_state prep_switch_state;
 	u64 msr_host_kernel_gs_base;
+
+	u64 map_gpa_next;
+	u64 map_gpa_end;
 };
 
 void tdh_vp_rd_failed(struct vcpu_tdx *tdx, char *uclass, u32 field, u64 err);

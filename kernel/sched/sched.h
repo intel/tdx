@@ -68,6 +68,7 @@
 #include <linux/wait_api.h>
 #include <linux/wait_bit.h>
 #include <linux/workqueue_api.h>
+#include <linux/delayacct.h>
 
 #include <trace/events/power.h>
 #include <trace/events/sched.h>
@@ -335,7 +336,7 @@ extern bool __checkparam_dl(const struct sched_attr *attr);
 extern bool dl_param_changed(struct task_struct *p, const struct sched_attr *attr);
 extern int  dl_cpuset_cpumask_can_shrink(const struct cpumask *cur, const struct cpumask *trial);
 extern int  dl_bw_check_overflow(int cpu);
-
+extern s64 dl_scaled_delta_exec(struct rq *rq, struct sched_dl_entity *dl_se, s64 delta_exec);
 /*
  * SCHED_DEADLINE supports servers (nested scheduling) with the following
  * interface:
@@ -361,7 +362,15 @@ extern void dl_server_start(struct sched_dl_entity *dl_se);
 extern void dl_server_stop(struct sched_dl_entity *dl_se);
 extern void dl_server_init(struct sched_dl_entity *dl_se, struct rq *rq,
 		    dl_server_has_tasks_f has_tasks,
-		    dl_server_pick_f pick);
+		    dl_server_pick_f pick_next,
+		    dl_server_pick_f pick_task);
+
+extern void dl_server_update_idle_time(struct rq *rq,
+		    struct task_struct *p);
+extern void fair_server_init(struct rq *rq);
+extern void __dl_server_attach_root(struct sched_dl_entity *dl_se, struct rq *rq);
+extern int dl_server_apply_params(struct sched_dl_entity *dl_se,
+		    u64 runtime, u64 period, bool init);
 
 #ifdef CONFIG_CGROUP_SCHED
 
@@ -599,15 +608,10 @@ struct cfs_rq {
 	s64			avg_vruntime;
 	u64			avg_load;
 
-	u64			exec_clock;
 	u64			min_vruntime;
 #ifdef CONFIG_SCHED_CORE
 	unsigned int		forceidle_seq;
 	u64			min_vruntime_fi;
-#endif
-
-#ifndef CONFIG_64BIT
-	u64			min_vruntime_copy;
 #endif
 
 	struct rb_root_cached	tasks_timeline;
@@ -618,10 +622,6 @@ struct cfs_rq {
 	 */
 	struct sched_entity	*curr;
 	struct sched_entity	*next;
-
-#ifdef	CONFIG_SCHED_DEBUG
-	unsigned int		nr_spread_over;
-#endif
 
 #ifdef CONFIG_SMP
 	/*
@@ -726,13 +726,13 @@ struct rt_rq {
 #endif /* CONFIG_SMP */
 	int			rt_queued;
 
+#ifdef CONFIG_RT_GROUP_SCHED
 	int			rt_throttled;
 	u64			rt_time;
 	u64			rt_runtime;
 	/* Nests inside the rq lock: */
 	raw_spinlock_t		rt_runtime_lock;
 
-#ifdef CONFIG_RT_GROUP_SCHED
 	unsigned int		rt_nr_boosted;
 
 	struct rq		*rq;
@@ -820,6 +820,9 @@ static inline void se_update_runnable(struct sched_entity *se)
 
 static inline long se_runnable(struct sched_entity *se)
 {
+	if (se->sched_delayed)
+		return false;
+
 	if (entity_is_task(se))
 		return !!se->on_rq;
 	else
@@ -834,6 +837,9 @@ static inline void se_update_runnable(struct sched_entity *se) { }
 
 static inline long se_runnable(struct sched_entity *se)
 {
+	if (se->sched_delayed)
+		return false;
+
 	return !!se->on_rq;
 }
 
@@ -1044,6 +1050,8 @@ struct rq {
 	struct rt_rq		rt;
 	struct dl_rq		dl;
 
+	struct sched_dl_entity	fair_server;
+
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	/* list of leaf cfs_rq on this CPU: */
 	struct list_head	leaf_cfs_rq_list;
@@ -1158,7 +1166,6 @@ struct rq {
 	/* latency stats */
 	struct sched_info	rq_sched_info;
 	unsigned long long	rq_cpu_time;
-	/* could above be rq->cfs_rq.exec_clock + rq->rt_rq.rt_runtime ? */
 
 	/* sys_sched_yield() stats */
 	unsigned int		yld_count;
@@ -2247,11 +2254,13 @@ extern const u32		sched_prio_to_wmult[40];
  *
  */
 
-#define DEQUEUE_SLEEP		0x01
+#define DEQUEUE_SLEEP		0x01 /* Matches ENQUEUE_WAKEUP */
 #define DEQUEUE_SAVE		0x02 /* Matches ENQUEUE_RESTORE */
 #define DEQUEUE_MOVE		0x04 /* Matches ENQUEUE_MOVE */
 #define DEQUEUE_NOCLOCK		0x08 /* Matches ENQUEUE_NOCLOCK */
+#define DEQUEUE_SPECIAL		0x10
 #define DEQUEUE_MIGRATING	0x100 /* Matches ENQUEUE_MIGRATING */
+#define DEQUEUE_DELAYED		0x200 /* Matches ENQUEUE_DELAYED */
 
 #define ENQUEUE_WAKEUP		0x01
 #define ENQUEUE_RESTORE		0x02
@@ -2267,6 +2276,7 @@ extern const u32		sched_prio_to_wmult[40];
 #endif
 #define ENQUEUE_INITIAL		0x80
 #define ENQUEUE_MIGRATING	0x100
+#define ENQUEUE_DELAYED		0x200
 
 #define RETRY_TASK		((void *)-1UL)
 
@@ -2285,7 +2295,7 @@ struct sched_class {
 #endif
 
 	void (*enqueue_task) (struct rq *rq, struct task_struct *p, int flags);
-	void (*dequeue_task) (struct rq *rq, struct task_struct *p, int flags);
+	bool (*dequeue_task) (struct rq *rq, struct task_struct *p, int flags);
 	void (*yield_task)   (struct rq *rq);
 	bool (*yield_to_task)(struct rq *rq, struct task_struct *p);
 
@@ -2515,7 +2525,6 @@ extern void reweight_task(struct task_struct *p, const struct load_weight *lw);
 extern void resched_curr(struct rq *rq);
 extern void resched_cpu(int cpu);
 
-extern struct rt_bandwidth def_rt_bandwidth;
 extern void init_rt_bandwidth(struct rt_bandwidth *rt_b, u64 period, u64 runtime);
 extern bool sched_rt_bandwidth_account(struct rt_rq *rt_rq);
 
@@ -2584,6 +2593,19 @@ static inline void sub_nr_running(struct rq *rq, unsigned count)
 
 	/* Check if we still need preemption */
 	sched_update_tick_dependency(rq);
+}
+
+static inline void __block_task(struct rq *rq, struct task_struct *p)
+{
+	WRITE_ONCE(p->on_rq, 0);
+	ASSERT_EXCLUSIVE_WRITER(p->on_rq);
+	if (p->sched_contributes_to_load)
+		rq->nr_uninterruptible++;
+
+	if (p->in_iowait) {
+		atomic_inc(&rq->nr_iowait);
+		delayacct_blkio_start();
+	}
 }
 
 extern void activate_task(struct rq *rq, struct task_struct *p, int flags);
@@ -3607,7 +3629,7 @@ extern int __sched_setaffinity(struct task_struct *p, struct affinity_context *c
 extern void __setscheduler_prio(struct task_struct *p, int prio);
 extern void set_load_weight(struct task_struct *p, bool update_load);
 extern void enqueue_task(struct rq *rq, struct task_struct *p, int flags);
-extern void dequeue_task(struct rq *rq, struct task_struct *p, int flags);
+extern bool dequeue_task(struct rq *rq, struct task_struct *p, int flags);
 
 extern void check_class_changed(struct rq *rq, struct task_struct *p,
 				const struct sched_class *prev_class,

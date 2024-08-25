@@ -250,7 +250,7 @@ err:
 	return ret;
 }
 
-static int read_sys_metadata_field(u64 field_id, u64 *data)
+static int tdh_sys_rd(u64 field_id, u64 *data)
 {
 	struct tdx_module_args args = {};
 	int ret;
@@ -270,25 +270,29 @@ static int read_sys_metadata_field(u64 field_id, u64 *data)
 	return 0;
 }
 
-static int __read_sys_metadata_field16(u64 field_id, u16 *val)
-{
-	u64 tmp;
-	int ret;
-
-	ret = read_sys_metadata_field(field_id, &tmp);
-	if (ret)
-		return ret;
-
-	*val = tmp;
-
-	return 0;
+#define build_sysmd_read(_size)							\
+static int __read_sys_metadata_field##_size(u64 field_id, u##_size *val)	\
+{										\
+	u64 tmp;								\
+	int ret;								\
+										\
+	ret = tdh_sys_rd(field_id, &tmp);					\
+	if (ret)								\
+		return ret;							\
+										\
+	*val = tmp;								\
+										\
+	return 0;								\
 }
 
-#define read_sys_metadata_field16(_field_id, _val)		\
+build_sysmd_read(16)
+
+#define read_sys_metadata_field(_field_id, _val, _size)		\
 ({								\
 	BUILD_BUG_ON(MD_FIELD_ID_ELE_SIZE_CODE(_field_id) !=	\
-			MD_FIELD_ID_ELE_SIZE_16BIT);		\
-	__read_sys_metadata_field16(_field_id, _val);		\
+			MD_FIELD_ID_ELE_SIZE_##_size##BIT);	\
+	BUILD_BUG_ON(_size != sizeof(*_val) * 8);		\
+	__read_sys_metadata_field##_size(_field_id, _val);	\
 })
 
 static int get_tdx_sys_info_tdmr(struct tdx_sys_info_tdmr *sysinfo_tdmr)
@@ -296,8 +300,8 @@ static int get_tdx_sys_info_tdmr(struct tdx_sys_info_tdmr *sysinfo_tdmr)
 	int ret = 0;
 
 #define READ_SYS_INFO(_field_id, _member)				\
-	ret = ret ?: read_sys_metadata_field16(MD_FIELD_ID_##_field_id,	\
-					&sysinfo_tdmr->_member)
+	ret = ret ?: read_sys_metadata_field(MD_FIELD_ID_##_field_id,	\
+					&sysinfo_tdmr->_member, 16)
 
 	READ_SYS_INFO(MAX_TDMRS,	     max_tdmrs);
 	READ_SYS_INFO(MAX_RESERVED_PER_TDMR, max_reserved_per_tdmr);

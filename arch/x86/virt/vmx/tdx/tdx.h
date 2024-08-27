@@ -100,13 +100,6 @@ struct tdx_memblock {
 	int nid;
 };
 
-/* "TDMR info" part of "Global Scope Metadata" for constructing TDMRs */
-struct tdx_sys_info_tdmr {
-	u16 max_tdmrs;
-	u16 max_reserved_per_tdmr;
-	u16 pamt_entry_size[TDX_PS_NR];
-};
-
 /* Warn if kernel has less than TDMR_NR_WARN TDMRs after allocation */
 #define TDMR_NR_WARN 4
 
@@ -117,6 +110,35 @@ struct tdmr_info_list {
 	/* Metadata for finding target 'tdmr_info' and freeing @tdmrs */
 	int tdmr_sz;	/* Size of one 'tdmr_info' */
 	int max_tdmrs;	/* How many 'tdmr_info's are allocated */
+};
+
+/*
+ * Kernel-defined structures to contain "Global Scope Metadata".
+ *
+ * TDX global metadata fields are categorized by "Class"es.  See the
+ * "global_metadata.json" in the "TDX 1.5 ABI Definitions".
+ *
+ * 'struct tdx_sys_info' is the main structure to contain all metadata
+ * used by the kernel.  It contains sub-structures with each reflecting
+ * the "Class" in the 'global_metadata.json'.
+ *
+ * Note the structure name may not exactly follow the name of the
+ * "Class" in the TDX spec, but the comment of that structure always
+ * reflect that.
+ *
+ * Also note not all metadata fields in each class are defined, only
+ * those used by the kernel are.
+ */
+
+/* Class "TDMR info" */
+struct tdx_sys_info_tdmr {
+	u16 max_tdmrs;
+	u16 max_reserved_per_tdmr;
+	u16 pamt_entry_size[TDX_PS_NR];
+};
+
+struct tdx_sys_info {
+	struct tdx_sys_info_tdmr tdmr;
 };
 
 #endif

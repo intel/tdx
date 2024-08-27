@@ -154,6 +154,9 @@ struct tdx_sys_info_features {
 	u64 tdx_features0;
 };
 
+/* Architectural bit definitions of TDX_FEATURES0 metadata field */
+#define TDX_FEATURES0_NO_RBP_MOD	_BITULL(18)
+
 /* Class "TDX Module Version" */
 struct tdx_sys_info_version {
 	u16 major;

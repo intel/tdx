@@ -250,7 +250,7 @@ err:
 	return ret;
 }
 
-static int read_sys_metadata_field(u64 field_id, u64 *data)
+static int tdh_sys_rd(u64 field_id, u64 *data)
 {
 	struct tdx_module_args args = {};
 	int ret;
@@ -270,43 +270,50 @@ static int read_sys_metadata_field(u64 field_id, u64 *data)
 	return 0;
 }
 
-static int read_sys_metadata_field16(u64 field_id, u16 *val)
+static int __read_sys_metadata_field(u64 field_id, void *val, int size)
 {
 	u64 tmp;
 	int ret;
 
-	BUILD_BUG_ON(MD_FIELD_ID_ELE_SIZE_CODE(field_id) !=
-			MD_FIELD_ID_ELE_SIZE_16BIT);
-
-	ret = read_sys_metadata_field(field_id, &tmp);
+	ret = tdh_sys_rd(field_id, &tmp);
 	if (ret)
 		return ret;
 
-	*val = tmp;
+	memcpy(val, &tmp, size);
 
 	return 0;
 }
 
-/*
- * Assumes locally defined @ret and @sysinfo_tdmr to convey the error
- * code and the 'struct tdx_sys_info_tdmr' instance to fill out.
- */
-#define TD_SYSINFO_MAP(_field_id, _member)						\
+/* Wrapper to read one global metadata to u8/u16/u32/u64 */
+#define read_sys_metadata_field(_field_id, _val)					\
 	({										\
-		if (!ret)								\
-			ret = read_sys_metadata_field16(MD_FIELD_ID_##_field_id,	\
-					&sysinfo_tdmr->_member);			\
+		BUILD_BUG_ON(MD_FIELD_ELE_SIZE(_field_id) != sizeof(typeof(*(_val))));	\
+		__read_sys_metadata_field(_field_id, _val, sizeof(typeof(*(_val))));	\
+	})
+
+/*
+ * Read one global metadata field to a member of a structure instance,
+ * assuming locally defined @ret to convey the error code.
+ */
+#define TD_SYSINFO_MAP(_field_id, _stbuf, _member)				\
+	({									\
+		if (!ret)							\
+			ret = read_sys_metadata_field(MD_FIELD_ID_##_field_id,	\
+					&_stbuf->_member);			\
 	})
 
 static int get_tdx_sys_info_tdmr(struct tdx_sys_info_tdmr *sysinfo_tdmr)
 {
 	int ret = 0;
 
-	TD_SYSINFO_MAP(MAX_TDMRS,	      max_tdmrs);
-	TD_SYSINFO_MAP(MAX_RESERVED_PER_TDMR, max_reserved_per_tdmr);
-	TD_SYSINFO_MAP(PAMT_4K_ENTRY_SIZE,    pamt_entry_size[TDX_PS_4K]);
-	TD_SYSINFO_MAP(PAMT_2M_ENTRY_SIZE,    pamt_entry_size[TDX_PS_2M]);
-	TD_SYSINFO_MAP(PAMT_1G_ENTRY_SIZE,    pamt_entry_size[TDX_PS_1G]);
+#define TD_SYSINFO_MAP_TDMR_INFO(_field_id, _member)	\
+	TD_SYSINFO_MAP(_field_id, sysinfo_tdmr, _member)
+
+	TD_SYSINFO_MAP_TDMR_INFO(MAX_TDMRS,	        max_tdmrs);
+	TD_SYSINFO_MAP_TDMR_INFO(MAX_RESERVED_PER_TDMR, max_reserved_per_tdmr);
+	TD_SYSINFO_MAP_TDMR_INFO(PAMT_4K_ENTRY_SIZE,    pamt_entry_size[TDX_PS_4K]);
+	TD_SYSINFO_MAP_TDMR_INFO(PAMT_2M_ENTRY_SIZE,    pamt_entry_size[TDX_PS_2M]);
+	TD_SYSINFO_MAP_TDMR_INFO(PAMT_1G_ENTRY_SIZE,    pamt_entry_size[TDX_PS_1G]);
 
 	return ret;
 }

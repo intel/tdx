@@ -6,7 +6,7 @@
 #include "mmu.h"
 #include "tdx.h"
 #include "tdx_ops.h"
-
+#include "mmu/spte.h"
 
 #undef pr_fmt
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -379,6 +379,19 @@ static int tdx_do_tdh_mng_key_config(void *param)
 int tdx_vm_init(struct kvm *kvm)
 {
 	kvm->arch.has_private_mem = true;
+
+	/*
+	 * Because guest TD is protected, VMM can't parse the instruction in TD.
+	 * Instead, guest uses MMIO hypercall.  For unmodified device driver,
+	 * #VE needs to be injected for MMIO and #VE handler in TD converts MMIO
+	 * instruction into MMIO hypercall.
+	 *
+	 * SPTE value for MMIO needs to be setup so that #VE is injected into
+	 * TD instead of triggering EPT MISCONFIG.
+	 * - RWX=0 so that EPT violation is triggered.
+	 * - suppress #VE bit is cleared to inject #VE.
+	 */
+	kvm_mmu_set_mmio_spte_value(kvm, 0);
 
 	/*
 	 * This function initializes only KVM software construct.  It doesn't

@@ -962,6 +962,11 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	else
 		kvm->arch.gfn_direct_bits = gpa_to_gfn(BIT_ULL(47));
 
+	if (td_params->exec_controls & TDX_EXEC_CONTROL_MAX_GPAW)
+		kvm->arch.gfn_direct_bits = gpa_to_gfn(BIT_ULL(51));
+	else
+		kvm->arch.gfn_direct_bits = gpa_to_gfn(BIT_ULL(47));
+
 out:
 	/* kfree() accepts NULL. */
 	kfree(init_vm);

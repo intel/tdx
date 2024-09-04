@@ -524,6 +524,34 @@ static int tdx_mem_page_aug(struct kvm *kvm, gfn_t gfn,
 	return 0;
 }
 
+/*
+ * KVM_TDX_INIT_MEM_REGION calls kvm_gmem_populate() to get guest pages and
+ * tdx_gmem_post_populate() to premap page table pages into private EPT.
+ * Mapping guest pages into private EPT before TD is finalized should use a
+ * seamcall TDH.MEM.PAGE.ADD(), which copies page content from a source page
+ * from user to target guest pages to be added. This source page is not
+ * available via common interface kvm_tdp_map_page(). So, currently,
+ * kvm_tdp_map_page() only premaps guest pages into KVM mirrored root.
+ * A counter nr_premapped is increased here to record status. The counter will
+ * be decreased after TDH.MEM.PAGE.ADD() is called after the kvm_tdp_map_page()
+ * in tdx_gmem_post_populate().
+ */
+static int tdx_mem_page_record_premap_cnt(struct kvm *kvm, gfn_t gfn,
+					  enum pg_level level, kvm_pfn_t pfn)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+
+	/* Returning error here to let TDP MMU bail out early. */
+	if (KVM_BUG_ON(level != PG_LEVEL_4K, kvm)) {
+		tdx_unpin(kvm, pfn);
+		return -EINVAL;
+	}
+
+	/* nr_premapped will be decreased when tdh_mem_page_add() is called. */
+	atomic64_inc(&kvm_tdx->nr_premapped);
+	return 0;
+}
+
 int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 			      enum pg_level level, kvm_pfn_t pfn)
 {
@@ -546,11 +574,7 @@ int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	if (likely(is_td_finalized(kvm_tdx)))
 		return tdx_mem_page_aug(kvm, gfn, level, pfn);
 
-	/*
-	 * TODO: KVM_MAP_MEMORY support to populate before finalize comes
-	 * here for the initial memory.
-	 */
-	return 0;
+	return tdx_mem_page_record_premap_cnt(kvm, gfn, level, pfn);
 }
 
 static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
@@ -582,10 +606,12 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 	if (unlikely(!is_td_finalized(kvm_tdx) &&
 		     err == (TDX_EPT_WALK_FAILED | TDX_OPERAND_ID_RCX))) {
 		/*
-		 * This page was mapped with KVM_MAP_MEMORY, but
-		 * KVM_TDX_INIT_MEM_REGION is not issued yet.
+		 * Page is mapped by KVM_TDX_INIT_MEM_REGION, but hasn't called
+		 * tdh_mem_page_add().
 		 */
 		if (!is_last_spte(entry, level) || !(entry & VMX_EPT_RWX_MASK)) {
+			WARN_ON_ONCE(!atomic64_read(&kvm_tdx->nr_premapped));
+			atomic64_dec(&kvm_tdx->nr_premapped);
 			tdx_unpin(kvm, pfn);
 			return 0;
 		}

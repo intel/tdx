@@ -1378,7 +1378,7 @@ static struct folio *alloc_migration_target_by_mpol(struct folio *src,
 
 		h = folio_hstate(src);
 		gfp = htlb_alloc_mask(h);
-		nodemask = policy_nodemask(gfp, pol, ilx, &nid);
+		nid = policy_node_nodemask(pol, gfp, ilx, &nodemask);
 		return alloc_hugetlb_folio_nodemask(h, nid, nodemask, gfp,
 				htlb_allow_alloc_fallback(MR_MEMPOLICY_MBIND));
 	}
@@ -2239,6 +2239,29 @@ static nodemask_t *policy_nodemask(gfp_t gfp, struct mempolicy *pol,
 	return nodemask;
 }
 
+/**
+ * policy_node_nodemask() - Interpret memory policy to get nodemask and nid.
+ *
+ * @mpol: the memory policy to interpret.
+ * @gfp_flags: gfp flags for this request.
+ * @ilx: interleave index, for use only when MPOL_INTERLEAVE or
+ *       MPOL_WEIGHTED_INTERLEAVE
+ * @nodemask: (output) pointer to nodemask pointer for 'bind' and 'prefer-many'
+ *            policy
+ *
+ * Context: must hold reference on @mpol.
+ * Return: a nid suitable for a page allocation and a pointer. If the effective
+ *         policy is 'bind' or 'prefer-many', returns a pointer to the
+ *         mempolicy's @nodemask for filtering the zonelist.
+ */
+int policy_node_nodemask(struct mempolicy *mpol, gfp_t gfp_flags,
+			 pgoff_t ilx, nodemask_t **nodemask)
+{
+	int nid = numa_node_id();
+	*nodemask = policy_nodemask(gfp_flags, mpol, ilx, &nid);
+	return nid;
+}
+
 #ifdef CONFIG_HUGETLBFS
 /*
  * huge_node(@vma, @addr, @gfp_flags, @mpol)
@@ -2257,12 +2280,9 @@ int huge_node(struct vm_area_struct *vma, unsigned long addr, gfp_t gfp_flags,
 		struct mempolicy **mpol, nodemask_t **nodemask)
 {
 	pgoff_t ilx;
-	int nid;
 
-	nid = numa_node_id();
 	*mpol = get_vma_policy(vma, addr, hstate_vma(vma)->order, &ilx);
-	*nodemask = policy_nodemask(gfp_flags, *mpol, ilx, &nid);
-	return nid;
+	return policy_node_nodemask(*mpol, gfp_flags, ilx, nodemask);
 }
 
 /*
@@ -2722,8 +2742,7 @@ unsigned long alloc_pages_bulk_mempolicy_noprof(gfp_t gfp,
 		return alloc_pages_bulk_preferred_many(gfp,
 				numa_node_id(), pol, nr_pages, page_array);
 
-	nid = numa_node_id();
-	nodemask = policy_nodemask(gfp, pol, NO_INTERLEAVE_INDEX, &nid);
+	nid = policy_node_nodemask(pol, gfp, NO_INTERLEAVE_INDEX, &nodemask);
 	return alloc_pages_bulk_noprof(gfp, nid, nodemask,
 				       nr_pages, page_array);
 }

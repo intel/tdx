@@ -450,21 +450,18 @@ static void *__test_mem_conversions(void *params)
 }
 
 static void test_mem_conversions(enum vm_mem_backing_src_type src_type,
+				 enum vm_private_mem_backing_src_type private_mem_src_type,
 				 uint32_t nr_vcpus, uint32_t nr_memslots,
 				 bool back_shared_memory_with_guest_memfd)
 {
-	/*
-	 * Allocate enough memory so that each vCPU's chunk of memory can be
-	 * naturally aligned with respect to the size of the backing store.
-	 */
-	const size_t alignment = max_t(size_t, SZ_2M, get_backing_src_pagesz(src_type));
 	struct test_thread_args *thread_args[KVM_MAX_VCPUS];
-	const size_t per_cpu_size = align_up(PER_CPU_DATA_SIZE, alignment);
-	const size_t memfd_size = per_cpu_size * nr_vcpus;
-	const size_t slot_size = memfd_size / nr_memslots;
 	struct kvm_vcpu *vcpus[KVM_MAX_VCPUS];
 	pthread_t threads[KVM_MAX_VCPUS];
+	size_t per_cpu_size;
+	size_t memfd_size;
 	struct kvm_vm *vm;
+	size_t alignment;
+	size_t slot_size;
 	int memfd, i, r;
 	uint64_t flags;
 
@@ -472,6 +469,18 @@ static void test_mem_conversions(enum vm_mem_backing_src_type src_type,
 		.mode = VM_MODE_DEFAULT,
 		.type = KVM_X86_SW_PROTECTED_VM,
 	};
+
+	/*
+	 * Allocate enough memory so that each vCPU's chunk of memory can be
+	 * naturally aligned with respect to the size of the backing store.
+	 */
+	alignment = max_t(size_t, SZ_2M,
+			  max_t(size_t, get_backing_src_pagesz(src_type),
+				get_private_mem_backing_src_pagesz(
+					private_mem_src_type)));
+	per_cpu_size = align_up(PER_CPU_DATA_SIZE, alignment);
+	memfd_size = per_cpu_size * nr_vcpus;
+	slot_size = memfd_size / nr_memslots;
 
 	TEST_ASSERT(slot_size * nr_memslots == memfd_size,
 		    "The memfd size (0x%lx) needs to be cleanly divisible by the number of memslots (%u)",
@@ -483,6 +492,7 @@ static void test_mem_conversions(enum vm_mem_backing_src_type src_type,
 	flags = back_shared_memory_with_guest_memfd ?
 			GUEST_MEMFD_FLAG_SUPPORT_SHARED :
 			0;
+	flags |= vm_private_mem_backing_src_alias(private_mem_src_type)->flag;
 	memfd = vm_create_guest_memfd(vm, memfd_size, flags);
 
 	for (i = 0; i < nr_memslots; i++) {
@@ -547,9 +557,12 @@ static void test_mem_conversions(enum vm_mem_backing_src_type src_type,
 static void usage(const char *cmd)
 {
 	puts("");
-	printf("usage: %s [-h] [-g] [-m nr_memslots] [-s mem_type] [-n nr_vcpus]\n", cmd);
+	printf("usage: %s [-h] [-g] [-m nr_memslots] [-s mem_type] [-p private_mem_type] [-n nr_vcpus]\n",
+	       cmd);
 	puts("");
 	backing_src_help("-s");
+	puts("");
+	private_mem_backing_src_help("-p");
 	puts("");
 	puts(" -n: specify the number of vcpus (default: 1)");
 	puts("");
@@ -561,6 +574,7 @@ static void usage(const char *cmd)
 
 int main(int argc, char *argv[])
 {
+	enum vm_private_mem_backing_src_type private_mem_src_type = DEFAULT_VM_PRIVATE_MEM_SRC;
 	enum vm_mem_backing_src_type src_type = DEFAULT_VM_MEM_SRC;
 	bool back_shared_memory_with_guest_memfd = false;
 	uint32_t nr_memslots = 1;
@@ -569,10 +583,13 @@ int main(int argc, char *argv[])
 
 	TEST_REQUIRE(kvm_check_cap(KVM_CAP_VM_TYPES) & BIT(KVM_X86_SW_PROTECTED_VM));
 
-	while ((opt = getopt(argc, argv, "hgm:s:n:")) != -1) {
+	while ((opt = getopt(argc, argv, "hgm:s:p:n:")) != -1) {
 		switch (opt) {
 		case 's':
 			src_type = parse_backing_src_type(optarg);
+			break;
+		case 'p':
+			private_mem_src_type = parse_private_mem_backing_src_type(optarg);
 			break;
 		case 'n':
 			nr_vcpus = atoi_positive("nr_vcpus", optarg);
@@ -590,9 +607,8 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	test_mem_conversions(src_type, nr_vcpus, nr_memslots,
-			     back_shared_memory_with_guest_memfd);
-
+	test_mem_conversions(src_type, private_mem_src_type, nr_vcpus,
+			     nr_memslots, back_shared_memory_with_guest_memfd);
 
 	return 0;
 }

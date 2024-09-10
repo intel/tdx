@@ -38,11 +38,26 @@ struct userspace_mem_region {
 	struct sparsebit *protected_phy_pages;
 	int fd;
 	off_t offset;
-	enum vm_mem_backing_src_type backing_src_type;
+	/*
+	 * host_mem is mmap_start aligned upwards to an address suitable for the
+	 * architecture. In most cases, host_mem and mmap_start are the same,
+	 * except for s390x, where the host address must be aligned to 1M (due
+	 * to PGSTEs).
+	 */
+#ifdef __s390x__
+#define S390X_HOST_ADDRESS_ALIGNMENT 0x100000
+#endif
 	void *host_mem;
+	/* host_alias is to mmap_alias as host_mem is to mmap_start */
 	void *host_alias;
 	void *mmap_start;
 	void *mmap_alias;
+	/*
+	 * mmap_size is possibly larger than region.memory_size because in some
+	 * cases, host_mem has to be adjusted upwards (see comment for host_mem
+	 * above). In those cases, mmap_size has to be adjusted upwards so that
+	 * enough memory is available in this memslot.
+	 */
 	size_t mmap_size;
 	struct rb_node gpa_node;
 	struct rb_node hva_node;
@@ -667,6 +682,18 @@ void vm_set_user_memory_region2(struct kvm_vm *vm, uint32_t slot, uint32_t flags
 int __vm_set_user_memory_region2(struct kvm_vm *vm, uint32_t slot, uint32_t flags,
 				 uint64_t gpa, uint64_t size, void *hva,
 				 uint32_t guest_memfd, uint64_t guest_memfd_offset);
+
+struct userspace_mem_region *vm_mem_region_alloc(struct kvm_vm *vm);
+void *vm_mem_region_mmap(struct userspace_mem_region *region, size_t length,
+			 int flags, int fd, off_t offset);
+void vm_mem_region_install_memory(struct userspace_mem_region *region,
+				  size_t memslot_size, size_t alignment);
+void vm_mem_region_madvise_thp(struct userspace_mem_region *region, int advice);
+int vm_mem_region_install_guest_memfd(struct userspace_mem_region *region,
+				      int guest_memfd);
+void *vm_mem_region_mmap_alias(struct userspace_mem_region *region, int flags,
+			       size_t alignment);
+void vm_mem_region_add(struct kvm_vm *vm, struct userspace_mem_region *region);
 
 void vm_userspace_mem_region_add(struct kvm_vm *vm,
 	enum vm_mem_backing_src_type src_type,

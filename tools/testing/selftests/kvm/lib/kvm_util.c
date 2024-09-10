@@ -859,15 +859,12 @@ void kvm_vm_free(struct kvm_vm *vmp)
 	free(vmp);
 }
 
-int kvm_memfd_alloc(size_t size, bool hugepages)
+int kvm_create_memfd(size_t size, unsigned int flags)
 {
-	int memfd_flags = MFD_CLOEXEC;
-	int fd, r;
+	int fd;
+	int r;
 
-	if (hugepages)
-		memfd_flags |= MFD_HUGETLB;
-
-	fd = memfd_create("kvm_selftest", memfd_flags);
+	fd = memfd_create("kvm_selftest", flags);
 	TEST_ASSERT(fd != -1, __KVM_SYSCALL_ERROR("memfd_create()", fd));
 
 	r = ftruncate(fd, size);
@@ -877,6 +874,16 @@ int kvm_memfd_alloc(size_t size, bool hugepages)
 	TEST_ASSERT(!r, __KVM_SYSCALL_ERROR("fallocate()", r));
 
 	return fd;
+}
+
+int kvm_memfd_alloc(size_t size, bool hugepages)
+{
+	int memfd_flags = MFD_CLOEXEC;
+
+	if (hugepages)
+		memfd_flags |= MFD_HUGETLB;
+
+	return kvm_create_memfd(size, memfd_flags);
 }
 
 static void vm_userspace_mem_region_gpa_insert(struct rb_root *gpa_tree,
@@ -988,185 +995,295 @@ void vm_set_user_memory_region2(struct kvm_vm *vm, uint32_t slot, uint32_t flags
 		    errno, strerror(errno));
 }
 
+/**
+ * Allocates and returns a struct userspace_mem_region.
+ */
+struct userspace_mem_region *vm_mem_region_alloc(struct kvm_vm *vm)
+{
+	struct userspace_mem_region *region;
 
-/* FIXME: This thing needs to be ripped apart and rewritten. */
-void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
-		uint64_t guest_paddr, uint32_t slot, uint64_t npages,
-		uint32_t flags, int guest_memfd, uint64_t guest_memfd_offset)
+	/* Allocate and initialize new mem region structure. */
+	region = calloc(1, sizeof(*region));
+	TEST_ASSERT(region != NULL, "Insufficient Memory");
+
+	region->unused_phy_pages = sparsebit_alloc();
+	if (vm_arch_has_protected_memory(vm))
+		region->protected_phy_pages = sparsebit_alloc();
+
+	region->fd = -1;
+	region->region.guest_memfd = -1;
+
+	return region;
+}
+
+static size_t compute_page_size(int mmap_flags, int madvise_advice)
+{
+	if (mmap_flags & MAP_HUGETLB) {
+		int size_flags = (mmap_flags >> MAP_HUGE_SHIFT) & MAP_HUGE_MASK;
+
+		if (!size_flags)
+			return get_def_hugetlb_pagesz();
+
+		return 1ULL << size_flags;
+	}
+
+	return madvise_advice == MADV_HUGEPAGE ? get_trans_hugepagesz() : getpagesize();
+}
+
+/**
+ * Calls mmap() with @length, @flags, @fd, @offset for @region.
+ *
+ * Think of this as the struct userspace_mem_region wrapper for the mmap()
+ * syscall.
+ */
+void *vm_mem_region_mmap(struct userspace_mem_region *region, size_t length,
+			 int flags, int fd, off_t offset)
+{
+	void *mem;
+
+	if (flags & MAP_SHARED) {
+		TEST_ASSERT(fd != -1,
+			    "Ensure that fd is provided for shared mappings.");
+		TEST_ASSERT(
+			region->fd == fd || region->region.guest_memfd == fd,
+			"Ensure that fd is opened before mmap, and is either "
+			"set up in region->fd or region->region.guest_memfd.");
+	}
+
+	mem = mmap(NULL, length, PROT_READ | PROT_WRITE, flags, fd, offset);
+	TEST_ASSERT(mem != MAP_FAILED, "Couldn't mmap anonymous memory");
+
+	region->mmap_start = mem;
+	region->mmap_size = length;
+	region->offset = offset;
+
+	return mem;
+}
+
+/**
+ * Installs mmap()ed memory in @region->mmap_start as @region->host_mem,
+ * checking constraints.
+ */
+void vm_mem_region_install_memory(struct userspace_mem_region *region,
+				  size_t memslot_size, size_t alignment)
+{
+	TEST_ASSERT(region->mmap_size >= memslot_size,
+		    "mmap()ed memory insufficient for memslot");
+
+	region->host_mem = align_ptr_up(region->mmap_start, alignment);
+	region->region.userspace_addr = (uint64_t)region->host_mem;
+	region->region.memory_size = memslot_size;
+}
+
+
+/**
+ * Calls madvise with @advice for @region.
+ *
+ * Think of this as the struct userspace_mem_region wrapper for the madvise()
+ * syscall.
+ */
+void vm_mem_region_madvise_thp(struct userspace_mem_region *region, int advice)
 {
 	int ret;
+
+	TEST_ASSERT(
+		region->host_mem && region->mmap_size,
+		"vm_mem_region_madvise_thp() must be called after vm_mem_region_mmap()");
+
+	ret = madvise(region->host_mem, region->mmap_size, advice);
+	TEST_ASSERT(ret == 0, "madvise failed, addr: %p length: 0x%lx",
+		    region->host_mem, region->mmap_size);
+}
+
+/**
+ * Installs guest_memfd by setting it up in @region.
+ *
+ * Returns the guest_memfd that was installed in the @region.
+ */
+int vm_mem_region_install_guest_memfd(struct userspace_mem_region *region,
+				      int guest_memfd)
+{
+	/*
+	 * Install a unique fd for each memslot so that the fd can be closed
+	 * when the region is deleted without needing to track if the fd is
+	 * owned by the framework or by the caller.
+	 */
+	guest_memfd = dup(guest_memfd);
+	TEST_ASSERT(guest_memfd >= 0, __KVM_SYSCALL_ERROR("dup()", guest_memfd));
+	region->region.guest_memfd = guest_memfd;
+
+	return guest_memfd;
+}
+
+/**
+ * Calls mmap() to create an alias for mmap()ed memory at region->host_mem,
+ * exactly the same size the was mmap()ed.
+ *
+ * This is used mainly for userfaultfd tests.
+ */
+void *vm_mem_region_mmap_alias(struct userspace_mem_region *region, int flags,
+			       size_t alignment)
+{
+	region->mmap_alias = mmap(NULL, region->mmap_size,
+				  PROT_READ | PROT_WRITE, flags, region->fd, 0);
+	TEST_ASSERT(region->mmap_alias != MAP_FAILED,
+		    __KVM_SYSCALL_ERROR("mmap()",  (int)(unsigned long)MAP_FAILED));
+
+	region->host_alias = align_ptr_up(region->mmap_alias, alignment);
+
+	return region->host_alias;
+}
+
+static void vm_mem_region_assert_no_duplicate(struct kvm_vm *vm, uint32_t slot,
+					      uint64_t gpa, size_t size)
+{
 	struct userspace_mem_region *region;
-	size_t backing_src_pagesz = get_backing_src_pagesz(src_type);
-	size_t mem_size = npages * vm->page_size;
-	size_t alignment;
-
-	TEST_REQUIRE_SET_USER_MEMORY_REGION2();
-
-	TEST_ASSERT(vm_adjust_num_guest_pages(vm->mode, npages) == npages,
-		"Number of guest pages is not compatible with the host. "
-		"Try npages=%d", vm_adjust_num_guest_pages(vm->mode, npages));
-
-	TEST_ASSERT((guest_paddr % vm->page_size) == 0, "Guest physical "
-		"address not on a page boundary.\n"
-		"  guest_paddr: 0x%lx vm->page_size: 0x%x",
-		guest_paddr, vm->page_size);
-	TEST_ASSERT((((guest_paddr >> vm->page_shift) + npages) - 1)
-		<= vm->max_gfn, "Physical range beyond maximum "
-		"supported physical address,\n"
-		"  guest_paddr: 0x%lx npages: 0x%lx\n"
-		"  vm->max_gfn: 0x%lx vm->page_size: 0x%x",
-		guest_paddr, npages, vm->max_gfn, vm->page_size);
 
 	/*
 	 * Confirm a mem region with an overlapping address doesn't
 	 * already exist.
 	 */
-	region = (struct userspace_mem_region *) userspace_mem_region_find(
-		vm, guest_paddr, (guest_paddr + npages * vm->page_size) - 1);
-	if (region != NULL)
-		TEST_FAIL("overlapping userspace_mem_region already "
-			"exists\n"
-			"  requested guest_paddr: 0x%lx npages: 0x%lx "
-			"page_size: 0x%x\n"
-			"  existing guest_paddr: 0x%lx size: 0x%lx",
-			guest_paddr, npages, vm->page_size,
-			(uint64_t) region->region.guest_phys_addr,
-			(uint64_t) region->region.memory_size);
+	region = userspace_mem_region_find(vm, gpa, gpa + size - 1);
+	if (region != NULL) {
+		TEST_FAIL("overlapping userspace_mem_region already exists\n"
+			  "  requested gpa: 0x%lx size: 0x%lx"
+			  "  existing gpa: 0x%lx size: 0x%lx",
+			  gpa, size,
+			  (uint64_t) region->region.guest_phys_addr,
+			  (uint64_t) region->region.memory_size);
+	}
 
 	/* Confirm no region with the requested slot already exists. */
-	hash_for_each_possible(vm->regions.slot_hash, region, slot_node,
-			       slot) {
+	hash_for_each_possible(vm->regions.slot_hash, region, slot_node, slot) {
 		if (region->region.slot != slot)
 			continue;
 
-		TEST_FAIL("A mem region with the requested slot "
-			"already exists.\n"
-			"  requested slot: %u paddr: 0x%lx npages: 0x%lx\n"
-			"  existing slot: %u paddr: 0x%lx size: 0x%lx",
-			slot, guest_paddr, npages,
-			region->region.slot,
-			(uint64_t) region->region.guest_phys_addr,
-			(uint64_t) region->region.memory_size);
+		TEST_FAIL("A mem region with the requested slot already exists.\n"
+			  "  requested slot: %u paddr: 0x%lx size: 0x%lx\n"
+			  "  existing slot: %u paddr: 0x%lx size: 0x%lx",
+			  slot, gpa, size,
+			  region->region.slot,
+			  (uint64_t) region->region.guest_phys_addr,
+			  (uint64_t) region->region.memory_size);
 	}
+}
 
-	/* Allocate and initialize new mem region structure. */
-	region = calloc(1, sizeof(*region));
-	TEST_ASSERT(region != NULL, "Insufficient Memory");
-	region->mmap_size = mem_size;
+/**
+ * Add a @region to @vm. All necessary fields in region->region should already
+ * be populated.
+ *
+ * Think of this as the struct userspace_mem_region wrapper for the
+ * KVM_SET_USER_MEMORY_REGION2 ioctl.
+ */
+void vm_mem_region_add(struct kvm_vm *vm, struct userspace_mem_region *region)
+{
+	uint64_t npages;
+	uint64_t gpa;
+	int ret;
 
-#ifdef __s390x__
-	/* On s390x, the host address must be aligned to 1M (due to PGSTEs) */
-	alignment = 0x100000;
-#else
-	alignment = 1;
-#endif
+	TEST_REQUIRE_SET_USER_MEMORY_REGION2();
 
-	/*
-	 * When using THP mmap is not guaranteed to returned a hugepage aligned
-	 * address so we have to pad the mmap. Padding is not needed for HugeTLB
-	 * because mmap will always return an address aligned to the HugeTLB
-	 * page size.
-	 */
-	if (src_type == VM_MEM_SRC_ANONYMOUS_THP)
-		alignment = max(backing_src_pagesz, alignment);
+	npages = region->region.memory_size / vm->page_size;
+	TEST_ASSERT(vm_adjust_num_guest_pages(vm->mode, npages) == npages,
+		    "Number of guest pages is not compatible with the host. "
+		    "Try npages=%d", vm_adjust_num_guest_pages(vm->mode, npages));
 
-	TEST_ASSERT_EQ(guest_paddr, align_up(guest_paddr, backing_src_pagesz));
+	gpa = region->region.guest_phys_addr;
+	TEST_ASSERT((gpa % vm->page_size) == 0,
+		    "Guest physical address not on a page boundary.\n"
+		    "  gpa: 0x%lx vm->page_size: 0x%x",
+		    gpa, vm->page_size);
+	TEST_ASSERT((((gpa >> vm->page_shift) + npages) - 1) <= vm->max_gfn,
+		    "Physical range beyond maximum supported physical address,\n"
+		    "  gpa: 0x%lx npages: 0x%lx\n"
+		    "  vm->max_gfn: 0x%lx vm->page_size: 0x%x",
+		    gpa, npages, vm->max_gfn, vm->page_size);
 
-	/* Add enough memory to align up if necessary */
-	if (alignment > 1)
-		region->mmap_size += alignment;
+	vm_mem_region_assert_no_duplicate(vm, region->region.slot, gpa,
+					  region->mmap_size);
 
-	region->fd = -1;
-	if (backing_src_is_shared(src_type))
-		region->fd = kvm_memfd_alloc(region->mmap_size,
-					     src_type == VM_MEM_SRC_SHARED_HUGETLB);
-
-	region->mmap_start = mmap(NULL, region->mmap_size,
-				  PROT_READ | PROT_WRITE,
-				  vm_mem_backing_src_alias(src_type)->flag,
-				  region->fd, 0);
-	TEST_ASSERT(region->mmap_start != MAP_FAILED,
-		    __KVM_SYSCALL_ERROR("mmap()", (int)(unsigned long)MAP_FAILED));
-
-	TEST_ASSERT(!is_backing_src_hugetlb(src_type) ||
-		    region->mmap_start == align_ptr_up(region->mmap_start, backing_src_pagesz),
-		    "mmap_start %p is not aligned to HugeTLB page size 0x%lx",
-		    region->mmap_start, backing_src_pagesz);
-
-	/* Align host address */
-	region->host_mem = align_ptr_up(region->mmap_start, alignment);
-
-	/* As needed perform madvise */
-	if ((src_type == VM_MEM_SRC_ANONYMOUS ||
-	     src_type == VM_MEM_SRC_ANONYMOUS_THP) && thp_configured()) {
-		ret = madvise(region->host_mem, mem_size,
-			      src_type == VM_MEM_SRC_ANONYMOUS ? MADV_NOHUGEPAGE : MADV_HUGEPAGE);
-		TEST_ASSERT(ret == 0, "madvise failed, addr: %p length: 0x%lx src_type: %s",
-			    region->host_mem, mem_size,
-			    vm_mem_backing_src_alias(src_type)->name);
-	}
-
-	region->backing_src_type = src_type;
-
-	if (flags & KVM_MEM_GUEST_MEMFD) {
-		if (guest_memfd < 0) {
-			uint32_t guest_memfd_flags = 0;
-			TEST_ASSERT(!guest_memfd_offset,
-				    "Offset must be zero when creating new guest_memfd");
-			guest_memfd = vm_create_guest_memfd(vm, mem_size, guest_memfd_flags);
-		} else {
-			/*
-			 * Install a unique fd for each memslot so that the fd
-			 * can be closed when the region is deleted without
-			 * needing to track if the fd is owned by the framework
-			 * or by the caller.
-			 */
-			guest_memfd = dup(guest_memfd);
-			TEST_ASSERT(guest_memfd >= 0, __KVM_SYSCALL_ERROR("dup()", guest_memfd));
-		}
-
-		region->region.guest_memfd = guest_memfd;
-		region->region.guest_memfd_offset = guest_memfd_offset;
-	} else {
-		region->region.guest_memfd = -1;
-	}
-
-	region->unused_phy_pages = sparsebit_alloc();
-	if (vm_arch_has_protected_memory(vm))
-		region->protected_phy_pages = sparsebit_alloc();
-	sparsebit_set_num(region->unused_phy_pages,
-		guest_paddr >> vm->page_shift, npages);
-	region->region.slot = slot;
-	region->region.flags = flags;
-	region->region.guest_phys_addr = guest_paddr;
-	region->region.memory_size = npages * vm->page_size;
-	region->region.userspace_addr = (uintptr_t) region->host_mem;
 	ret = __vm_ioctl(vm, KVM_SET_USER_MEMORY_REGION2, &region->region);
 	TEST_ASSERT(ret == 0, "KVM_SET_USER_MEMORY_REGION2 IOCTL failed,\n"
-		"  rc: %i errno: %i\n"
-		"  slot: %u flags: 0x%x\n"
-		"  guest_phys_addr: 0x%lx size: 0x%lx guest_memfd: %d",
-		ret, errno, slot, flags,
-		guest_paddr, (uint64_t) region->region.memory_size,
-		region->region.guest_memfd);
+		    "  rc: %i errno: %i\n"
+		    "  slot: %u flags: 0x%x\n"
+		    "  guest_phys_addr: 0x%lx size: 0x%llx guest_memfd: %d",
+		    ret, errno, region->region.slot, region->region.flags,
+		    gpa, region->region.memory_size,
+		    region->region.guest_memfd);
+
+	sparsebit_set_num(region->unused_phy_pages, gpa >> vm->page_shift, npages);
 
 	/* Add to quick lookup data structures */
 	vm_userspace_mem_region_gpa_insert(&vm->regions.gpa_tree, region);
 	vm_userspace_mem_region_hva_insert(&vm->regions.hva_tree, region);
-	hash_add(vm->regions.slot_hash, &region->slot_node, slot);
+	hash_add(vm->regions.slot_hash, &region->slot_node, region->region.slot);
+}
 
-	/* If shared memory, create an alias. */
-	if (region->fd >= 0) {
-		region->mmap_alias = mmap(NULL, region->mmap_size,
-					  PROT_READ | PROT_WRITE,
-					  vm_mem_backing_src_alias(src_type)->flag,
-					  region->fd, 0);
-		TEST_ASSERT(region->mmap_alias != MAP_FAILED,
-			    __KVM_SYSCALL_ERROR("mmap()",  (int)(unsigned long)MAP_FAILED));
+void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
+		uint64_t guest_paddr, uint32_t slot, uint64_t npages,
+		uint32_t flags, int guest_memfd, uint64_t guest_memfd_offset)
+{
+	struct userspace_mem_region *region;
+	size_t mapping_page_size;
+	size_t memslot_size;
+	int madvise_advice;
+	size_t mmap_size;
+	size_t alignment;
+	int mmap_flags;
+	int memfd;
 
-		/* Align host alias address */
-		region->host_alias = align_ptr_up(region->mmap_alias, alignment);
+	memslot_size = npages * vm->page_size;
+
+	mmap_flags = vm_mem_backing_src_alias(src_type)->flag;
+	madvise_advice = get_backing_src_madvise_advice(src_type);
+	mapping_page_size = compute_page_size(mmap_flags, madvise_advice);
+
+	TEST_ASSERT_EQ(guest_paddr, align_up(guest_paddr, mapping_page_size));
+
+	alignment = mapping_page_size;
+#ifdef __s390x__
+	alignment = max(alignment, S390X_HOST_ADDRESS_ALIGNMENT);
+#endif
+
+	region = vm_mem_region_alloc(vm);
+
+	memfd = -1;
+	if (backing_src_is_shared(src_type)) {
+		unsigned int memfd_flags = MFD_CLOEXEC;
+
+		if (src_type == VM_MEM_SRC_SHARED_HUGETLB)
+			memfd_flags |= MFD_HUGETLB;
+
+		memfd = kvm_create_memfd(memslot_size, memfd_flags);
 	}
+	region->fd = memfd;
+
+	mmap_size = align_up(memslot_size, alignment);
+	vm_mem_region_mmap(region, mmap_size, mmap_flags, memfd, 0);
+	vm_mem_region_install_memory(region, memslot_size, alignment);
+
+	if (backing_src_should_madvise(src_type))
+		vm_mem_region_madvise_thp(region, madvise_advice);
+
+	if (backing_src_is_shared(src_type))
+		vm_mem_region_mmap_alias(region, mmap_flags, alignment);
+
+	if (flags & KVM_MEM_GUEST_MEMFD) {
+		if (guest_memfd < 0) {
+			TEST_ASSERT(
+				guest_memfd_offset == 0,
+				"Offset must be zero when creating new guest_memfd");
+			guest_memfd = vm_create_guest_memfd(vm, memslot_size, 0);
+		}
+
+		vm_mem_region_install_guest_memfd(region, guest_memfd);
+	}
+
+	region->region.slot = slot;
+	region->region.flags = flags;
+	region->region.guest_phys_addr = guest_paddr;
+	region->region.guest_memfd_offset = guest_memfd_offset;
+	vm_mem_region_add(vm, region);
 }
 
 void vm_userspace_mem_region_add(struct kvm_vm *vm,

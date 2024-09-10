@@ -328,6 +328,31 @@ size_t get_backing_src_pagesz(uint32_t i)
 	}
 }
 
+int backing_src_should_madvise(uint32_t i)
+{
+	switch (i) {
+	case VM_MEM_SRC_ANONYMOUS:
+	case VM_MEM_SRC_SHMEM:
+	case VM_MEM_SRC_ANONYMOUS_THP:
+		return true;
+	default:
+		return false;
+	}
+}
+
+int get_backing_src_madvise_advice(uint32_t i)
+{
+	switch (i) {
+	case VM_MEM_SRC_ANONYMOUS:
+	case VM_MEM_SRC_SHMEM:
+		return MADV_NOHUGEPAGE;
+	case VM_MEM_SRC_ANONYMOUS_THP:
+		return MADV_NOHUGEPAGE;
+	default:
+		return 0;
+	}
+}
+
 bool is_backing_src_hugetlb(uint32_t i)
 {
 	return !!(vm_mem_backing_src_alias(i)->flag & MAP_HUGETLB);

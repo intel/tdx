@@ -19,6 +19,7 @@
 #include <asm/kvm.h>
 
 #include <sys/eventfd.h>
+#include <string.h>
 #include <sys/ioctl.h>
 
 #include <pthread.h>
@@ -26,6 +27,7 @@
 #include "kvm_util_arch.h"
 #include "kvm_util_types.h"
 #include "sparsebit.h"
+#include <sys/types.h>
 
 #define KVM_DEV_PATH "/dev/kvm"
 #define KVM_MAX_VCPUS 512
@@ -436,6 +438,78 @@ static inline void vm_mem_set_shared(struct kvm_vm *vm, uint64_t gpa,
 				     uint64_t size)
 {
 	vm_set_memory_attributes(vm, gpa, size, 0);
+}
+
+static inline int __guest_memfd_convert_private(int guest_memfd, loff_t offset,
+						size_t size, loff_t *error_offset)
+{
+	int ret;
+
+	struct kvm_gmem_convert param = {
+		.offset = offset,
+		.size = size,
+		.error_offset = 0,
+	};
+
+	ret = ioctl(guest_memfd, KVM_GMEM_CONVERT_PRIVATE, &param);
+	if (ret)
+		*error_offset = param.error_offset;
+
+	return ret;
+}
+
+static inline void guest_memfd_convert_private(int guest_memfd, loff_t offset,
+					       size_t size)
+{
+	loff_t error_offset;
+	int retries;
+	int ret;
+
+	retries = 2;
+	do {
+		error_offset = 0;
+		ret = __guest_memfd_convert_private(guest_memfd, offset, size,
+						    &error_offset);
+	} while (ret == -1 && errno == EAGAIN && --retries > 0);
+
+	TEST_ASSERT(!ret, "Unexpected error %s (%m) at offset 0x%lx",
+		    strerrorname_np(errno), error_offset);
+}
+
+static inline int __guest_memfd_convert_shared(int guest_memfd, loff_t offset,
+					       size_t size, loff_t *error_offset)
+{
+	int ret;
+
+	struct kvm_gmem_convert param = {
+		.offset = offset,
+		.size = size,
+		.error_offset = 0,
+	};
+
+	ret = ioctl(guest_memfd, KVM_GMEM_CONVERT_SHARED, &param);
+	if (ret)
+		*error_offset = param.error_offset;
+
+	return ret;
+}
+
+static inline void guest_memfd_convert_shared(int guest_memfd, loff_t offset,
+					      size_t size)
+{
+	loff_t error_offset;
+	int retries;
+	int ret;
+
+	retries = 2;
+	do {
+		error_offset = 0;
+		ret = __guest_memfd_convert_shared(guest_memfd, offset, size,
+						    &error_offset);
+	} while (ret == -1 && errno == EAGAIN && --retries > 0);
+
+	TEST_ASSERT(!ret, "Unexpected error %s (%m) at offset 0x%lx",
+		    strerrorname_np(errno), error_offset);
 }
 
 void vm_guest_mem_fallocate(struct kvm_vm *vm, uint64_t gpa, uint64_t size,

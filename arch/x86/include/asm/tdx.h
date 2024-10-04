@@ -134,6 +134,7 @@ struct tdx_vp {
 };
 
 u64 tdh_mng_addcx(struct tdx_td *td, hpa_t tdcs);
+u64 tdh_vp_enter(u64 tdvpr, struct tdx_module_args *args);
 u64 tdh_mem_page_add(u64 tdr, u64 gpa, u64 hpa, u64 source, u64 *rcx, u64 *rdx);
 u64 tdh_mem_sept_add(u64 tdr, u64 gpa, u64 level, u64 hpa, u64 *rcx, u64 *rdx);
 u64 tdh_vp_addcx(struct tdx_vp *vp, hpa_t tdcx);

@@ -218,11 +218,20 @@ void tdx_filter_cpuid(struct kvm_vm *vm, struct kvm_cpuid2 *cpuid_data)
 	struct kvm_tdx_cpuid_config *config;
 
 	tdx_cap = tdx_read_capabilities(vm);
-	for (i = 0; i < cpuid_data->nent; i++) {
+
+	i = 0;
+	while (i < cpuid_data->nent) {
 		e = cpuid_data->entries + i;
 		config = tdx_find_cpuid_config(tdx_cap, e->function, e->index);
 
 		if (!config) {
+			int left = cpuid_data->nent - i - 1;
+
+			if (left > 0)
+				memmove(cpuid_data->entries + i,
+				       cpuid_data->entries + i + 1,
+				       sizeof(*cpuid_data->entries) * left);
+			cpuid_data->nent--;
 			continue;
 		}
 
@@ -230,6 +239,8 @@ void tdx_filter_cpuid(struct kvm_vm *vm, struct kvm_cpuid2 *cpuid_data)
 		e->ebx &= config->ebx;
 		e->ecx &= config->ecx;
 		e->edx &= config->edx;
+
+		i++;
 	}
 
 	free(tdx_cap);

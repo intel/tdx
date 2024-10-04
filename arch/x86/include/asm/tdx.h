@@ -214,6 +214,29 @@ int tdx_enable(void);
 const char *tdx_dump_mce_info(struct mce *m);
 int tdx_guest_keyid_alloc(void);
 void tdx_guest_keyid_free(int keyid);
+
+/* SEAMCALL wrappers for creating/destroying/running TDX guests */
+u64 tdh_mng_addcx(u64 tdr, u64 tdcs);
+u64 tdh_vp_addcx(u64 tdvpr, u64 tdcx);
+u64 tdh_mng_key_config(u64 tdr);
+u64 tdh_mng_create(u64 tdr, u64 hkid);
+u64 tdh_vp_create(u64 tdr, u64 tdvpr);
+u64 tdh_mng_rd(u64 tdr, u64 field, u64 *data);
+u64 tdh_mng_wr(u64 tdr, u64 field, u64 data, u64 mask);
+u64 tdh_mr_extend(u64 tdr, u64 gpa, u64 *rcx, u64 *rdx);
+u64 tdh_mr_finalize(u64 tdr);
+u64 tdh_vp_flush(u64 tdvpr);
+u64 tdh_mng_vpflushdone(u64 tdr);
+u64 tdh_mng_key_freeid(u64 tdr);
+u64 tdh_mng_init(u64 tdr, u64 td_params, u64 *rcx);
+u64 tdh_vp_init(u64 tdvpr, u64 initial_rcx);
+u64 tdh_vp_rd(u64 tdvpr, u64 field, u64 *data);
+u64 tdh_vp_wr(u64 tdvpr, u64 field, u64 data, u64 mask);
+u64 tdh_vp_init_apicid(u64 tdvpr, u64 initial_rcx, u32 x2apicid);
+u64 tdh_phymem_page_reclaim(u64 page, u64 *rcx, u64 *rdx, u64 *r8);
+u64 tdh_phymem_cache_wb(bool resume);
+u64 tdh_phymem_page_wbinvd_tdr(u64 tdr);
+
 #else
 static inline void tdx_init(void) { }
 static inline int tdx_cpu_enable(void) { return -ENODEV; }

@@ -1736,3 +1736,262 @@ void tdx_guest_keyid_free(int keyid)
 	ida_free(&tdx_guest_keyid_pool, keyid);
 }
 EXPORT_SYMBOL_GPL(tdx_guest_keyid_free);
+
+u64 tdh_mng_addcx(u64 tdr, u64 tdcs)
+{
+	struct tdx_module_args args = {
+		.rcx = tdcs,
+		.rdx = tdr,
+	};
+
+	clflush_cache_range(__va(tdcs), PAGE_SIZE);
+	return seamcall(TDH_MNG_ADDCX, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_mng_addcx);
+
+u64 tdh_vp_addcx(u64 tdvpr, u64 tdcx)
+{
+	struct tdx_module_args args = {
+		.rcx = tdcx,
+		.rdx = tdvpr,
+	};
+
+	clflush_cache_range(__va(tdcx), PAGE_SIZE);
+	return seamcall(TDH_VP_ADDCX, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_vp_addcx);
+
+u64 tdh_mng_key_config(u64 tdr)
+{
+	struct tdx_module_args args = {
+		.rcx = tdr,
+	};
+
+	return seamcall(TDH_MNG_KEY_CONFIG, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_mng_key_config);
+
+u64 tdh_mng_create(u64 tdr, u64 hkid)
+{
+	struct tdx_module_args args = {
+		.rcx = tdr,
+		.rdx = hkid,
+	};
+
+	clflush_cache_range(__va(tdr), PAGE_SIZE);
+	return seamcall(TDH_MNG_CREATE, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_mng_create);
+
+u64 tdh_vp_create(u64 tdr, u64 tdvpr)
+{
+	struct tdx_module_args args = {
+		.rcx = tdvpr,
+		.rdx = tdr,
+	};
+
+	clflush_cache_range(__va(tdvpr), PAGE_SIZE);
+	return seamcall(TDH_VP_CREATE, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_vp_create);
+
+u64 tdh_mng_rd(u64 tdr, u64 field, u64 *data)
+{
+	struct tdx_module_args args = {
+		.rcx = tdr,
+		.rdx = field,
+	};
+	u64 ret;
+
+	ret = seamcall_ret(TDH_MNG_RD, &args);
+
+	/* R8: Content of the field, or 0 in case of error. */
+	*data = args.r8;
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(tdh_mng_rd);
+
+u64 tdh_mng_wr(u64 tdr, u64 field, u64 data, u64 mask)
+{
+	struct tdx_module_args args = {
+		.rcx = tdr,
+		.rdx = field,
+		.r8 = data,
+		.r9 = mask,
+	};
+
+	return seamcall(TDH_MNG_RD, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_mng_wr);
+
+u64 tdh_mr_extend(u64 tdr, u64 gpa, u64 *rcx, u64 *rdx)
+{
+	struct tdx_module_args args = {
+		.rcx = gpa,
+		.rdx = tdr,
+	};
+	u64 ret;
+
+	ret = seamcall_ret(TDH_MR_EXTEND, &args);
+
+	*rcx = args.rcx;
+	*rdx = args.rdx;
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(tdh_mr_extend);
+
+u64 tdh_mr_finalize(u64 tdr)
+{
+	struct tdx_module_args args = {
+		.rcx = tdr,
+	};
+
+	return seamcall(TDH_MR_FINALIZE, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_mr_finalize);
+
+u64 tdh_vp_flush(u64 tdvpr)
+{
+	struct tdx_module_args args = {
+		.rcx = tdvpr,
+	};
+
+	return seamcall(TDH_VP_FLUSH, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_vp_flush);
+
+u64 tdh_mng_vpflushdone(u64 tdr)
+{
+	struct tdx_module_args args = {
+		.rcx = tdr,
+	};
+
+	return seamcall(TDH_MNG_VPFLUSHDONE, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_mng_vpflushdone);
+
+u64 tdh_mng_key_freeid(u64 tdr)
+{
+	struct tdx_module_args args = {
+		.rcx = tdr,
+	};
+
+	return seamcall(TDH_MNG_KEY_FREEID, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_mng_key_freeid);
+
+u64 tdh_mng_init(u64 tdr, u64 td_params, u64 *rcx)
+{
+	struct tdx_module_args args = {
+		.rcx = tdr,
+		.rdx = td_params,
+	};
+	u64 ret;
+
+	ret = seamcall_ret(TDH_MNG_INIT, &args);
+
+	*rcx = args.rcx;
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(tdh_mng_init);
+
+u64 tdh_vp_init(u64 tdvpr, u64 initial_rcx)
+{
+	struct tdx_module_args args = {
+		.rcx = tdvpr,
+		.rdx = initial_rcx,
+	};
+
+	return seamcall(TDH_VP_INIT, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_vp_init);
+
+u64 tdh_vp_rd(u64 tdvpr, u64 field, u64 *data)
+{
+	struct tdx_module_args args = {
+		.rcx = tdvpr,
+		.rdx = field,
+	};
+	u64 ret;
+
+	ret = seamcall_ret(TDH_VP_RD, &args);
+
+	/* R8: Content of the field, or 0 in case of error. */
+	*data = args.r8;
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(tdh_vp_rd);
+
+u64 tdh_vp_wr(u64 tdvpr, u64 field, u64 data, u64 mask)
+{
+	struct tdx_module_args args = {
+		.rcx = tdvpr,
+		.rdx = field,
+		.r8 = data,
+		.r9 = mask,
+	};
+
+	return seamcall(TDH_VP_WR, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_vp_wr);
+
+u64 tdh_vp_init_apicid(u64 tdvpr, u64 initial_rcx, u32 x2apicid)
+{
+	struct tdx_module_args args = {
+		.rcx = tdvpr,
+		.rdx = initial_rcx,
+		.r8 = x2apicid,
+	};
+
+	/* apicid requires version == 1. */
+	return seamcall(TDH_VP_INIT | (1ULL << TDX_VERSION_SHIFT), &args);
+}
+EXPORT_SYMBOL_GPL(tdh_vp_init_apicid);
+
+u64 tdh_phymem_page_reclaim(u64 page, u64 *rcx, u64 *rdx, u64 *r8)
+{
+	struct tdx_module_args args = {
+		.rcx = page,
+	};
+	u64 ret;
+
+	ret = seamcall_ret(TDH_PHYMEM_PAGE_RECLAIM, &args);
+
+	/*
+	 * Additional error information:
+	 *
+	 *  - RCX: page type
+	 *  - RDX: owner
+	 *  - R8:  page size (4K, 2M or 1G)
+	 */
+	*rcx = args.rcx;
+	*rdx = args.rdx;
+	*r8 = args.r8;
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(tdh_phymem_page_reclaim);
+
+u64 tdh_phymem_cache_wb(bool resume)
+{
+	struct tdx_module_args args = {
+		.rcx = resume ? 1 : 0,
+	};
+
+	return seamcall(TDH_PHYMEM_CACHE_WB, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_phymem_cache_wb);
+
+u64 tdh_phymem_page_wbinvd_tdr(u64 tdr)
+{
+	struct tdx_module_args args = {};
+
+	args.rcx = tdr | (tdx_global_keyid << boot_cpu_data.x86_phys_bits);
+
+	return seamcall(TDH_PHYMEM_PAGE_WBINVD, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_phymem_page_wbinvd_tdr);

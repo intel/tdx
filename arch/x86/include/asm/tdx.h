@@ -125,7 +125,11 @@ void tdx_guest_keyid_free(unsigned int keyid);
 
 /* SEAMCALL wrappers for creating/destroying/running TDX guests */
 u64 tdh_mng_addcx(u64 tdr, u64 tdcs);
+u64 tdh_mem_page_add(u64 tdr, u64 gpa, u64 hpa, u64 source, u64 *rcx, u64 *rdx);
+u64 tdh_mem_sept_add(u64 tdr, u64 gpa, u64 level, u64 hpa, u64 *rcx, u64 *rdx);
 u64 tdh_vp_addcx(u64 tdvpr, u64 tdcx);
+u64 tdh_mem_page_aug(u64 tdr, u64 gpa, u64 hpa, u64 *rcx, u64 *rdx);
+u64 tdh_mem_range_block(u64 tdr, u64 gpa, u64 level, u64 *rcx, u64 *rdx);
 u64 tdh_mng_key_config(u64 tdr);
 u64 tdh_mng_create(u64 tdr, u64 hkid);
 u64 tdh_vp_create(u64 tdr, u64 tdvpr);
@@ -139,8 +143,13 @@ u64 tdh_vp_rd(u64 tdvpr, u64 field, u64 *data);
 u64 tdh_vp_wr(u64 tdvpr, u64 field, u64 data, u64 mask);
 u64 tdh_vp_init_apicid(u64 tdvpr, u64 initial_rcx, u32 x2apicid);
 u64 tdh_phymem_page_reclaim(u64 page, u64 *rcx, u64 *rdx, u64 *r8);
+u64 tdh_mem_page_remove(u64 tdr, u64 gpa, u64 level, u64 *rcx, u64 *rdx);
+u64 tdh_mem_sept_remove(u64 tdr, u64 gpa, u64 level, u64 *rcx, u64 *rdx);
+u64 tdh_mem_track(u64 tdr);
+u64 tdh_mem_range_unblock(u64 tdr, u64 gpa, u64 level, u64 *rcx, u64 *rdx);
 u64 tdh_phymem_cache_wb(bool resume);
 u64 tdh_phymem_page_wbinvd_tdr(u64 tdr);
+u64 tdh_phymem_page_wbinvd_hkid(u64 hpa, u64 hkid);
 #else
 static inline void tdx_init(void) { }
 static inline int tdx_cpu_enable(void) { return -ENODEV; }

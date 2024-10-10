@@ -95,7 +95,7 @@
  * new process context and wait for it to finish or fail to prevent TEST_ASSERT
  * to kill the main testing process.
  */
-void run_in_new_process(void (*func)(void));
+int run_in_new_process(void (*func)(void));
 
 /**
  * Verify that the TDX is supported by KVM.

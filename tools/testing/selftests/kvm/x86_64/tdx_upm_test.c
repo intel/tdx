@@ -456,15 +456,16 @@ void verify_upm_test_implicit(void)
 
 int main(int argc, char **argv)
 {
-	/* Disable stdout buffering */
-	setbuf(stdout, NULL);
+	ksft_print_header();
 
-	if (!is_tdx_enabled()) {
-		printf("TDX is not supported by the KVM\n"
-		       "Skipping the TDX tests.\n");
-		return 0;
-	}
+	if (!is_tdx_enabled())
+		ksft_exit_skip("TDX is not supported by the KVM. Exiting.\n");
 
-	run_in_new_process(&verify_upm_test_explicit);
-	run_in_new_process(&verify_upm_test_implicit);
+	ksft_set_plan(2);
+	ksft_test_result(!run_in_new_process(&verify_upm_test_explicit),
+			 "verify_upm_test_explicit\n");
+	ksft_test_result(!run_in_new_process(&verify_upm_test_implicit),
+			 "verify_upm_test_implicit\n");
+
+	ksft_finished();
 }

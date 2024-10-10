@@ -1299,28 +1299,43 @@ void verify_tdcall_vp_info(void)
 
 int main(int argc, char **argv)
 {
-	setbuf(stdout, NULL);
+	ksft_print_header();
 
-	if (!is_tdx_enabled()) {
-		print_skip("TDX is not supported by the KVM");
-		exit(KSFT_SKIP);
-	}
+	if (!is_tdx_enabled())
+		ksft_exit_skip("TDX is not supported by the KVM. Exiting.\n");
 
-	run_in_new_process(&verify_td_lifecycle);
-	run_in_new_process(&verify_report_fatal_error);
-	run_in_new_process(&verify_td_ioexit);
-	run_in_new_process(&verify_td_cpuid);
-	run_in_new_process(&verify_get_td_vmcall_info);
-	run_in_new_process(&verify_guest_writes);
-	run_in_new_process(&verify_guest_reads);
-	run_in_new_process(&verify_guest_msr_writes);
-	run_in_new_process(&verify_guest_msr_reads);
-	run_in_new_process(&verify_guest_hlt);
-	run_in_new_process(&verify_mmio_reads);
-	run_in_new_process(&verify_mmio_writes);
-	run_in_new_process(&verify_td_cpuid_tdcall);
-	run_in_new_process(&verify_host_reading_private_mem);
-	run_in_new_process(&verify_tdcall_vp_info);
+	ksft_set_plan(15);
+	ksft_test_result(!run_in_new_process(&verify_td_lifecycle),
+			 "verify_td_lifecycle\n");
+	ksft_test_result(!run_in_new_process(&verify_report_fatal_error),
+			 "verify_report_fatal_error\n");
+	ksft_test_result(!run_in_new_process(&verify_td_ioexit),
+			 "verify_td_ioexit\n");
+	ksft_test_result(!run_in_new_process(&verify_td_cpuid),
+			 "verify_td_cpuid\n");
+	ksft_test_result(!run_in_new_process(&verify_get_td_vmcall_info),
+			 "verify_get_td_vmcall_info\n");
+	ksft_test_result(!run_in_new_process(&verify_guest_writes),
+			 "verify_guest_writes\n");
+	ksft_test_result(!run_in_new_process(&verify_guest_reads),
+			 "verify_guest_reads\n");
+	ksft_test_result(!run_in_new_process(&verify_guest_msr_writes),
+			 "verify_guest_msr_writes\n");
+	ksft_test_result(!run_in_new_process(&verify_guest_msr_reads),
+			 "verify_guest_msr_reads\n");
+	ksft_test_result(!run_in_new_process(&verify_guest_hlt),
+			 "verify_guest_hlt\n");
+	ksft_test_result(!run_in_new_process(&verify_mmio_reads),
+			 "verify_mmio_reads\n");
+	ksft_test_result(!run_in_new_process(&verify_mmio_writes),
+			 "verify_mmio_writes\n");
+	ksft_test_result(!run_in_new_process(&verify_td_cpuid_tdcall),
+			 "verify_td_cpuid_tdcall\n");
+	ksft_test_result(!run_in_new_process(&verify_host_reading_private_mem),
+			 "verify_host_reading_private_mem\n");
+	ksft_test_result(!run_in_new_process(&verify_tdcall_vp_info),
+			 "verify_tdcall_vp_info\n");
 
+	ksft_finished();
 	return 0;
 }

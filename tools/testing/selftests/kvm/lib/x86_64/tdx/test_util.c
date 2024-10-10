@@ -11,13 +11,25 @@
 #include "tdx/tdx.h"
 #include "tdx/test_util.h"
 
-void run_in_new_process(void (*func)(void))
+int run_in_new_process(void (*func)(void))
 {
+	int wstatus;
+	pid_t ret;
+
 	if (fork() == 0) {
 		func();
 		exit(0);
 	}
-	wait(NULL);
+	ret = wait(&wstatus);
+	if (ret == -1)
+		return -1;
+
+	if (WIFEXITED(wstatus) && WEXITSTATUS(wstatus))
+		return -1;
+	else if (WIFSIGNALED(wstatus))
+		return -1;
+
+	return 0;
 }
 
 bool is_tdx_enabled(void)

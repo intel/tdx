@@ -62,13 +62,12 @@ static struct kvm_tdx_capabilities *tdx_read_capabilities(struct kvm_vm *vm)
 		nr_cpuid_configs *= 2;
 
 		tdx_cap = realloc(
-			tdx_cap, sizeof(*tdx_cap) +
-			nr_cpuid_configs * sizeof(*tdx_cap->cpuid_configs));
+			tdx_cap, sizeof(*tdx_cap) + sizeof(tdx_cap->cpuid) + (sizeof(struct kvm_cpuid_entry2) * nr_cpuid_configs));
 		TEST_ASSERT(tdx_cap != NULL,
 			    "Could not allocate memory for tdx capability nr_cpuid_configs %d\n",
 			    nr_cpuid_configs);
 
-		tdx_cap->nr_cpuid_configs = nr_cpuid_configs;
+		tdx_cap->cpuid.nent = nr_cpuid_configs;
 		rc = _tdx_ioctl(vm->fd, KVM_TDX_CAPABILITIES, 0, tdx_cap);
 	} while (rc < 0 && errno == E2BIG);
 
@@ -79,27 +78,26 @@ static struct kvm_tdx_capabilities *tdx_read_capabilities(struct kvm_vm *vm)
 		 "tdx_cap: supported_xfam 0x%016llx\n",
 		 tdx_cap->supported_attrs, tdx_cap->supported_xfam);
 
-	for (i = 0; i < tdx_cap->nr_cpuid_configs; i++) {
-		const struct kvm_tdx_cpuid_config *config =
-			&tdx_cap->cpuid_configs[i];
+	for (i = 0; i < tdx_cap->cpuid.nent; i++) {
+		const struct kvm_cpuid_entry2 *config = &tdx_cap->cpuid.entries[i];
 		pr_debug("cpuid config[%d]: leaf 0x%x sub_leaf 0x%x eax 0x%08x ebx 0x%08x ecx 0x%08x edx 0x%08x\n",
-			 i, config->leaf, config->sub_leaf,
+			 i, config->function, config->index,
 			 config->eax, config->ebx, config->ecx, config->edx);
 	}
 
 	return tdx_cap;
 }
 
-static struct kvm_tdx_cpuid_config *tdx_find_cpuid_config(struct kvm_tdx_capabilities *cap,
+static struct kvm_cpuid_entry2 *tdx_find_cpuid_config(struct kvm_tdx_capabilities *cap,
 							  uint32_t leaf, uint32_t sub_leaf)
 {
-	struct kvm_tdx_cpuid_config *config;
+	struct kvm_cpuid_entry2 *config;
 	uint32_t i;
 
-	for (i = 0; i < cap->nr_cpuid_configs; i++) {
-		config = &cap->cpuid_configs[i];
+	for (i = 0; i < cap->cpuid.nent; i++) {
+		config = &cap->cpuid.entries[i];
 
-		if (config->leaf == leaf && config->sub_leaf == sub_leaf) {
+		if (config->function == leaf && config->index == sub_leaf) {
 			return config;
 		}
 	}
@@ -215,7 +213,7 @@ void tdx_filter_cpuid(struct kvm_vm *vm, struct kvm_cpuid2 *cpuid_data)
 	int i;
 	struct kvm_cpuid_entry2 *e;
 	struct kvm_tdx_capabilities *tdx_cap;
-	struct kvm_tdx_cpuid_config *config;
+	struct kvm_cpuid_entry2 *config;
 
 	tdx_cap = tdx_read_capabilities(vm);
 

@@ -684,6 +684,8 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	vcpu->arch.cr0_guest_owned_bits = -1ul;
 	vcpu->arch.cr4_guest_owned_bits = -1ul;
 
+	/* KVM can't change TSC offset/multiplier as TDX module manages them. */
+	vcpu->arch.guest_tsc_protected = true;
 	vcpu->arch.tsc_offset = kvm_tdx->tsc_offset;
 	vcpu->arch.l1_tsc_offset = vcpu->arch.tsc_offset;
 	vcpu->arch.tsc_scaling_ratio = kvm_tdx->tsc_multiplier;

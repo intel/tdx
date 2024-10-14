@@ -26,6 +26,7 @@
 #include <linux/task_work.h>
 #include <linux/shmem_fs.h>
 #include <linux/khugepaged.h>
+#include <linux/rcupdate_trace.h>
 
 #include <linux/uprobes.h>
 
@@ -41,8 +42,6 @@ static struct rb_root uprobes_tree = RB_ROOT;
 
 static DEFINE_RWLOCK(uprobes_treelock);	/* serialize rbtree access */
 static seqcount_rwlock_t uprobes_seqcount = SEQCNT_RWLOCK_ZERO(uprobes_seqcount, &uprobes_treelock);
-
-DEFINE_STATIC_SRCU(uprobes_srcu);
 
 #define UPROBES_HASH_SZ	13
 /* serialize uprobe->pending_list */
@@ -100,7 +99,6 @@ static LIST_HEAD(delayed_uprobe_list);
  */
 struct xol_area {
 	wait_queue_head_t 		wq;		/* if all slots are busy */
-	atomic_t 			slot_count;	/* number of in-use slots */
 	unsigned long 			*bitmap;	/* 0 = free slot */
 
 	struct page			*page;
@@ -651,7 +649,7 @@ static void put_uprobe(struct uprobe *uprobe)
 	delayed_uprobe_remove(uprobe, NULL);
 	mutex_unlock(&delayed_uprobe_lock);
 
-	call_srcu(&uprobes_srcu, &uprobe->rcu, uprobe_free_rcu);
+	call_rcu_tasks_trace(&uprobe->rcu, uprobe_free_rcu);
 }
 
 static __always_inline
@@ -706,7 +704,7 @@ static struct uprobe *find_uprobe_rcu(struct inode *inode, loff_t offset)
 	struct rb_node *node;
 	unsigned int seq;
 
-	lockdep_assert(srcu_read_lock_held(&uprobes_srcu));
+	lockdep_assert(rcu_read_lock_trace_held());
 
 	do {
 		seq = read_seqcount_begin(&uprobes_seqcount);
@@ -934,8 +932,7 @@ static bool filter_chain(struct uprobe *uprobe, struct mm_struct *mm)
 	bool ret = false;
 
 	down_read(&uprobe->consumer_rwsem);
-	list_for_each_entry_srcu(uc, &uprobe->consumers, cons_node,
-				 srcu_read_lock_held(&uprobes_srcu)) {
+	list_for_each_entry_rcu(uc, &uprobe->consumers, cons_node, rcu_read_lock_trace_held()) {
 		ret = consumer_filter(uc, mm);
 		if (ret)
 			break;
@@ -1156,7 +1153,7 @@ void uprobe_unregister_sync(void)
 	 * unlucky enough caller can free consumer's memory and cause
 	 * handler_chain() or handle_uretprobe_chain() to do an use-after-free.
 	 */
-	synchronize_srcu(&uprobes_srcu);
+	synchronize_rcu_tasks_trace();
 }
 EXPORT_SYMBOL_GPL(uprobe_unregister_sync);
 
@@ -1240,19 +1237,18 @@ EXPORT_SYMBOL_GPL(uprobe_register);
 int uprobe_apply(struct uprobe *uprobe, struct uprobe_consumer *uc, bool add)
 {
 	struct uprobe_consumer *con;
-	int ret = -ENOENT, srcu_idx;
+	int ret = -ENOENT;
 
 	down_write(&uprobe->register_rwsem);
 
-	srcu_idx = srcu_read_lock(&uprobes_srcu);
-	list_for_each_entry_srcu(con, &uprobe->consumers, cons_node,
-				 srcu_read_lock_held(&uprobes_srcu)) {
+	rcu_read_lock_trace();
+	list_for_each_entry_rcu(con, &uprobe->consumers, cons_node, rcu_read_lock_trace_held()) {
 		if (con == uc) {
 			ret = register_for_each_vma(uprobe, add ? uc : NULL);
 			break;
 		}
 	}
-	srcu_read_unlock(&uprobes_srcu, srcu_idx);
+	rcu_read_unlock_trace();
 
 	up_write(&uprobe->register_rwsem);
 
@@ -1475,9 +1471,15 @@ static vm_fault_t xol_fault(const struct vm_special_mapping *sm,
 	return 0;
 }
 
+static int xol_mremap(const struct vm_special_mapping *sm, struct vm_area_struct *new_vma)
+{
+	return -EPERM;
+}
+
 static const struct vm_special_mapping xol_mapping = {
 	.name = "[uprobes]",
 	.fault = xol_fault,
+	.mremap = xol_mremap,
 };
 
 /* Slot allocation for XOL */
@@ -1553,7 +1555,6 @@ static struct xol_area *__create_xol_area(unsigned long vaddr)
 	init_waitqueue_head(&area->wq);
 	/* Reserve the 1st slot for get_trampoline_vaddr() */
 	set_bit(0, area->bitmap);
-	atomic_set(&area->slot_count, 1);
 	insns = arch_uprobe_trampoline(&insns_size);
 	arch_uprobe_copy_ixol(area->page, 0, insns, insns_size);
 
@@ -1626,92 +1627,57 @@ void uprobe_dup_mmap(struct mm_struct *oldmm, struct mm_struct *newmm)
 	}
 }
 
-/*
- *  - search for a free slot.
- */
-static unsigned long xol_take_insn_slot(struct xol_area *area)
+static unsigned long xol_get_slot_nr(struct xol_area *area)
 {
-	unsigned long slot_addr;
-	int slot_nr;
+	unsigned long slot_nr;
 
-	do {
-		slot_nr = find_first_zero_bit(area->bitmap, UINSNS_PER_PAGE);
-		if (slot_nr < UINSNS_PER_PAGE) {
-			if (!test_and_set_bit(slot_nr, area->bitmap))
-				break;
+	slot_nr = find_first_zero_bit(area->bitmap, UINSNS_PER_PAGE);
+	if (slot_nr < UINSNS_PER_PAGE) {
+		if (!test_and_set_bit(slot_nr, area->bitmap))
+			return slot_nr;
+	}
 
-			slot_nr = UINSNS_PER_PAGE;
-			continue;
-		}
-		wait_event(area->wq, (atomic_read(&area->slot_count) < UINSNS_PER_PAGE));
-	} while (slot_nr >= UINSNS_PER_PAGE);
-
-	slot_addr = area->vaddr + (slot_nr * UPROBE_XOL_SLOT_BYTES);
-	atomic_inc(&area->slot_count);
-
-	return slot_addr;
+	return UINSNS_PER_PAGE;
 }
 
 /*
  * xol_get_insn_slot - allocate a slot for xol.
- * Returns the allocated slot address or 0.
  */
-static unsigned long xol_get_insn_slot(struct uprobe *uprobe)
+static bool xol_get_insn_slot(struct uprobe *uprobe, struct uprobe_task *utask)
 {
-	struct xol_area *area;
-	unsigned long xol_vaddr;
+	struct xol_area *area = get_xol_area();
+	unsigned long slot_nr;
 
-	area = get_xol_area();
 	if (!area)
-		return 0;
+		return false;
 
-	xol_vaddr = xol_take_insn_slot(area);
-	if (unlikely(!xol_vaddr))
-		return 0;
+	wait_event(area->wq, (slot_nr = xol_get_slot_nr(area)) < UINSNS_PER_PAGE);
 
-	arch_uprobe_copy_ixol(area->page, xol_vaddr,
+	utask->xol_vaddr = area->vaddr + slot_nr * UPROBE_XOL_SLOT_BYTES;
+	arch_uprobe_copy_ixol(area->page, utask->xol_vaddr,
 			      &uprobe->arch.ixol, sizeof(uprobe->arch.ixol));
-
-	return xol_vaddr;
+	return true;
 }
 
 /*
- * xol_free_insn_slot - If slot was earlier allocated by
- * @xol_get_insn_slot(), make the slot available for
- * subsequent requests.
+ * xol_free_insn_slot - free the slot allocated by xol_get_insn_slot()
  */
-static void xol_free_insn_slot(struct task_struct *tsk)
+static void xol_free_insn_slot(struct uprobe_task *utask)
 {
-	struct xol_area *area;
-	unsigned long vma_end;
-	unsigned long slot_addr;
+	struct xol_area *area = current->mm->uprobes_state.xol_area;
+	unsigned long offset = utask->xol_vaddr - area->vaddr;
+	unsigned int slot_nr;
 
-	if (!tsk->mm || !tsk->mm->uprobes_state.xol_area || !tsk->utask)
+	utask->xol_vaddr = 0;
+	/* xol_vaddr must fit into [area->vaddr, area->vaddr + PAGE_SIZE) */
+	if (WARN_ON_ONCE(offset >= PAGE_SIZE))
 		return;
 
-	slot_addr = tsk->utask->xol_vaddr;
-	if (unlikely(!slot_addr))
-		return;
-
-	area = tsk->mm->uprobes_state.xol_area;
-	vma_end = area->vaddr + PAGE_SIZE;
-	if (area->vaddr <= slot_addr && slot_addr < vma_end) {
-		unsigned long offset;
-		int slot_nr;
-
-		offset = slot_addr - area->vaddr;
-		slot_nr = offset / UPROBE_XOL_SLOT_BYTES;
-		if (slot_nr >= UINSNS_PER_PAGE)
-			return;
-
-		clear_bit(slot_nr, area->bitmap);
-		atomic_dec(&area->slot_count);
-		smp_mb__after_atomic(); /* pairs with prepare_to_wait() */
-		if (waitqueue_active(&area->wq))
-			wake_up(&area->wq);
-
-		tsk->utask->xol_vaddr = 0;
-	}
+	slot_nr = offset / UPROBE_XOL_SLOT_BYTES;
+	clear_bit(slot_nr, area->bitmap);
+	smp_mb__after_atomic(); /* pairs with prepare_to_wait() */
+	if (waitqueue_active(&area->wq))
+		wake_up(&area->wq);
 }
 
 void __weak arch_uprobe_copy_ixol(struct page *page, unsigned long vaddr,
@@ -1770,14 +1736,12 @@ void uprobe_free_utask(struct task_struct *t)
 	if (!utask)
 		return;
 
-	if (utask->active_uprobe)
-		put_uprobe(utask->active_uprobe);
+	WARN_ON_ONCE(utask->active_uprobe || utask->xol_vaddr);
 
 	ri = utask->return_instances;
 	while (ri)
 		ri = free_ret_instance(ri);
 
-	xol_free_insn_slot(t);
 	kfree(utask);
 	t->utask = NULL;
 }
@@ -1908,16 +1872,12 @@ static void cleanup_return_instances(struct uprobe_task *utask, bool chained,
 
 static void prepare_uretprobe(struct uprobe *uprobe, struct pt_regs *regs)
 {
-	struct return_instance *ri;
-	struct uprobe_task *utask;
+	struct uprobe_task *utask = current->utask;
 	unsigned long orig_ret_vaddr, trampoline_vaddr;
+	struct return_instance *ri;
 	bool chained;
 
 	if (!get_xol_area())
-		return;
-
-	utask = get_utask();
-	if (!utask)
 		return;
 
 	if (utask->depth >= MAX_URETPROBE_DEPTH) {
@@ -1980,29 +1940,21 @@ fail:
 static int
 pre_ssout(struct uprobe *uprobe, struct pt_regs *regs, unsigned long bp_vaddr)
 {
-	struct uprobe_task *utask;
-	unsigned long xol_vaddr;
+	struct uprobe_task *utask = current->utask;
 	int err;
-
-	utask = get_utask();
-	if (!utask)
-		return -ENOMEM;
 
 	if (!try_get_uprobe(uprobe))
 		return -EINVAL;
 
-	xol_vaddr = xol_get_insn_slot(uprobe);
-	if (!xol_vaddr) {
+	if (!xol_get_insn_slot(uprobe, utask)) {
 		err = -ENOMEM;
 		goto err_out;
 	}
 
-	utask->xol_vaddr = xol_vaddr;
 	utask->vaddr = bp_vaddr;
-
 	err = arch_uprobe_pre_xol(&uprobe->arch, regs);
 	if (unlikely(err)) {
-		xol_free_insn_slot(current);
+		xol_free_insn_slot(utask);
 		goto err_out;
 	}
 
@@ -2134,8 +2086,7 @@ static void handler_chain(struct uprobe *uprobe, struct pt_regs *regs)
 
 	current->utask->auprobe = &uprobe->arch;
 
-	list_for_each_entry_srcu(uc, &uprobe->consumers, cons_node,
-				 srcu_read_lock_held(&uprobes_srcu)) {
+	list_for_each_entry_rcu(uc, &uprobe->consumers, cons_node, rcu_read_lock_trace_held()) {
 		int rc = 0;
 
 		if (uc->handler) {
@@ -2173,15 +2124,13 @@ handle_uretprobe_chain(struct return_instance *ri, struct pt_regs *regs)
 {
 	struct uprobe *uprobe = ri->uprobe;
 	struct uprobe_consumer *uc;
-	int srcu_idx;
 
-	srcu_idx = srcu_read_lock(&uprobes_srcu);
-	list_for_each_entry_srcu(uc, &uprobe->consumers, cons_node,
-				 srcu_read_lock_held(&uprobes_srcu)) {
+	rcu_read_lock_trace();
+	list_for_each_entry_rcu(uc, &uprobe->consumers, cons_node, rcu_read_lock_trace_held()) {
 		if (uc->ret_handler)
 			uc->ret_handler(uc, ri->func, regs);
 	}
-	srcu_read_unlock(&uprobes_srcu, srcu_idx);
+	rcu_read_unlock_trace();
 }
 
 static struct return_instance *find_next_ret_chain(struct return_instance *ri)
@@ -2266,13 +2215,13 @@ static void handle_swbp(struct pt_regs *regs)
 {
 	struct uprobe *uprobe;
 	unsigned long bp_vaddr;
-	int is_swbp, srcu_idx;
+	int is_swbp;
 
 	bp_vaddr = uprobe_get_swbp_addr(regs);
 	if (bp_vaddr == uprobe_get_trampoline_vaddr())
 		return uprobe_handle_trampoline(regs);
 
-	srcu_idx = srcu_read_lock(&uprobes_srcu);
+	rcu_read_lock_trace();
 
 	uprobe = find_active_uprobe_rcu(bp_vaddr, &is_swbp);
 	if (!uprobe) {
@@ -2330,7 +2279,7 @@ static void handle_swbp(struct pt_regs *regs)
 
 out:
 	/* arch_uprobe_skip_sstep() succeeded, or restart if can't singlestep */
-	srcu_read_unlock(&uprobes_srcu, srcu_idx);
+	rcu_read_unlock_trace();
 }
 
 /*
@@ -2353,7 +2302,7 @@ static void handle_singlestep(struct uprobe_task *utask, struct pt_regs *regs)
 	put_uprobe(uprobe);
 	utask->active_uprobe = NULL;
 	utask->state = UTASK_RUNNING;
-	xol_free_insn_slot(current);
+	xol_free_insn_slot(utask);
 
 	spin_lock_irq(&current->sighand->siglock);
 	recalc_sigpending(); /* see uprobe_deny_signal() */

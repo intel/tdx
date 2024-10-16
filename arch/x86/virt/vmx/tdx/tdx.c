@@ -1575,6 +1575,18 @@ u64 tdh_mng_addcx(u64 tdr, u64 tdcs)
 }
 EXPORT_SYMBOL_GPL(tdh_mng_addcx);
 
+u64 tdh_vp_addcx(u64 tdvpr, u64 tdcx)
+{
+	struct tdx_module_args args = {
+		.rcx = tdcx,
+		.rdx = tdvpr,
+	};
+
+	clflush_cache_range(__va(tdcx), PAGE_SIZE);
+	return seamcall(TDH_VP_ADDCX, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_vp_addcx);
+
 u64 tdh_mng_key_config(u64 tdr)
 {
 	struct tdx_module_args args = {
@@ -1591,10 +1603,23 @@ u64 tdh_mng_create(u64 tdr, u64 hkid)
 		.rcx = tdr,
 		.rdx = hkid,
 	};
+
 	clflush_cache_range(__va(tdr), PAGE_SIZE);
 	return seamcall(TDH_MNG_CREATE, &args);
 }
 EXPORT_SYMBOL_GPL(tdh_mng_create);
+
+u64 tdh_vp_create(u64 tdr, u64 tdvpr)
+{
+	struct tdx_module_args args = {
+		.rcx = tdvpr,
+		.rdx = tdr,
+	};
+
+	clflush_cache_range(__va(tdr), PAGE_SIZE);
+	return seamcall(TDH_VP_CREATE, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_vp_create);
 
 u64 tdh_mng_key_freeid(u64 tdr)
 {
@@ -1621,3 +1646,27 @@ u64 tdh_mng_init(u64 tdr, u64 td_params, u64 *rcx)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(tdh_mng_init);
+
+u64 tdh_vp_init(u64 tdvpr, u64 initial_rcx)
+{
+	struct tdx_module_args args = {
+		.rcx = tdvpr,
+		.rdx = initial_rcx,
+	};
+
+	return seamcall(TDH_VP_INIT, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_vp_init);
+
+u64 tdh_vp_init_apicid(u64 tdvpr, u64 initial_rcx, u32 x2apicid)
+{
+	struct tdx_module_args args = {
+		.rcx = tdvpr,
+		.rdx = initial_rcx,
+		.r8 = x2apicid,
+	};
+
+	/* apicid requires version == 1. */
+	return seamcall(TDH_VP_INIT | (1ULL << TDX_VERSION_SHIFT), &args);
+}
+EXPORT_SYMBOL_GPL(tdh_vp_init_apicid);

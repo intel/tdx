@@ -124,8 +124,11 @@ int tdx_guest_keyid_alloc(void);
 void tdx_guest_keyid_free(unsigned int keyid);
 
 /* SEAMCALL wrappers for creating/destroying/running TDX guests */
+u64 tdh_mng_addcx(u64 tdr, u64 tdcs);
 u64 tdh_mng_key_config(u64 tdr);
+u64 tdh_mng_create(u64 tdr, u64 hkid);
 u64 tdh_mng_key_freeid(u64 tdr);
+u64 tdh_mng_init(u64 tdr, u64 td_params, u64 *rcx);
 #else
 static inline void tdx_init(void) { }
 static inline int tdx_cpu_enable(void) { return -ENODEV; }

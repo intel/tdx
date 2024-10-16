@@ -1621,6 +1621,23 @@ u64 tdh_vp_create(u64 tdr, u64 tdvpr)
 }
 EXPORT_SYMBOL_GPL(tdh_vp_create);
 
+u64 tdh_mng_rd(u64 tdr, u64 field, u64 *data)
+{
+	struct tdx_module_args args = {
+		.rcx = tdr,
+		.rdx = field,
+	};
+	u64 ret;
+
+	ret = seamcall_ret(TDH_MNG_RD, &args);
+
+	/* R8: Content of the field, or 0 in case of error. */
+	*data = args.r8;
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(tdh_mng_rd);
+
 u64 tdh_mng_key_freeid(u64 tdr)
 {
 	struct tdx_module_args args = {
@@ -1657,6 +1674,36 @@ u64 tdh_vp_init(u64 tdvpr, u64 initial_rcx)
 	return seamcall(TDH_VP_INIT, &args);
 }
 EXPORT_SYMBOL_GPL(tdh_vp_init);
+
+u64 tdh_vp_rd(u64 tdvpr, u64 field, u64 *data)
+{
+	struct tdx_module_args args = {
+		.rcx = tdvpr,
+		.rdx = field,
+	};
+	u64 ret;
+
+	ret = seamcall_ret(TDH_VP_RD, &args);
+
+	/* R8: Content of the field, or 0 in case of error. */
+	*data = args.r8;
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(tdh_vp_rd);
+
+u64 tdh_vp_wr(u64 tdvpr, u64 field, u64 data, u64 mask)
+{
+	struct tdx_module_args args = {
+		.rcx = tdvpr,
+		.rdx = field,
+		.r8 = data,
+		.r9 = mask,
+	};
+
+	return seamcall(TDH_VP_WR, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_vp_wr);
 
 u64 tdh_vp_init_apicid(u64 tdvpr, u64 initial_rcx, u32 x2apicid)
 {

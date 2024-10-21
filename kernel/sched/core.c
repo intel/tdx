@@ -832,7 +832,7 @@ static enum hrtimer_restart hrtick(struct hrtimer *timer)
 
 	rq_lock(rq, &rf);
 	update_rq_clock(rq);
-	rq->curr->sched_class->task_tick(rq, rq->curr, 1);
+	rq->donor->sched_class->task_tick(rq, rq->curr, 1);
 	rq_unlock(rq, &rf);
 
 	return HRTIMER_NORESTART;
@@ -2135,16 +2135,18 @@ void check_class_changed(struct rq *rq, struct task_struct *p,
 
 void wakeup_preempt(struct rq *rq, struct task_struct *p, int flags)
 {
-	if (p->sched_class == rq->curr->sched_class)
-		rq->curr->sched_class->wakeup_preempt(rq, p, flags);
-	else if (sched_class_above(p->sched_class, rq->curr->sched_class))
+	struct task_struct *donor = rq->donor;
+
+	if (p->sched_class == donor->sched_class)
+		donor->sched_class->wakeup_preempt(rq, p, flags);
+	else if (sched_class_above(p->sched_class, donor->sched_class))
 		resched_curr(rq);
 
 	/*
 	 * A queue event has occurred, and we're going to schedule.  In
 	 * this case, we can save a useless back to back clock update.
 	 */
-	if (task_on_rq_queued(rq->curr) && test_tsk_need_resched(rq->curr))
+	if (task_on_rq_queued(donor) && test_tsk_need_resched(rq->curr))
 		rq_clock_skip_update(rq);
 }
 
@@ -2620,9 +2622,7 @@ int push_cpu_stop(void *arg)
 
 	// XXX validate p is still the highest prio task
 	if (task_rq(p) == rq) {
-		deactivate_task(rq, p, 0);
-		set_task_cpu(p, lowest_rq->cpu);
-		activate_task(lowest_rq, p, 0);
+		move_queued_task_locked(rq, lowest_rq, p);
 		resched_curr(lowest_rq);
 	}
 
@@ -2682,7 +2682,7 @@ __do_set_cpus_allowed(struct task_struct *p, struct affinity_context *ctx)
 		lockdep_assert_held(&p->pi_lock);
 
 	queued = task_on_rq_queued(p);
-	running = task_current(rq, p);
+	running = task_current_donor(rq, p);
 
 	if (queued) {
 		/*
@@ -2696,6 +2696,7 @@ __do_set_cpus_allowed(struct task_struct *p, struct affinity_context *ctx)
 		put_prev_task(rq, p);
 
 	p->sched_class->set_cpus_allowed(p, ctx);
+	mm_set_cpus_allowed(p->mm, ctx->new_mask);
 
 	if (queued)
 		enqueue_task(rq, p, ENQUEUE_RESTORE | ENQUEUE_NOCLOCK);
@@ -3308,9 +3309,7 @@ static void __migrate_swap_task(struct task_struct *p, int cpu)
 		rq_pin_lock(src_rq, &srf);
 		rq_pin_lock(dst_rq, &drf);
 
-		deactivate_task(src_rq, p, 0);
-		set_task_cpu(p, cpu);
-		activate_task(dst_rq, p, 0);
+		move_queued_task_locked(src_rq, dst_rq, p);
 		wakeup_preempt(dst_rq, p, 0);
 
 		rq_unpin_lock(dst_rq, &drf);
@@ -5517,7 +5516,7 @@ unsigned long long task_sched_runtime(struct task_struct *p)
 	 * project cycles that may never be accounted to this
 	 * thread, breaking clock_gettime().
 	 */
-	if (task_current(rq, p) && task_on_rq_queued(p)) {
+	if (task_current_donor(rq, p) && task_on_rq_queued(p)) {
 		prefetch_curr_exec_start(p);
 		update_rq_clock(rq);
 		p->sched_class->update_curr(rq);
@@ -5585,7 +5584,8 @@ void sched_tick(void)
 {
 	int cpu = smp_processor_id();
 	struct rq *rq = cpu_rq(cpu);
-	struct task_struct *curr;
+	/* accounting goes to the donor task */
+	struct task_struct *donor;
 	struct rq_flags rf;
 	unsigned long hw_pressure;
 	u64 resched_latency;
@@ -5596,19 +5596,19 @@ void sched_tick(void)
 	sched_clock_tick();
 
 	rq_lock(rq, &rf);
+	donor = rq->donor;
 
-	curr = rq->curr;
-	psi_account_irqtime(rq, curr, NULL);
+	psi_account_irqtime(rq, donor, NULL);
 
 	update_rq_clock(rq);
 	hw_pressure = arch_scale_hw_pressure(cpu_of(rq));
 	update_hw_load_avg(rq_clock_task(rq), rq, hw_pressure);
-	curr->sched_class->task_tick(rq, curr, 0);
+	donor->sched_class->task_tick(rq, donor, 0);
 	if (sched_feat(LATENCY_WARN))
 		resched_latency = cpu_resched_latency(rq);
 	calc_global_load_tick(rq);
 	sched_core_tick(rq);
-	task_tick_mm_cid(rq, curr);
+	task_tick_mm_cid(rq, donor);
 	scx_tick(rq);
 
 	rq_unlock(rq, &rf);
@@ -5618,8 +5618,8 @@ void sched_tick(void)
 
 	perf_event_task_tick();
 
-	if (curr->flags & PF_WQ_WORKER)
-		wq_worker_tick(curr);
+	if (donor->flags & PF_WQ_WORKER)
+		wq_worker_tick(donor);
 
 #ifdef CONFIG_SMP
 	if (!scx_switched_all()) {
@@ -5686,6 +5686,12 @@ static void sched_tick_remote(struct work_struct *work)
 		struct task_struct *curr = rq->curr;
 
 		if (cpu_online(cpu)) {
+			/*
+			 * Since this is a remote tick for full dynticks mode,
+			 * we are always sure that there is no proxy (only a
+			 * single task is running).
+			 */
+			SCHED_WARN_ON(rq->curr != rq->donor);
 			update_rq_clock(rq);
 
 			if (!is_idle_task(curr)) {
@@ -6306,10 +6312,7 @@ static bool try_steal_cookie(int this, int that)
 		if (sched_task_is_throttled(p, this))
 			goto next;
 
-		deactivate_task(src, p, 0);
-		set_task_cpu(p, this);
-		activate_task(dst, p, 0);
-
+		move_queued_task_locked(src, dst, p);
 		resched_curr(dst);
 
 		success = true;
@@ -6504,6 +6507,45 @@ pick_next_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 #define SM_RTLOCK_WAIT		2
 
 /*
+ * Helper function for __schedule()
+ *
+ * If a task does not have signals pending, deactivate it
+ * Otherwise marks the task's __state as RUNNING
+ */
+static bool try_to_block_task(struct rq *rq, struct task_struct *p,
+			      unsigned long task_state)
+{
+	int flags = DEQUEUE_NOCLOCK;
+
+	if (signal_pending_state(task_state, p)) {
+		WRITE_ONCE(p->__state, TASK_RUNNING);
+		return false;
+	}
+
+	p->sched_contributes_to_load =
+		(task_state & TASK_UNINTERRUPTIBLE) &&
+		!(task_state & TASK_NOLOAD) &&
+		!(task_state & TASK_FROZEN);
+
+	if (unlikely(is_special_task_state(task_state)))
+		flags |= DEQUEUE_SPECIAL;
+
+	/*
+	 * __schedule()			ttwu()
+	 *   prev_state = prev->state;    if (p->on_rq && ...)
+	 *   if (prev_state)		    goto out;
+	 *     p->on_rq = 0;		  smp_acquire__after_ctrl_dep();
+	 *				  p->state = TASK_WAKING
+	 *
+	 * Where __schedule() and ttwu() have matching control dependencies.
+	 *
+	 * After this, schedule() must not care about p->state any more.
+	 */
+	block_task(rq, p, flags);
+	return true;
+}
+
+/*
  * __schedule() is the main scheduler function.
  *
  * The main means of driving the scheduler and thus entering this function are:
@@ -6611,37 +6653,12 @@ static void __sched notrace __schedule(int sched_mode)
 			goto picked;
 		}
 	} else if (!preempt && prev_state) {
-		if (signal_pending_state(prev_state, prev)) {
-			WRITE_ONCE(prev->__state, TASK_RUNNING);
-		} else {
-			int flags = DEQUEUE_NOCLOCK;
-
-			prev->sched_contributes_to_load =
-				(prev_state & TASK_UNINTERRUPTIBLE) &&
-				!(prev_state & TASK_NOLOAD) &&
-				!(prev_state & TASK_FROZEN);
-
-			if (unlikely(is_special_task_state(prev_state)))
-				flags |= DEQUEUE_SPECIAL;
-
-			/*
-			 * __schedule()			ttwu()
-			 *   prev_state = prev->state;    if (p->on_rq && ...)
-			 *   if (prev_state)		    goto out;
-			 *     p->on_rq = 0;		  smp_acquire__after_ctrl_dep();
-			 *				  p->state = TASK_WAKING
-			 *
-			 * Where __schedule() and ttwu() have matching control dependencies.
-			 *
-			 * After this, schedule() must not care about p->state any more.
-			 */
-			block_task(rq, prev, flags);
-			block = true;
-		}
+		block = try_to_block_task(rq, prev, prev_state);
 		switch_count = &prev->nvcsw;
 	}
 
 	next = pick_next_task(rq, prev, &rf);
+	rq_set_donor(rq, next);
 picked:
 	clear_tsk_need_resched(prev);
 	clear_preempt_need_resched();
@@ -7148,7 +7165,7 @@ void rt_mutex_setprio(struct task_struct *p, struct task_struct *pi_task)
 		dequeue_task(rq, p, DEQUEUE_SLEEP | DEQUEUE_DELAYED | DEQUEUE_NOCLOCK);
 
 	queued = task_on_rq_queued(p);
-	running = task_current(rq, p);
+	running = task_current_donor(rq, p);
 	if (queued)
 		dequeue_task(rq, p, queue_flag);
 	if (running)
@@ -7718,6 +7735,7 @@ void __init init_idle(struct task_struct *idle, int cpu)
 	rcu_read_unlock();
 
 	rq->idle = idle;
+	rq_set_donor(rq, idle);
 	rcu_assign_pointer(rq->curr, idle);
 	idle->on_rq = TASK_ON_RQ_QUEUED;
 #ifdef CONFIG_SMP
@@ -7807,7 +7825,7 @@ void sched_setnuma(struct task_struct *p, int nid)
 
 	rq = task_rq_lock(p, &rf);
 	queued = task_on_rq_queued(p);
-	running = task_current(rq, p);
+	running = task_current_donor(rq, p);
 
 	if (queued)
 		dequeue_task(rq, p, DEQUEUE_SAVE);
@@ -8957,7 +8975,7 @@ void sched_move_task(struct task_struct *tsk)
 
 	update_rq_clock(rq);
 
-	running = task_current(rq, tsk);
+	running = task_current_donor(rq, tsk);
 	queued = task_on_rq_queued(tsk);
 
 	if (queued)
@@ -10250,6 +10268,7 @@ int __sched_mm_cid_migrate_from_try_steal_cid(struct rq *src_rq,
 	 */
 	if (!try_cmpxchg(&src_pcpu_cid->cid, &lazy_cid, MM_CID_UNSET))
 		return -1;
+	WRITE_ONCE(src_pcpu_cid->recent_cid, MM_CID_UNSET);
 	return src_cid;
 }
 
@@ -10262,7 +10281,8 @@ void sched_mm_cid_migrate_to(struct rq *dst_rq, struct task_struct *t)
 {
 	struct mm_cid *src_pcpu_cid, *dst_pcpu_cid;
 	struct mm_struct *mm = t->mm;
-	int src_cid, dst_cid, src_cpu;
+	int src_cid, src_cpu;
+	bool dst_cid_is_set;
 	struct rq *src_rq;
 
 	lockdep_assert_rq_held(dst_rq);
@@ -10279,9 +10299,9 @@ void sched_mm_cid_migrate_to(struct rq *dst_rq, struct task_struct *t)
 	 * allocation closest to 0 in cases where few threads migrate around
 	 * many CPUs.
 	 *
-	 * If destination cid is already set, we may have to just clear
-	 * the src cid to ensure compactness in frequent migrations
-	 * scenarios.
+	 * If destination cid or recent cid is already set, we may have
+	 * to just clear the src cid to ensure compactness in frequent
+	 * migrations scenarios.
 	 *
 	 * It is not useful to clear the src cid when the number of threads is
 	 * greater or equal to the number of allowed CPUs, because user-space
@@ -10289,9 +10309,9 @@ void sched_mm_cid_migrate_to(struct rq *dst_rq, struct task_struct *t)
 	 * allowed CPUs.
 	 */
 	dst_pcpu_cid = per_cpu_ptr(mm->pcpu_cid, cpu_of(dst_rq));
-	dst_cid = READ_ONCE(dst_pcpu_cid->cid);
-	if (!mm_cid_is_unset(dst_cid) &&
-	    atomic_read(&mm->mm_users) >= t->nr_cpus_allowed)
+	dst_cid_is_set = !mm_cid_is_unset(READ_ONCE(dst_pcpu_cid->cid)) ||
+			 !mm_cid_is_unset(READ_ONCE(dst_pcpu_cid->recent_cid));
+	if (dst_cid_is_set && atomic_read(&mm->mm_users) >= READ_ONCE(mm->nr_cpus_allowed))
 		return;
 	src_pcpu_cid = per_cpu_ptr(mm->pcpu_cid, src_cpu);
 	src_rq = cpu_rq(src_cpu);
@@ -10302,13 +10322,14 @@ void sched_mm_cid_migrate_to(struct rq *dst_rq, struct task_struct *t)
 							    src_cid);
 	if (src_cid == -1)
 		return;
-	if (!mm_cid_is_unset(dst_cid)) {
+	if (dst_cid_is_set) {
 		__mm_cid_put(mm, src_cid);
 		return;
 	}
 	/* Move src_cid to dst cpu. */
 	mm_cid_snapshot_time(dst_rq, mm);
 	WRITE_ONCE(dst_pcpu_cid->cid, src_cid);
+	WRITE_ONCE(dst_pcpu_cid->recent_cid, src_cid);
 }
 
 static void sched_mm_cid_remote_clear(struct mm_struct *mm, struct mm_cid *pcpu_cid,
@@ -10547,7 +10568,7 @@ void sched_mm_cid_after_execve(struct task_struct *t)
 		 * Matches barrier in sched_mm_cid_remote_clear_old().
 		 */
 		smp_mb();
-		t->last_mm_cid = t->mm_cid = mm_cid_get(rq, mm);
+		t->last_mm_cid = t->mm_cid = mm_cid_get(rq, t, mm);
 	}
 	rseq_set_notify_resume(t);
 }

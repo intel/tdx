@@ -114,6 +114,23 @@ static struct tk_fast tk_fast_raw  ____cacheline_aligned = {
 	.base[1] = FAST_TK_INIT,
 };
 
+/*
+ * Multigrain timestamps require tracking the latest fine-grained timestamp
+ * that has been issued, and never returning a coarse-grained timestamp that is
+ * earlier than that value.
+ *
+ * mg_floor represents the latest fine-grained time that has been handed out as
+ * a file timestamp on the system. This is tracked as a monotonic ktime_t, and
+ * converted to a realtime clock value on an as-needed basis.
+ *
+ * Maintaining mg_floor ensures the multigrain interfaces never issue a
+ * timestamp earlier than one that has been previously issued.
+ *
+ * The exception to this rule is when there is a backward realtime clock jump. If
+ * such an event occurs, a timestamp can appear to be earlier than a previous one.
+ */
+static __cacheline_aligned_in_smp atomic64_t mg_floor;
+
 static inline void tk_normalize_xtime(struct timekeeper *tk)
 {
 	while (tk->tkr_mono.xtime_nsec >= ((u64)NSEC_PER_SEC << tk->tkr_mono.shift)) {
@@ -161,13 +178,15 @@ static void tk_set_wall_to_mono(struct timekeeper *tk, struct timespec64 wtm)
 	WARN_ON_ONCE(tk->offs_real != timespec64_to_ktime(tmp));
 	tk->wall_to_monotonic = wtm;
 	set_normalized_timespec64(&tmp, -wtm.tv_sec, -wtm.tv_nsec);
-	tk->offs_real = timespec64_to_ktime(tmp);
-	tk->offs_tai = ktime_add(tk->offs_real, ktime_set(tk->tai_offset, 0));
+	/* Paired with READ_ONCE() in ktime_mono_to_any() */
+	WRITE_ONCE(tk->offs_real, timespec64_to_ktime(tmp));
+	WRITE_ONCE(tk->offs_tai, ktime_add(tk->offs_real, ktime_set(tk->tai_offset, 0)));
 }
 
 static inline void tk_update_sleep_time(struct timekeeper *tk, ktime_t delta)
 {
-	tk->offs_boot = ktime_add(tk->offs_boot, delta);
+	/* Paired with READ_ONCE() in ktime_mono_to_any() */
+	WRITE_ONCE(tk->offs_boot, ktime_add(tk->offs_boot, delta));
 	/*
 	 * Timespec representation for VDSO update to avoid 64bit division
 	 * on every update.
@@ -930,6 +949,14 @@ ktime_t ktime_mono_to_any(ktime_t tmono, enum tk_offsets offs)
 	unsigned int seq;
 	ktime_t tconv;
 
+	if (IS_ENABLED(CONFIG_64BIT)) {
+		/*
+		 * Paired with WRITE_ONCE()s in tk_set_wall_to_mono() and
+		 * tk_update_sleep_time().
+		 */
+		return ktime_add(tmono, READ_ONCE(*offset));
+	}
+
 	do {
 		seq = read_seqcount_begin(&tk_core.seq);
 		tconv = ktime_add(tmono, *offset);
@@ -1060,6 +1087,7 @@ void ktime_get_snapshot(struct system_time_snapshot *systime_snapshot)
 	unsigned int seq;
 	ktime_t base_raw;
 	ktime_t base_real;
+	ktime_t base_boot;
 	u64 nsec_raw;
 	u64 nsec_real;
 	u64 now;
@@ -1074,6 +1102,8 @@ void ktime_get_snapshot(struct system_time_snapshot *systime_snapshot)
 		systime_snapshot->clock_was_set_seq = tk->clock_was_set_seq;
 		base_real = ktime_add(tk->tkr_mono.base,
 				      tk_core.timekeeper.offs_real);
+		base_boot = ktime_add(tk->tkr_mono.base,
+				      tk_core.timekeeper.offs_boot);
 		base_raw = tk->tkr_raw.base;
 		nsec_real = timekeeping_cycles_to_ns(&tk->tkr_mono, now);
 		nsec_raw  = timekeeping_cycles_to_ns(&tk->tkr_raw, now);
@@ -1081,6 +1111,7 @@ void ktime_get_snapshot(struct system_time_snapshot *systime_snapshot)
 
 	systime_snapshot->cycles = now;
 	systime_snapshot->real = ktime_add_ns(base_real, nsec_real);
+	systime_snapshot->boot = ktime_add_ns(base_boot, nsec_real);
 	systime_snapshot->raw = ktime_add_ns(base_raw, nsec_raw);
 }
 EXPORT_SYMBOL_GPL(ktime_get_snapshot);
@@ -2393,6 +2424,94 @@ void ktime_get_coarse_real_ts64(struct timespec64 *ts)
 	} while (read_seqcount_retry(&tk_core.seq, seq));
 }
 EXPORT_SYMBOL(ktime_get_coarse_real_ts64);
+
+/**
+ * ktime_get_coarse_real_ts64_mg - return latter of coarse grained time or floor
+ * @ts:		timespec64 to be filled
+ *
+ * Fetch the global mg_floor value, convert it to realtime and compare it
+ * to the current coarse-grained time. Fill @ts with whichever is
+ * latest. Note that this is a filesystem-specific interface and should be
+ * avoided outside of that context.
+ */
+void ktime_get_coarse_real_ts64_mg(struct timespec64 *ts)
+{
+	struct timekeeper *tk = &tk_core.timekeeper;
+	u64 floor = atomic64_read(&mg_floor);
+	ktime_t f_real, offset, coarse;
+	unsigned int seq;
+
+	do {
+		seq = read_seqcount_begin(&tk_core.seq);
+		*ts = tk_xtime(tk);
+		offset = tk_core.timekeeper.offs_real;
+	} while (read_seqcount_retry(&tk_core.seq, seq));
+
+	coarse = timespec64_to_ktime(*ts);
+	f_real = ktime_add(floor, offset);
+	if (ktime_after(f_real, coarse))
+		*ts = ktime_to_timespec64(f_real);
+}
+
+/**
+ * ktime_get_real_ts64_mg - attempt to update floor value and return result
+ * @ts:		pointer to the timespec to be set
+ *
+ * Get a monotonic fine-grained time value and attempt to swap it into
+ * mg_floor. If that succeeds then accept the new floor value. If it fails
+ * then another task raced in during the interim time and updated the
+ * floor.  Since any update to the floor must be later than the previous
+ * floor, either outcome is acceptable.
+ *
+ * Typically this will be called after calling ktime_get_coarse_real_ts64_mg(),
+ * and determining that the resulting coarse-grained timestamp did not effect
+ * a change in ctime. Any more recent floor value would effect a change to
+ * ctime, so there is no need to retry the atomic64_try_cmpxchg() on failure.
+ *
+ * @ts will be filled with the latest floor value, regardless of the outcome of
+ * the cmpxchg. Note that this is a filesystem specific interface and should be
+ * avoided outside of that context.
+ */
+void ktime_get_real_ts64_mg(struct timespec64 *ts)
+{
+	struct timekeeper *tk = &tk_core.timekeeper;
+	ktime_t old = atomic64_read(&mg_floor);
+	ktime_t offset, mono;
+	unsigned int seq;
+	u64 nsecs;
+
+	do {
+		seq = read_seqcount_begin(&tk_core.seq);
+
+		ts->tv_sec = tk->xtime_sec;
+		mono = tk->tkr_mono.base;
+		nsecs = timekeeping_get_ns(&tk->tkr_mono);
+		offset = tk_core.timekeeper.offs_real;
+	} while (read_seqcount_retry(&tk_core.seq, seq));
+
+	mono = ktime_add_ns(mono, nsecs);
+
+	/*
+	 * Attempt to update the floor with the new time value. As any
+	 * update must be later then the existing floor, and would effect
+	 * a change to ctime from the perspective of the current task,
+	 * accept the resulting floor value regardless of the outcome of
+	 * the swap.
+	 */
+	if (atomic64_try_cmpxchg(&mg_floor, &old, mono)) {
+		ts->tv_nsec = 0;
+		timespec64_add_ns(ts, nsecs);
+		timekeeping_inc_mg_floor_swaps();
+	} else {
+		/*
+		 * Another task changed mg_floor since "old" was fetched.
+		 * "old" has been updated with the latest value of "mg_floor".
+		 * That value is newer than the previous floor value, which
+		 * is enough to effect a change to ctime. Accept it.
+		 */
+		*ts = ktime_to_timespec64(ktime_add(old, offset));
+	}
+}
 
 void ktime_get_coarse_ts64(struct timespec64 *ts)
 {

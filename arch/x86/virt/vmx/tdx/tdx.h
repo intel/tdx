@@ -2,6 +2,9 @@
 #ifndef _X86_VIRT_TDX_H
 #define _X86_VIRT_TDX_H
 
+#include <linux/types.h>
+#include <linux/compiler_attributes.h>
+#include <linux/stddef.h>
 #include <linux/bits.h>
 
 /*

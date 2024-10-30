@@ -1,6 +1,11 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /* Adapted from arch/x86/coco/tdx/tdcall.S */
 
+/*
+ * TDCALL is supported in Binutils >= 2.36, add it for older version.
+ */
+#define tdcall		.byte 0x66,0x0f,0x01,0xcc
+
 #define TDX_HYPERCALL_r10 0 /* offsetof(struct tdx_hypercall_args, r10) */
 #define TDX_HYPERCALL_r11 8 /* offsetof(struct tdx_hypercall_args, r11) */
 #define TDX_HYPERCALL_r12 16 /* offsetof(struct tdx_hypercall_args, r12) */

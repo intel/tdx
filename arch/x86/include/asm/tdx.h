@@ -117,6 +117,9 @@ int tdx_cpu_enable(void);
 int tdx_enable(void);
 const char *tdx_dump_mce_info(struct mce *m);
 
+int tdx_guest_keyid_alloc(void);
+void tdx_guest_keyid_free(unsigned int keyid);
+
 /* SEAMCALL wrappers for creating/destroying/running TDX guests */
 u64 tdh_vp_enter(u64 tdvpr, struct tdx_module_args *args);
 u64 tdh_mng_addcx(u64 tdr, u64 tdcs);

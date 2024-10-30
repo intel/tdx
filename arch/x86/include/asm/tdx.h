@@ -129,6 +129,8 @@ u64 tdh_mng_key_config(u64 tdr);
 u64 tdh_mng_create(u64 tdr, u64 hkid);
 u64 tdh_vp_create(u64 tdr, u64 tdvpr);
 u64 tdh_mng_rd(u64 tdr, u64 field, u64 *data);
+u64 tdh_vp_flush(u64 tdvpr);
+u64 tdh_mng_vpflushdone(u64 tdr);
 u64 tdh_mng_key_freeid(u64 tdr);
 u64 tdh_mng_init(u64 tdr, u64 td_params, u64 *rcx);
 u64 tdh_vp_init(u64 tdvpr, u64 initial_rcx);

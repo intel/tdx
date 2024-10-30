@@ -1457,6 +1457,18 @@ void __init tdx_init(void)
 	check_tdx_erratum();
 }
 
+u64 tdh_mng_addcx(u64 tdr, u64 tdcs)
+{
+	struct tdx_module_args args = {
+		.rcx = tdcs,
+		.rdx = tdr,
+	};
+
+	clflush_cache_range(__va(tdcs), PAGE_SIZE);
+	return seamcall(TDH_MNG_ADDCX, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_mng_addcx);
+
 u64 tdh_mng_key_config(u64 tdr)
 {
 	struct tdx_module_args args = {
@@ -1467,6 +1479,17 @@ u64 tdh_mng_key_config(u64 tdr)
 }
 EXPORT_SYMBOL_GPL(tdh_mng_key_config);
 
+u64 tdh_mng_create(u64 tdr, u64 hkid)
+{
+	struct tdx_module_args args = {
+		.rcx = tdr,
+		.rdx = hkid,
+	};
+	clflush_cache_range(__va(tdr), PAGE_SIZE);
+	return seamcall(TDH_MNG_CREATE, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_mng_create);
+
 u64 tdh_mng_key_freeid(u64 tdr)
 {
 	struct tdx_module_args args = {
@@ -1476,3 +1499,19 @@ u64 tdh_mng_key_freeid(u64 tdr)
 	return seamcall(TDH_MNG_KEY_FREEID, &args);
 }
 EXPORT_SYMBOL_GPL(tdh_mng_key_freeid);
+
+u64 tdh_mng_init(u64 tdr, u64 td_params, u64 *rcx)
+{
+	struct tdx_module_args args = {
+		.rcx = tdr,
+		.rdx = td_params,
+	};
+	u64 ret;
+
+	ret = seamcall_ret(TDH_MNG_INIT, &args);
+
+	*rcx = args.rcx;
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(tdh_mng_init);

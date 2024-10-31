@@ -1,32 +1,18 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 #include <string.h>
+#include <linux/kvm_para.h>
 
 #include "tdx/tdcall.h"
 #include "tdx/tdx.h"
 #include "tdx/tdx_util.h"
 
-void handle_userspace_tdg_vp_vmcall_exit(struct kvm_vcpu *vcpu)
+void handle_userspace_map_gpa(struct kvm_vcpu *vcpu)
 {
-	struct kvm_vm *vm = vcpu->vm;
-	struct kvm_tdx_vmcall *vmcall_info = &vcpu->run->tdx.u.vmcall;
-	uint64_t vmcall_subfunction = vmcall_info->subfunction;
-
-	switch (vmcall_subfunction) {
-	case TDG_VP_VMCALL_MAP_GPA:
-		{
-		uint64_t gpa = vmcall_info->in_r12 & ~vm->arch.s_bit;
-		bool shared_to_private = !(vm->arch.s_bit &
-					   vmcall_info->in_r12);
-		handle_memory_conversion(vm, gpa, vmcall_info->in_r13,
-					 shared_to_private);
-		vmcall_info->status_code = 0;
-		break;
-		}
-	default:
-		TEST_FAIL("TD VMCALL subfunction %lu is unsupported.\n",
-			  vmcall_subfunction);
-	}
+	handle_memory_conversion(vcpu->vm, vcpu->run->hypercall.args[0],
+				 vcpu->run->hypercall.args[1] << 12,
+				 vcpu->run->hypercall.args[2] & KVM_MAP_GPA_RANGE_ENCRYPTED);
+	vcpu->run->hypercall.ret = 0;
 }
 
 uint64_t tdg_vp_vmcall_instruction_io(uint64_t port, uint64_t size,

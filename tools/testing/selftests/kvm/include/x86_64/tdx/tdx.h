@@ -19,7 +19,8 @@
 #define TDG_VP_VMCALL_INSTRUCTION_WRMSR 32
 #define TDG_VP_VMCALL_VE_REQUEST_MMIO 48
 
-void handle_userspace_tdg_vp_vmcall_exit(struct kvm_vcpu *vcpu);
+void handle_userspace_map_gpa(struct kvm_vcpu *vcpu);
+
 uint64_t tdg_vp_vmcall_instruction_io(uint64_t port, uint64_t size,
 				      uint64_t write, uint64_t *data);
 void tdg_vp_vmcall_report_fatal_error(uint64_t error_code, uint64_t data_gpa);

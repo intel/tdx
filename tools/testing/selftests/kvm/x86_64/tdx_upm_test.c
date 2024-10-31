@@ -153,15 +153,13 @@ void vcpu_run_and_manage_memory_conversions(struct kvm_vm *vm,
 {
 	for (;;) {
 		vcpu_run(vcpu);
-		if (vcpu->run->exit_reason == KVM_EXIT_TDX &&
-			vcpu->run->tdx.type == KVM_EXIT_TDX_VMCALL &&
-			vcpu->run->tdx.u.vmcall.subfunction == TDG_VP_VMCALL_MAP_GPA) {
-			struct kvm_tdx_vmcall *vmcall_info = &vcpu->run->tdx.u.vmcall;
-			uint64_t gpa = vmcall_info->in_r12 & ~vm->arch.s_bit;
+		if (vcpu->run->exit_reason == KVM_EXIT_HYPERCALL &&
+			vcpu->run->hypercall.nr == KVM_HC_MAP_GPA_RANGE) {
+			uint64_t gpa = vcpu->run->hypercall.args[0];
 
-			handle_memory_conversion(vm, gpa, vmcall_info->in_r13,
-				!(vm->arch.s_bit & vmcall_info->in_r12));
-			vmcall_info->status_code = 0;
+			handle_memory_conversion(vm, gpa, vcpu->run->hypercall.args[1] << 12,
+				vcpu->run->hypercall.args[2] & KVM_MAP_GPA_RANGE_ENCRYPTED);
+			vcpu->run->hypercall.ret = 0;
 			continue;
 		} else if (
 			vcpu->run->exit_reason == KVM_EXIT_IO &&
@@ -381,6 +379,8 @@ static void verify_upm_test(void)
 	td_finalize(vm);
 
 	printf("Verifying UPM functionality: explicit MapGPA\n");
+
+	vm_enable_cap(vm, KVM_CAP_EXIT_HYPERCALL, BIT_ULL(KVM_HC_MAP_GPA_RANGE));
 
 	run_selftest(vm, vcpu, test_area_base_hva);
 

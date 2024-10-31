@@ -5,27 +5,6 @@
 #include "tdx/tdcall.h"
 #include "tdx/tdx.h"
 
-void handle_userspace_tdg_vp_vmcall_exit(struct kvm_vcpu *vcpu)
-{
-	struct kvm_tdx_vmcall *vmcall_info = &vcpu->run->tdx.u.vmcall;
-	uint64_t vmcall_subfunction = vmcall_info->subfunction;
-
-	switch (vmcall_subfunction) {
-	case TDG_VP_VMCALL_REPORT_FATAL_ERROR:
-		vcpu->run->exit_reason = KVM_EXIT_SYSTEM_EVENT;
-		vcpu->run->system_event.ndata = 3;
-		vcpu->run->system_event.data[0] =
-			TDG_VP_VMCALL_REPORT_FATAL_ERROR;
-		vcpu->run->system_event.data[1] = vmcall_info->in_r12;
-		vcpu->run->system_event.data[2] = vmcall_info->in_r13;
-		vmcall_info->status_code = 0;
-		break;
-	default:
-		TEST_FAIL("TD VMCALL subfunction %lu is unsupported.\n",
-			  vmcall_subfunction);
-	}
-}
-
 uint64_t tdg_vp_vmcall_instruction_io(uint64_t port, uint64_t size,
 				      uint64_t write, uint64_t *data)
 {

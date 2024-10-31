@@ -63,10 +63,10 @@ void verify_report_fatal_error(void)
 	td_vcpu_run(vcpu);
 
 	TEST_ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_SYSTEM_EVENT);
-	TEST_ASSERT_EQ(vcpu->run->system_event.ndata, 3);
-	TEST_ASSERT_EQ(vcpu->run->system_event.data[0], TDG_VP_VMCALL_REPORT_FATAL_ERROR);
-	TEST_ASSERT_EQ(vcpu->run->system_event.data[1], 0x0BAAAAAD00000000);
-	TEST_ASSERT_EQ(vcpu->run->system_event.data[2], 0);
+	TEST_ASSERT_EQ(vcpu->run->system_event.type, KVM_SYSTEM_EVENT_TDX_FATAL);
+	TEST_ASSERT_EQ(vcpu->run->system_event.ndata, 10);
+	TEST_ASSERT_EQ(vcpu->run->system_event.data[0], 0x0BAAAAAD00000000);
+	TEST_ASSERT_EQ(vcpu->run->system_event.data[1], 0);
 
 	vcpu_run(vcpu);
 	TDX_TEST_ASSERT_SUCCESS(vcpu);

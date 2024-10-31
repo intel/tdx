@@ -669,10 +669,4 @@ void td_finalize(struct kvm_vm *vm)
 void td_vcpu_run(struct kvm_vcpu *vcpu)
 {
 	vcpu_run(vcpu);
-
-	/* Handle TD VMCALLs that require userspace handling. */
-	if (vcpu->run->exit_reason == KVM_EXIT_TDX &&
-	    vcpu->run->tdx.type == KVM_EXIT_TDX_VMCALL) {
-		handle_userspace_tdg_vp_vmcall_exit(vcpu);
-	}
 }

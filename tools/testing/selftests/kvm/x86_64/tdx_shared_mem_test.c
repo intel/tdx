@@ -94,6 +94,8 @@ int verify_shared_mem(void)
 
 	td_finalize(vm);
 
+	vm_enable_cap(vm, KVM_CAP_EXIT_HYPERCALL, BIT_ULL(KVM_HC_MAP_GPA_RANGE));
+
 	printf("Verifying shared memory accesses for TDX\n");
 
 	/* Begin guest execution; guest writes to shared memory. */

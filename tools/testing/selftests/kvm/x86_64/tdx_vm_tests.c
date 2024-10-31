@@ -422,7 +422,7 @@ void verify_guest_writes(void)
 
 	td_vcpu_run(vcpu);
 	TEST_ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_SYSTEM_EVENT);
-	TEST_ASSERT_EQ(vcpu->run->system_event.data[1], TDG_VP_VMCALL_INVALID_OPERAND);
+	TEST_ASSERT_EQ(vcpu->run->system_event.data[0], TDG_VP_VMCALL_INVALID_OPERAND);
 
 	td_vcpu_run(vcpu);
 	TDX_TEST_ASSERT_SUCCESS(vcpu);

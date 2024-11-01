@@ -11,6 +11,8 @@
 #include "tdx/td_boot.h"
 #include "processor.h"
 
+uint64_t tdx_s_bit;
+
 /*
  * TDX ioctls
  */
@@ -563,6 +565,8 @@ void td_initialize(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
 				    KVM_MEM_GUEST_MEMFD);
 
 	kvm_vm_elf_load(vm, program_invocation_name);
+	tdx_s_bit = vm->arch.s_bit;
+	sync_global_to_guest(vm, tdx_s_bit);
 
 	vm_init_descriptor_tables(vm);
 

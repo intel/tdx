@@ -2205,10 +2205,22 @@ static inline void kvm_clear_apicv_inhibit(struct kvm *kvm,
 	kvm_set_or_clear_apicv_inhibit(kvm, reason, false);
 }
 
-unsigned long __kvm_emulate_hypercall(struct kvm_vcpu *vcpu, unsigned long nr,
-				      unsigned long a0, unsigned long a1,
-				      unsigned long a2, unsigned long a3,
-				      int op_64_bit, int cpl);
+void kvm_complete_hypercall_exit(struct kvm_vcpu *vcpu, int ret_reg,
+				 unsigned long ret, bool op_64_bit);
+
+int ____kvm_emulate_hypercall(struct kvm_vcpu *vcpu, unsigned long nr,
+			      unsigned long a0, unsigned long a1,
+			      unsigned long a2, unsigned long a3,
+			      int op_64_bit, int cpl, int ret_reg,
+			      int (*cui)(struct kvm_vcpu *vcpu));
+
+#define __kvm_emulate_hypercall(_vcpu, nr, a0, a1, a2, a3, op_64_bit, cpl, ret, cui)		\
+	____kvm_emulate_hypercall(vcpu,								\
+				  kvm_##nr##_read(vcpu), kvm_##a0##_read(vcpu),			\
+				  kvm_##a1##_read(vcpu), kvm_##a2##_read(vcpu),			\
+				  kvm_##a3##_read(vcpu), op_64_bit, cpl, VCPU_REGS_##ret,	\
+				  cui)
+
 int kvm_emulate_hypercall(struct kvm_vcpu *vcpu);
 
 int kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 error_code,

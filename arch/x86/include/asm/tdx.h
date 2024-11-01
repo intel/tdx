@@ -124,8 +124,10 @@ void tdx_guest_keyid_free(unsigned int keyid);
 
 /* SEAMCALL wrappers for creating/destroying/running TDX guests */
 u64 tdh_mng_addcx(u64 tdr, u64 tdcs);
+u64 tdh_mem_page_add(u64 tdr, u64 gpa, u64 hpa, u64 source, u64 *rcx, u64 *rdx);
 u64 tdh_mem_sept_add(u64 tdr, u64 gpa, u64 level, u64 hpa, u64 *rcx, u64 *rdx);
 u64 tdh_vp_addcx(u64 tdvpr, u64 tdcx);
+u64 tdh_mem_page_aug(u64 tdr, u64 gpa, u64 hpa, u64 *rcx, u64 *rdx);
 u64 tdh_mng_key_config(u64 tdr);
 u64 tdh_mng_create(u64 tdr, u64 hkid);
 u64 tdh_vp_create(u64 tdr, u64 tdvpr);

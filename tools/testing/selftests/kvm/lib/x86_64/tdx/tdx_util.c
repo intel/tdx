@@ -42,6 +42,23 @@ static void tdx_ioctl(int fd, int ioctl_no, uint32_t flags, void *data)
 		    errno);
 }
 
+static struct kvm_cpuid_entry2 *tdx_find_cpuid_config(struct kvm_tdx_capabilities *cap,
+							  uint32_t leaf, uint32_t sub_leaf)
+{
+	struct kvm_cpuid_entry2 *config;
+	uint32_t i;
+
+	for (i = 0; i < cap->cpuid.nent; i++) {
+		config = &cap->cpuid.entries[i];
+
+		if (config->function == leaf && config->index == sub_leaf) {
+			return config;
+		}
+	}
+
+	return NULL;
+}
+
 #define XFEATURE_MASK_CET (XFEATURE_MASK_CET_USER | XFEATURE_MASK_CET_KERNEL)
 
 static void tdx_apply_cpuid_restrictions(struct kvm_cpuid2 *cpuid_data)
@@ -129,6 +146,42 @@ static void tdx_mask_cpuid_features(struct kvm_cpuid2 *cpuid_data)
 		__tdx_mask_cpuid_features(&cpuid_data->entries[i]);
 }
 
+void tdx_filter_cpuid(struct kvm_vm *vm, struct kvm_cpuid2 *cpuid_data)
+{
+	int i;
+	struct kvm_cpuid_entry2 *e;
+	struct kvm_tdx_capabilities *tdx_cap;
+	struct kvm_cpuid_entry2 *config;
+
+	tdx_cap = tdx_read_capabilities(vm);
+
+	i = 0;
+	while (i < cpuid_data->nent) {
+		e = cpuid_data->entries + i;
+		config = tdx_find_cpuid_config(tdx_cap, e->function, e->index);
+
+		if (!config) {
+			int left = cpuid_data->nent - i - 1;
+
+			if (left > 0)
+				memmove(cpuid_data->entries + i,
+				       cpuid_data->entries + i + 1,
+				       sizeof(*cpuid_data->entries) * left);
+			cpuid_data->nent--;
+			continue;
+		}
+
+		e->eax &= config->eax;
+		e->ebx &= config->ebx;
+		e->ecx &= config->ecx;
+		e->edx &= config->edx;
+
+		i++;
+	}
+
+	free(tdx_cap);
+}
+
 static void __tdx_adjust_cpuid(struct kvm_cpuid_entry2 *entry)
 {
 	switch (entry->function) {
@@ -178,6 +231,7 @@ static void tdx_td_init(struct kvm_vm *vm, uint64_t attributes)
 	init_vm->attributes = attributes;
 
 	tdx_apply_cpuid_restrictions(&init_vm->cpuid);
+	tdx_filter_cpuid(vm, &init_vm->cpuid);
 
 	tdx_ioctl(vm->fd, KVM_TDX_INIT_VM, 0, init_vm);
 }

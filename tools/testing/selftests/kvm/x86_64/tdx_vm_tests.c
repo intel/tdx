@@ -1273,7 +1273,7 @@ void verify_tdcall_vp_info(void)
 		TEST_ASSERT_EQ(rcx >> 6, 0);
 		TEST_ASSERT_EQ(rdx, attributes);
 		TEST_ASSERT_EQ(ret_num_vcpus, num_vcpus);
-		TEST_ASSERT_EQ(ret_max_vcpus, 512);
+		TEST_ASSERT_EQ(ret_max_vcpus, vm_check_cap(vm, KVM_CAP_MAX_VCPUS));
 		/* VCPU_INDEX = i */
 		TEST_ASSERT_EQ(r9, i);
 		/*

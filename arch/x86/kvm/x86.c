@@ -10006,21 +10006,29 @@ no_yield:
 	return;
 }
 
+void kvm_complete_hypercall_exit(struct kvm_vcpu *vcpu, int ret_reg,
+				 unsigned long ret, bool op_64_bit)
+{
+	if (!op_64_bit)
+		ret = (u32)ret;
+	kvm_register_write_raw(vcpu, ret_reg, ret);
+	++vcpu->stat.hypercalls;
+}
+EXPORT_SYMBOL_GPL(kvm_complete_hypercall_exit);
+
 static int complete_hypercall_exit(struct kvm_vcpu *vcpu)
 {
-	u64 ret = vcpu->run->hypercall.ret;
+	kvm_complete_hypercall_exit(vcpu, VCPU_REGS_RAX,
+		vcpu->run->hypercall.ret, is_64_bit_mode(vcpu));
 
-	if (!is_64_bit_mode(vcpu))
-		ret = (u32)ret;
-	kvm_rax_write(vcpu, ret);
-	++vcpu->stat.hypercalls;
 	return kvm_skip_emulated_instruction(vcpu);
 }
 
-unsigned long __kvm_emulate_hypercall(struct kvm_vcpu *vcpu, unsigned long nr,
-				      unsigned long a0, unsigned long a1,
-				      unsigned long a2, unsigned long a3,
-				      int op_64_bit, int cpl)
+int ____kvm_emulate_hypercall(struct kvm_vcpu *vcpu, unsigned long nr,
+			      unsigned long a0, unsigned long a1,
+			      unsigned long a2, unsigned long a3,
+			      int op_64_bit, int cpl, int ret_reg,
+			      int (*cui)(struct kvm_vcpu *vcpu))
 {
 	unsigned long ret;
 
@@ -10104,16 +10112,15 @@ unsigned long __kvm_emulate_hypercall(struct kvm_vcpu *vcpu, unsigned long nr,
 	}
 
 out:
-	++vcpu->stat.hypercalls;
-	return ret;
+	kvm_complete_hypercall_exit(vcpu, ret_reg, ret, op_64_bit);
+
+	return 1;
 }
-EXPORT_SYMBOL_GPL(__kvm_emulate_hypercall);
+EXPORT_SYMBOL_GPL(____kvm_emulate_hypercall);
 
 int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 {
-	unsigned long nr, a0, a1, a2, a3, ret;
-	int op_64_bit;
-	int cpl;
+	int r;
 
 	if (kvm_xen_hypercall_enabled(vcpu->kvm))
 		return kvm_xen_hypercall(vcpu);
@@ -10121,22 +10128,12 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 	if (kvm_hv_hypercall_enabled(vcpu))
 		return kvm_hv_hypercall(vcpu);
 
-	nr = kvm_rax_read(vcpu);
-	a0 = kvm_rbx_read(vcpu);
-	a1 = kvm_rcx_read(vcpu);
-	a2 = kvm_rdx_read(vcpu);
-	a3 = kvm_rsi_read(vcpu);
-	op_64_bit = is_64_bit_hypercall(vcpu);
-	cpl = kvm_x86_call(get_cpl)(vcpu);
-
-	ret = __kvm_emulate_hypercall(vcpu, nr, a0, a1, a2, a3, op_64_bit, cpl);
-	if (nr == KVM_HC_MAP_GPA_RANGE && !ret)
-		/* MAP_GPA tosses the request to the user space. */
+	r = __kvm_emulate_hypercall(vcpu, rax, rbx, rcx, rdx, rsi,
+				    is_64_bit_hypercall(vcpu),
+				    kvm_x86_call(get_cpl)(vcpu), RAX,
+				    complete_hypercall_exit);
+	if (r <= 0)
 		return 0;
-
-	if (!op_64_bit)
-		ret = (u32)ret;
-	kvm_rax_write(vcpu, ret);
 
 	return kvm_skip_emulated_instruction(vcpu);
 }

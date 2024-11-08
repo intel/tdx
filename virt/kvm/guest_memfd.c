@@ -107,9 +107,18 @@ static int __kvm_gmem_prepare_folio(struct kvm *kvm, struct kvm_memory_slot *slo
 	return 0;
 }
 
-static inline void kvm_gmem_mark_prepared(struct folio *folio)
+static void kvm_gmem_mark_prepared(struct file *file, pgoff_t index, struct folio *folio)
 {
 	folio_mark_uptodate(folio);
+}
+
+static void kvm_gmem_mark_range_unprepared(struct inode *inode, pgoff_t index, pgoff_t npages)
+{
+}
+
+static bool kvm_gmem_is_prepared(struct file *file, pgoff_t index, struct folio *folio)
+{
+	return folio_test_uptodate(folio);
 }
 
 /*
@@ -118,7 +127,8 @@ static inline void kvm_gmem_mark_prepared(struct folio *folio)
  * On successful return the guest sees a zero page so as to avoid
  * leaking host data and the up-to-date flag is set.
  */
-static int kvm_gmem_prepare_folio(struct kvm *kvm, struct kvm_memory_slot *slot,
+static int kvm_gmem_prepare_folio(struct kvm *kvm, struct file *file,
+				  struct kvm_memory_slot *slot,
 				  gfn_t gfn, struct folio *folio)
 {
 	unsigned long nr_pages, i;
@@ -147,7 +157,7 @@ static int kvm_gmem_prepare_folio(struct kvm *kvm, struct kvm_memory_slot *slot,
 	index = ALIGN_DOWN(index, 1 << folio_order(folio));
 	r = __kvm_gmem_prepare_folio(kvm, slot, index, folio);
 	if (!r)
-		kvm_gmem_mark_prepared(folio);
+		kvm_gmem_mark_prepared(file, index, folio);
 
 	return r;
 }
@@ -231,6 +241,7 @@ static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 		kvm_gmem_invalidate_begin(gmem, start, end);
 
 	truncate_inode_pages_range(inode->i_mapping, offset, offset + len - 1);
+	kvm_gmem_mark_range_unprepared(inode, start, end - start);
 
 	list_for_each_entry(gmem, gmem_list, entry)
 		kvm_gmem_invalidate_end(gmem, start, end);
@@ -686,7 +697,7 @@ static struct folio *__kvm_gmem_get_pfn(struct file *file,
 	if (max_order)
 		*max_order = 0;
 
-	*is_prepared = folio_test_uptodate(folio);
+	*is_prepared = kvm_gmem_is_prepared(file, index, folio);
 	return folio;
 }
 
@@ -710,7 +721,7 @@ int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
 	}
 
 	if (!is_prepared)
-		r = kvm_gmem_prepare_folio(kvm, slot, gfn, folio);
+		r = kvm_gmem_prepare_folio(kvm, file, slot, gfn, folio);
 
 	folio_unlock(folio);
 
@@ -791,8 +802,10 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long 
 
 		p = src ? src + i * PAGE_SIZE : NULL;
 		ret = post_populate(kvm, gfn, pfn, p, max_order, opaque);
-		if (!ret)
-			kvm_gmem_mark_prepared(folio);
+		if (!ret) {
+			pgoff_t index = gfn - slot->base_gfn + slot->gmem.pgoff;
+			kvm_gmem_mark_prepared(file, index, folio);
+		}
 
 put_folio_and_exit:
 		folio_put(folio);

@@ -4,8 +4,73 @@
 #include <linux/kvm_host.h>
 #include <linux/pagemap.h>
 #include <linux/anon_inodes.h>
+#include <linux/pseudo_fs.h>
 
 #include "kvm_mm.h"
+
+/* Do all the filesystem crap just for evict_inode... */
+
+static struct vfsmount *kvm_gmem_mnt __read_mostly;
+
+static void gmem_evict_inode(struct inode *inode)
+{
+	kvfree(inode->i_private);
+	truncate_inode_pages_final(&inode->i_data);
+	clear_inode(inode);
+}
+
+static const struct super_operations gmem_super_operations = {
+	.drop_inode	= generic_delete_inode,
+	.evict_inode    = gmem_evict_inode,
+	.statfs         = simple_statfs,
+};
+
+static int gmem_init_fs_context(struct fs_context *fc)
+{
+	struct pseudo_fs_context *ctx = init_pseudo(fc, KVM_GUEST_MEM_MAGIC);
+	if (!ctx)
+		return -ENOMEM;
+
+	ctx->ops = &gmem_super_operations;
+	return 0;
+}
+
+static struct file_system_type kvm_gmem_fs_type = {
+	.name           = "kvm_gmemfs",
+	.init_fs_context = gmem_init_fs_context,
+	.kill_sb        = kill_anon_super,
+};
+
+static struct file *kvm_gmem_create_file(const char *name, const struct file_operations *fops)
+{
+	struct inode *inode;
+	struct file *file;
+
+	if (fops->owner && !try_module_get(fops->owner))
+		return ERR_PTR(-ENOENT);
+
+	inode = alloc_anon_inode(kvm_gmem_mnt->mnt_sb);
+	if (IS_ERR(inode)) {
+		file = ERR_CAST(inode);
+		goto err;
+	}
+	file = alloc_file_pseudo(inode, kvm_gmem_mnt, name, O_RDWR, fops);
+	if (IS_ERR(file))
+		goto err_iput;
+
+	return file;
+
+err_iput:
+	iput(inode);
+err:
+	module_put(fops->owner);
+	return file;
+}
+
+
+struct kvm_gmem_inode {
+	unsigned long flags;
+};
 
 struct kvm_gmem {
 	struct kvm *kvm;
@@ -313,9 +378,31 @@ static struct file_operations kvm_gmem_fops = {
 	.fallocate	= kvm_gmem_fallocate,
 };
 
-void kvm_gmem_init(struct module *module)
+int kvm_gmem_init(struct module *module)
 {
+	int ret;
+
+	ret = register_filesystem(&kvm_gmem_fs_type);
+	if (ret) {
+		pr_err("kvm-gmem: cannot register file system (%d)\n", ret);
+		return ret;
+	}
+
+	kvm_gmem_mnt = kern_mount(&kvm_gmem_fs_type);
+	if (IS_ERR(kvm_gmem_mnt)) {
+		pr_err("kvm-gmem: kernel mount failed (%ld)\n", PTR_ERR(kvm_gmem_mnt));
+		return PTR_ERR(kvm_gmem_mnt);
+	}
+
 	kvm_gmem_fops.owner = module;
+
+	return 0;
+}
+
+void kvm_gmem_exit(void)
+{
+	kern_unmount(kvm_gmem_mnt);
+	unregister_filesystem(&kvm_gmem_fs_type);
 }
 
 static int kvm_gmem_migrate_folio(struct address_space *mapping,
@@ -399,15 +486,23 @@ static const struct inode_operations kvm_gmem_iops = {
 
 static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
 {
-	const char *anon_name = "[kvm-gmem]";
+	const char *gmem_name = "[kvm-gmem]";
+	struct kvm_gmem_inode *i_gmem;
 	struct kvm_gmem *gmem;
 	struct inode *inode;
 	struct file *file;
 	int fd, err;
 
+	i_gmem = kvzalloc(sizeof(struct kvm_gmem_inode), GFP_KERNEL);
+	if (!i_gmem)
+		return -ENOMEM;
+	i_gmem->flags = flags;
+
 	fd = get_unused_fd_flags(0);
-	if (fd < 0)
-		return fd;
+	if (fd < 0) {
+		err = fd;
+		goto err_i_gmem;
+	}
 
 	gmem = kzalloc(sizeof(*gmem), GFP_KERNEL);
 	if (!gmem) {
@@ -415,19 +510,19 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
 		goto err_fd;
 	}
 
-	file = anon_inode_create_getfile(anon_name, &kvm_gmem_fops, gmem,
-					 O_RDWR, NULL);
+	file = kvm_gmem_create_file(gmem_name, &kvm_gmem_fops);
 	if (IS_ERR(file)) {
 		err = PTR_ERR(file);
 		goto err_gmem;
 	}
 
+	inode = file->f_inode;
+
+	file->f_mapping = inode->i_mapping;
+	file->private_data = gmem;
 	file->f_flags |= O_LARGEFILE;
 
-	inode = file->f_inode;
-	WARN_ON(file->f_mapping != inode->i_mapping);
-
-	inode->i_private = (void *)(unsigned long)flags;
+	inode->i_private = i_gmem;
 	inode->i_op = &kvm_gmem_iops;
 	inode->i_mapping->a_ops = &kvm_gmem_aops;
 	inode->i_mode |= S_IFREG;
@@ -449,6 +544,8 @@ err_gmem:
 	kfree(gmem);
 err_fd:
 	put_unused_fd(fd);
+err_i_gmem:
+	kvfree(i_gmem);
 	return err;
 }
 

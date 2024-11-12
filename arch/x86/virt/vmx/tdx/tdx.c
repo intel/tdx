@@ -1491,16 +1491,38 @@ u64 tdh_mng_addcx(struct tdx_td *td, struct page *tdcs_page)
 }
 EXPORT_SYMBOL_GPL(tdh_mng_addcx);
 
-u64 tdh_mem_sept_add(struct tdx_td *td, u64 gpa, int level, struct page *page, u64 *ext_err1, u64 *ext_err2)
+u64 tdh_mem_page_add(struct tdx_td *td, u64 gpa, struct page *page, struct page *source, u64 *ext_err1, u64 *ext_err2)
 {
+	u64 hpa = page_to_pfn(page) << PAGE_SHIFT;
 	struct tdx_module_args args = {
-		.rcx = gpa | level,
+		.rcx = gpa,
 		.rdx = tdx_tdr_pa(td),
-		.r8 = page_to_pfn(page) << PAGE_SHIFT,
+		.r8 = hpa,
+		.r9 = page_to_pfn(source) << PAGE_SHIFT,
 	};
 	u64 ret;
 
-	clflush_cache_range(page_to_virt(page), PAGE_SIZE);
+	clflush_cache_range(__va(hpa), PAGE_SIZE);
+	ret = seamcall_ret(TDH_MEM_PAGE_ADD, &args);
+
+	*ext_err1 = args.rcx;
+	*ext_err2 = args.rdx;
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(tdh_mem_page_add);
+
+u64 tdh_mem_sept_add(struct tdx_td *td, u64 gpa, int level, struct page *page, u64 *ext_err1, u64 *ext_err2)
+{
+	u64 hpa = page_to_pfn(page) << PAGE_SHIFT;
+	struct tdx_module_args args = {
+		.rcx = gpa | level,
+		.rdx = tdx_tdr_pa(td),
+		.r8 = hpa,
+	};
+	u64 ret;
+
+	clflush_cache_range(__va(hpa), PAGE_SIZE);
 	ret = seamcall_ret(TDH_MEM_SEPT_ADD, &args);
 
 	*ext_err1 = args.rcx;
@@ -1521,6 +1543,26 @@ u64 tdh_vp_addcx(struct tdx_vp *vp, struct page *tdcx_page)
 	return seamcall(TDH_VP_ADDCX, &args);
 }
 EXPORT_SYMBOL_GPL(tdh_vp_addcx);
+
+u64 tdh_mem_page_aug(struct tdx_td *td, u64 gpa, int level, struct page *page, u64 *ext_err1, u64 *ext_err2)
+{
+	u64 hpa = page_to_pfn(page) << PAGE_SHIFT;
+	struct tdx_module_args args = {
+		.rcx = gpa | level,
+		.rdx = tdx_tdr_pa(td),
+		.r8 = hpa,
+	};
+	u64 ret;
+
+	clflush_cache_range(__va(hpa), PAGE_SIZE);
+	ret = seamcall_ret(TDH_MEM_PAGE_AUG, &args);
+
+	*ext_err1 = args.rcx;
+	*ext_err2 = args.rdx;
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(tdh_mem_page_aug);
 
 u64 tdh_mng_key_config(struct tdx_td *td)
 {

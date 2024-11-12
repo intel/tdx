@@ -30,6 +30,9 @@ struct kvm_tdx {
 	u64 tsc_offset;
 
 	struct tdx_td td;
+
+	/* For KVM_TDX_INIT_MEM_REGION. */
+	atomic64_t nr_premapped;
 };
 
 /* TDX module vCPU states */
@@ -42,6 +45,8 @@ struct vcpu_tdx {
 	struct kvm_vcpu	vcpu;
 
 	struct tdx_vp vp;
+
+	struct list_head cpu_list;
 
 	enum vcpu_tdx_state state;
 };

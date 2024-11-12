@@ -1474,6 +1474,43 @@ void tdx_guest_keyid_free(unsigned int keyid)
 }
 EXPORT_SYMBOL_GPL(tdx_guest_keyid_free);
 
+/*
+ * TDX module acquires its internal lock for resources.  It doesn't spin to get
+ * locks because of its restrictions of allowed execution time.  Instead, it
+ * returns TDX_OPERAND_BUSY with an operand id.
+ *
+ * Multiple VCPUs can operate on SEPT.  Also with zero-step attack mitigation,
+ * TDH.VP.ENTER may rarely acquire SEPT lock and release it when zero-step
+ * attack is suspected.  It results in TDX_OPERAND_BUSY | TDX_OPERAND_ID_SEPT
+ * with TDH.MEM.* operation.  Note: TDH.MEM.TRACK is an exception.
+ *
+ * Because TDP MMU uses read lock for scalability, spin lock around SEAMCALL
+ * spoils TDP MMU effort.  Retry several times with the assumption that SEPT
+ * lock contention is rare.  But don't loop forever to avoid lockup.  Let TDP
+ * MMU retry.
+ */
+#define TDX_OPERAND_BUSY			0x8000020000000000ULL
+#define TDX_OPERAND_ID_SEPT			0x92
+
+#define TDX_ERROR_SEPT_BUSY    (TDX_OPERAND_BUSY | TDX_OPERAND_ID_SEPT)
+
+static inline u64 tdx_seamcall_sept(u64 op, struct tdx_module_args *in)
+{
+#define SEAMCALL_RETRY_MAX     16
+	struct tdx_module_args args_in;
+	int retry = SEAMCALL_RETRY_MAX;
+	u64 ret;
+
+	do {
+		args_in = *in;
+		ret = seamcall_ret(op, in);
+	} while (ret == TDX_ERROR_SEPT_BUSY && retry-- > 0);
+
+	*in = args_in;
+
+	return ret;
+}
+
 u64 tdh_vp_enter(u64 tdvpr, struct tdx_module_args *args)
 {
 	args->rcx = tdvpr;
@@ -1505,7 +1542,7 @@ u64 tdh_mem_page_add(u64 tdr, u64 gpa, u64 hpa, u64 source, u64 *rcx, u64 *rdx)
 	u64 ret;
 
 	clflush_cache_range(__va(hpa), PAGE_SIZE);
-	ret = seamcall_ret(TDH_MEM_PAGE_ADD, &args);
+	ret = tdx_seamcall_sept(TDH_MEM_PAGE_ADD, &args);
 
 	*rcx = args.rcx;
 	*rdx = args.rdx;
@@ -1524,7 +1561,7 @@ u64 tdh_mem_sept_add(u64 tdr, u64 gpa, u64 level, u64 hpa, u64 *rcx, u64 *rdx)
 	u64 ret;
 
 	clflush_cache_range(__va(hpa), PAGE_SIZE);
-	ret = seamcall_ret(TDH_MEM_SEPT_ADD, &args);
+	ret = tdx_seamcall_sept(TDH_MEM_SEPT_ADD, &args);
 
 	*rcx = args.rcx;
 	*rdx = args.rdx;
@@ -1555,7 +1592,7 @@ u64 tdh_mem_page_aug(u64 tdr, u64 gpa, u64 hpa, u64 *rcx, u64 *rdx)
 	u64 ret;
 
 	clflush_cache_range(__va(hpa), PAGE_SIZE);
-	ret = seamcall_ret(TDH_MEM_PAGE_AUG, &args);
+	ret = tdx_seamcall_sept(TDH_MEM_PAGE_AUG, &args);
 
 	*rcx = args.rcx;
 	*rdx = args.rdx;
@@ -1572,7 +1609,7 @@ u64 tdh_mem_range_block(u64 tdr, u64 gpa, u64 level, u64 *rcx, u64 *rdx)
 	};
 	u64 ret;
 
-	ret = seamcall_ret(TDH_MEM_RANGE_BLOCK, &args);
+	ret = tdx_seamcall_sept(TDH_MEM_RANGE_BLOCK, &args);
 
 	*rcx = args.rcx;
 	*rdx = args.rdx;
@@ -1801,7 +1838,7 @@ u64 tdh_mem_page_remove(u64 tdr, u64 gpa, u64 level, u64 *rcx, u64 *rdx)
 	};
 	u64 ret;
 
-	ret = seamcall_ret(TDH_MEM_PAGE_REMOVE, &args);
+	ret = tdx_seamcall_sept(TDH_MEM_PAGE_REMOVE, &args);
 
 	*rcx = args.rcx;
 	*rdx = args.rdx;

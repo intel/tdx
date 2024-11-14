@@ -34,6 +34,7 @@
 
 #include <uapi/asm/mce.h>
 #include "tdx_global_metadata.h"
+#include <linux/kvm_types.h>
 
 /*
  * Used by the #VE exception handler to gather the #VE exception
@@ -121,6 +122,14 @@ const struct tdx_sys_info *tdx_get_sysinfo(void);
 
 int tdx_guest_keyid_alloc(void);
 void tdx_guest_keyid_free(unsigned int keyid);
+
+struct tdx_td {
+	hpa_t tdr;
+	hpa_t *tdcs;
+};
+
+u64 tdh_mng_key_config(struct tdx_td *td);
+u64 tdh_mng_key_freeid(struct tdx_td *td);
 #else
 static inline void tdx_init(void) { }
 static inline int tdx_cpu_enable(void) { return -ENODEV; }

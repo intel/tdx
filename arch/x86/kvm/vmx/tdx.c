@@ -402,7 +402,7 @@ static void tdx_flush_vp(void *_arg)
 		 * vp flush function is called when destructing vCPU/TD or vCPU
 		 * migration.  No other thread uses TDVPR in those cases.
 		 */
-		err = tdh_vp_flush(to_tdx(vcpu)->tdvpr_pa);
+		err = tdh_vp_flush(&to_tdx(vcpu)->vp);
 		if (unlikely(err && err != TDX_VCPU_NOT_ASSOCIATED)) {
 			/*
 			 * This function is called in IPI context. Do not use
@@ -513,7 +513,7 @@ void tdx_mmu_release_hkid(struct kvm *kvm)
 	 * After the above flushing vps, there should be no more vCPU
 	 * associations, as all vCPU fds have been released at this stage.
 	 */
-	err = tdh_mng_vpflushdone(kvm_tdx->tdr_pa);
+	err = tdh_mng_vpflushdone(&kvm_tdx->td);
 	if (err == TDX_FLUSHVP_NOT_DONE)
 		goto out;
 	if (KVM_BUG_ON(err, kvm)) {
@@ -539,7 +539,7 @@ void tdx_mmu_release_hkid(struct kvm *kvm)
 	 * In the case of error in smp_func_do_phymem_cache_wb(), the following
 	 * tdh_mng_key_freeid() will fail.
 	 */
-	err = tdh_mng_key_freeid(kvm_tdx->tdr_pa);
+	err = tdh_mng_key_freeid(&kvm_tdx->td);
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_MNG_KEY_FREEID, err);
 		pr_err("tdh_mng_key_freeid() failed. HKID %d is leaked.\n",
@@ -569,21 +569,21 @@ static void tdx_reclaim_td_control_pages(struct kvm *kvm)
 	if (is_hkid_assigned(kvm_tdx))
 		return;
 
-	if (kvm_tdx->tdcs_pa) {
+	if (kvm_tdx->td.tdcs) {
 		for (i = 0; i < kvm_tdx->nr_tdcs_pages; i++) {
-			if (!kvm_tdx->tdcs_pa[i])
+			if (!kvm_tdx->td.tdcs[i])
 				continue;
 
-			tdx_reclaim_control_page(kvm_tdx->tdcs_pa[i]);
+			tdx_reclaim_control_page(kvm_tdx->td.tdcs[i]);
 		}
-		kfree(kvm_tdx->tdcs_pa);
-		kvm_tdx->tdcs_pa = NULL;
+		kfree(kvm_tdx->td.tdcs);
+		kvm_tdx->td.tdcs = NULL;
 	}
 
-	if (!kvm_tdx->tdr_pa)
+	if (!kvm_tdx->td.tdcs)
 		return;
 
-	if (__tdx_reclaim_page(kvm_tdx->tdr_pa))
+	if (__tdx_reclaim_page(kvm_tdx->td.tdr))
 		return;
 
 	/*
@@ -591,15 +591,15 @@ static void tdx_reclaim_td_control_pages(struct kvm *kvm)
 	 * KeyID. TDX module may access TDR while operating on TD (Especially
 	 * when it is reclaiming TDCS).
 	 */
-	err = tdh_phymem_page_wbinvd_tdr(kvm_tdx->tdr_pa);
+	err = tdh_phymem_page_wbinvd_tdr(&kvm_tdx->td);
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err);
 		return;
 	}
-	tdx_clear_page(kvm_tdx->tdr_pa);
+	tdx_clear_page(kvm_tdx->td.tdr);
 
-	free_page((unsigned long)__va(kvm_tdx->tdr_pa));
-	kvm_tdx->tdr_pa = 0;
+	free_page((unsigned long)__va(kvm_tdx->td.tdcs));
+	kvm_tdx->td.tdcs = 0;
 }
 
 void tdx_vm_free(struct kvm *kvm)
@@ -617,7 +617,7 @@ static int tdx_do_tdh_mng_key_config(void *param)
 	u64 err;
 
 	/* TDX_RND_NO_ENTROPY related retries are handled by sc_retry() */
-	err = tdh_mng_key_config(kvm_tdx->tdr_pa);
+	err = tdh_mng_key_config(&kvm_tdx->td);
 
 	if (KVM_BUG_ON(err, &kvm_tdx->kvm)) {
 		pr_tdx_error(TDH_MNG_KEY_CONFIG, err);
@@ -817,17 +817,17 @@ void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 	if (is_hkid_assigned(kvm_tdx))
 		return;
 
-	if (tdx->tdcx_pa) {
+	if (tdx->vp.tdcx) {
 		for (i = 0; i < kvm_tdx->nr_vcpu_tdcx_pages; i++) {
-			if (tdx->tdcx_pa[i])
-				tdx_reclaim_control_page(tdx->tdcx_pa[i]);
+			if (tdx->vp.tdcx[i])
+				tdx_reclaim_control_page(tdx->vp.tdcx[i]);
 		}
-		kfree(tdx->tdcx_pa);
-		tdx->tdcx_pa = NULL;
+		kfree(tdx->vp.tdcx);
+		tdx->vp.tdcx = NULL;
 	}
-	if (tdx->tdvpr_pa) {
-		tdx_reclaim_control_page(tdx->tdvpr_pa);
-		tdx->tdvpr_pa = 0;
+	if (tdx->vp.tdvpr) {
+		tdx_reclaim_control_page(tdx->vp.tdvpr);
+		tdx->vp.tdvpr = 0;
 	}
 
 	tdx->state = VCPU_TD_STATE_UNINITIALIZED;
@@ -910,7 +910,7 @@ static void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu)
 	 *   which means TDG.VP.VMCALL.
 	 */
 	args = (struct tdx_module_args) {
-		.rcx = tdx->tdvpr_pa,
+		.rcx = tdx->vp.tdvpr,
 #define REG(reg, REG)	.reg = vcpu->arch.regs[VCPU_REGS_ ## REG]
 		REG(rdx, RDX),
 		REG(r8,  R8),
@@ -927,7 +927,7 @@ static void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu)
 #undef REG
 	};
 
-	tdx->vp_enter_ret = tdh_vp_enter(tdx->tdvpr_pa, &args);
+	tdx->vp_enter_ret = tdh_vp_enter(tdx->vp.tdvpr, &args);
 
 #define REG(reg, REG)	vcpu->arch.regs[VCPU_REGS_ ## REG] = args.reg
 	REG(rcx, RCX);
@@ -1562,7 +1562,7 @@ static int tdx_mem_page_aug(struct kvm *kvm, gfn_t gfn,
 	u64 entry, level_state;
 	u64 err;
 
-	err = tdh_mem_page_aug(kvm_tdx->tdr_pa, gpa, hpa, &entry, &level_state);
+	err = tdh_mem_page_aug(kvm_tdx->td.tdr, gpa, hpa, &entry, &level_state);
 	if (unlikely(err & TDX_OPERAND_BUSY)) {
 		tdx_unpin(kvm, pfn);
 		return -EBUSY;
@@ -1654,7 +1654,7 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		 * condition with other vcpu sept operation.  Race only with
 		 * TDH.VP.ENTER.
 		 */
-		err = tdh_mem_page_remove(kvm_tdx->tdr_pa, gpa, tdx_level, &entry,
+		err = tdh_mem_page_remove(kvm_tdx->td.tdr, gpa, tdx_level, &entry,
 					  &level_state);
 	} while (unlikely(err == TDX_ERROR_SEPT_BUSY));
 
@@ -1703,7 +1703,7 @@ int tdx_sept_link_private_spt(struct kvm *kvm, gfn_t gfn,
 	hpa_t hpa = __pa(private_spt);
 	u64 err, entry, level_state;
 
-	err = tdh_mem_sept_add(to_kvm_tdx(kvm)->tdr_pa, gpa, tdx_level, hpa, &entry,
+	err = tdh_mem_sept_add(to_kvm_tdx(kvm)->td.tdr, gpa, tdx_level, hpa, &entry,
 			       &level_state);
 	if (unlikely(err == TDX_ERROR_SEPT_BUSY))
 		return -EAGAIN;
@@ -1726,7 +1726,7 @@ static int tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn,
 	/* For now large page isn't supported yet. */
 	WARN_ON_ONCE(level != PG_LEVEL_4K);
 
-	err = tdh_mem_range_block(kvm_tdx->tdr_pa, gpa, tdx_level, &entry, &level_state);
+	err = tdh_mem_range_block(kvm_tdx->td.tdr, gpa, tdx_level, &entry, &level_state);
 	if (unlikely(err == TDX_ERROR_SEPT_BUSY))
 		return -EAGAIN;
 	if (KVM_BUG_ON(err, kvm)) {
@@ -1772,7 +1772,7 @@ static void tdx_track(struct kvm *kvm)
 	lockdep_assert_held_write(&kvm->mmu_lock);
 
 	do {
-		err = tdh_mem_track(kvm_tdx->tdr_pa);
+		err = tdh_mem_track(kvm_tdx->td.tdr);
 	} while (unlikely((err & TDX_SEAMCALL_STATUS_MASK) == TDX_OPERAND_BUSY));
 
 	if (KVM_BUG_ON(err, kvm))
@@ -2318,8 +2318,8 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	cpumask_var_t packages;
-	unsigned long *tdcs_pa = NULL;
-	unsigned long tdr_pa = 0;
+	hpa_t *tdcs_pa = NULL;
+	hpa_t tdr_pa = 0;
 	unsigned long va;
 	int ret, i;
 	u64 err, rcx;
@@ -2341,7 +2341,7 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 	/* TDVPS = TDVPR(4K page) + TDCX(multiple 4K pages), -1 for TDVPR. */
 	kvm_tdx->nr_vcpu_tdcx_pages = tdx_sysinfo->td_ctrl.tdvps_base_size / PAGE_SIZE - 1;
 
-	tdcs_pa = kcalloc(kvm_tdx->nr_tdcs_pages, sizeof(*kvm_tdx->tdcs_pa),
+	tdcs_pa = kcalloc(kvm_tdx->nr_tdcs_pages, sizeof(*kvm_tdx->td.tdcs),
 			  GFP_KERNEL_ACCOUNT | __GFP_ZERO);
 	if (!tdcs_pa)
 		goto free_tdr;
@@ -2385,8 +2385,8 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 	 * lock to prevent it from failure.
 	 */
 	mutex_lock(&tdx_lock);
-	kvm_tdx->tdr_pa = tdr_pa;
-	err = tdh_mng_create(kvm_tdx->tdr_pa, kvm_tdx->hkid);
+	kvm_tdx->td.tdr = tdr_pa;
+	err = tdh_mng_create(&kvm_tdx->td, kvm_tdx->hkid);
 	mutex_unlock(&tdx_lock);
 
 	if (err == TDX_RND_NO_ENTROPY) {
@@ -2428,9 +2428,9 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 		goto teardown;
 	}
 
-	kvm_tdx->tdcs_pa = tdcs_pa;
+	kvm_tdx->td.tdcs = tdcs_pa;
 	for (i = 0; i < kvm_tdx->nr_tdcs_pages; i++) {
-		err = tdh_mng_addcx(kvm_tdx->tdr_pa, tdcs_pa[i]);
+		err = tdh_mng_addcx(&kvm_tdx->td, tdcs_pa[i]);
 		if (err == TDX_RND_NO_ENTROPY) {
 			/* Here it's hard to allow userspace to retry. */
 			ret = -EBUSY;
@@ -2443,7 +2443,7 @@ static int __tdx_td_init(struct kvm *kvm, struct td_params *td_params,
 		}
 	}
 
-	err = tdh_mng_init(kvm_tdx->tdr_pa, __pa(td_params), &rcx);
+	err = tdh_mng_init(&kvm_tdx->td, __pa(td_params), &rcx);
 	if ((err & TDX_SEAMCALL_STATUS_MASK) == TDX_OPERAND_INVALID) {
 		/*
 		 * Because a user gives operands, don't warn.
@@ -2478,7 +2478,7 @@ teardown:
 			tdcs_pa[i] = 0;
 		}
 	}
-	if (!kvm_tdx->tdcs_pa)
+	if (!kvm_tdx->td.tdcs)
 		kfree(tdcs_pa);
 
 	tdx_mmu_release_hkid(kvm);
@@ -2496,12 +2496,12 @@ free_tdcs:
 			free_page((unsigned long)__va(tdcs_pa[i]));
 	}
 	kfree(tdcs_pa);
-	kvm_tdx->tdcs_pa = NULL;
+	kvm_tdx->td.tdcs = NULL;
 
 free_tdr:
 	if (tdr_pa)
 		free_page((unsigned long)__va(tdr_pa));
-	kvm_tdx->tdr_pa = 0;
+	kvm_tdx->td.tdr = 0;
 
 free_hkid:
 	tdx_hkid_free(kvm_tdx);
@@ -2514,7 +2514,7 @@ static u64 tdx_td_metadata_field_read(struct kvm_tdx *tdx, u64 field_id,
 {
 	u64 err;
 
-	err = tdh_mng_rd(tdx->tdr_pa, field_id, data);
+	err = tdh_mng_rd(&tdx->td, field_id, data);
 
 	return err;
 }
@@ -2728,7 +2728,7 @@ static int tdx_td_finalizemr(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 	if (atomic64_read(&kvm_tdx->nr_premapped))
 		return -EINVAL;
 
-	cmd->hw_error = tdh_mr_finalize(kvm_tdx->tdr_pa);
+	cmd->hw_error = tdh_mr_finalize(kvm_tdx->td.tdr);
 	if ((cmd->hw_error & TDX_SEAMCALL_STATUS_MASK) == TDX_OPERAND_BUSY)
 		return -EAGAIN;
 	if (KVM_BUG_ON(cmd->hw_error, kvm)) {
@@ -2796,11 +2796,11 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 	va = __get_free_page(GFP_KERNEL_ACCOUNT);
 	if (!va)
 		return -ENOMEM;
-	tdx->tdvpr_pa = __pa(va);
+	tdx->vp.tdvpr = __pa(va);
 
-	tdx->tdcx_pa = kcalloc(kvm_tdx->nr_vcpu_tdcx_pages, sizeof(*tdx->tdcx_pa),
+	tdx->vp.tdcx = kcalloc(kvm_tdx->nr_vcpu_tdcx_pages, sizeof(*tdx->vp.tdcx),
 			       GFP_KERNEL_ACCOUNT);
-	if (!tdx->tdcx_pa) {
+	if (!tdx->vp.tdcx) {
 		ret = -ENOMEM;
 		goto free_tdvpr;
 	}
@@ -2811,10 +2811,10 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 			ret = -ENOMEM;
 			goto free_tdcx;
 		}
-		tdx->tdcx_pa[i] = __pa(va);
+		tdx->vp.tdcx[i] = __pa(va);
 	}
 
-	err = tdh_vp_create(kvm_tdx->tdr_pa, tdx->tdvpr_pa);
+	err = tdh_vp_create(&kvm_tdx->td, &tdx->vp);
 	if (KVM_BUG_ON(err, vcpu->kvm)) {
 		ret = -EIO;
 		pr_tdx_error(TDH_VP_CREATE, err);
@@ -2822,7 +2822,7 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 	}
 
 	for (i = 0; i < kvm_tdx->nr_vcpu_tdcx_pages; i++) {
-		err = tdh_vp_addcx(tdx->tdvpr_pa, tdx->tdcx_pa[i]);
+		err = tdh_vp_addcx(&tdx->vp, tdx->vp.tdcx[i]);
 		if (KVM_BUG_ON(err, vcpu->kvm)) {
 			pr_tdx_error(TDH_VP_ADDCX, err);
 			/*
@@ -2830,17 +2830,17 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 			 * method, but the rest are freed here.
 			 */
 			for (; i < kvm_tdx->nr_vcpu_tdcx_pages; i++) {
-				free_page((unsigned long)__va(tdx->tdcx_pa[i]));
-				tdx->tdcx_pa[i] = 0;
+				free_page((unsigned long)__va(tdx->vp.tdcx[i]));
+				tdx->vp.tdcx[i] = 0;
 			}
 			return -EIO;
 		}
 	}
 
 	if (modinfo->tdx_features0 & MD_FIELD_ID_FEATURES0_TOPOLOGY_ENUM)
-		err = tdh_vp_init_apicid(tdx->tdvpr_pa, vcpu_rcx, vcpu->vcpu_id);
+		err = tdh_vp_init_apicid(&tdx->vp, vcpu_rcx, vcpu->vcpu_id);
 	else
-		err = tdh_vp_init(tdx->tdvpr_pa, vcpu_rcx);
+		err = tdh_vp_init(&tdx->vp, vcpu_rcx);
 
 	if (KVM_BUG_ON(err, vcpu->kvm)) {
 		pr_tdx_error(TDH_VP_INIT, err);
@@ -2854,17 +2854,17 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 
 free_tdcx:
 	for (i = 0; i < kvm_tdx->nr_vcpu_tdcx_pages; i++) {
-		if (tdx->tdcx_pa[i])
-			free_page((unsigned long)__va(tdx->tdcx_pa[i]));
-		tdx->tdcx_pa[i] = 0;
+		if (tdx->vp.tdcx[i])
+			free_page((unsigned long)__va(tdx->vp.tdcx[i]));
+		tdx->vp.tdcx[i] = 0;
 	}
-	kfree(tdx->tdcx_pa);
-	tdx->tdcx_pa = NULL;
+	kfree(tdx->vp.tdcx);
+	tdx->vp.tdcx = NULL;
 
 free_tdvpr:
-	if (tdx->tdvpr_pa)
-		free_page((unsigned long)__va(tdx->tdvpr_pa));
-	tdx->tdvpr_pa = 0;
+	if (tdx->vp.tdvpr)
+		free_page((unsigned long)__va(tdx->vp.tdvpr));
+	tdx->vp.tdvpr = 0;
 
 	return ret;
 }
@@ -3029,7 +3029,7 @@ static int tdx_gmem_post_populate(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
 
 	ret = 0;
 	do {
-		err = tdh_mem_page_add(kvm_tdx->tdr_pa, gpa, pfn_to_hpa(pfn),
+		err = tdh_mem_page_add(kvm_tdx->td.tdr, gpa, pfn_to_hpa(pfn),
 				       pfn_to_hpa(page_to_pfn(page)),
 				       &entry, &level_state);
 	} while (err == TDX_ERROR_SEPT_BUSY);
@@ -3043,7 +3043,7 @@ static int tdx_gmem_post_populate(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
 
 	if (arg->flags & KVM_TDX_MEASURE_MEMORY_REGION) {
 		for (i = 0; i < PAGE_SIZE; i += TDX_EXTENDMR_CHUNKSIZE) {
-			err = tdh_mr_extend(kvm_tdx->tdr_pa, gpa + i, &entry,
+			err = tdh_mr_extend(kvm_tdx->td.tdr, gpa + i, &entry,
 					    &level_state);
 			if (err) {
 				ret = -EIO;

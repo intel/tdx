@@ -1562,3 +1562,29 @@ void tdx_guest_keyid_free(unsigned int keyid)
 	ida_free(&tdx_guest_keyid_pool, keyid);
 }
 EXPORT_SYMBOL_GPL(tdx_guest_keyid_free);
+
+static inline u64 tdx_tdr_pa(struct tdx_td *td)
+{
+	return page_to_pfn(td->tdr_page) << PAGE_SHIFT;
+}
+
+u64 tdh_mng_key_config(struct tdx_td *td)
+{
+	struct tdx_module_args args = {
+		.rcx = tdx_tdr_pa(td),
+	};
+
+	return seamcall(TDH_MNG_KEY_CONFIG, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_mng_key_config);
+
+u64 tdh_mng_key_freeid(struct tdx_td *td)
+{
+	struct tdx_module_args args = {
+		.rcx = tdx_tdr_pa(td),
+	};
+
+	return seamcall(TDH_MNG_KEY_FREEID, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_mng_key_freeid);
+

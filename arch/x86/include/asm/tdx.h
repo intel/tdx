@@ -121,6 +121,18 @@ const struct tdx_sys_info *tdx_get_sysinfo(void);
 
 int tdx_guest_keyid_alloc(void);
 void tdx_guest_keyid_free(unsigned int keyid);
+
+struct tdx_td {
+	/* TD root structure: */
+	struct page *tdr_page;
+
+	int tdcs_nr_pages;
+	/* TD control structure: */
+	struct page **tdcs_pages;
+};
+
+u64 tdh_mng_key_config(struct tdx_td *td);
+u64 tdh_mng_key_freeid(struct tdx_td *td);
 #else
 static inline void tdx_init(void) { }
 static inline int tdx_cpu_enable(void) { return -ENODEV; }

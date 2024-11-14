@@ -24,14 +24,11 @@ enum kvm_tdx_state {
 struct kvm_tdx {
 	struct kvm kvm;
 
-	unsigned long tdr_pa;
-	unsigned long *tdcs_pa;
+	struct tdx_td td;
 
 	u64 attributes;
 	u64 xfam;
 	int hkid;
-	u8 nr_tdcs_pages;
-	u8 nr_vcpu_tdcx_pages;
 
 	/*
 	 * Used on each TD-exit, see tdx_user_return_msr_update_cache().
@@ -65,8 +62,7 @@ struct vcpu_tdx {
 	struct list_head pi_wakeup_list;
 	/* Until here same layout to struct vcpu_pi. */
 
-	unsigned long tdvpr_pa;
-	unsigned long *tdcx_pa;
+	struct tdx_vp vp;
 
 	struct list_head cpu_list;
 
@@ -110,7 +106,7 @@ static __always_inline u64 td_tdcs_exec_read64(struct kvm_tdx *kvm_tdx, u32 fiel
 {
 	u64 err, data;
 
-	err = tdh_mng_rd(kvm_tdx->tdr_pa, TDCS_EXEC(field), &data);
+	err = tdh_mng_rd(&kvm_tdx->td, TDCS_EXEC(field), &data);
 	if (unlikely(err)) {
 		pr_err("TDH_MNG_RD[EXEC.0x%x] failed: 0x%llx\n", field, err);
 		return 0;
@@ -162,7 +158,7 @@ static __always_inline u##bits td_##lclass##_read##bits(struct vcpu_tdx *tdx,	\
 	u64 err, data;								\
 										\
 	tdvps_##lclass##_check(field, bits);					\
-	err = tdh_vp_rd(tdx->tdvpr_pa, TDVPS_##uclass(field), &data);		\
+	err = tdh_vp_rd(&tdx->vp, TDVPS_##uclass(field), &data);		\
 	if (unlikely(err)) {							\
 		tdh_vp_rd_failed(tdx, #uclass, field, err);			\
 		return 0;							\
@@ -175,7 +171,7 @@ static __always_inline void td_##lclass##_write##bits(struct vcpu_tdx *tdx,	\
 	u64 err;								\
 										\
 	tdvps_##lclass##_check(field, bits);					\
-	err = tdh_vp_wr(tdx->tdvpr_pa, TDVPS_##uclass(field), val,		\
+	err = tdh_vp_wr(&tdx->vp, TDVPS_##uclass(field), val,		\
 		      GENMASK_ULL(bits - 1, 0));				\
 	if (unlikely(err))							\
 		tdh_vp_wr_failed(tdx, #uclass, " = ", field, (u64)val, err);	\
@@ -186,7 +182,7 @@ static __always_inline void td_##lclass##_setbit##bits(struct vcpu_tdx *tdx,	\
 	u64 err;								\
 										\
 	tdvps_##lclass##_check(field, bits);					\
-	err = tdh_vp_wr(tdx->tdvpr_pa, TDVPS_##uclass(field), bit, bit);	\
+	err = tdh_vp_wr(&tdx->vp, TDVPS_##uclass(field), bit, bit);	\
 	if (unlikely(err))							\
 		tdh_vp_wr_failed(tdx, #uclass, " |= ", field, bit, err);	\
 }										\
@@ -196,7 +192,7 @@ static __always_inline void td_##lclass##_clearbit##bits(struct vcpu_tdx *tdx,	\
 	u64 err;								\
 										\
 	tdvps_##lclass##_check(field, bits);					\
-	err = tdh_vp_wr(tdx->tdvpr_pa, TDVPS_##uclass(field), 0, bit);		\
+	err = tdh_vp_wr(&tdx->vp, TDVPS_##uclass(field), 0, bit);		\
 	if (unlikely(err))							\
 		tdh_vp_wr_failed(tdx, #uclass, " &= ~", field, bit, err);\
 }

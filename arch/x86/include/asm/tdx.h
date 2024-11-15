@@ -128,8 +128,11 @@ struct tdx_td {
 	hpa_t *tdcs;
 };
 
+u64 tdh_mng_addcx(struct tdx_td *td, hpa_t tdcs);
 u64 tdh_mng_key_config(struct tdx_td *td);
+u64 tdh_mng_create(struct tdx_td *td, hpa_t hkid);
 u64 tdh_mng_key_freeid(struct tdx_td *td);
+u64 tdh_mng_init(struct tdx_td *td, u64 td_params, hpa_t *tdr);
 #else
 static inline void tdx_init(void) { }
 static inline int tdx_cpu_enable(void) { return -ENODEV; }

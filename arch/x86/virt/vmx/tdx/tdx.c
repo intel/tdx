@@ -1563,6 +1563,29 @@ void tdx_guest_keyid_free(unsigned int keyid)
 }
 EXPORT_SYMBOL_GPL(tdx_guest_keyid_free);
 
+/*
+ * The TDX module exposes a CLFLUSH_BEFORE_ALLOC bit to specify whether
+ * a CLFLUSH of pages is required before handing them to the TDX module.
+ * Be conservative and make the code simpler by doing the CLFLUSH
+ * unconditionally.
+ */
+static void tdx_clflush_page(hpa_t tdr)
+{
+	clflush_cache_range(__va(tdr), PAGE_SIZE);
+}
+
+u64 tdh_mng_addcx(struct tdx_td *td, hpa_t tdcs)
+{
+	struct tdx_module_args args = {
+		.rcx = tdcs,
+		.rdx = td->tdr,
+	};
+
+	tdx_clflush_page(tdcs);
+	return seamcall(TDH_MNG_ADDCX, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_mng_addcx);
+
 u64 tdh_mng_key_config(struct tdx_td *td)
 {
 	struct tdx_module_args args = {
@@ -1572,6 +1595,18 @@ u64 tdh_mng_key_config(struct tdx_td *td)
 	return seamcall(TDH_MNG_KEY_CONFIG, &args);
 }
 EXPORT_SYMBOL_GPL(tdh_mng_key_config);
+
+u64 tdh_mng_create(struct tdx_td *td, hpa_t hkid)
+{
+	struct tdx_module_args args = {
+		.rcx = td->tdr,
+		.rdx = hkid,
+	};
+
+	tdx_clflush_page(td->tdr);
+	return seamcall(TDH_MNG_CREATE, &args);
+}
+EXPORT_SYMBOL_GPL(tdh_mng_create);
 
 
 u64 tdh_mng_key_freeid(struct tdx_td *td)
@@ -1583,4 +1618,20 @@ u64 tdh_mng_key_freeid(struct tdx_td *td)
 	return seamcall(TDH_MNG_KEY_FREEID, &args);
 }
 EXPORT_SYMBOL_GPL(tdh_mng_key_freeid);
+
+u64 tdh_mng_init(struct tdx_td *td, u64 td_params, hpa_t *tdr)
+{
+	struct tdx_module_args args = {
+		.rcx = td->tdr,
+		.rdx = td_params,
+	};
+	u64 ret;
+
+	ret = seamcall_ret(TDH_MNG_INIT, &args);
+
+	*tdr = args.rcx;
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(tdh_mng_init);
 

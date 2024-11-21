@@ -27,6 +27,14 @@ struct kvm_tdx {
 	u64 attributes;
 	u64 xfam;
 
+	/*
+	 * Used on each TD-exit, see tdx_user_return_msr_update_cache().
+	 * TSX_CTRL value on TD exit
+	 * - set 0     if guest TSX enabled
+	 * - preserved if guest TSX disabled
+	 */
+	bool tsx_supported;
+
 	u64 tsc_offset;
 
 	struct tdx_td td;

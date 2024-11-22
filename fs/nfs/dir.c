@@ -55,7 +55,7 @@ static int nfs_closedir(struct inode *, struct file *);
 static int nfs_readdir(struct file *, struct dir_context *);
 static int nfs_fsync_dir(struct file *, loff_t, loff_t, int);
 static loff_t nfs_llseek_dir(struct file *, loff_t, int);
-static void nfs_readdir_clear_array(struct folio *);
+static void nfs_free_folio(struct address_space *, struct folio *);
 static int nfs_do_create(struct inode *dir, struct dentry *dentry,
 			 umode_t mode, int open_flags);
 
@@ -69,7 +69,7 @@ const struct file_operations nfs_dir_operations = {
 };
 
 const struct address_space_operations nfs_dir_aops = {
-	.free_folio = nfs_readdir_clear_array,
+	.free_folio = nfs_free_folio,
 };
 
 #define NFS_INIT_DTSIZE PAGE_SIZE
@@ -228,6 +228,11 @@ static void nfs_readdir_clear_array(struct folio *folio)
 		kfree(array->array[i].name);
 	array->size = 0;
 	kunmap_local(array);
+}
+
+static void nfs_free_folio(struct address_space *mapping, struct folio *folio)
+{
+	nfs_readdir_clear_array(folio);
 }
 
 static void nfs_readdir_folio_reinit_array(struct folio *folio, u64 last_cookie,

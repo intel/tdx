@@ -722,14 +722,25 @@ static void tdx_restore_host_xsave_state(struct kvm_vcpu *vcpu)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
 
-	if (cpu_feature_enabled(X86_FEATURE_XSAVE) &&
-	    kvm_host.xcr0 != (kvm_tdx->xfam & TDX_XFAM_XCR0_MASK))
-		xsetbv(XCR_XFEATURE_ENABLED_MASK, kvm_host.xcr0);
-	if (cpu_feature_enabled(X86_FEATURE_XSAVES) &&
-	    kvm_host.xss != (kvm_tdx->xfam & TDX_XFAM_XSS_MASK))
-		wrmsrl(MSR_IA32_XSS, kvm_host.xss);
+	if (cpu_feature_enabled(X86_FEATURE_XSAVE)) {
+		/* TDX Module sets XCR0 from XFAM */
+		u64 current_xcr0 = kvm_tdx->xfam & TDX_XFAM_XCR0_MASK;
+
+		if (kvm_host.xcr0 != current_xcr0)
+			xsetbv(XCR_XFEATURE_ENABLED_MASK, kvm_host.xcr0);
+	}
+
+	if (cpu_feature_enabled(X86_FEATURE_XSAVES)) {
+		/* TDX Module sets XSS from XFAM */
+		u64 current_xss = kvm_tdx->xfam & TDX_XFAM_XSS_MASK;
+
+		if (kvm_host.xss != current_xss)
+			wrmsrl(MSR_IA32_XSS, kvm_host.xss);
+	}
+
 	if (cpu_feature_enabled(X86_FEATURE_PKU) &&
 	    (kvm_tdx->xfam & XFEATURE_MASK_PKRU))
+		/* Current PKRU is not known */
 		write_pkru(vcpu->arch.host_pkru);
 }
 

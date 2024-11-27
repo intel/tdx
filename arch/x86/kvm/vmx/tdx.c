@@ -607,8 +607,7 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	if ((kvm_tdx->xfam & XFEATURE_MASK_XTILE) == XFEATURE_MASK_XTILE)
 		vcpu->arch.xfd_no_write_intercept = true;
 
-	tdx->host_state_need_save = true;
-	tdx->host_state_need_restore = false;
+	tdx->prep_switch_state = TDX_PREP_SW_STATE_UNSAVED;
 
 	tdx->state = VCPU_TD_STATE_UNINITIALIZED;
 
@@ -644,29 +643,25 @@ void tdx_prepare_switch_to_guest(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 
-	if (!tdx->host_state_need_save)
-		return;
-
-	if (likely(is_64bit_mm(current->mm)))
-		tdx->msr_host_kernel_gs_base = current->thread.gsbase;
-	else
-		tdx->msr_host_kernel_gs_base = read_msr(MSR_KERNEL_GS_BASE);
-
-	tdx->host_state_need_save = false;
+	if (tdx->prep_switch_state == TDX_PREP_SW_STATE_UNSAVED) {
+		if (likely(is_64bit_mm(current->mm)))
+			tdx->msr_host_kernel_gs_base = current->thread.gsbase;
+		else
+			tdx->msr_host_kernel_gs_base = read_msr(MSR_KERNEL_GS_BASE);
+		tdx->prep_switch_state = TDX_PREP_SW_STATE_SAVED;
+	}
 }
 
 static void tdx_prepare_switch_to_host(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 
-	tdx->host_state_need_save = true;
-	if (!tdx->host_state_need_restore)
-		return;
+	if (tdx->prep_switch_state == TDX_PREP_SW_STATE_UNRESTORED) {
+		++vcpu->stat.host_state_reload;
+		wrmsrl(MSR_KERNEL_GS_BASE, tdx->msr_host_kernel_gs_base);
+	}
 
-	++vcpu->stat.host_state_reload;
-
-	wrmsrl(MSR_KERNEL_GS_BASE, tdx->msr_host_kernel_gs_base);
-	tdx->host_state_need_restore = false;
+	tdx->prep_switch_state = TDX_PREP_SW_STATE_UNSAVED;
 }
 
 void tdx_vcpu_put(struct kvm_vcpu *vcpu)
@@ -770,11 +765,13 @@ static noinstr void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu)
 
 fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 {
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
 	trace_kvm_entry(vcpu, force_immediate_exit);
 
 	tdx_vcpu_enter_exit(vcpu);
 
-	tdx->host_state_need_restore = true;
+	tdx->prep_switch_state = TDX_PREP_SW_STATE_UNRESTORED;
 
 	vcpu->arch.regs_avail &= ~VMX_REGS_LAZY_LOAD_SET;
 	trace_kvm_exit(vcpu, KVM_ISA_VMX);

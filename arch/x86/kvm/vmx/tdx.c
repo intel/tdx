@@ -72,16 +72,21 @@ static u64 tdx_get_supported_attrs(const struct tdx_sys_info_td_conf *td_conf)
 	return val;
 }
 
+/*
+ * Before returning from TDH.VP.ENTER, the TDX Module assigns:
+ *   XCR0 to the TD’s user-mode feature bits of XFAM (bits 7:0, 9)
+ *   IA32_XSS to the TD's supervisor-mode feature bits of XFAM (bits 8, 16:10)
+ */
+#define TDX_XFAM_XCR0_MASK	(GENMASK(7, 0) | BIT(9))
+#define TDX_XFAM_XSS_MASK	(GENMASK(16, 10) | BIT(8))
+#define TDX_XFAM_MASK		(TDX_XFAM_XCR0_MASK | TDX_XFAM_XSS_MASK)
+
 static u64 tdx_get_supported_xfam(const struct tdx_sys_info_td_conf *td_conf)
 {
 	u64 val = kvm_caps.supported_xcr0 | kvm_caps.supported_xss;
 
-	/*
-	 * PT and CET can be exposed to TD guest regardless of KVM's XSS, PT
-	 * and, CET support.
-	 */
-	val |= XFEATURE_MASK_PT | XFEATURE_MASK_CET_USER |
-	       XFEATURE_MASK_CET_KERNEL;
+	/* Ensure features are in the masks */
+	val &= TDX_XFAM_MASK;
 
 	if ((val & td_conf->xfam_fixed1) != td_conf->xfam_fixed1)
 		return 0;
@@ -718,13 +723,10 @@ static void tdx_restore_host_xsave_state(struct kvm_vcpu *vcpu)
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
 
 	if (static_cpu_has(X86_FEATURE_XSAVE) &&
-	    kvm_host.xcr0 != (kvm_tdx->xfam & kvm_caps.supported_xcr0))
+	    kvm_host.xcr0 != (kvm_tdx->xfam & TDX_XFAM_XCR0_MASK))
 		xsetbv(XCR_XFEATURE_ENABLED_MASK, kvm_host.xcr0);
 	if (static_cpu_has(X86_FEATURE_XSAVES) &&
-	    /* PT can be exposed to TD guest regardless of KVM's XSS support */
-	    kvm_host.xss != (kvm_tdx->xfam &
-			 (kvm_caps.supported_xss | XFEATURE_MASK_PT |
-			  XFEATURE_MASK_CET_USER | XFEATURE_MASK_CET_KERNEL)))
+	    kvm_host.xss != (kvm_tdx->xfam & TDX_XFAM_XSS_MASK))
 		wrmsrl(MSR_IA32_XSS, kvm_host.xss);
 	if (static_cpu_has(X86_FEATURE_PKU) &&
 	    (kvm_tdx->xfam & XFEATURE_MASK_PKRU))

@@ -665,7 +665,7 @@ void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 }
 
 
-static void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu)
+static noinstr void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 	struct tdx_module_args args;

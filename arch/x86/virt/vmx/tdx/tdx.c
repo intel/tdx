@@ -1600,7 +1600,7 @@ static inline u64 tdx_seamcall_sept(u64 op, struct tdx_module_args *in)
 	return ret;
 }
 
-u64 tdh_vp_enter(u64 tdvpr, struct tdx_module_args *args)
+noinstr u64 tdh_vp_enter(u64 tdvpr, struct tdx_module_args *args)
 {
 	args->rcx = tdvpr;
 

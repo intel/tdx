@@ -722,13 +722,13 @@ static void tdx_restore_host_xsave_state(struct kvm_vcpu *vcpu)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
 
-	if (static_cpu_has(X86_FEATURE_XSAVE) &&
+	if (cpu_feature_enabled(X86_FEATURE_XSAVE) &&
 	    kvm_host.xcr0 != (kvm_tdx->xfam & TDX_XFAM_XCR0_MASK))
 		xsetbv(XCR_XFEATURE_ENABLED_MASK, kvm_host.xcr0);
-	if (static_cpu_has(X86_FEATURE_XSAVES) &&
+	if (cpu_feature_enabled(X86_FEATURE_XSAVES) &&
 	    kvm_host.xss != (kvm_tdx->xfam & TDX_XFAM_XSS_MASK))
 		wrmsrl(MSR_IA32_XSS, kvm_host.xss);
-	if (static_cpu_has(X86_FEATURE_PKU) &&
+	if (cpu_feature_enabled(X86_FEATURE_PKU) &&
 	    (kvm_tdx->xfam & XFEATURE_MASK_PKRU))
 		write_pkru(vcpu->arch.host_pkru);
 }

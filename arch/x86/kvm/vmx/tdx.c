@@ -664,6 +664,13 @@ void tdx_vcpu_free(struct kvm_vcpu *vcpu)
 	tdx->state = VCPU_TD_STATE_UNINITIALIZED;
 }
 
+int tdx_vcpu_pre_run(struct kvm_vcpu *vcpu)
+{
+	if (unlikely(to_tdx(vcpu)->state != VCPU_TD_STATE_INITIALIZED))
+		return -EINVAL;
+
+	return 1;
+}
 
 static noinstr void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu)
 {
@@ -719,15 +726,6 @@ static noinstr void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu)
 
 fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 {
-	struct vcpu_tdx *tdx = to_tdx(vcpu);
-
-	/* TDX exit handle takes care of this error case. */
-	if (unlikely(tdx->state != VCPU_TD_STATE_INITIALIZED)) {
-		/* Set to avoid collision with EXIT_REASON_EXCEPTION_NMI. */
-		tdx->vp_enter_ret = TDX_SW_ERROR;
-		return EXIT_FASTPATH_NONE;
-	}
-
 	trace_kvm_entry(vcpu, force_immediate_exit);
 
 	tdx_vcpu_enter_exit(vcpu);

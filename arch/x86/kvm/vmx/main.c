@@ -132,8 +132,7 @@ static void vt_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 static int vt_vcpu_pre_run(struct kvm_vcpu *vcpu)
 {
 	if (is_td_vcpu(vcpu))
-		/* Unconditionally continue to vcpu_run(). */
-		return 1;
+		return tdx_vcpu_pre_run(vcpu);
 
 	return vmx_vcpu_pre_run(vcpu);
 }

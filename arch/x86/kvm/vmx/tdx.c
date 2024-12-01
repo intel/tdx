@@ -1090,11 +1090,56 @@ error:
 	return 1;
 }
 
+static int tdx_report_fatal_error(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	u64 reg_mask = tdx->vp_enter_args.rcx;
+	u64* opt_regs;
+
+	/*
+	 * Skip sanity checks and let userspace decide what to do if sanity
+	 * checks fail.
+	 */
+	vcpu->run->exit_reason = KVM_EXIT_SYSTEM_EVENT;
+	vcpu->run->system_event.type = KVM_SYSTEM_EVENT_TDX_FATAL;
+	/* Error codes. */
+	vcpu->run->system_event.data[0] = tdx->vp_enter_args.r12;
+	/* GPA of additional information page. */
+	vcpu->run->system_event.data[1] = tdx->vp_enter_args.r13;
+	/* Information passed via registers (up to 64 bytes). */
+	opt_regs = &vcpu->run->system_event.data[2];
+
+#define COPY_REG(REG, MASK)						\
+	do {								\
+		if (reg_mask & MASK) {					\
+			*opt_regs = tdx->vp_enter_args.REG;		\
+			opt_regs++;					\
+		}							\
+	} while (0)
+
+	/* The order is defined in GHCI. */
+	COPY_REG(r14, BIT_ULL(14));
+	COPY_REG(r15, BIT_ULL(15));
+	COPY_REG(rbx, BIT_ULL(3));
+	COPY_REG(rdi, BIT_ULL(7));
+	COPY_REG(rsi, BIT_ULL(6));
+	COPY_REG(r8, BIT_ULL(8));
+	COPY_REG(r9, BIT_ULL(9));
+	COPY_REG(rdx, BIT_ULL(2));
+#undef COPY_REG
+
+	vcpu->run->system_event.ndata = opt_regs - vcpu->run->system_event.data;
+
+	return 0;
+}
+
 static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 {
 	switch (tdvmcall_leaf(vcpu)) {
 	case TDVMCALL_MAP_GPA:
 		return tdx_map_gpa(vcpu);
+	case TDVMCALL_REPORT_FATAL_ERROR:
+		return tdx_report_fatal_error(vcpu);
 	default:
 		break;
 	}

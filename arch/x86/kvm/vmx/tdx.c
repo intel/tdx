@@ -695,6 +695,7 @@ void tdx_prepare_switch_to_guest(struct kvm_vcpu *vcpu)
 		else
 			tdx->msr_host_kernel_gs_base = read_msr(MSR_KERNEL_GS_BASE);
 		tdx->prep_switch_state = TDX_PREP_SW_STATE_SAVED;
+		tdx->host_debugctlmsr = get_debugctlmsr();
 	}
 }
 
@@ -854,6 +855,10 @@ static noinstr void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu)
 	guest_state_exit_irqoff();
 }
 
+#define TDX_DEBUGCTL_PRESERVED (DEBUGCTLMSR_BTF | \
+				DEBUGCTLMSR_FREEZE_PERFMON_ON_PMI | \
+				DEBUGCTLMSR_FREEZE_IN_SMM)
+
 fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
@@ -861,6 +866,9 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 	trace_kvm_entry(vcpu, force_immediate_exit);
 
 	tdx_vcpu_enter_exit(vcpu);
+
+	if (tdx->host_debugctlmsr & ~TDX_DEBUGCTL_PRESERVED)
+		update_debugctlmsr(tdx->host_debugctlmsr);
 
 	tdx_user_return_msr_update_cache();
 	tdx_restore_host_xsave_state(vcpu);

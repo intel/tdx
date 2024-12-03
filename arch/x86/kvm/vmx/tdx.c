@@ -706,6 +706,8 @@ void tdx_prepare_switch_to_guest(struct kvm_vcpu *vcpu)
 	else
 		vt->msr_host_kernel_gs_base = read_msr(MSR_KERNEL_GS_BASE);
 
+	vt->host_debugctlmsr = get_debugctlmsr();
+
 	vt->guest_state_loaded = true;
 }
 
@@ -819,9 +821,14 @@ static noinstr void tdx_vcpu_enter_exit(struct kvm_vcpu *vcpu)
 #define TDX_REGS_UNSUPPORTED_SET	(BIT(VCPU_EXREG_RFLAGS) |	\
 					 BIT(VCPU_EXREG_SEGMENTS))
 
+#define TDX_DEBUGCTL_PRESERVED (DEBUGCTLMSR_BTF | \
+				DEBUGCTLMSR_FREEZE_PERFMON_ON_PMI | \
+				DEBUGCTLMSR_FREEZE_IN_SMM)
+
 fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	struct vcpu_vt *vt = to_vt(vcpu);
 
 	/*
 	 * force_immediate_exit requires vCPU entering for events injection with
@@ -846,6 +853,9 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 	trace_kvm_entry(vcpu, force_immediate_exit);
 
 	tdx_vcpu_enter_exit(vcpu);
+
+	if (vt->host_debugctlmsr & ~TDX_DEBUGCTL_PRESERVED)
+		update_debugctlmsr(vt->host_debugctlmsr);
 
 	tdx_user_return_msr_update_cache();
 

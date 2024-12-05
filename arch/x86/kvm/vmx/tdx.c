@@ -2,6 +2,7 @@
 #include <linux/cleanup.h>
 #include <linux/cpu.h>
 #include <linux/mmu_context.h>
+#include <linux/reboot.h>
 #include <asm/fpu/xcr.h>
 #include <asm/tdx.h>
 #include "capabilities.h"
@@ -43,6 +44,9 @@ module_param_named(tdx, enable_tdx, bool, 0444);
 static enum cpuhp_state tdx_cpuhp_state;
 
 static const struct tdx_sys_info *tdx_sysinfo;
+
+static DEFINE_MUTEX(td_lock);
+static LIST_HEAD(td_list);
 
 void tdh_vp_rd_failed(struct vcpu_tdx *tdx, char *uclass, u32 field, u64 err)
 {
@@ -654,6 +658,10 @@ void tdx_vm_free(struct kvm *kvm)
 	tdx_reclaim_td_control_pages(kvm);
 
 	kvm_tdx->state = TD_STATE_UNINITIALIZED;
+
+	mutex_lock(&td_lock);
+	list_del(&kvm_tdx->td_list);
+	mutex_unlock(&td_lock);
 }
 
 static int tdx_do_tdh_mng_key_config(void *param)
@@ -675,6 +683,12 @@ static int tdx_do_tdh_mng_key_config(void *param)
 int tdx_vm_init(struct kvm *kvm)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+
+	/* Keep the task, KVM may need to explicitly kill TD when rebooting. */
+	to_kvm_tdx(kvm)->task = current;
+	mutex_lock(&td_lock);
+	list_add(&to_kvm_tdx(kvm)->td_list, &td_list);
+	mutex_unlock(&td_lock);
 
 	kvm->arch.has_private_mem = true;
 
@@ -3282,6 +3296,31 @@ static int __init __do_tdx_bringup(void)
 	return r;
 }
 
+static int tdx_reboot_notify(struct notifier_block *nb,
+			     unsigned long code, void *unused)
+{
+	struct kvm_tdx *kvm_tdx;
+
+	/*
+	 * Explicitly send SIGKILL to kill all TDs to reset all TDX
+	 * guest private pages and secure-EPT pages.  Mark TD as buggy
+	 * doesn't guarantee userspace will just quit.
+	 */
+	mutex_lock(&td_lock);
+	list_for_each_entry(kvm_tdx, &td_list, td_list)
+		send_sig(SIGKILL, kvm_tdx->task, 1);
+	mutex_unlock(&td_lock);
+
+	/* Wait until all TDs are gone. */
+	while (!list_empty(&td_list))
+		cpu_relax();
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block tdx_reboot_nb = {
+	.notifier_call = tdx_reboot_notify,
+};
 static int __init __tdx_bringup(void)
 {
 	const struct tdx_sys_info_td_conf *td_conf;
@@ -3378,6 +3417,18 @@ static int __init __tdx_bringup(void)
 				td_conf->max_vcpus_per_td, num_present_cpus());
 		r = -EINVAL;
 		goto get_sysinfo_err;
+	}
+
+	/*
+	 * If the platform has "partial write machine check" erratum,
+	 * KVM needs to use MOVDIR64B to reset all TDX private pages
+	 * (guest private pages and secure-EPT pages) to support kexec,
+	 * otherwise the second kernel may see unexpected machine check.
+	 */
+	if (boot_cpu_has_bug(X86_BUG_TDX_PW_MCE)) {
+		r = register_reboot_notifier(&tdx_reboot_nb);
+		if (r)
+			goto get_sysinfo_err;
 	}
 
 	/*

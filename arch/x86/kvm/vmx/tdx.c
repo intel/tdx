@@ -3053,6 +3053,11 @@ int __init tdx_bringup(void)
 		goto success_disable_tdx;
 	}
 
+	if (!enable_apicv) {
+		pr_err("APICv is required for TDX\n");
+		goto success_disable_tdx;
+	}
+
 	if (!cpu_feature_enabled(X86_FEATURE_MOVDIR64B)) {
 		pr_err("MOVDIR64B is reqiured for TDX\n");
 		goto success_disable_tdx;

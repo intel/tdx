@@ -685,6 +685,10 @@ int tdx_vcpu_create(struct kvm_vcpu *vcpu)
 	if ((kvm_tdx->xfam & XFEATURE_MASK_XTILE) == XFEATURE_MASK_XTILE)
 		vcpu->arch.xfd_no_write_intercept = true;
 
+
+	tdx->vt.pi_desc.nv = POSTED_INTR_VECTOR;
+	__pi_set_sn(&tdx->vt.pi_desc);
+
 	tdx->state = VCPU_TD_STATE_UNINITIALIZED;
 
 	return 0;
@@ -699,6 +703,7 @@ void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 
+	vmx_vcpu_pi_load(vcpu, cpu);
 	if (vcpu->cpu == cpu)
 		return;
 
@@ -954,6 +959,9 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 	}
 
 	trace_kvm_entry(vcpu, force_immediate_exit);
+
+	if (pi_test_on(&vt->pi_desc))
+		apic->send_IPI_self(POSTED_INTR_VECTOR);
 
 	tdx_vcpu_enter_exit(vcpu);
 
@@ -1603,6 +1611,16 @@ int tdx_sept_remove_private_spte(struct kvm *kvm, gfn_t gfn,
 	tdx_track(kvm);
 
 	return tdx_sept_drop_private_spte(kvm, gfn, level, pfn_to_page(pfn));
+}
+
+void tdx_deliver_interrupt(struct kvm_lapic *apic, int delivery_mode,
+			   int trig_mode, int vector)
+{
+	struct kvm_vcpu *vcpu = apic->vcpu;
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	/* TDX supports only posted interrupt.  No lapic emulation. */
+	__vmx_deliver_posted_interrupt(vcpu, &tdx->vt.pi_desc, vector);
 }
 
 int tdx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t fastpath)
@@ -2572,8 +2590,11 @@ static int tdx_vcpu_init(struct kvm_vcpu *vcpu, struct kvm_tdx_cmd *cmd)
 	/* TODO: freeze vCPU model before kvm_update_cpuid_runtime() */
 	kvm_update_cpuid_runtime(vcpu);
 
-	tdx->state = VCPU_TD_STATE_INITIALIZED;
+	td_vmcs_write16(tdx, POSTED_INTR_NV, POSTED_INTR_VECTOR);
+	td_vmcs_write64(tdx, POSTED_INTR_DESC_ADDR, __pa(&tdx->vt.pi_desc));
+	td_vmcs_setbit32(tdx, PIN_BASED_VM_EXEC_CONTROL, PIN_BASED_POSTED_INTR);
 
+	tdx->state = VCPU_TD_STATE_INITIALIZED;
 	return 0;
 }
 

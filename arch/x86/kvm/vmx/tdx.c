@@ -1224,6 +1224,25 @@ static int tdx_report_fatal_error(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
+static int tdx_emulate_cpuid(struct kvm_vcpu *vcpu)
+{
+	u32 eax, ebx, ecx, edx;
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	/* EAX and ECX for cpuid is stored in R12 and R13. */
+	eax = tdx->vp_enter_args.r12;
+	ecx = tdx->vp_enter_args.r13;
+
+	kvm_cpuid(vcpu, &eax, &ebx, &ecx, &edx, false);
+
+	tdx->vp_enter_args.r12 = eax;
+	tdx->vp_enter_args.r13 = ebx;
+	tdx->vp_enter_args.r14 = ecx;
+	tdx->vp_enter_args.r15 = edx;
+
+	return 1;
+}
+
 static int tdx_complete_pio_out(struct kvm_vcpu *vcpu)
 {
 	vcpu->arch.pio.count = 0;
@@ -1798,6 +1817,8 @@ int tdx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t fastpath)
 	case EXIT_REASON_EXTERNAL_INTERRUPT:
 		++vcpu->stat.irq_exits;
 		return 1;
+	case EXIT_REASON_CPUID:
+		return tdx_emulate_cpuid(vcpu);
 	case EXIT_REASON_TDCALL:
 		return handle_tdvmcall(vcpu);
 	case EXIT_REASON_VMCALL:

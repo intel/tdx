@@ -741,9 +741,28 @@ void tdx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	local_irq_enable();
 }
 
+bool tdx_interrupt_allowed(struct kvm_vcpu *vcpu)
+{
+	/*
+	 * KVM can't get the interrupt status of TDX guest and it assumes
+	 * interrupt is always allowed unless TDX guest calls TDVMCALL with HLT,
+	 * which passes the interrupt blocked flag.
+	 */
+	return vmx_get_exit_reason(vcpu).basic != EXIT_REASON_HLT ||
+	       !to_tdx(vcpu)->vp_enter_args.r12;
+}
+
 bool tdx_protected_apic_has_interrupt(struct kvm_vcpu *vcpu)
 {
-	return pi_has_pending_interrupt(vcpu);
+	u64 vcpu_state_details;
+
+	if (pi_has_pending_interrupt(vcpu))
+		return true;
+
+	vcpu_state_details =
+		td_state_non_arch_read64(to_tdx(vcpu), TD_VCPU_STATE_DETAILS_NON_ARCH);
+
+	return tdx_vcpu_state_details_intr_pending(vcpu_state_details);
 }
 
 /*
@@ -1902,6 +1921,8 @@ int tdx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t fastpath)
 		return 1;
 	case EXIT_REASON_CPUID:
 		return tdx_emulate_cpuid(vcpu);
+	case EXIT_REASON_HLT:
+		return kvm_emulate_halt_noskip(vcpu);
 	case EXIT_REASON_TDCALL:
 		return handle_tdvmcall(vcpu);
 	case EXIT_REASON_VMCALL:

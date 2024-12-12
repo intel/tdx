@@ -273,6 +273,36 @@ static int kvm_gmem_prepare_folio(struct kvm *kvm, struct file *file,
 	return r;
 }
 
+static struct folio *kvm_gmem_get_huge_folio(struct inode *inode, pgoff_t index,
+					     unsigned int order)
+{
+	pgoff_t npages = 1UL << order;
+	pgoff_t huge_index = round_down(index, npages);
+	struct address_space *mapping  = inode->i_mapping;
+	gfp_t gfp = mapping_gfp_mask(mapping) | __GFP_NOWARN;
+	loff_t size = i_size_read(inode);
+	struct folio *folio;
+
+	/* Make sure hugepages would be fully-contained by inode */
+	if ((huge_index + npages) * PAGE_SIZE > size)
+		return NULL;
+
+	if (filemap_range_has_page(mapping, (loff_t)huge_index << PAGE_SHIFT,
+				   (loff_t)(huge_index + npages - 1) << PAGE_SHIFT))
+		return NULL;
+
+	folio = filemap_alloc_folio(gfp, order);
+	if (!folio)
+		return NULL;
+
+	if (filemap_add_folio(mapping, folio, huge_index, gfp)) {
+		folio_put(folio);
+		return NULL;
+	}
+
+	return folio;
+}
+
 /*
  * Returns a locked folio on success.  The caller is responsible for
  * setting the up-to-date flag before the memory is mapped into the guest.
@@ -284,8 +314,15 @@ static int kvm_gmem_prepare_folio(struct kvm *kvm, struct file *file,
  */
 static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index)
 {
-	/* TODO: Support huge pages. */
-	return filemap_grab_folio(inode->i_mapping, index);
+	struct folio *folio = NULL;
+
+	if (gmem_2m_enabled)
+		folio = kvm_gmem_get_huge_folio(inode, index, PMD_ORDER);
+
+	if (!folio)
+		folio = filemap_grab_folio(inode->i_mapping, index);
+
+	return folio;
 }
 
 static void kvm_gmem_invalidate_begin(struct kvm_gmem *gmem, pgoff_t start,
@@ -663,6 +700,7 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
 	inode->i_size = size;
 	mapping_set_gfp_mask(inode->i_mapping, GFP_HIGHUSER);
 	mapping_set_inaccessible(inode->i_mapping);
+	mapping_set_large_folios(inode->i_mapping);
 	/* Unmovable mappings are supposed to be marked unevictable as well. */
 	WARN_ON_ONCE(!mapping_unevictable(inode->i_mapping));
 
@@ -799,6 +837,7 @@ static struct folio *__kvm_gmem_get_pfn(struct file *file,
 	struct file *gmem_file = READ_ONCE(slot->gmem.file);
 	struct kvm_gmem *gmem = file->private_data;
 	struct folio *folio;
+	pgoff_t huge_index;
 
 	if (file != gmem_file) {
 		WARN_ON_ONCE(gmem_file);
@@ -811,6 +850,17 @@ static struct folio *__kvm_gmem_get_pfn(struct file *file,
 		return ERR_PTR(-EIO);
 	}
 
+	/*
+	 * The folio can be mapped with a hugepage if and only if the folio is
+	 * fully contained by the range the memslot is bound to.  Note, the
+	 * caller is responsible for handling gfn alignment, this only deals
+	 * with the file binding.
+	 */
+	huge_index = ALIGN_DOWN(index, 1ull << *max_order);
+	if (huge_index < slot->gmem.pgoff ||
+	    huge_index + (1ull << *max_order) > slot->gmem.pgoff + slot->npages)
+		*max_order = 0;
+
 	folio = kvm_gmem_get_folio(file_inode(file), index);
 	if (IS_ERR(folio))
 		return folio;
@@ -822,8 +872,7 @@ static struct folio *__kvm_gmem_get_pfn(struct file *file,
 	}
 
 	*pfn = folio_file_pfn(folio, index);
-	if (max_order)
-		*max_order = 0;
+	*max_order = min_t(int, *max_order, folio_order(folio));
 
 	return folio;
 }
@@ -917,17 +966,6 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long 
 			ret = -EINTR;
 			break;
 		}
-
-		/*
-		 * The max order shouldn't extend beyond the GFN range being
-		 * populated in this iteration, so set max_order accordingly.
-		 * __kvm_gmem_get_pfn() will then further adjust the order to
-		 * one that is contained by the backing memslot/folio.
-		 */
-		max_order = 0;
-		while (IS_ALIGNED(gfn, 1 << (max_order + 1)) &&
-		       (npages - i >= (1 << (max_order + 1))))
-			max_order++;
 
 		folio = __kvm_gmem_get_pfn(file, slot, index, &pfn, &max_order);
 		if (IS_ERR(folio)) {

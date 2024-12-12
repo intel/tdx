@@ -94,6 +94,10 @@ unsigned int halt_poll_ns_shrink = 2;
 module_param(halt_poll_ns_shrink, uint, 0644);
 EXPORT_SYMBOL_GPL(halt_poll_ns_shrink);
 
+unsigned int gmem_2m_enabled;
+EXPORT_SYMBOL_GPL(gmem_2m_enabled);
+module_param(gmem_2m_enabled, uint, 0644);
+
 /*
  * Allow direct access (from KVM or the CPU) without MMU notifier protection
  * to unpinned pages.

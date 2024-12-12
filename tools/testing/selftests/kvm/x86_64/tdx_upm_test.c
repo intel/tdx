@@ -389,14 +389,14 @@ static void verify_upm_test(void)
 
 int main(int argc, char **argv)
 {
-	/* Disable stdout buffering */
-	setbuf(stdout, NULL);
+	ksft_print_header();
 
-	if (!is_tdx_enabled()) {
-		printf("TDX is not supported by the KVM\n"
-		       "Skipping the TDX tests.\n");
-		return 0;
-	}
+	if (!is_tdx_enabled())
+		ksft_exit_skip("TDX is not supported by the KVM. Exiting.\n");
 
-	run_in_new_process(&verify_upm_test);
+	ksft_set_plan(1);
+	ksft_test_result(!run_in_new_process(&verify_upm_test),
+			 "verify_upm_test\n");
+
+	ksft_finished();
 }

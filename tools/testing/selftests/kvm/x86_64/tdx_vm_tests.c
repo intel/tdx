@@ -32,14 +32,15 @@ void verify_td_lifecycle(void)
 
 int main(int argc, char **argv)
 {
-	setbuf(stdout, NULL);
+	ksft_print_header();
 
-	if (!is_tdx_enabled()) {
-		print_skip("TDX is not supported by the KVM");
-		exit(KSFT_SKIP);
-	}
+	if (!is_tdx_enabled())
+		ksft_exit_skip("TDX is not supported by the KVM. Exiting.\n");
 
-	run_in_new_process(&verify_td_lifecycle);
+	ksft_set_plan(1);
+	ksft_test_result(!run_in_new_process(&verify_td_lifecycle),
+			 "verify_td_lifecycle\n");
 
+	ksft_finished();
 	return 0;
 }

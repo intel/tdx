@@ -1077,7 +1077,7 @@ int main(int argc, char **argv)
 	if (!is_tdx_enabled())
 		ksft_exit_skip("TDX is not supported by the KVM. Exiting.\n");
 
-	ksft_set_plan(12);
+	ksft_set_plan(13);
 	ksft_test_result(!run_in_new_process(&verify_td_lifecycle),
 			 "verify_td_lifecycle\n");
 	ksft_test_result(!run_in_new_process(&verify_report_fatal_error),
@@ -1102,7 +1102,8 @@ int main(int argc, char **argv)
 			 "verify_mmio_reads\n");
 	ksft_test_result(!run_in_new_process(&verify_mmio_writes),
 			 "verify_mmio_writes\n");
-	run_in_new_process(&verify_td_cpuid_tdcall);
+	ksft_test_result(!run_in_new_process(&verify_td_cpuid_tdcall),
+			 "verify_td_cpuid_tdcall\n");
 
 	ksft_finished();
 	return 0;

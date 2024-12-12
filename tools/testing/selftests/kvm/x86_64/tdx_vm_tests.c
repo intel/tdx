@@ -163,12 +163,13 @@ int main(int argc, char **argv)
 	if (!is_tdx_enabled())
 		ksft_exit_skip("TDX is not supported by the KVM. Exiting.\n");
 
-	ksft_set_plan(2);
+	ksft_set_plan(3);
 	ksft_test_result(!run_in_new_process(&verify_td_lifecycle),
 			 "verify_td_lifecycle\n");
 	ksft_test_result(!run_in_new_process(&verify_report_fatal_error),
 			 "verify_report_fatal_error\n");
-	run_in_new_process(&verify_td_ioexit);
+	ksft_test_result(!run_in_new_process(&verify_td_ioexit),
+			 "verify_td_ioexit\n");
 
 	ksft_finished();
 	return 0;

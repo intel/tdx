@@ -96,15 +96,15 @@ static inline kvm_pfn_t folio_file_pfn(struct folio *folio, pgoff_t index)
 }
 
 static int __kvm_gmem_prepare_folio(struct kvm *kvm, struct kvm_memory_slot *slot,
-				    pgoff_t index, struct folio *folio)
+				    pgoff_t index, struct folio *folio, int max_order)
 {
 #ifdef CONFIG_HAVE_KVM_ARCH_GMEM_PREPARE
 	kvm_pfn_t pfn = folio_file_pfn(folio, index);
 	gfn_t gfn = slot->base_gfn + index - slot->gmem.pgoff;
-	int rc = kvm_arch_gmem_prepare(kvm, gfn, pfn, folio_order(folio));
+	int rc = kvm_arch_gmem_prepare(kvm, gfn, pfn, max_order);
 	if (rc) {
-		pr_warn_ratelimited("gmem: Failed to prepare folio for index %lx GFN %llx PFN %llx error %d.\n",
-				    index, gfn, pfn, rc);
+		pr_warn_ratelimited("gmem: Failed to prepare folio for index %lx GFN %llx PFN %llx max_order %d error %d.\n",
+				    index, gfn, pfn, max_order, rc);
 		return rc;
 	}
 #endif
@@ -148,15 +148,15 @@ static bool bitmap_test_allset_word(unsigned long *p, unsigned long start, unsig
 	return (*p & mask_to_set) == mask_to_set;
 }
 
-static void kvm_gmem_mark_prepared(struct file *file, pgoff_t index, struct folio *folio)
+static void kvm_gmem_mark_prepared(struct file *file, pgoff_t index, int order)
 {
 	struct kvm_gmem_inode *i_gmem = (struct kvm_gmem_inode *)file->f_inode->i_private;
-	unsigned long *p = i_gmem->prepared + BIT_WORD(index);
-	unsigned long npages = folio_nr_pages(folio);
+	unsigned long npages = (1ul << order);
+	unsigned long *p;
 
-	/* Folios must be naturally aligned */
-	WARN_ON_ONCE(index & (npages - 1));
+	/* The index isn't necessarily aligned to the requested order. */
 	index &= ~(npages - 1);
+	p = i_gmem->prepared + BIT_WORD(index);
 
 	/* Clear page before updating bitmap.  */
 	smp_wmb();
@@ -193,16 +193,16 @@ static void kvm_gmem_mark_range_unprepared(struct inode *inode, pgoff_t index, p
 		bitmap_clear_atomic_word(p++, 0, npages);
 }
 
-static bool kvm_gmem_is_prepared(struct file *file, pgoff_t index, struct folio *folio)
+static bool kvm_gmem_is_prepared(struct file *file, pgoff_t index, int order)
 {
 	struct kvm_gmem_inode *i_gmem = (struct kvm_gmem_inode *)file->f_inode->i_private;
-	unsigned long *p = i_gmem->prepared + BIT_WORD(index);
-	unsigned long npages = folio_nr_pages(folio);
+	unsigned long npages = (1ul << order);
+	unsigned long *p;
 	bool ret;
 
-	/* Folios must be naturally aligned */
-	WARN_ON_ONCE(index & (npages - 1));
+	/* The index isn't necessarily aligned to the requested order. */
 	index &= ~(npages - 1);
+	p = i_gmem->prepared + BIT_WORD(index);
 
 	if (npages < BITS_PER_LONG) {
 		ret = bitmap_test_allset_word(p, index, npages);
@@ -226,35 +226,41 @@ static bool kvm_gmem_is_prepared(struct file *file, pgoff_t index, struct folio 
  */
 static int kvm_gmem_prepare_folio(struct kvm *kvm, struct file *file,
 				  struct kvm_memory_slot *slot,
-				  gfn_t gfn, struct folio *folio)
+				  gfn_t gfn, struct folio *folio, int max_order)
 {
 	unsigned long nr_pages, i;
-	pgoff_t index;
+	pgoff_t index, aligned_index;
 	int r;
 
-	nr_pages = folio_nr_pages(folio);
+	index = gfn - slot->base_gfn + slot->gmem.pgoff;
+	nr_pages = (1ull << max_order);
+	WARN_ON(nr_pages > folio_nr_pages(folio));
+	aligned_index = ALIGN_DOWN(index, nr_pages);
+
 	for (i = 0; i < nr_pages; i++)
-		clear_highpage(folio_page(folio, i));
+		if (!kvm_gmem_is_prepared(file, aligned_index + i, 0))
+			clear_highpage(folio_page(folio, aligned_index - folio_index(folio) + i));
 
 	/*
-	 * Preparing huge folios should always be safe, since it should
-	 * be possible to split them later if needed.
+	 * In cases where only a sub-range of a folio is prepared, e.g. via
+	 * calling kvm_gmem_populate() for a non-aligned GPA range, or when
+	 * there's a mix of private/shared attributes for the GPA range that
+	 * the folio backs, it's possible that later on the same folio might
+	 * be accessed with a larger order when it becomes possible to map
+	 * the full GPA range into the guest using a larger order. In such
+	 * cases, some sub-ranges might already have been prepared.
 	 *
-	 * Right now the folio order is always going to be zero, but the
-	 * code is ready for huge folios.  The only assumption is that
-	 * the base pgoff of memslots is naturally aligned with the
-	 * requested page order, ensuring that huge folios can also use
-	 * huge page table entries for GPA->HPA mapping.
-	 *
-	 * The order will be passed when creating the guest_memfd, and
-	 * checked when creating memslots.
+	 * Because of this, the arch-specific callbacks should be expected
+	 * to handle dealing with cases where some sub-ranges are already
+	 * in a prepared state, since the alternative would involve needing
+	 * to issue multiple prepare callbacks with finer granularity, and
+	 * potentially obfuscating cases where arch-specific callbacks can
+	 * be notified of larger-order mappings and potentially optimize
+	 * preparation based on that knowledge.
 	 */
-	WARN_ON(!IS_ALIGNED(slot->gmem.pgoff, 1 << folio_order(folio)));
-	index = gfn - slot->base_gfn + slot->gmem.pgoff;
-	index = ALIGN_DOWN(index, 1 << folio_order(folio));
-	r = __kvm_gmem_prepare_folio(kvm, slot, index, folio);
+	r = __kvm_gmem_prepare_folio(kvm, slot, index, folio, max_order);
 	if (!r)
-		kvm_gmem_mark_prepared(file, index, folio);
+		kvm_gmem_mark_prepared(file, index, max_order);
 
 	return r;
 }
@@ -820,20 +826,31 @@ int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
 {
 	pgoff_t index = kvm_gmem_get_index(slot, gfn);
 	struct file *file = kvm_gmem_get_file(slot);
+	int max_order_local;
 	struct folio *folio;
 	int r = 0;
 
 	if (!file)
 		return -EFAULT;
 
-	folio = __kvm_gmem_get_pfn(file, slot, index, pfn, max_order);
+	/*
+	 * The caller might pass a NULL 'max_order', but internally this
+	 * function needs to be aware of any order limitations set by
+	 * __kvm_gmem_get_pfn() so the scope of preparation operations can
+	 * be limited to the corresponding range. The initial order can be
+	 * arbitrarily large, but gmem doesn't currently support anything
+	 * greater than PMD_ORDER so use that for now.
+	 */
+	max_order_local = PMD_ORDER;
+
+	folio = __kvm_gmem_get_pfn(file, slot, index, pfn, &max_order_local);
 	if (IS_ERR(folio)) {
 		r = PTR_ERR(folio);
 		goto out;
 	}
 
-	if (!kvm_gmem_is_prepared(file, index, folio))
-		r = kvm_gmem_prepare_folio(kvm, file, slot, gfn, folio);
+	if (!kvm_gmem_is_prepared(file, index, max_order_local))
+		r = kvm_gmem_prepare_folio(kvm, file, slot, gfn, folio, max_order_local);
 
 	folio_unlock(folio);
 
@@ -843,6 +860,8 @@ int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
 		folio_put(folio);
 
 out:
+	if (max_order)
+		*max_order = max_order_local;
 	fput(file);
 	return r;
 }
@@ -885,13 +904,24 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long 
 			break;
 		}
 
+		/*
+		 * The max order shouldn't extend beyond the GFN range being
+		 * populated in this iteration, so set max_order accordingly.
+		 * __kvm_gmem_get_pfn() will then further adjust the order to
+		 * one that is contained by the backing memslot/folio.
+		 */
+		max_order = 0;
+		while (IS_ALIGNED(gfn, 1 << (max_order + 1)) &&
+		       (npages - i >= (1 << (max_order + 1))))
+			max_order++;
+
 		folio = __kvm_gmem_get_pfn(file, slot, index, &pfn, &max_order);
 		if (IS_ERR(folio)) {
 			ret = PTR_ERR(folio);
 			break;
 		}
 
-		if (kvm_gmem_is_prepared(file, index, folio)) {
+		if (kvm_gmem_is_prepared(file, index, max_order)) {
 			folio_unlock(folio);
 			folio_put(folio);
 			ret = -EEXIST;
@@ -915,7 +945,7 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long 
 		ret = post_populate(kvm, gfn, pfn, p, max_order, opaque);
 		if (!ret) {
 			pgoff_t index = gfn - slot->base_gfn + slot->gmem.pgoff;
-			kvm_gmem_mark_prepared(file, index, folio);
+			kvm_gmem_mark_prepared(file, index, max_order);
 		}
 
 put_folio_and_exit:

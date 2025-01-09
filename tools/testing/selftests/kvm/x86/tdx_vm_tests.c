@@ -91,14 +91,14 @@ void guest_ioexit(void)
 
 	data_out = 0xAB;
 	ret = tdg_vp_vmcall_instruction_io(TDX_IOEXIT_TEST_PORT, 1,
-					TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
-					&data_out);
+					   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
+					   &data_out);
 	if (ret)
 		tdx_test_fatal(ret);
 
 	ret = tdg_vp_vmcall_instruction_io(TDX_IOEXIT_TEST_PORT, 1,
-					TDG_VP_VMCALL_INSTRUCTION_IO_READ,
-					&data_in);
+					   TDG_VP_VMCALL_INSTRUCTION_IO_READ,
+					   &data_in);
 	if (ret)
 		tdx_test_fatal(ret);
 
@@ -127,7 +127,7 @@ void verify_td_ioexit(void)
 	td_vcpu_run(vcpu);
 	TDX_TEST_CHECK_GUEST_FAILURE(vcpu);
 	TDX_TEST_ASSERT_IO(vcpu, TDX_IOEXIT_TEST_PORT, 1,
-			TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
+			   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
 	port_data = *(uint8_t *)((void *)vcpu->run + vcpu->run->io.data_offset);
 
 	printf("\t ... IO WRITE: OK\n");
@@ -139,7 +139,7 @@ void verify_td_ioexit(void)
 	td_vcpu_run(vcpu);
 	TDX_TEST_CHECK_GUEST_FAILURE(vcpu);
 	TDX_TEST_ASSERT_IO(vcpu, TDX_IOEXIT_TEST_PORT, 1,
-			TDG_VP_VMCALL_INSTRUCTION_IO_READ);
+			   TDG_VP_VMCALL_INSTRUCTION_IO_READ);
 	*(uint8_t *)((void *)vcpu->run + vcpu->run->io.data_offset) = port_data + 1;
 
 	printf("\t ... IO READ: OK\n");

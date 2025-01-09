@@ -9,7 +9,7 @@
 #define TDX_TEST_SUCCESS_PORT 0x30
 #define TDX_TEST_SUCCESS_SIZE 4
 
-/**
+/*
  * Assert that some IO operation involving tdg_vp_vmcall_instruction_io() was
  * called in the guest.
  */
@@ -31,7 +31,7 @@
 			(VCPU)->run->io.direction);			\
 	} while (0)
 
-/**
+/*
  * Check and report if there was some failure in the guest, either an exception
  * like a triple fault, or if a tdx_test_fatal() was hit.
  */

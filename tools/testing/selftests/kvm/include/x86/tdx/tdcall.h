@@ -54,6 +54,6 @@ struct tdx_module_output {
 
 /* Used to communicate with the TDX module */
 u64 __tdx_module_call(u64 fn, u64 rcx, u64 rdx, u64 r8, u64 r9,
-		struct tdx_module_output *out);
+		      struct tdx_module_output *out);
 
 #endif // SELFTESTS_TDX_TDCALL_H

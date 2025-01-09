@@ -327,11 +327,11 @@ static void tdx_td_finalizemr(struct kvm_vm *vm)
  * Other ioctls
  */
 
-/**
+/*
  * Register a memory region that may contain encrypted data in KVM.
  */
-static void register_encrypted_memory_region(
-	struct kvm_vm *vm, struct userspace_mem_region *region)
+static void register_encrypted_memory_region(struct kvm_vm *vm,
+					     struct userspace_mem_region *region)
 {
 	vm_set_memory_attributes(vm, region->region.guest_phys_addr,
 				 region->region.memory_size,
@@ -477,7 +477,6 @@ static void load_td_memory_region(struct kvm_vm *vm,
 	if (!sparsebit_any_set(pages))
 		return;
 
-
 	if (region->region.guest_memfd != -1)
 		register_encrypted_memory_region(vm, region);
 
@@ -496,7 +495,7 @@ static void load_td_memory_region(struct kvm_vm *vm,
 		 */
 		if (region->region.guest_memfd == -1) {
 			source_addr = mmap(NULL, size_to_load, PROT_READ | PROT_WRITE,
-					MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+					   MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 			TEST_ASSERT(source_addr,
 				    "Could not allocate memory for loading memory region");
 

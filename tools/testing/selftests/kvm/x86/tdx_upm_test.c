@@ -373,7 +373,7 @@ static void verify_upm_test(void)
 
 	sync_global_to_guest(vm, test_area_gpa_private);
 	test_area_gpa_shared = (struct tdx_upm_test_area *)
-		((uint64_t)test_area_gpa_private | BIT_ULL(vm->pa_bits - 1));
+		((uint64_t)test_area_gpa_private | vm->arch.s_bit);
 	sync_global_to_guest(vm, test_area_gpa_shared);
 
 	td_finalize(vm);

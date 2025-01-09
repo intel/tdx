@@ -34,7 +34,7 @@ bool is_tdx_enabled(void);
 void tdx_test_success(void);
 void tdx_test_assert_success(struct kvm_vcpu *vcpu);
 
-/**
+/*
  * Report an error with @error_code to userspace.
  *
  * Return value from tdg_vp_vmcall_report_fatal_error is ignored since execution
@@ -42,7 +42,7 @@ void tdx_test_assert_success(struct kvm_vcpu *vcpu);
  */
 void tdx_test_fatal(uint64_t error_code);
 
-/**
+/*
  * Report an error with @error_code to userspace.
  *
  * @data_gpa may point to an optional shared guest memory holding the error

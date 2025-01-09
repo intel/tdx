@@ -653,7 +653,6 @@ void guest_msr_write(void)
 		tdx_test_fatal(-99);
 	}
 
-
 	ret = tdg_vp_vmcall_instruction_wrmsr(MSR_IA32_POWER_CTL, 6);
 	if (ret)
 		tdx_test_fatal(ret);
@@ -700,7 +699,7 @@ void verify_guest_msr_writes(void)
 	td_vcpu_run(vcpu);
 	tdx_test_assert_success(vcpu);
 
-	printf("\t ... Verifying MSR values writen by guest\n");
+	printf("\t ... Verifying MSR values written by guest\n");
 
 	TEST_ASSERT_EQ(vcpu_get_msr(vcpu, MSR_X2APIC_APIC_ICR), 4);
 	TEST_ASSERT_EQ(vcpu_get_msr(vcpu, MSR_IA32_MISC_ENABLE), 0x1800);
@@ -709,7 +708,6 @@ void verify_guest_msr_writes(void)
 	kvm_vm_free(vm);
 	printf("\t ... PASSED\n");
 }
-
 
 int main(int argc, char **argv)
 {

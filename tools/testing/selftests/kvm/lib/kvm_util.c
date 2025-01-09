@@ -1424,25 +1424,23 @@ vm_vaddr_t vm_vaddr_alloc_shared(struct kvm_vm *vm, size_t sz,
 	return ____vm_vaddr_alloc(vm, sz, vaddr_min, KVM_UTIL_MIN_PFN * vm->page_size, type, false);
 }
 
-/**
- * Allocate memory in @vm of size @sz in memslot with id @data_memslot,
- * beginning with the desired address of @vaddr_min.
- *
- * If there isn't enough memory at @vaddr_min, find the next possible address
- * that can meet the requested size in the given memslot.
+/*
+ * Allocate memory in @vm of size @sz beginning with the desired virtual address
+ * of @vaddr_min and backed by physical address equal to returned virtual
+ * address.
  *
  * Return the address where the memory is allocated.
  */
 vm_vaddr_t vm_vaddr_alloc_1to1(struct kvm_vm *vm, size_t sz, vm_vaddr_t vaddr_min,
-                              enum kvm_mem_region_type type)
+			       enum kvm_mem_region_type type)
 {
-	vm_vaddr_t gva = ____vm_vaddr_alloc(
-		vm, sz, vaddr_min, (vm_paddr_t)vaddr_min, type, vm_arch_has_protected_memory(vm));
+	vm_vaddr_t gva = ____vm_vaddr_alloc(vm, sz, vaddr_min,
+					    (vm_paddr_t)vaddr_min, type,
+					    vm_arch_has_protected_memory(vm));
 	TEST_ASSERT_EQ(gva, addr_gva2gpa(vm, gva));
 
 	return gva;
 }
-
 
 /*
  * VM Virtual Address Allocate

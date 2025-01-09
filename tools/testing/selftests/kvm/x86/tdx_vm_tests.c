@@ -902,7 +902,7 @@ void guest_mmio_writes(void)
 }
 
 /*
- * Varifies guest MMIO writes.
+ * Verifies guest MMIO writes.
  */
 void verify_mmio_writes(void)
 {

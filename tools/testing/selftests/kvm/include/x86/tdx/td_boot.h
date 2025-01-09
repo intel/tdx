@@ -8,26 +8,26 @@
 /*
  * Layout for boot section (not to scale)
  *
- *                                  GPA
- * ┌─────────────────────────────┬──0x1_0000_0000 (4GB)
- * │   Boot code trampoline      │
- * ├─────────────────────────────┼──0x0_ffff_fff0: Reset vector (16B below 4GB)
- * │   Boot code                 │
- * ├─────────────────────────────┼──td_boot will be copied here, so that the
- * │                             │  jmp to td_boot is exactly at the reset vector
- * │   Empty space               │
- * │                             │
- * ├─────────────────────────────┤
- * │                             │
- * │                             │
- * │   Boot parameters           │
- * │                             │
- * │                             │
- * └─────────────────────────────┴──0x0_ffff_0000: TD_BOOT_PARAMETERS_GPA
+ *                                   GPA
+ * _________________________________ 0x1_0000_0000 (4GB)
+ * |   Boot code trampoline    |
+ * |___________________________|____ 0x0_ffff_fff0: Reset vector (16B below 4GB)
+ * |   Boot code               |
+ * |___________________________|____ td_boot will be copied here, so that the
+ * |                           |     jmp to td_boot is exactly at the reset vector
+ * |   Empty space             |
+ * |                           |
+ * |───────────────────────────|
+ * |                           |
+ * |                           |
+ * |   Boot parameters         |
+ * |                           |
+ * |                           |
+ * |___________________________|____ 0x0_ffff_0000: TD_BOOT_PARAMETERS_GPA
  */
 #define FOUR_GIGABYTES_GPA (4ULL << 30)
 
-/**
+/*
  * The exact memory layout for LGDT or LIDT instructions.
  */
 struct __packed td_boot_parameters_dtr {
@@ -35,7 +35,7 @@ struct __packed td_boot_parameters_dtr {
 	uint32_t base;
 };
 
-/**
+/*
  * The exact layout in memory required for a ljmp, including the selector for
  * changing code segment.
  */
@@ -44,7 +44,7 @@ struct __packed td_boot_parameters_ljmp_target {
 	uint16_t code64_sel;
 };
 
-/**
+/*
  * Allows each vCPU to be initialized with different eip and esp.
  */
 struct __packed td_per_vcpu_parameters {
@@ -52,7 +52,7 @@ struct __packed td_per_vcpu_parameters {
 	struct td_boot_parameters_ljmp_target ljmp_target;
 };
 
-/**
+/*
  * Boot parameters for the TD.
  *
  * Unlike a regular VM, we can't ask KVM to set registers such as esp, eip, etc
@@ -73,9 +73,9 @@ struct __packed td_boot_parameters {
 	struct td_per_vcpu_parameters per_vcpu[];
 };
 
-extern void td_boot(void);
-extern void reset_vector(void);
-extern void td_boot_code_end(void);
+void td_boot(void);
+void reset_vector(void);
+void td_boot_code_end(void);
 
 #define TD_BOOT_CODE_SIZE (td_boot_code_end - td_boot)
 

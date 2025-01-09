@@ -24,6 +24,7 @@ static char *tdx_cmd_str[] = {
 	"KVM_TDX_INIT_MEM_REGION",
 	"KVM_TDX_FINALIZE_VM"
 };
+
 #define TDX_MAX_CMD_STR (ARRAY_SIZE(tdx_cmd_str))
 
 static int _tdx_ioctl(int fd, int ioctl_no, uint32_t flags, void *data)
@@ -60,9 +61,10 @@ static struct kvm_tdx_capabilities *tdx_read_capabilities(struct kvm_vm *vm)
 	do {
 		nr_cpuid_configs *= 2;
 
-		tdx_cap = realloc(
-			tdx_cap, sizeof(*tdx_cap) + sizeof(tdx_cap->cpuid) + (sizeof(struct kvm_cpuid_entry2) * nr_cpuid_configs));
-		TEST_ASSERT(tdx_cap != NULL,
+		tdx_cap = realloc(tdx_cap, sizeof(*tdx_cap) +
+					   sizeof(tdx_cap->cpuid) +
+					   (sizeof(struct kvm_cpuid_entry2) * nr_cpuid_configs));
+		TEST_ASSERT(tdx_cap,
 			    "Could not allocate memory for tdx capability nr_cpuid_configs %d\n",
 			    nr_cpuid_configs);
 
@@ -79,6 +81,7 @@ static struct kvm_tdx_capabilities *tdx_read_capabilities(struct kvm_vm *vm)
 
 	for (i = 0; i < tdx_cap->cpuid.nent; i++) {
 		const struct kvm_cpuid_entry2 *config = &tdx_cap->cpuid.entries[i];
+
 		pr_debug("cpuid config[%d]: leaf 0x%x sub_leaf 0x%x eax 0x%08x ebx 0x%08x ecx 0x%08x edx 0x%08x\n",
 			 i, config->function, config->index,
 			 config->eax, config->ebx, config->ecx, config->edx);
@@ -88,7 +91,7 @@ static struct kvm_tdx_capabilities *tdx_read_capabilities(struct kvm_vm *vm)
 }
 
 static struct kvm_cpuid_entry2 *tdx_find_cpuid_config(struct kvm_tdx_capabilities *cap,
-							  uint32_t leaf, uint32_t sub_leaf)
+						      uint32_t leaf, uint32_t sub_leaf)
 {
 	struct kvm_cpuid_entry2 *config;
 	uint32_t i;
@@ -96,9 +99,8 @@ static struct kvm_cpuid_entry2 *tdx_find_cpuid_config(struct kvm_tdx_capabilitie
 	for (i = 0; i < cap->cpuid.nent; i++) {
 		config = &cap->cpuid.entries[i];
 
-		if (config->function == leaf && config->index == sub_leaf) {
+		if (config->function == leaf && config->index == sub_leaf)
 			return config;
-		}
 	}
 
 	return NULL;
@@ -139,16 +141,16 @@ static void tdx_apply_cpuid_restrictions(struct kvm_cpuid2 *cpuid_data)
 
 #define KVM_MAX_CPUID_ENTRIES 256
 
-#define CPUID_EXT_VMX      (1U << 5)
-#define CPUID_EXT_SMX      (1U << 6)
-#define CPUID_PSE36   (1U << 17)
-#define CPUID_7_0_EBX_TSC_ADJUST        (1U << 1)
-#define CPUID_7_0_EBX_SGX               (1U << 2)
-#define CPUID_7_0_EBX_INTEL_PT          (1U << 25)
-#define CPUID_7_0_ECX_SGX_LC            (1U << 30)
-#define CPUID_APM_INVTSC       (1U << 8)
-#define CPUID_8000_0008_EBX_WBNOINVD    (1U << 9)
-#define CPUID_EXT_PDCM     (1U << 15)
+#define CPUID_EXT_VMX			BIT(5)
+#define CPUID_EXT_SMX			BIT(6)
+#define CPUID_PSE36			BIT(17)
+#define CPUID_7_0_EBX_TSC_ADJUST	BIT(1)
+#define CPUID_7_0_EBX_SGX		BIT(2)
+#define CPUID_7_0_EBX_INTEL_PT		BIT(25)
+#define CPUID_7_0_ECX_SGX_LC		BIT(30)
+#define CPUID_APM_INVTSC		BIT(8)
+#define CPUID_8000_0008_EBX_WBNOINVD	BIT(9)
+#define CPUID_EXT_PDCM			BIT(15)
 
 #define TDX_SUPPORTED_KVM_FEATURES  ((1U << KVM_FEATURE_NOP_IO_DELAY) | \
 				     (1U << KVM_FEATURE_PV_UNHALT) |	\
@@ -157,7 +159,6 @@ static void tdx_apply_cpuid_restrictions(struct kvm_cpuid2 *cpuid_data)
 				     (1U << KVM_FEATURE_POLL_CONTROL) | \
 				     (1U << KVM_FEATURE_PV_SCHED_YIELD) | \
 				     (1U << KVM_FEATURE_MSI_EXT_DEST_ID))
-
 
 void __tdx_mask_cpuid_features(struct kvm_cpuid_entry2 *entry)
 {
@@ -210,8 +211,8 @@ void tdx_filter_cpuid(struct kvm_vm *vm, struct kvm_cpuid2 *cpuid_data)
 
 			if (left > 0)
 				memmove(cpuid_data->entries + i,
-				       cpuid_data->entries + i + 1,
-				       sizeof(*cpuid_data->entries) * left);
+					cpuid_data->entries + i + 1,
+					sizeof(*cpuid_data->entries) * left);
 			cpuid_data->nent--;
 			continue;
 		}
@@ -237,10 +238,14 @@ static void __tdx_adjust_cpuid(struct kvm_cpuid_entry2 *entry)
 	case 0x2:
 		/* TDX module hardcodes the values for leaf 0x2 */
 		entry->eax = 0x00feff01;
-		entry->ebx = entry->ecx = entry->edx = 0;
+		entry->ebx = 0;
+		entry->ecx = 0;
+		entry->edx = 0;
 		break;
 	case 0x80000000:
-		entry->ebx = entry->ecx = entry->edx = 0;
+		entry->ebx = 0;
+		entry->ecx = 0;
+		entry->edx = 0;
 		break;
 	case 0x80000001:
 		entry->eax = 0;
@@ -310,7 +315,7 @@ static void tdx_init_mem_region(struct kvm_vm *vm, void *source_pages,
 	vcpu = list_first_entry_or_null(&vm->vcpus, struct kvm_vcpu, list);
 
 	TEST_ASSERT((mem_region.nr_pages > 0) &&
-			    ((mem_region.nr_pages * PAGE_SIZE) == size),
+		    ((mem_region.nr_pages * PAGE_SIZE) == size),
 		    "Cannot add partial pages to the guest memory.\n");
 	TEST_ASSERT(((uint64_t)source_pages & (PAGE_SIZE - 1)) == 0,
 		    "Source memory buffer is not page aligned\n");
@@ -358,7 +363,7 @@ static void load_td_boot_code(struct kvm_vm *vm)
 	void *boot_code_hva = addr_gpa2hva(vm, FOUR_GIGABYTES_GPA - TD_BOOT_CODE_SIZE);
 
 	TEST_ASSERT(td_boot_code_end - reset_vector == 16,
-		"The reset vector must be 16 bytes in size.");
+		    "The reset vector must be 16 bytes in size.");
 	memcpy(boot_code_hva, td_boot, TD_BOOT_CODE_SIZE);
 }
 
@@ -373,11 +378,11 @@ static void load_td_per_vcpu_parameters(struct td_boot_parameters *params,
 	struct td_per_vcpu_parameters *vcpu_params = &params->per_vcpu[vcpu_index];
 
 	TEST_ASSERT(vcpu->initial_stack_addr != 0,
-		"initial stack address should not be 0");
+		    "initial stack address should not be 0");
 	TEST_ASSERT(vcpu->initial_stack_addr <= 0xffffffff,
-		"initial stack address must fit in 32 bits");
+		    "initial stack address must fit in 32 bits");
 	TEST_ASSERT((uint64_t)guest_code <= 0xffffffff,
-		"guest_code must fit in 32 bits");
+		    "guest_code must fit in 32 bits");
 	TEST_ASSERT(sregs->cs.selector != 0, "cs.selector should not be 0");
 
 	vcpu_params->esp_gva = (uint32_t)(uint64_t)vcpu->initial_stack_addr;
@@ -388,7 +393,7 @@ static void load_td_per_vcpu_parameters(struct td_boot_parameters *params,
 }
 
 static void load_td_common_parameters(struct td_boot_parameters *params,
-				struct kvm_sregs *sregs)
+				      struct kvm_sregs *sregs)
 {
 	/* Set parameters! */
 	params->cr0 = sregs->cr0;
@@ -406,7 +411,7 @@ static void load_td_common_parameters(struct td_boot_parameters *params,
 }
 
 static void load_td_boot_parameters(struct td_boot_parameters *params,
-				struct kvm_vcpu *vcpu, void *guest_code)
+				    struct kvm_vcpu *vcpu, void *guest_code)
 {
 	struct kvm_sregs sregs;
 
@@ -421,7 +426,7 @@ static void load_td_boot_parameters(struct td_boot_parameters *params,
 	load_td_per_vcpu_parameters(params, &sregs, vcpu, guest_code);
 }
 
-/**
+/*
  * Adds a vCPU to a TD (Trusted Domain) with minimum defaults. It will not set
  * up any general purpose registers as they will be initialized by the TDX. In
  * TDX, vCPUs RIP is set to 0xFFFFFFF0. See Intel TDX EAS Section "Initial State
@@ -450,7 +455,7 @@ struct kvm_vcpu *td_vcpu_add(struct kvm_vm *vm, uint32_t vcpu_id, void *guest_co
 	return vcpu;
 }
 
-/**
+/*
  * Iterate over set ranges within sparsebit @s. In each iteration,
  * @range_begin and @range_end will take the beginning and end of the set range,
  * which are of type sparsebit_idx_t.
@@ -509,9 +514,8 @@ static void load_td_memory_region(struct kvm_vm *vm,
 		 */
 		source_addr = mmap(NULL, size_to_load, PROT_READ | PROT_WRITE,
 				   MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-		TEST_ASSERT(
-			source_addr,
-			"Could not allocate memory for loading memory region");
+		TEST_ASSERT(source_addr,
+			    "Could not allocate memory for loading memory region");
 
 		memcpy(source_addr, (void *)hva, size_to_load);
 
@@ -575,7 +579,8 @@ static void td_setup_boot_parameters(struct kvm_vm *vm, enum vm_mem_backing_src_
 	vm_userspace_mem_region_add(vm, src_type, TD_BOOT_PARAMETERS_GPA, 2,
 				    npages, KVM_MEM_GUEST_MEMFD);
 	vm->memslots[MEM_REGION_TDX_BOOT_PARAMS] = 2;
-	addr = vm_vaddr_alloc_1to1(vm, total_size, TD_BOOT_PARAMETERS_GPA, MEM_REGION_TDX_BOOT_PARAMS);
+	addr = vm_vaddr_alloc_1to1(vm, total_size, TD_BOOT_PARAMETERS_GPA,
+				   MEM_REGION_TDX_BOOT_PARAMS);
 	TEST_ASSERT_EQ(addr, TD_BOOT_PARAMETERS_GPA);
 }
 

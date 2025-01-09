@@ -3,7 +3,7 @@
 #define SELFTEST_TDX_TD_BOOT_ASM_H
 
 /*
- * GPA where TD boot parameters wil lbe loaded.
+ * GPA where TD boot parameters will be loaded.
  *
  * TD_BOOT_PARAMETERS_GPA is arbitrarily chosen to
  *

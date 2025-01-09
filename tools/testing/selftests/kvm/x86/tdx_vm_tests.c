@@ -590,10 +590,6 @@ void verify_guest_msr_reads(void)
 	 * used in the test.
 	 */
 	printf("\t ... Setting test MSR filter\n");
-	ret = kvm_check_cap(KVM_CAP_X86_USER_SPACE_MSR);
-	TEST_ASSERT(ret, "KVM_CAP_X86_USER_SPACE_MSR is unavailable");
-	vm_enable_cap(vm, KVM_CAP_X86_USER_SPACE_MSR, KVM_MSR_EXIT_REASON_FILTER);
-
 	ret = kvm_check_cap(KVM_CAP_X86_MSR_FILTER);
 	TEST_ASSERT(ret, "KVM_CAP_X86_MSR_FILTER is unavailable");
 
@@ -681,10 +677,6 @@ void verify_guest_msr_writes(void)
 	 * used in the test.
 	 */
 	printf("\t ... Setting test MSR filter\n");
-	ret = kvm_check_cap(KVM_CAP_X86_USER_SPACE_MSR);
-	TEST_ASSERT(ret, "KVM_CAP_X86_USER_SPACE_MSR is unavailable");
-	vm_enable_cap(vm, KVM_CAP_X86_USER_SPACE_MSR, KVM_MSR_EXIT_REASON_FILTER);
-
 	ret = kvm_check_cap(KVM_CAP_X86_MSR_FILTER);
 	TEST_ASSERT(ret, "KVM_CAP_X86_MSR_FILTER is unavailable");
 

@@ -351,27 +351,27 @@ void guest_io_writes(void)
 	uint64_t ret;
 
 	ret = tdg_vp_vmcall_instruction_io(TDX_IO_WRITES_TEST_PORT, 1,
-					TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
-					&byte_1);
+					   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
+					   &byte_1);
 	if (ret)
 		tdx_test_fatal(ret);
 
 	ret = tdg_vp_vmcall_instruction_io(TDX_IO_WRITES_TEST_PORT, 2,
-					TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
-					&byte_2);
+					   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
+					   &byte_2);
 	if (ret)
 		tdx_test_fatal(ret);
 
 	ret = tdg_vp_vmcall_instruction_io(TDX_IO_WRITES_TEST_PORT, 4,
-					TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
-					&byte_4);
+					   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
+					   &byte_4);
 	if (ret)
 		tdx_test_fatal(ret);
 
 	// Write an invalid number of bytes.
 	ret = tdg_vp_vmcall_instruction_io(TDX_IO_WRITES_TEST_PORT, 5,
-					TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
-					&byte_4);
+					   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
+					   &byte_4);
 	if (ret)
 		tdx_test_fatal(ret);
 

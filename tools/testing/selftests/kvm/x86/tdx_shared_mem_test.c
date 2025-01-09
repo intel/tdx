@@ -81,7 +81,7 @@ int verify_shared_mem(void)
 	TEST_ASSERT_EQ(test_mem_private_gva, TDX_SHARED_MEM_TEST_PRIVATE_GVA);
 
 	test_mem_hva = addr_gva2hva(vm, test_mem_private_gva);
-	TEST_ASSERT(test_mem_hva != NULL,
+	TEST_ASSERT(test_mem_hva,
 		    "Guest address not found in guest memory regions\n");
 
 	test_mem_private_gpa = addr_gva2gpa(vm, test_mem_private_gva);
@@ -114,9 +114,8 @@ int verify_shared_mem(void)
 	td_vcpu_run(vcpu);
 	tdx_test_assert_io(vcpu, TDX_SHARED_MEM_TEST_INFO_PORT, 4,
 			   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
-	TEST_ASSERT_EQ(
-		*(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset),
-		TDX_SHARED_MEM_TEST_HOST_WRITE_VALUE);
+	TEST_ASSERT_EQ(*(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset),
+		       TDX_SHARED_MEM_TEST_HOST_WRITE_VALUE);
 
 	printf("\t ... PASSED\n");
 

@@ -618,7 +618,7 @@ void td_vcpu_run(struct kvm_vcpu *vcpu)
 	}
 }
 
-/**
+/*
  * Handle conversion of memory with @size beginning @gpa for @vm. Set
  * @shared_to_private to true for shared to private conversions and false
  * otherwise.
@@ -629,7 +629,7 @@ void td_vcpu_run(struct kvm_vcpu *vcpu)
  * KVM_MEMORY_ENCRYPT_UNREG_REGION.
  */
 void handle_memory_conversion(struct kvm_vm *vm, uint64_t gpa, uint64_t size,
-			bool shared_to_private)
+			      bool shared_to_private)
 {
 	struct kvm_memory_attributes range;
 
@@ -638,7 +638,8 @@ void handle_memory_conversion(struct kvm_vm *vm, uint64_t gpa, uint64_t size,
 	range.attributes = shared_to_private ? KVM_MEMORY_ATTRIBUTE_PRIVATE : 0;
 	range.flags = 0;
 
-	printf("\t ... calling KVM_SET_MEMORY_ATTRIBUTES ioctl with gpa=%#lx, size=%#lx, attributes=%#llx\n", gpa, size, range.attributes);
+	printf("\t ... call KVM_SET_MEMORY_ATTRIBUTES ioctl with gpa=%#lx, size=%#lx, attributes=%#llx\n",
+	       gpa, size, range.attributes);
 
 	vm_ioctl(vm, KVM_SET_MEMORY_ATTRIBUTES, &range);
 }

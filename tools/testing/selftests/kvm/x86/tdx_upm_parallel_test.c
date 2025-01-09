@@ -2,6 +2,7 @@
 
 #include <asm/vmx.h>
 #include <linux/kvm.h>
+#include <linux/sizes.h>
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -50,7 +51,7 @@
 		BIT_ULL(TDX_UPM_TEST_AREA_GVA_SHARED_BIT))
 
 /* The test area is 2MB in size */
-#define TDX_UPM_TEST_AREA_SIZE		(2 << 20)
+#define TDX_UPM_TEST_AREA_SIZE		SZ_2M
 
 struct tdx_upm_test_area {
 	uint8_t area[TDX_UPM_TEST_AREA_SIZE];
@@ -89,6 +90,7 @@ struct guest_args {
 	bool allow_mmio;
 	bool disallow_accept;
 };
+
 static struct guest_args guest_args[TDX_VCPU_MAX];
 
 static uint64_t guest_vcpu_id(void)
@@ -112,7 +114,7 @@ static void my_memset(void *s, int c, size_t count)
 		 * *(uint8_t *)s = c;
 		 */
 		asm volatile ("movb %0, %1"
-			      : : "q"((uint8_t)c), "m"(*(volatile uint8_t*)xs)
+			      : : "q"((uint8_t)c), "m"(*(volatile uint8_t *)xs)
 			      : "memory");
 
 		xs++;
@@ -134,9 +136,8 @@ static void guest_access(void)
 		my_memset(gva, PATTERN_GUEST_GENERAL, size);
 
 		num_iterations++;
-		if (!(num_iterations % 1000)) {
+		if (!(num_iterations % 1000))
 			tdx_test_report_to_user_space(num_iterations);
-		}
 	}
 
 	tdx_test_success();
@@ -230,9 +231,8 @@ struct host_args {
 static void host_check_iter(const char *fmt, uint32_t *num_iterations)
 {
 	(*num_iterations)++;
-	if ((*num_iterations % 200) == 0) {
+	if ((*num_iterations % 200) == 0)
 		pr_debug(fmt, *num_iterations);
-	}
 }
 
 static void *punch_hole(void *args__)
@@ -352,7 +352,7 @@ static struct kvm_vcpu *create_vcpu(struct kvm_vm *vm, uint32_t vcpu_id,
 
 		.shared_gpa = shared_gpa,
 		.allow_mmio = allow_mmio,
-		disallow_accept = disallow_accept,
+		.disallow_accept = disallow_accept,
 	};
 
 	return td_vcpu_add(vm, vcpu_id, guest_access);
@@ -405,9 +405,9 @@ static void guest_thread_create_vcpus(struct kvm_vm *vm,
 
 	for (i = 0; i < guest_threads->nr_threads; i++) {
 		guest_threads->vcpus[i] = create_vcpu(vm, vcpu_id,
-						     c[i].shared_gpa,
-						     c[i].allow_mmio,
-						     c[i].disallow_accept);
+						      c[i].shared_gpa,
+						      c[i].allow_mmio,
+						      c[i].disallow_accept);
 		guest_threads->args[i] = (struct selftest_args) {
 			.vm = vm,
 			.vcpu = guest_threads->vcpus[i],
@@ -532,7 +532,7 @@ static void host_thread_create(struct kvm_vm *vm, uint32_t slot,
 				break;
 			case HOST_THREAD_TYPE_MAX:
 			default:
-				TEST_FAIL("unkonw host thread type %d", ht_type);
+				TEST_FAIL("unknown host thread type %d", ht_type);
 				break;
 			}
 
@@ -589,9 +589,10 @@ static void __verify_upm_test(int nr_guest_vcpus, struct guest_vcpu_config *conf
 				    slot, test_area_npages, KVM_MEM_GUEST_MEMFD);
 	vm->memslots[MEM_REGION_TEST_DATA] = slot;
 
-	test_area_gva_private = vm_vaddr_alloc_private(
-		vm, TDX_UPM_TEST_AREA_SIZE, TDX_UPM_TEST_AREA_GVA_PRIVATE,
-		TDX_UPM_TEST_AREA_GPA, MEM_REGION_TEST_DATA);
+	test_area_gva_private = vm_vaddr_alloc_private(vm, TDX_UPM_TEST_AREA_SIZE,
+						       TDX_UPM_TEST_AREA_GVA_PRIVATE,
+						       TDX_UPM_TEST_AREA_GPA,
+						       MEM_REGION_TEST_DATA);
 	TEST_ASSERT_EQ(test_area_gva_private, TDX_UPM_TEST_AREA_GVA_PRIVATE);
 
 	test_area_gpa_private = (struct tdx_upm_test_area *)
@@ -600,14 +601,13 @@ static void __verify_upm_test(int nr_guest_vcpus, struct guest_vcpu_config *conf
 			(uint64_t)test_area_gpa_private,
 			test_area_npages);
 	TEST_ASSERT_EQ(addr_gva2gpa(vm, TDX_UPM_TEST_AREA_GVA_SHARED),
-		  (vm_paddr_t)test_area_gpa_private);
+		       (vm_paddr_t)test_area_gpa_private);
 
 	sync_global_to_guest(vm, guest_args);
 
 	guest_thread_create_vcpus(vm, &guest_threads);
 
 	td_finalize(vm);
-
 
 	nr_threads = guest_threads.nr_threads + host_threads.nr_threads + 1;
 	ret = pthread_barrier_init(&start_barrier, NULL, nr_threads);

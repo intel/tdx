@@ -341,13 +341,6 @@ static void tdx_enable_capabilities(struct kvm_vm *vm)
 	vm_enable_cap(vm, KVM_CAP_SPLIT_IRQCHIP, 24);
 }
 
-static void tdx_configure_memory_encryption(struct kvm_vm *vm)
-{
-	/* Configure shared/enCrypted bit for this VM according to TDX spec */
-	vm->arch.s_bit = 1ULL << (vm->pa_bits - 1);
-	vm->arch.c_bit = 0;
-}
-
 static void tdx_apply_cr4_restrictions(struct kvm_sregs *sregs)
 {
 	/* TDX spec 11.6.2: CR4 bit MCE is fixed to 1 */
@@ -592,8 +585,6 @@ void td_initialize(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
 	uint64_t nr_pages_required;
 
 	tdx_enable_capabilities(vm);
-
-	tdx_configure_memory_encryption(vm);
 
 	tdx_td_init(vm, attributes);
 

@@ -749,7 +749,7 @@ void _verify_guest_hlt(int signum)
 	 * vCPU MP State. If vm has been initialized, then we are in the signal
 	 * handler. Check the MP state and let the guest run again.
 	 */
-	if (vcpu != NULL) {
+	if (vcpu) {
 		struct kvm_mp_state mp_state;
 
 		vcpu_mp_state_get(vcpu, &mp_state);

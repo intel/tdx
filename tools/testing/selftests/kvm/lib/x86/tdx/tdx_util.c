@@ -638,8 +638,8 @@ void handle_memory_conversion(struct kvm_vm *vm, uint64_t gpa, uint64_t size,
 	range.attributes = shared_to_private ? KVM_MEMORY_ATTRIBUTE_PRIVATE : 0;
 	range.flags = 0;
 
-	printf("\t ... call KVM_SET_MEMORY_ATTRIBUTES ioctl with gpa=%#lx, size=%#lx, attributes=%#llx\n",
-	       gpa, size, range.attributes);
+	pr_debug("\t... call KVM_SET_MEMORY_ATTRIBUTES ioctl with gpa=%#lx, size=%#lx, attributes=%#llx\n",
+		 gpa, size, range.attributes);
 
 	vm_ioctl(vm, KVM_SET_MEMORY_ATTRIBUTES, &range);
 }

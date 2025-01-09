@@ -438,24 +438,24 @@ void guest_io_reads(void)
 	uint64_t ret;
 
 	ret = tdg_vp_vmcall_instruction_io(TDX_IO_READS_TEST_PORT, 1,
-					TDG_VP_VMCALL_INSTRUCTION_IO_READ,
-					&data);
+					   TDG_VP_VMCALL_INSTRUCTION_IO_READ,
+					   &data);
 	if (ret)
 		tdx_test_fatal(ret);
 	if (data != 0xAB)
 		tdx_test_fatal(1);
 
 	ret = tdg_vp_vmcall_instruction_io(TDX_IO_READS_TEST_PORT, 2,
-					TDG_VP_VMCALL_INSTRUCTION_IO_READ,
-					&data);
+					   TDG_VP_VMCALL_INSTRUCTION_IO_READ,
+					   &data);
 	if (ret)
 		tdx_test_fatal(ret);
 	if (data != 0xABCD)
 		tdx_test_fatal(2);
 
 	ret = tdg_vp_vmcall_instruction_io(TDX_IO_READS_TEST_PORT, 4,
-					TDG_VP_VMCALL_INSTRUCTION_IO_READ,
-					&data);
+					   TDG_VP_VMCALL_INSTRUCTION_IO_READ,
+					   &data);
 	if (ret)
 		tdx_test_fatal(ret);
 	if (data != 0xFFABCDEF)
@@ -463,8 +463,8 @@ void guest_io_reads(void)
 
 	// Read an invalid number of bytes.
 	ret = tdg_vp_vmcall_instruction_io(TDX_IO_READS_TEST_PORT, 5,
-					TDG_VP_VMCALL_INSTRUCTION_IO_READ,
-					&data);
+					   TDG_VP_VMCALL_INSTRUCTION_IO_READ,
+					   &data);
 	if (ret)
 		tdx_test_fatal(ret);
 

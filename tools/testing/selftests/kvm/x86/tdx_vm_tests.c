@@ -168,11 +168,10 @@ void guest_code_cpuid(void)
 	uint32_t ebx, ecx;
 
 	/* Read CPUID leaf 0x1 */
-	asm volatile (
-		"cpuid"
-		: "=b" (ebx), "=c" (ecx)
-		: "a" (0x1)
-		: "edx");
+	asm volatile ("cpuid"
+		      : "=b" (ebx), "=c" (ecx)
+		      : "a" (0x1)
+		      : "edx");
 
 	err = tdx_test_report_to_user_space(ebx);
 	if (err)

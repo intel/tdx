@@ -69,7 +69,7 @@ void tdx_test_fatal(uint64_t error_code);
  */
 void tdx_test_fatal_with_data(uint64_t error_code, uint64_t data_gpa);
 
-/**
+/*
  * Report a 32 bit value from the guest to user space using TDG.VP.VMCALL
  * <Instruction.IO> call. Data is reported on port TDX_TEST_REPORT_PORT.
  */

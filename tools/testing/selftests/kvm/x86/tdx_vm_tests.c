@@ -1186,7 +1186,7 @@ void verify_tdcall_vp_info(void)
 	uint64_t attributes;
 	uint32_t i;
 	const struct kvm_cpuid_entry2 *cpuid_entry;
-	int max_pa = -1;
+	int gpa_bits = -1;
 
 	vm = td_create();
 
@@ -1206,8 +1206,8 @@ void verify_tdcall_vp_info(void)
 	/* Get KVM CPUIDs for reference */
 	cpuid_entry = get_cpuid_entry(kvm_get_supported_cpuid(), 0x80000008, 0);
 	TEST_ASSERT(cpuid_entry, "CPUID entry missing\n");
-	max_pa = cpuid_entry->eax & 0xff;
-	TEST_ASSERT_EQ((1UL << (max_pa - 1)), tdx_s_bit);
+	gpa_bits = (cpuid_entry->eax & GENMASK(23, 16)) >> 16;
+	TEST_ASSERT_EQ((1UL << (gpa_bits - 1)), tdx_s_bit);
 
 	for (i = 0; i < num_vcpus; i++) {
 		struct kvm_vcpu *vcpu = vcpus[i];
@@ -1246,7 +1246,7 @@ void verify_tdcall_vp_info(void)
 		ret_max_vcpus = (r8 >> 32) & 0xFFFFFFFF;
 
 		/* first bits 5:0 of rcx represent the GPAW */
-		TEST_ASSERT_EQ(rcx & 0x3F, max_pa);
+		TEST_ASSERT_EQ(rcx & 0x3F, gpa_bits);
 		/* next 63:6 bits of rcx is reserved and must be 0 */
 		TEST_ASSERT_EQ(rcx >> 6, 0);
 		TEST_ASSERT_EQ(rdx, attributes);

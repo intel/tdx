@@ -1037,7 +1037,7 @@ void verify_td_cpuid_tdcall(void)
 	tdx_test_assert_success(vcpu);
 
 	/* Get KVM CPUIDs for reference */
-	tmp = get_cpuid_entry(kvm_get_supported_cpuid(), 1, 0);
+	tmp = get_cpuid_entry(vcpu->cpuid, 1, 0);
 	TEST_ASSERT(tmp, "CPUID entry missing\n");
 
 	cpuid_entry = *tmp;

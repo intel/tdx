@@ -1060,17 +1060,18 @@ void guest_host_read_priv_mem(void)
 	uint64_t placeholder = 0;
 
 	/* Set value */
-	*((uint32_t *) tdx_test_host_read_private_mem_addr) = 0xABCD;
+	*((uint32_t *)tdx_test_host_read_private_mem_addr) = 0xABCD;
 
 	/* Exit so host can read value */
-	ret = tdg_vp_vmcall_instruction_io(
-		TDX_HOST_READ_PRIVATE_MEM_PORT_TEST, 4,
-		TDG_VP_VMCALL_INSTRUCTION_IO_WRITE, &placeholder);
+	ret = tdg_vp_vmcall_instruction_io(TDX_HOST_READ_PRIVATE_MEM_PORT_TEST,
+					   4,
+					   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
+					   &placeholder);
 	if (ret)
 		tdx_test_fatal(ret);
 
 	/* Update guest_var's value and have host reread it. */
-	*((uint32_t *) tdx_test_host_read_private_mem_addr) = 0xFEDC;
+	*((uint32_t *)tdx_test_host_read_private_mem_addr) = 0xFEDC;
 
 	tdx_test_success();
 }
@@ -1091,11 +1092,11 @@ void verify_host_reading_private_mem(void)
 
 	test_page = vm_vaddr_alloc_page(vm);
 	TEST_ASSERT(test_page < BIT_ULL(32),
-		"Test address should fit in 32 bits so it can be sent to the guest");
+		    "Test address should fit in 32 bits so it can be sent to the guest");
 
 	host_virt = addr_gva2hva(vm, test_page);
-	TEST_ASSERT(host_virt != NULL,
-		"Guest address not found in guest memory regions\n");
+	TEST_ASSERT(host_virt,
+		    "Guest address not found in guest memory regions\n");
 
 	tdx_test_host_read_private_mem_addr = test_page;
 	sync_global_to_guest(vm, tdx_test_host_read_private_mem_addr);
@@ -1121,10 +1122,10 @@ void verify_host_reading_private_mem(void)
 
 	second_host_read = *host_virt;
 	printf("\t ... Host's second read attempt value: %lu\n",
-		second_host_read);
+	       second_host_read);
 
 	TEST_ASSERT(first_host_read == second_host_read,
-		"Host did not read a fixed pattern\n");
+		    "Host did not read a fixed pattern\n");
 
 	printf("\t ... Fixed pattern was returned to the host\n");
 

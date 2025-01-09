@@ -9,7 +9,7 @@
 #define TDX_TEST_SUCCESS_PORT 0x30
 #define TDX_TEST_SUCCESS_SIZE 4
 
-/**
+/*
  * Assert that tdx_test_success() was called in the guest.
  */
 #define TDX_TEST_ASSERT_SUCCESS(VCPU)					\
@@ -25,7 +25,7 @@
 		(VCPU)->run->io.port, (VCPU)->run->io.size,		\
 		(VCPU)->run->io.direction))
 
-/**
+/*
  * Run a test in a new process.
  *
  * There might be multiple tests we are running and if one test fails, it will
@@ -36,12 +36,12 @@
  */
 int run_in_new_process(void (*func)(void));
 
-/**
+/*
  * Verify that the TDX is supported by KVM.
  */
 bool is_tdx_enabled(void);
 
-/**
+/*
  * Report test success to userspace.
  *
  * Use TDX_TEST_ASSERT_SUCCESS() to assert that this function was called in the

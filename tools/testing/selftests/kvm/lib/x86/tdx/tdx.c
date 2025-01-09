@@ -105,7 +105,7 @@ uint64_t tdg_vp_vmcall_instruction_hlt(uint64_t interrupt_blocked_flag)
 }
 
 uint64_t tdg_vp_vmcall_ve_request_mmio_read(uint64_t address, uint64_t size,
-					uint64_t *data_out)
+					    uint64_t *data_out)
 {
 	uint64_t ret;
 	struct tdx_hypercall_args args = {

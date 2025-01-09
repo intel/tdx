@@ -827,7 +827,7 @@ void guest_mmio_reads(void)
 }
 
 /*
- * Varifies guest MMIO reads.
+ * Verifies guest MMIO reads.
  */
 void verify_mmio_reads(void)
 {

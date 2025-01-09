@@ -20,7 +20,7 @@
 void tdx_test_assert_io(struct kvm_vcpu *vcpu, uint16_t port, uint8_t size,
 			uint8_t direction);
 
-/**
+/*
  * Assert that some MMIO operation involving TDG.VP.VMCALL <#VERequestMMIO> was
  * called in the guest.
  */

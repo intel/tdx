@@ -88,7 +88,7 @@ int verify_shared_mem(void)
 	virt_pg_map_shared(vm, TDX_SHARED_MEM_TEST_SHARED_GVA,
 			   test_mem_private_gpa);
 
-	test_mem_shared_gpa = test_mem_private_gpa | BIT_ULL(vm->pa_bits - 1);
+	test_mem_shared_gpa = test_mem_private_gpa | vm->arch.s_bit;
 	sync_global_to_guest(vm, test_mem_private_gpa);
 	sync_global_to_guest(vm, test_mem_shared_gpa);
 

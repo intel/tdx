@@ -166,10 +166,10 @@ void vcpu_run_and_manage_memory_conversions(struct kvm_vm *vm,
 			continue;
 		} else if (handle_conversions &&
 			vcpu->run->exit_reason == KVM_EXIT_MEMORY_FAULT) {
-			handle_memory_conversion(
-				vm, vcpu->run->memory_fault.gpa,
-				vcpu->run->memory_fault.size,
-				vcpu->run->memory_fault.flags == KVM_MEMORY_EXIT_FLAG_PRIVATE);
+			handle_memory_conversion(vm, vcpu->run->memory_fault.gpa,
+						 vcpu->run->memory_fault.size,
+						 vcpu->run->memory_fault.flags ==
+						  KVM_MEMORY_EXIT_FLAG_PRIVATE);
 			continue;
 		} else if (vcpu->run->exit_reason == KVM_EXIT_IO &&
 			   vcpu->run->io.port == TDX_UPM_TEST_ACCEPT_PRINT_PORT) {
@@ -256,34 +256,29 @@ static void guest_upm_implicit(void)
 
 	tdx_test_report_to_user_space(SYNC_CHECK_READ_PRIVATE_MEMORY_FROM_HOST);
 
-	TDX_UPM_TEST_ASSERT(
-		check_test_area(test_area_gva_private, PATTERN_GUEST_GENERAL));
+	TDX_UPM_TEST_ASSERT(check_test_area(test_area_gva_private, PATTERN_GUEST_GENERAL));
 
 	/* Use focus area as shared */
 	fill_focus_area(test_area_gva_shared, PATTERN_GUEST_FOCUS);
 
 	/* General areas should not be affected */
-	TDX_UPM_TEST_ASSERT(
-		check_general_areas(test_area_gva_private, PATTERN_GUEST_GENERAL));
+	TDX_UPM_TEST_ASSERT(check_general_areas(test_area_gva_private, PATTERN_GUEST_GENERAL));
 
 	tdx_test_report_to_user_space(SYNC_CHECK_READ_SHARED_MEMORY_FROM_HOST);
 
 	/* Check that guest has the same view of shared memory */
-	TDX_UPM_TEST_ASSERT(
-		check_focus_area(test_area_gva_shared, PATTERN_HOST_FOCUS));
+	TDX_UPM_TEST_ASSERT(check_focus_area(test_area_gva_shared, PATTERN_HOST_FOCUS));
 
 	/* Use focus area as private */
 	fill_focus_area(test_area_gva_private, PATTERN_GUEST_FOCUS);
 
 	/* General areas should be unaffected by remapping */
-	TDX_UPM_TEST_ASSERT(
-		check_general_areas(test_area_gva_private, PATTERN_GUEST_GENERAL));
+	TDX_UPM_TEST_ASSERT(check_general_areas(test_area_gva_private, PATTERN_GUEST_GENERAL));
 
 	tdx_test_report_to_user_space(SYNC_CHECK_READ_PRIVATE_MEMORY_FROM_HOST_AGAIN);
 
 	/* Check that guest can use private memory after focus area is remapped as private */
-	TDX_UPM_TEST_ASSERT(
-		fill_and_check(test_area_gva_private, PATTERN_GUEST_GENERAL));
+	TDX_UPM_TEST_ASSERT(fill_and_check(test_area_gva_private, PATTERN_GUEST_GENERAL));
 
 	tdx_test_success();
 }

@@ -66,7 +66,7 @@ struct __packed tdx_upm_test_area {
 };
 
 static void fill_test_area(struct tdx_upm_test_area *test_area_base,
-			uint8_t pattern)
+			   uint8_t pattern)
 {
 	memset(test_area_base, pattern, sizeof(*test_area_base));
 }
@@ -145,7 +145,7 @@ enum {
 
 #define TDX_UPM_TEST_ACCEPT_PRINT_PORT 0x87
 
-/**
+/*
  * Does vcpu_run, and also manages memory conversions if requested by the TD.
  */
 void vcpu_run_and_manage_memory_conversions(struct kvm_vm *vm,
@@ -154,18 +154,20 @@ void vcpu_run_and_manage_memory_conversions(struct kvm_vm *vm,
 	for (;;) {
 		vcpu_run(vcpu);
 		if (vcpu->run->exit_reason == KVM_EXIT_HYPERCALL &&
-			vcpu->run->hypercall.nr == KVM_HC_MAP_GPA_RANGE) {
+		    vcpu->run->hypercall.nr == KVM_HC_MAP_GPA_RANGE) {
 			uint64_t gpa = vcpu->run->hypercall.args[0];
 
-			handle_memory_conversion(vm, gpa, vcpu->run->hypercall.args[1] << 12,
-				vcpu->run->hypercall.args[2] & KVM_MAP_GPA_RANGE_ENCRYPTED);
+			handle_memory_conversion(vm, gpa,
+						 vcpu->run->hypercall.args[1] << 12,
+						 vcpu->run->hypercall.args[2] &
+						  KVM_MAP_GPA_RANGE_ENCRYPTED);
 			vcpu->run->hypercall.ret = 0;
 			continue;
-		} else if (
-			vcpu->run->exit_reason == KVM_EXIT_IO &&
-			vcpu->run->io.port == TDX_UPM_TEST_ACCEPT_PRINT_PORT) {
-			uint64_t gpa = tdx_test_read_64bit(
-				vcpu, TDX_UPM_TEST_ACCEPT_PRINT_PORT);
+		} else if (vcpu->run->exit_reason == KVM_EXIT_IO &&
+			   vcpu->run->io.port == TDX_UPM_TEST_ACCEPT_PRINT_PORT) {
+			uint64_t gpa = tdx_test_read_64bit(vcpu,
+							   TDX_UPM_TEST_ACCEPT_PRINT_PORT);
+
 			printf("\t ... guest accepting 1 page at GPA: 0x%lx\n", gpa);
 			continue;
 		}
@@ -189,8 +191,7 @@ static void guest_upm_explicit(void)
 
 	tdx_test_report_to_user_space(SYNC_CHECK_READ_PRIVATE_MEMORY_FROM_HOST);
 
-	TDX_UPM_TEST_ASSERT(
-		check_test_area(test_area_gva_private, PATTERN_GUEST_GENERAL));
+	TDX_UPM_TEST_ASSERT(check_test_area(test_area_gva_private, PATTERN_GUEST_GENERAL));
 
 	/* Remap focus area as shared */
 	ret = tdg_vp_vmcall_map_gpa((uint64_t)test_area_gpa_shared->focus_area,
@@ -199,16 +200,14 @@ static void guest_upm_explicit(void)
 	TDX_UPM_TEST_ASSERT(!ret);
 
 	/* General areas should be unaffected by remapping */
-	TDX_UPM_TEST_ASSERT(
-		check_general_areas(test_area_gva_private, PATTERN_GUEST_GENERAL));
+	TDX_UPM_TEST_ASSERT(check_general_areas(test_area_gva_private, PATTERN_GUEST_GENERAL));
 
 	/*
 	 * Use memory contents to confirm that the memory allocated using mmap
 	 * is used as backing memory for shared memory - PATTERN_CONFIDENCE_CHECK
 	 * was written by the VMM at the beginning of this test.
 	 */
-	TDX_UPM_TEST_ASSERT(
-		check_focus_area(test_area_gva_shared, PATTERN_CONFIDENCE_CHECK));
+	TDX_UPM_TEST_ASSERT(check_focus_area(test_area_gva_shared, PATTERN_CONFIDENCE_CHECK));
 
 	/* Guest can use focus area after remapping as shared */
 	fill_focus_area(test_area_gva_shared, PATTERN_GUEST_FOCUS);
@@ -216,8 +215,7 @@ static void guest_upm_explicit(void)
 	tdx_test_report_to_user_space(SYNC_CHECK_READ_SHARED_MEMORY_FROM_HOST);
 
 	/* Check that guest has the same view of shared memory */
-	TDX_UPM_TEST_ASSERT(
-		check_focus_area(test_area_gva_shared, PATTERN_HOST_FOCUS));
+	TDX_UPM_TEST_ASSERT(check_focus_area(test_area_gva_shared, PATTERN_HOST_FOCUS));
 
 	/* Remap focus area back to private */
 	ret = tdg_vp_vmcall_map_gpa((uint64_t)test_area_gpa_private->focus_area,
@@ -226,8 +224,7 @@ static void guest_upm_explicit(void)
 	TDX_UPM_TEST_ASSERT(!ret);
 
 	/* General areas should be unaffected by remapping */
-	TDX_UPM_TEST_ASSERT(
-		check_general_areas(test_area_gva_private, PATTERN_GUEST_GENERAL));
+	TDX_UPM_TEST_ASSERT(check_general_areas(test_area_gva_private, PATTERN_GUEST_GENERAL));
 
 	/* Focus area should be zeroed after remapping */
 	TDX_UPM_TEST_ASSERT(check_focus_area(test_area_gva_private, 0));
@@ -235,8 +232,7 @@ static void guest_upm_explicit(void)
 	tdx_test_report_to_user_space(SYNC_CHECK_READ_PRIVATE_MEMORY_FROM_HOST_AGAIN);
 
 	/* Check that guest can use private memory after focus area is remapped as private */
-	TDX_UPM_TEST_ASSERT(
-		fill_and_check(test_area_gva_private, PATTERN_GUEST_GENERAL));
+	TDX_UPM_TEST_ASSERT(fill_and_check(test_area_gva_private, PATTERN_GUEST_GENERAL));
 
 	tdx_test_success();
 }
@@ -249,7 +245,7 @@ static void run_selftest(struct kvm_vm *vm, struct kvm_vcpu *vcpu,
 	tdx_test_assert_io(vcpu, TDX_TEST_REPORT_PORT, TDX_TEST_REPORT_SIZE,
 			   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
 	TEST_ASSERT_EQ(*(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset),
-		  SYNC_CHECK_READ_PRIVATE_MEMORY_FROM_HOST);
+		       SYNC_CHECK_READ_PRIVATE_MEMORY_FROM_HOST);
 
 	/*
 	 * Check that host should read PATTERN_CONFIDENCE_CHECK from guest's
@@ -259,19 +255,19 @@ static void run_selftest(struct kvm_vm *vm, struct kvm_vcpu *vcpu,
 	 * memory before starting the guest.
 	 */
 	TEST_ASSERT(check_test_area(test_area_base_hva, PATTERN_CONFIDENCE_CHECK),
-		"Host should read PATTERN_CONFIDENCE_CHECK from guest's private memory.");
+		    "Host should read PATTERN_CONFIDENCE_CHECK from guest's private memory.");
 
 	vcpu_run_and_manage_memory_conversions(vm, vcpu);
 	tdx_test_check_guest_failure(vcpu);
 	tdx_test_assert_io(vcpu, TDX_TEST_REPORT_PORT, TDX_TEST_REPORT_SIZE,
 			   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
 	TEST_ASSERT_EQ(*(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset),
-		  SYNC_CHECK_READ_SHARED_MEMORY_FROM_HOST);
+		       SYNC_CHECK_READ_SHARED_MEMORY_FROM_HOST);
 
 	TEST_ASSERT(check_focus_area(test_area_base_hva, PATTERN_GUEST_FOCUS),
-		"Host should have the same view of shared memory as guest.");
+		    "Host should have the same view of shared memory as guest.");
 	TEST_ASSERT(check_general_areas(test_area_base_hva, PATTERN_CONFIDENCE_CHECK),
-		"Host's view of private memory should still be backed by regular memory.");
+		    "Host's view of private memory should still be backed by regular memory.");
 
 	/* Check that host can use shared memory */
 	fill_focus_area(test_area_base_hva, PATTERN_HOST_FOCUS);
@@ -283,12 +279,12 @@ static void run_selftest(struct kvm_vm *vm, struct kvm_vcpu *vcpu,
 	tdx_test_assert_io(vcpu, TDX_TEST_REPORT_PORT, TDX_TEST_REPORT_SIZE,
 			   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
 	TEST_ASSERT_EQ(*(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset),
-		  SYNC_CHECK_READ_PRIVATE_MEMORY_FROM_HOST_AGAIN);
+		       SYNC_CHECK_READ_PRIVATE_MEMORY_FROM_HOST_AGAIN);
 
 	TEST_ASSERT(check_general_areas(test_area_base_hva, PATTERN_CONFIDENCE_CHECK),
-		"Host's view of private memory should be backed by regular memory.");
+		    "Host's view of private memory should be backed by regular memory.");
 	TEST_ASSERT(check_focus_area(test_area_base_hva, PATTERN_HOST_FOCUS),
-		"Host's view of private memory should be backed by regular memory.");
+		    "Host's view of private memory should be backed by regular memory.");
 
 	vcpu_run(vcpu);
 	tdx_test_check_guest_failure(vcpu);
@@ -314,10 +310,9 @@ static void guest_ve_handler(struct ex_regs *regs)
 	TDX_UPM_TEST_ASSERT(ve.exit_reason == EXIT_REASON_EPT_VIOLATION);
 
 	/* Validate GPA in fault */
-	TDX_UPM_TEST_ASSERT(
-		address_between(ve.gpa,
-				test_area_gpa_private->focus_area,
-				test_area_gpa_private->general_area_1));
+	TDX_UPM_TEST_ASSERT(address_between(ve.gpa,
+					    test_area_gpa_private->focus_area,
+					    test_area_gpa_private->general_area_1));
 
 	tdx_test_send_64bit(TDX_UPM_TEST_ACCEPT_PRINT_PORT, ve.gpa);
 
@@ -353,9 +348,10 @@ static void verify_upm_test(void)
 				    3, test_area_npages, KVM_MEM_GUEST_MEMFD);
 	vm->memslots[MEM_REGION_TEST_DATA] = 3;
 
-	test_area_gva_private = ____vm_vaddr_alloc(
-		vm, TDX_UPM_TEST_AREA_SIZE, TDX_UPM_TEST_AREA_GVA_PRIVATE,
-		TDX_UPM_TEST_AREA_GPA, MEM_REGION_TEST_DATA, true);
+	test_area_gva_private = ____vm_vaddr_alloc(vm, TDX_UPM_TEST_AREA_SIZE,
+						   TDX_UPM_TEST_AREA_GVA_PRIVATE,
+						   TDX_UPM_TEST_AREA_GPA,
+						   MEM_REGION_TEST_DATA, true);
 	TEST_ASSERT_EQ(test_area_gva_private, TDX_UPM_TEST_AREA_GVA_PRIVATE);
 
 	test_area_gpa_private = (struct tdx_upm_test_area *)
@@ -364,12 +360,12 @@ static void verify_upm_test(void)
 			(uint64_t)test_area_gpa_private,
 			test_area_npages);
 	TEST_ASSERT_EQ(addr_gva2gpa(vm, TDX_UPM_TEST_AREA_GVA_SHARED) & ~vm->arch.s_bit,
-		  (vm_paddr_t)test_area_gpa_private);
+		       (vm_paddr_t)test_area_gpa_private);
 
 	test_area_base_hva = addr_gva2hva(vm, TDX_UPM_TEST_AREA_GVA_PRIVATE);
 
 	TEST_ASSERT(fill_and_check(test_area_base_hva, PATTERN_CONFIDENCE_CHECK),
-		"Failed to mark memory intended as backing memory for TD shared memory");
+		    "Failed to mark memory intended as backing memory for TD shared memory");
 
 	sync_global_to_guest(vm, test_area_gpa_private);
 	test_area_gpa_shared = (struct tdx_upm_test_area *)

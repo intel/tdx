@@ -138,8 +138,8 @@ uint64_t tdg_vp_vmcall_ve_request_mmio_write(uint64_t address, uint64_t size,
 }
 
 uint64_t tdg_vp_vmcall_instruction_cpuid(uint32_t eax, uint32_t ecx,
-					uint32_t *ret_eax, uint32_t *ret_ebx,
-					uint32_t *ret_ecx, uint32_t *ret_edx)
+					 uint32_t *ret_eax, uint32_t *ret_ebx,
+					 uint32_t *ret_ecx, uint32_t *ret_edx)
 {
 	uint64_t ret;
 	struct tdx_hypercall_args args = {
@@ -147,7 +147,6 @@ uint64_t tdg_vp_vmcall_instruction_cpuid(uint32_t eax, uint32_t ecx,
 		.r12 = eax,
 		.r13 = ecx,
 	};
-
 
 	ret = __tdx_hypercall(&args, TDX_HCALL_HAS_OUTPUT);
 

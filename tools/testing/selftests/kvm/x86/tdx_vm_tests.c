@@ -968,7 +968,7 @@ void guest_code_cpuid_tdcall(void)
 
 	// Read CPUID leaf 0x1 from host.
 	err = tdg_vp_vmcall_instruction_cpuid(/*eax=*/1, /*ecx=*/0,
-					&eax, &ebx, &ecx, &edx);
+					      &eax, &ebx, &ecx, &edx);
 	if (err)
 		tdx_test_fatal(err);
 

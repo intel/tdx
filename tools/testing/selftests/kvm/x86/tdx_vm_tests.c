@@ -125,8 +125,8 @@ void verify_td_ioexit(void)
 
 	/* Wait for guest to do a IO write */
 	td_vcpu_run(vcpu);
-	TDX_TEST_CHECK_GUEST_FAILURE(vcpu);
-	TDX_TEST_ASSERT_IO(vcpu, TDX_IOEXIT_TEST_PORT, 1,
+	tdx_test_check_guest_failure(vcpu);
+	tdx_test_assert_io(vcpu, TDX_IOEXIT_TEST_PORT, 1,
 			   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
 	port_data = *(uint8_t *)((void *)vcpu->run + vcpu->run->io.data_offset);
 
@@ -137,8 +137,8 @@ void verify_td_ioexit(void)
 	 * + 1 back to the guest
 	 */
 	td_vcpu_run(vcpu);
-	TDX_TEST_CHECK_GUEST_FAILURE(vcpu);
-	TDX_TEST_ASSERT_IO(vcpu, TDX_IOEXIT_TEST_PORT, 1,
+	tdx_test_check_guest_failure(vcpu);
+	tdx_test_assert_io(vcpu, TDX_IOEXIT_TEST_PORT, 1,
 			   TDG_VP_VMCALL_INSTRUCTION_IO_READ);
 	*(uint8_t *)((void *)vcpu->run + vcpu->run->io.data_offset) = port_data + 1;
 
@@ -149,7 +149,7 @@ void verify_td_ioexit(void)
 	 * value is checked within the guest.
 	 */
 	td_vcpu_run(vcpu);
-	TDX_TEST_CHECK_GUEST_FAILURE(vcpu);
+	tdx_test_check_guest_failure(vcpu);
 	tdx_test_assert_success(vcpu);
 
 	printf("\t ... IO verify read/write values: OK\n");

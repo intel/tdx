@@ -455,35 +455,6 @@ struct kvm_vcpu *td_vcpu_add(struct kvm_vm *vm, uint32_t vcpu_id, void *guest_co
 	return vcpu;
 }
 
-/*
- * Iterate over set ranges within sparsebit @s. In each iteration,
- * @range_begin and @range_end will take the beginning and end of the set range,
- * which are of type sparsebit_idx_t.
- *
- * For example, if the range [3, 7] (inclusive) is set, within the iteration,
- * @range_begin will take the value 3 and @range_end will take the value 7.
- *
- * Ensure that there is at least one bit set before using this macro with
- * sparsebit_any_set(), because sparsebit_first_set() will abort if none are
- * set.
- */
-#define sparsebit_for_each_set_range(s, range_begin, range_end)		\
-	for (range_begin = sparsebit_first_set(s),			\
-		     range_end = sparsebit_next_clear(s, range_begin) - 1; \
-	     range_begin && range_end;					\
-	     range_begin = sparsebit_next_set(s, range_end),		\
-		     range_end = sparsebit_next_clear(s, range_begin) - 1)
-/*
- * sparsebit_next_clear() can return 0 if [x, 2**64-1] are all set, and the -1
- * would then cause an underflow back to 2**64 - 1. This is expected and
- * correct.
- *
- * If the last range in the sparsebit is [x, y] and we try to iterate,
- * sparsebit_next_set() will return 0, and sparsebit_next_clear() will try and
- * find the first range, but that's correct because the condition expression
- * would cause us to quit the loop.
- */
-
 static void load_td_memory_region(struct kvm_vm *vm,
 				  struct userspace_mem_region *region)
 {

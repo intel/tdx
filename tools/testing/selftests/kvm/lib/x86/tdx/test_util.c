@@ -30,6 +30,25 @@ void tdx_test_assert_io(struct kvm_vcpu *vcpu, uint16_t port, uint8_t size,
 		    vcpu->run->io.direction);
 }
 
+void tdx_test_assert_mmio(struct kvm_vcpu *vcpu, uint64_t phys_addr,
+			  uint32_t size, uint8_t is_write)
+{
+	TEST_ASSERT(vcpu->run->exit_reason == KVM_EXIT_MMIO,
+		    "Got exit_reason other than KVM_EXIT_MMIO: %u (%s)\n",
+		    vcpu->run->exit_reason,
+		    exit_reason_str(vcpu->run->exit_reason));
+
+	TEST_ASSERT(vcpu->run->exit_reason == KVM_EXIT_MMIO &&
+		    vcpu->run->mmio.phys_addr == phys_addr &&
+		    vcpu->run->mmio.len == size &&
+		    vcpu->run->mmio.is_write == is_write,
+		    "Got an unexpected MMIO exit values: %u (%s) %llu %u %u\n",
+		    vcpu->run->exit_reason,
+		    exit_reason_str(vcpu->run->exit_reason),
+		    vcpu->run->mmio.phys_addr, vcpu->run->mmio.len,
+		    vcpu->run->mmio.is_write);
+}
+
 void tdx_test_check_guest_failure(struct kvm_vcpu *vcpu)
 {
 	if (vcpu->run->exit_reason == KVM_EXIT_SYSTEM_EVENT)

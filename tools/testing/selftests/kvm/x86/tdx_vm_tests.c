@@ -843,22 +843,22 @@ void verify_mmio_reads(void)
 
 	td_vcpu_run(vcpu);
 	tdx_test_check_guest_failure(vcpu);
-	TDX_TEST_ASSERT_MMIO(vcpu, TDX_MMIO_TEST_ADDR, 1, TDG_VP_VMCALL_VE_REQUEST_MMIO_READ);
+	tdx_test_assert_mmio(vcpu, TDX_MMIO_TEST_ADDR, 1, TDG_VP_VMCALL_VE_REQUEST_MMIO_READ);
 	*(uint8_t *)vcpu->run->mmio.data = 0x12;
 
 	td_vcpu_run(vcpu);
 	tdx_test_check_guest_failure(vcpu);
-	TDX_TEST_ASSERT_MMIO(vcpu, TDX_MMIO_TEST_ADDR, 2, TDG_VP_VMCALL_VE_REQUEST_MMIO_READ);
+	tdx_test_assert_mmio(vcpu, TDX_MMIO_TEST_ADDR, 2, TDG_VP_VMCALL_VE_REQUEST_MMIO_READ);
 	*(uint16_t *)vcpu->run->mmio.data = 0x1234;
 
 	td_vcpu_run(vcpu);
 	tdx_test_check_guest_failure(vcpu);
-	TDX_TEST_ASSERT_MMIO(vcpu, TDX_MMIO_TEST_ADDR, 4, TDG_VP_VMCALL_VE_REQUEST_MMIO_READ);
+	tdx_test_assert_mmio(vcpu, TDX_MMIO_TEST_ADDR, 4, TDG_VP_VMCALL_VE_REQUEST_MMIO_READ);
 	*(uint32_t *)vcpu->run->mmio.data = 0x12345678;
 
 	td_vcpu_run(vcpu);
 	tdx_test_check_guest_failure(vcpu);
-	TDX_TEST_ASSERT_MMIO(vcpu, TDX_MMIO_TEST_ADDR, 8, TDG_VP_VMCALL_VE_REQUEST_MMIO_READ);
+	tdx_test_assert_mmio(vcpu, TDX_MMIO_TEST_ADDR, 8, TDG_VP_VMCALL_VE_REQUEST_MMIO_READ);
 	*(uint64_t *)vcpu->run->mmio.data = 0x1234567890ABCDEF;
 
 	td_vcpu_run(vcpu);

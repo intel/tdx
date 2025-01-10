@@ -24,7 +24,7 @@ void verify_td_lifecycle(void)
 	printf("Verifying TD lifecycle:\n");
 
 	vcpu_run(vcpu);
-	TDX_TEST_ASSERT_SUCCESS(vcpu);
+	tdx_test_assert_success(vcpu);
 
 	kvm_vm_free(vm);
 	printf("\t ... PASSED\n");

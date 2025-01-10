@@ -10,22 +10,6 @@
 #define TDX_TEST_SUCCESS_SIZE 4
 
 /*
- * Assert that tdx_test_success() was called in the guest.
- */
-#define TDX_TEST_ASSERT_SUCCESS(VCPU)					\
-	(TEST_ASSERT(							\
-		((VCPU)->run->exit_reason == KVM_EXIT_IO) &&		\
-		((VCPU)->run->io.port == TDX_TEST_SUCCESS_PORT) &&	\
-		((VCPU)->run->io.size == TDX_TEST_SUCCESS_SIZE) &&	\
-		((VCPU)->run->io.direction ==				\
-			TDG_VP_VMCALL_INSTRUCTION_IO_WRITE),		\
-		"Unexpected exit values while waiting for test completion: %u (%s) %d %d %d\n", \
-		(VCPU)->run->exit_reason,				\
-		exit_reason_str((VCPU)->run->exit_reason),		\
-		(VCPU)->run->io.port, (VCPU)->run->io.size,		\
-		(VCPU)->run->io.direction))
-
-/*
  * Run a test in a new process.
  *
  * There might be multiple tests we are running and if one test fails, it will
@@ -44,9 +28,10 @@ bool is_tdx_enabled(void);
 /*
  * Report test success to userspace.
  *
- * Use TDX_TEST_ASSERT_SUCCESS() to assert that this function was called in the
+ * Use tdx_test_assert_success() to assert that this function was called in the
  * guest.
  */
 void tdx_test_success(void);
+void tdx_test_assert_success(struct kvm_vcpu *vcpu);
 
 #endif // SELFTEST_TDX_TEST_UTIL_H

@@ -44,3 +44,19 @@ void tdx_test_success(void)
 				     TDX_TEST_SUCCESS_SIZE,
 				     TDG_VP_VMCALL_INSTRUCTION_IO_WRITE, &code);
 }
+
+/*
+ * Assert that tdx_test_success() was called in the guest.
+ */
+void tdx_test_assert_success(struct kvm_vcpu *vcpu)
+{
+	TEST_ASSERT((vcpu->run->exit_reason == KVM_EXIT_IO) &&
+		    (vcpu->run->io.port == TDX_TEST_SUCCESS_PORT) &&
+		    (vcpu->run->io.size == TDX_TEST_SUCCESS_SIZE) &&
+		    (vcpu->run->io.direction == TDG_VP_VMCALL_INSTRUCTION_IO_WRITE),
+		    "Unexpected exit values while waiting for test completion: %u (%s) %d %d %d\n",
+		    vcpu->run->exit_reason,
+		    exit_reason_str(vcpu->run->exit_reason),
+		    vcpu->run->io.port, vcpu->run->io.size,
+		    vcpu->run->io.direction);
+}

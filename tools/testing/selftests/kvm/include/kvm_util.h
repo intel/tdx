@@ -1096,7 +1096,6 @@ static inline void virt_pg_map(struct kvm_vm *vm, uint64_t vaddr, uint64_t paddr
  *   vm - Virtual Machine
  *   vaddr - VM Virtual Address
  *   paddr - VM Physical Address
- *   memslot - Memory region slot for new virtual translation tables
  *
  * Output Args: None
  *

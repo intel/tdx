@@ -1548,7 +1548,7 @@ void virt_map(struct kvm_vm *vm, uint64_t vaddr, uint64_t paddr,
  *
  * Input Args:
  *   vm - Virtual Machine
- *   vaddr - Virtuall address to map
+ *   vaddr - Virtual address to map
  *   paddr - VM Physical Address
  *   npages - The number of pages to map
  *

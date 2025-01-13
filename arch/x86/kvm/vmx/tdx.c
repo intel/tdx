@@ -1733,6 +1733,8 @@ static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 {
 	gpa_t gpa = tdexit_gpa(vcpu);
 	unsigned long exit_qual;
+	bool local_retry = false;
+	int ret;
 
 	if (vt_is_tdx_private_gpa(vcpu->kvm, gpa)) {
 		if (tdx_is_sept_violation_unexpected_pending(vcpu)) {
@@ -1751,6 +1753,24 @@ static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 		 * due to aliasing a single HPA to multiple GPAs.
 		 */
 		exit_qual = EPT_VIOLATION_ACC_WRITE;
+
+		/*
+		 * Mapping of private memory may return RET_PF_RETRY due to
+		 * SEAMCALL contention, e.g.
+		 * - TDH.MEM.PAGE.AUG/TDH.MEM.SEPT.ADD on local vCPU may
+		 *   contend with TDH.VP.ENTER (due to 0-step mitigation)
+		 *   on a remote vCPU.
+		 * - TDH.MEM.PAGE.AUG/TDH.MEM.SEPT.ADD on local vCPU may
+		 *   contend with TDG.MEM.PAGE.ACCEPT on a remote vCPU.
+		 *
+		 * Retry internally in TDX to prevent exacerbating the
+		 * activation of 0-step mitigation on local vCPU.
+		 * However, despite these retries, the 0-step mitigation on the
+		 * local vCPU may still be triggered due to:
+		 * - Exiting on signals, interrupts.
+		 * - KVM_EXIT_MEMORY_FAULT.
+		 */
+		local_retry = true;
 	} else {
 		exit_qual = tdexit_exit_qual(vcpu);
 		/*
@@ -1763,7 +1783,24 @@ static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 	}
 
 	trace_kvm_page_fault(vcpu, tdexit_gpa(vcpu), exit_qual);
-	return __vmx_handle_ept_violation(vcpu, tdexit_gpa(vcpu), exit_qual);
+
+	while (1) {
+		ret = __vmx_handle_ept_violation(vcpu, gpa, exit_qual);
+
+		if (ret != RET_PF_RETRY || !local_retry)
+			break;
+
+		/*
+		 * Break and keep the orig return value.
+		 * Signal & irq handling will be done later in vcpu_run()
+		 */
+		if (signal_pending(current) || pi_has_pending_interrupt(vcpu) ||
+		    kvm_test_request(KVM_REQ_NMI, vcpu) || vcpu->arch.nmi_pending)
+			break;
+
+		cond_resched();
+	}
+	return ret;
 }
 
 int tdx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t fastpath)

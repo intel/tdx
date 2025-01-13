@@ -1863,8 +1863,8 @@ static int tdx_gmem_post_populate(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
 	}
 
 	ret = 0;
-	err = tdh_mem_page_add(&kvm_tdx->td, gpa, pfn_to_page(pfn), src_page,
-			       &entry, &level_state);
+	err = tdh_mem_page_add(&kvm_tdx->td, gpa, pfn_to_page(pfn),
+			       src_page, &entry, &level_state);
 	if (err) {
 		ret = unlikely(tdx_operand_busy(err)) ? -EBUSY : -EIO;
 		goto out;

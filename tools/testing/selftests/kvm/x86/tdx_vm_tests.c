@@ -345,9 +345,9 @@ void verify_get_td_vmcall_info(void)
  */
 void guest_io_writes(void)
 {
-	uint64_t byte_1 = 0xAB;
-	uint64_t byte_2 = 0xABCD;
 	uint64_t byte_4 = 0xFFABCDEF;
+	uint64_t byte_2 = 0xABCD;
+	uint64_t byte_1 = 0xAB;
 	uint64_t ret;
 
 	ret = tdg_vp_vmcall_instruction_io(TDX_IO_WRITES_TEST_PORT, 1,
@@ -380,12 +380,11 @@ void guest_io_writes(void)
 
 void verify_guest_writes(void)
 {
-	struct kvm_vm *vm;
 	struct kvm_vcpu *vcpu;
-
-	uint8_t byte_1;
-	uint16_t byte_2;
+	struct kvm_vm *vm;
 	uint32_t byte_4;
+	uint16_t byte_2;
+	uint8_t byte_1;
 
 	vm = td_create();
 	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);

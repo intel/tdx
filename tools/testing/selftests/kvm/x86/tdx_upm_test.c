@@ -3,6 +3,7 @@
 #include <asm/kvm.h>
 #include <asm/vmx.h>
 #include <linux/kvm.h>
+#include <linux/sizes.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -39,11 +40,11 @@
 		BIT_ULL(TDX_UPM_TEST_AREA_GVA_SHARED_BIT))
 
 /* The test area is 2MB in size */
-#define TDX_UPM_TEST_AREA_SIZE (2 << 20)
+#define TDX_UPM_TEST_AREA_SIZE SZ_2M
 /* 0th general area is 1MB in size */
-#define TDX_UPM_GENERAL_AREA_0_SIZE (1 << 20)
+#define TDX_UPM_GENERAL_AREA_0_SIZE SZ_1M
 /* Focus area is 40KB in size */
-#define TDX_UPM_FOCUS_AREA_SIZE (40 << 10)
+#define TDX_UPM_FOCUS_AREA_SIZE (SZ_32K + SZ_8K)
 /* 1st general area is the rest of the space in the test area */
 #define TDX_UPM_GENERAL_AREA_1_SIZE				\
 	(TDX_UPM_TEST_AREA_SIZE - TDX_UPM_GENERAL_AREA_0_SIZE -	\

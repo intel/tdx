@@ -4253,7 +4253,9 @@ static __no_kcsan fastpath_t svm_vcpu_run(struct kvm_vcpu *vcpu,
 		svm_set_dr6(svm, DR6_ACTIVE_LOW);
 
 	clgi();
-	kvm_load_guest_xsave_state(vcpu);
+
+	if (!vcpu->arch.guest_state_protected)
+		kvm_load_guest_xsave_state(vcpu);
 
 	kvm_wait_lapic_expire(vcpu);
 
@@ -4282,7 +4284,8 @@ static __no_kcsan fastpath_t svm_vcpu_run(struct kvm_vcpu *vcpu,
 	if (unlikely(svm->vmcb->control.exit_code == SVM_EXIT_NMI))
 		kvm_before_interrupt(vcpu, KVM_HANDLING_NMI);
 
-	kvm_load_host_xsave_state(vcpu);
+	if (!vcpu->arch.guest_state_protected)
+		kvm_load_host_xsave_state(vcpu);
 	stgi();
 
 	/* Any pending NMI will happen here */

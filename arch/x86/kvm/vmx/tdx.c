@@ -718,6 +718,16 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 		return EXIT_FASTPATH_NONE;
 	}
 
+	/*
+	 * force_immediate_exit requires vCPU entering for events injection with
+	 * an immediately exit followed. But The TDX module doesn't guarantee
+	 * entry, it's already possible for KVM to _think_ it completely entry
+	 * to the guest without actually having done so.
+	 * Since KVM never needs to force an immediate exit for TDX, and can't
+	 * do direct injection, just warn on force_immediate_exit.
+	 */
+	WARN_ON_ONCE(force_immediate_exit);
+
 	trace_kvm_entry(vcpu, force_immediate_exit);
 
 	tdx_vcpu_enter_exit(vcpu);

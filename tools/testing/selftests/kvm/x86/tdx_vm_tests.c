@@ -33,7 +33,7 @@ void verify_td_lifecycle(void)
 
 void guest_code_report_fatal_error(void)
 {
-uint64_t err;
+	uint64_t err;
 
 	/*
 	 * Note: err should follow the GHCI spec definition:
@@ -50,8 +50,8 @@ uint64_t err;
 
 void verify_report_fatal_error(void)
 {
-	struct kvm_vm *vm;
 	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
 
 	vm = td_create();
 	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);

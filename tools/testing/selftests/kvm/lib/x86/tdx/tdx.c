@@ -6,7 +6,6 @@
 uint64_t tdg_vp_vmcall_instruction_io(uint64_t port, uint64_t size,
 				      uint64_t write, uint64_t *data)
 {
-	uint64_t ret;
 	struct tdx_hypercall_args args = {
 		.r10 = TDX_HYPERCALL_STANDARD,
 		.r11 = TDG_VP_VMCALL_INSTRUCTION_IO,
@@ -14,6 +13,7 @@ uint64_t tdg_vp_vmcall_instruction_io(uint64_t port, uint64_t size,
 		.r13 = write,
 		.r14 = port,
 	};
+	uint64_t ret;
 
 	if (write)
 		args.r15 = *data;

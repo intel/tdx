@@ -13,8 +13,8 @@ void guest_code_lifecycle(void)
 
 void verify_td_lifecycle(void)
 {
-	struct kvm_vm *vm;
 	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
 
 	vm = td_create();
 	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);

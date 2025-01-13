@@ -164,8 +164,8 @@ void verify_td_ioexit(void)
  */
 void guest_code_cpuid(void)
 {
-	uint64_t err;
 	uint32_t ebx, ecx;
+	uint64_t err;
 
 	/* Read CPUID leaf 0x1 */
 	asm volatile ("cpuid"
@@ -186,16 +186,15 @@ void guest_code_cpuid(void)
 
 void verify_td_cpuid(void)
 {
-	struct kvm_vm *vm;
-	struct kvm_vcpu *vcpu;
-
-	uint32_t ebx, ecx;
+	uint32_t guest_max_addressable_ids, host_max_addressable_ids;
 	const struct kvm_cpuid_entry2 *cpuid_entry;
 	uint32_t guest_clflush_line_size;
-	uint32_t guest_max_addressable_ids, host_max_addressable_ids;
+	uint32_t guest_initial_apic_id;
 	uint32_t guest_sse3_enabled;
 	uint32_t guest_fma_enabled;
-	uint32_t guest_initial_apic_id;
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	uint32_t ebx, ecx;
 
 	vm = td_create();
 	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);

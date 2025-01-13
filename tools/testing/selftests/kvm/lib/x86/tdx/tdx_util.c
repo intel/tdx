@@ -53,10 +53,10 @@ static void tdx_ioctl(int fd, int ioctl_no, uint32_t flags, void *data)
 
 static struct kvm_tdx_capabilities *tdx_read_capabilities(struct kvm_vm *vm)
 {
-	int i;
-	int rc = -1;
-	int nr_cpuid_configs = 4;
 	struct kvm_tdx_capabilities *tdx_cap = NULL;
+	int nr_cpuid_configs = 4;
+	int rc = -1;
+	int i;
 
 	do {
 		nr_cpuid_configs *= 2;
@@ -194,10 +194,10 @@ static void tdx_mask_cpuid_features(struct kvm_cpuid2 *cpuid_data)
 
 void tdx_filter_cpuid(struct kvm_vm *vm, struct kvm_cpuid2 *cpuid_data)
 {
-	int i;
-	struct kvm_cpuid_entry2 *e;
 	struct kvm_tdx_capabilities *tdx_cap;
 	struct kvm_cpuid_entry2 *config;
+	struct kvm_cpuid_entry2 *e;
+	int i;
 
 	tdx_cap = tdx_read_capabilities(vm);
 
@@ -304,12 +304,12 @@ static void tdx_td_vcpu_init(struct kvm_vcpu *vcpu)
 static void tdx_init_mem_region(struct kvm_vm *vm, void *source_pages,
 				uint64_t gpa, uint64_t size)
 {
+	uint32_t metadata = KVM_TDX_MEASURE_MEMORY_REGION;
 	struct kvm_tdx_init_mem_region mem_region = {
 		.source_addr = (uint64_t)source_pages,
 		.gpa = gpa,
 		.nr_pages = size / PAGE_SIZE,
 	};
-	uint32_t metadata = KVM_TDX_MEASURE_MEMORY_REGION;
 	struct kvm_vcpu *vcpu;
 
 	vcpu = list_first_entry_or_null(&vm->vcpus, struct kvm_vcpu, list);
@@ -459,10 +459,9 @@ static void load_td_memory_region(struct kvm_vm *vm,
 				  struct userspace_mem_region *region)
 {
 	const struct sparsebit *pages = region->protected_phy_pages;
-	const uint64_t hva_base = region->region.userspace_addr;
 	const vm_paddr_t gpa_base = region->region.guest_phys_addr;
-	const sparsebit_idx_t lowest_page_in_region = gpa_base >>
-						      vm->page_shift;
+	const uint64_t hva_base = region->region.userspace_addr;
+	const sparsebit_idx_t lowest_page_in_region = gpa_base >> vm->page_shift;
 
 	sparsebit_idx_t i;
 	sparsebit_idx_t j;
@@ -498,8 +497,8 @@ static void load_td_memory_region(struct kvm_vm *vm,
 
 static void load_td_private_memory(struct kvm_vm *vm)
 {
-	int ctr;
 	struct userspace_mem_region *region;
+	int ctr;
 
 	hash_for_each(vm->regions.slot_hash, ctr, region, slot_node) {
 		load_td_memory_region(vm, region);
@@ -517,10 +516,10 @@ struct kvm_vm *td_create(void)
 
 static void td_setup_boot_code(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type)
 {
-	vm_vaddr_t addr;
 	size_t boot_code_allocation = round_up(TD_BOOT_CODE_SIZE, PAGE_SIZE);
 	vm_paddr_t boot_code_base_gpa = FOUR_GIGABYTES_GPA - boot_code_allocation;
 	size_t npages = DIV_ROUND_UP(boot_code_allocation, PAGE_SIZE);
+	vm_vaddr_t addr;
 
 	vm_userspace_mem_region_add(vm, src_type, boot_code_base_gpa, 1, npages,
 				    KVM_MEM_GUEST_MEMFD);
@@ -542,10 +541,10 @@ static size_t td_boot_parameters_size(void)
 
 static void td_setup_boot_parameters(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type)
 {
-	vm_vaddr_t addr;
 	size_t boot_params_size = td_boot_parameters_size();
 	int npages = DIV_ROUND_UP(boot_params_size, PAGE_SIZE);
 	size_t total_size = npages * PAGE_SIZE;
+	vm_vaddr_t addr;
 
 	vm_userspace_mem_region_add(vm, src_type, TD_BOOT_PARAMETERS_GPA, 2,
 				    npages, KVM_MEM_GUEST_MEMFD);

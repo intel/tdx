@@ -264,8 +264,8 @@ void verify_td_cpuid(void)
  */
 void guest_code_get_td_vmcall_info(void)
 {
-	uint64_t err;
 	uint64_t r11, r12, r13, r14;
+	uint64_t err;
 
 	err = tdg_vp_vmcall_get_td_vmcall_info(&r11, &r12, &r13, &r14);
 	if (err)
@@ -292,10 +292,9 @@ void guest_code_get_td_vmcall_info(void)
 
 void verify_get_td_vmcall_info(void)
 {
-	struct kvm_vm *vm;
-	struct kvm_vcpu *vcpu;
-
 	uint64_t r11, r12, r13, r14;
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
 
 	vm = td_create();
 	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);

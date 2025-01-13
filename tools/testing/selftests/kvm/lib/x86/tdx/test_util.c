@@ -112,9 +112,9 @@ uint64_t tdx_test_report_to_user_space(uint32_t data)
 
 uint64_t tdx_test_send_64bit(uint64_t port, uint64_t data)
 {
-	uint64_t err;
-	uint64_t data_lo = data & 0xFFFFFFFF;
 	uint64_t data_hi = (data >> 32) & 0xFFFFFFFF;
+	uint64_t data_lo = data & 0xFFFFFFFF;
+	uint64_t err;
 
 	err = tdg_vp_vmcall_instruction_io(port, 4,
 					   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,

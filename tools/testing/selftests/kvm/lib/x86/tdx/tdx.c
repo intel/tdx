@@ -47,11 +47,11 @@ void tdg_vp_vmcall_report_fatal_error(uint64_t error_code, uint64_t data_gpa)
 uint64_t tdg_vp_vmcall_get_td_vmcall_info(uint64_t *r11, uint64_t *r12,
 					  uint64_t *r13, uint64_t *r14)
 {
-	uint64_t ret;
 	struct tdx_hypercall_args args = {
 		.r11 = TDG_VP_VMCALL_GET_TD_VM_CALL_INFO,
 		.r12 = 0,
 	};
+	uint64_t ret;
 
 	ret = __tdx_hypercall(&args, TDX_HCALL_HAS_OUTPUT);
 

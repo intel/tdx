@@ -473,8 +473,8 @@ void guest_io_reads(void)
 
 void verify_guest_reads(void)
 {
-	struct kvm_vm *vm;
 	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
 
 	vm = td_create();
 	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);

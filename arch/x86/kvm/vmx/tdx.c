@@ -1859,12 +1859,10 @@ static int tdx_gmem_post_populate(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
 	}
 
 	ret = 0;
-	do {
-		err = tdh_mem_page_add(&kvm_tdx->td, gpa, pfn_to_page(pfn),
-				       src_page, &entry, &level_state);
-	} while (err == TDX_ERROR_SEPT_BUSY);
+	err = tdh_mem_page_add(&kvm_tdx->td, gpa, pfn_to_page(pfn),
+			       src_page, &entry, &level_state);
 	if (err) {
-		ret = -EIO;
+		ret = unlikely(err & TDX_OPERAND_BUSY) ? -EBUSY : -EIO;
 		goto out;
 	}
 

@@ -111,10 +111,9 @@ void guest_ioexit(void)
 
 void verify_td_ioexit(void)
 {
-	struct kvm_vm *vm;
 	struct kvm_vcpu *vcpu;
-
 	uint32_t port_data;
+	struct kvm_vm *vm;
 
 	vm = td_create();
 	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);

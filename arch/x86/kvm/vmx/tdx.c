@@ -301,6 +301,26 @@ static void tdx_clear_page(struct page *page)
 	__mb();
 }
 
+static void tdx_no_vcpus_enter_start(struct kvm *kvm)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+
+	lockdep_assert_held_write(&kvm->mmu_lock);
+
+	WRITE_ONCE(kvm_tdx->wait_for_sept_zap, true);
+
+	kvm_make_all_cpus_request(kvm, KVM_REQ_OUTSIDE_GUEST_MODE);
+}
+
+static void tdx_no_vcpus_enter_stop(struct kvm *kvm)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+
+	lockdep_assert_held_write(&kvm->mmu_lock);
+
+	WRITE_ONCE(kvm_tdx->wait_for_sept_zap, false);
+}
+
 /* TDH.PHYMEM.PAGE.RECLAIM is allowed only when destroying the TD. */
 static int __tdx_reclaim_page(struct page *page)
 {
@@ -949,6 +969,14 @@ fastpath_t tdx_vcpu_run(struct kvm_vcpu *vcpu, bool force_immediate_exit)
 	 */
 	WARN_ON_ONCE(force_immediate_exit);
 
+	/*
+	 * Wait until retry of SEPT-zap-related SEAMCALL completes before
+	 * allowing vCPU entry to avoid contention with tdh_vp_enter() and
+	 * TDCALLs.
+	 */
+	if (unlikely(READ_ONCE(to_kvm_tdx(vcpu->kvm)->wait_for_sept_zap)))
+		return EXIT_FASTPATH_EXIT_HANDLED;
+
 	trace_kvm_entry(vcpu, force_immediate_exit);
 
 	if (pi_test_on(&tdx->pi_desc)) {
@@ -1532,15 +1560,23 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 	if (KVM_BUG_ON(!is_hkid_assigned(kvm_tdx), kvm))
 		return -EINVAL;
 
-	do {
+	/*
+	 * When zapping private page, write lock is held. So no race condition
+	 * with other vcpu sept operation.
+	 * Race with TDH.VP.ENTER due to (0-step mitigation) and Guest TDCALLs.
+	 */
+	err = tdh_mem_page_remove(&kvm_tdx->td, gpa, tdx_level, &entry,
+				  &level_state);
+	if ((err & TDX_OPERAND_BUSY)) {
 		/*
-		 * When zapping private page, write lock is held. So no race
-		 * condition with other vcpu sept operation.  Race only with
-		 * TDH.VP.ENTER.
+		 * The second retry is expected to succeed after kicking off all
+		 * other vCPUs and prevent them from invoking TDH.VP.ENTER.
 		 */
+		tdx_no_vcpus_enter_start(kvm);
 		err = tdh_mem_page_remove(&kvm_tdx->td, gpa, tdx_level, &entry,
 					  &level_state);
-	} while (unlikely(err == TDX_ERROR_SEPT_BUSY));
+		tdx_no_vcpus_enter_stop(kvm);
+	}
 
 	if (unlikely(kvm_tdx->state != TD_STATE_RUNNABLE &&
 		     err == (TDX_EPT_WALK_FAILED | TDX_OPERAND_ID_RCX))) {
@@ -1605,8 +1641,12 @@ static int tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn,
 	WARN_ON_ONCE(level != PG_LEVEL_4K);
 
 	err = tdh_mem_range_block(&kvm_tdx->td, gpa, tdx_level, &entry, &level_state);
-	if (unlikely(err == TDX_ERROR_SEPT_BUSY))
-		return -EAGAIN;
+	if (unlikely(err & TDX_OPERAND_BUSY)) {
+		/* After no vCPUs enter, the second retry is expected to succeed */
+		tdx_no_vcpus_enter_start(kvm);
+		err = tdh_mem_range_block(&kvm_tdx->td, gpa, tdx_level, &entry, &level_state);
+		tdx_no_vcpus_enter_stop(kvm);
+	}
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error_2(TDH_MEM_RANGE_BLOCK, err, entry, level_state);
 		return -EIO;
@@ -1649,9 +1689,13 @@ static void tdx_track(struct kvm *kvm)
 
 	lockdep_assert_held_write(&kvm->mmu_lock);
 
-	do {
+	err = tdh_mem_track(&kvm_tdx->td);
+	if ((err & TDX_SEAMCALL_STATUS_MASK) == TDX_OPERAND_BUSY) {
+		/* After no vCPUs enter, the second retry is expected to succeed */
+		tdx_no_vcpus_enter_start(kvm);
 		err = tdh_mem_track(&kvm_tdx->td);
-	} while (unlikely((err & TDX_SEAMCALL_STATUS_MASK) == TDX_OPERAND_BUSY));
+		tdx_no_vcpus_enter_stop(kvm);
+	}
 
 	if (KVM_BUG_ON(err, kvm))
 		pr_tdx_error(TDH_MEM_TRACK, err);

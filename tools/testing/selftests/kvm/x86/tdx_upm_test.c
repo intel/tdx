@@ -179,13 +179,12 @@ void vcpu_run_and_manage_memory_conversions(struct kvm_vm *vm,
 
 static void guest_upm_explicit(void)
 {
-	uint64_t ret = 0;
-	uint64_t failed_gpa;
-
 	struct tdx_upm_test_area *test_area_gva_private =
 		(struct tdx_upm_test_area *)TDX_UPM_TEST_AREA_GVA_PRIVATE;
 	struct tdx_upm_test_area *test_area_gva_shared =
 		(struct tdx_upm_test_area *)TDX_UPM_TEST_AREA_GVA_SHARED;
+	uint64_t failed_gpa;
+	uint64_t ret = 0;
 
 	/* Check: host reading private memory does not modify guest's view */
 	fill_test_area(test_area_gva_private, PATTERN_GUEST_GENERAL);
@@ -301,8 +300,8 @@ static bool address_between(uint64_t addr, void *lo, void *hi)
 
 static void guest_ve_handler(struct ex_regs *regs)
 {
-	uint64_t ret;
 	struct ve_info ve;
+	uint64_t ret;
 
 	ret = tdg_vp_veinfo_get(&ve);
 	TDX_UPM_TEST_ASSERT(!ret);
@@ -325,12 +324,11 @@ static void guest_ve_handler(struct ex_regs *regs)
 
 static void verify_upm_test(void)
 {
-	struct kvm_vm *vm;
-	struct kvm_vcpu *vcpu;
-
-	vm_vaddr_t test_area_gva_private;
 	struct tdx_upm_test_area *test_area_base_hva;
+	vm_vaddr_t test_area_gva_private;
 	uint64_t test_area_npages;
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
 
 	vm = td_create();
 	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);

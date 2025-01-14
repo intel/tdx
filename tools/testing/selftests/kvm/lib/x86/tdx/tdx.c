@@ -141,12 +141,12 @@ uint64_t tdg_vp_vmcall_instruction_cpuid(uint32_t eax, uint32_t ecx,
 					 uint32_t *ret_eax, uint32_t *ret_ebx,
 					 uint32_t *ret_ecx, uint32_t *ret_edx)
 {
-	uint64_t ret;
 	struct tdx_hypercall_args args = {
 		.r11 = TDG_VP_VMCALL_INSTRUCTION_CPUID,
 		.r12 = eax,
 		.r13 = ecx,
 	};
+	uint64_t ret;
 
 	ret = __tdx_hypercall(&args, TDX_HCALL_HAS_OUTPUT);
 

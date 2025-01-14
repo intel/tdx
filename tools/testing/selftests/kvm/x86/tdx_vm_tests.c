@@ -963,8 +963,8 @@ void verify_mmio_writes(void)
  */
 void guest_code_cpuid_tdcall(void)
 {
-	uint64_t err;
 	uint32_t eax, ebx, ecx, edx;
+	uint64_t err;
 
 	// Read CPUID leaf 0x1 from host.
 	err = tdg_vp_vmcall_instruction_cpuid(/*eax=*/1, /*ecx=*/0,
@@ -993,12 +993,11 @@ void guest_code_cpuid_tdcall(void)
 
 void verify_td_cpuid_tdcall(void)
 {
-	struct kvm_vm *vm;
-	struct kvm_vcpu *vcpu;
-
-	uint32_t eax, ebx, ecx, edx;
-	const struct kvm_cpuid_entry2 *tmp;
 	struct kvm_cpuid_entry2 cpuid_entry;
+	const struct kvm_cpuid_entry2 *tmp;
+	uint32_t eax, ebx, ecx, edx;
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
 
 	vm = td_create();
 	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);

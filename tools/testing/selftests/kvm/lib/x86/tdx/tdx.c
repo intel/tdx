@@ -224,8 +224,8 @@ uint64_t tdg_mem_page_accept(uint64_t gpa, uint8_t level)
 
 uint64_t tdg_vp_veinfo_get(struct ve_info *ve)
 {
-	uint64_t ret;
 	struct tdx_module_output out;
+	uint64_t ret;
 
 	memset(&out, 0, sizeof(struct tdx_module_output));
 

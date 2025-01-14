@@ -61,11 +61,10 @@ void guest_shared_mem(void)
 
 int verify_shared_mem(void)
 {
-	struct kvm_vm *vm;
-	struct kvm_vcpu *vcpu;
-
 	vm_vaddr_t test_mem_private_gva;
 	uint32_t *test_mem_hva;
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
 
 	vm = td_create();
 	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);

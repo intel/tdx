@@ -576,9 +576,8 @@ void guest_msr_read(void)
 
 void verify_guest_msr_reads(void)
 {
-	struct kvm_vm *vm;
 	struct kvm_vcpu *vcpu;
-
+	struct kvm_vm *vm;
 	uint64_t data;
 	int ret;
 
@@ -664,7 +663,6 @@ void verify_guest_msr_writes(void)
 {
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
-
 	uint64_t data;
 	int ret;
 

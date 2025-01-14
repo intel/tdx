@@ -145,9 +145,9 @@ static void guest_access(void)
 
 static void guest_ve_handler(struct ex_regs *regs)
 {
+	struct guest_args *args;
 	uint64_t idx, ret;
 	struct ve_info ve;
-	struct guest_args *args;
 
 	idx = guest_vcpu_id();
 	args = &guest_args[idx];
@@ -208,8 +208,8 @@ struct selftest_args {
 
 static void *run_vcpu(void *args)
 {
-	struct kvm_vm *vm = ((struct selftest_args *)args)->vm;
 	struct kvm_vcpu *vcpu = ((struct selftest_args *)args)->vcpu;
+	struct kvm_vm *vm = ((struct selftest_args *)args)->vm;
 
 	vcpu_loop(vm, vcpu);
 
@@ -400,8 +400,8 @@ static void guest_thread_free(struct guest_threads *guest_threads)
 static void guest_thread_create_vcpus(struct kvm_vm *vm,
 				      struct guest_threads *guest_threads)
 {
-	int i, vcpu_id = 0;
 	struct guest_vcpu_config *c = guest_threads->configs;
+	int i, vcpu_id = 0;
 
 	for (i = 0; i < guest_threads->nr_threads; i++) {
 		guest_threads->vcpus[i] = create_vcpu(vm, vcpu_id,
@@ -559,17 +559,14 @@ static void __verify_upm_test(int nr_guest_vcpus, struct guest_vcpu_config *conf
 			      struct host_nr_threads *host_nr_threads,
 			      unsigned int duration)
 {
-	struct kvm_vm *vm;
-	const uint32_t slot = 3;
-
-	vm_vaddr_t test_area_gva_private;
-	uint64_t test_area_npages;
-
+	struct tdx_upm_test_area *test_area_gpa_private;
 	struct guest_threads guest_threads;
 	struct host_threads host_threads;
-
-	struct tdx_upm_test_area *test_area_gpa_private;
+	vm_vaddr_t test_area_gva_private;
+	uint64_t test_area_npages;
+	const uint32_t slot = 3;
 	int nr_threads, ret;
+	struct kvm_vm *vm;
 
 	guest_thread_allocate(nr_guest_vcpus, configs, &guest_threads);
 	host_thread_allocate(host_nr_threads, &host_threads);

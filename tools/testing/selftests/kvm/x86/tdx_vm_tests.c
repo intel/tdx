@@ -1056,8 +1056,8 @@ static uint64_t tdx_test_host_read_private_mem_addr;
 
 void guest_host_read_priv_mem(void)
 {
-	uint64_t ret;
 	uint64_t placeholder = 0;
+	uint64_t ret;
 
 	/* Set value */
 	*((uint32_t *)tdx_test_host_read_private_mem_addr) = 0xABCD;
@@ -1078,13 +1078,12 @@ void guest_host_read_priv_mem(void)
 
 void verify_host_reading_private_mem(void)
 {
-	struct kvm_vm *vm;
+	uint64_t second_host_read;
+	uint64_t first_host_read;
 	struct kvm_vcpu *vcpu;
-
 	vm_vaddr_t test_page;
 	uint64_t *host_virt;
-	uint64_t first_host_read;
-	uint64_t second_host_read;
+	struct kvm_vm *vm;
 
 	vm = td_create();
 	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);

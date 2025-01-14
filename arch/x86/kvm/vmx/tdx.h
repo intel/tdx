@@ -11,9 +11,23 @@ void tdx_cleanup(void);
 
 extern bool enable_tdx;
 
+/* TDX module hardware states. These follow the TDX module OP_STATEs. */
+enum kvm_tdx_state {
+	TD_STATE_UNINITIALIZED = 0,
+	TD_STATE_INITIALIZED,
+	TD_STATE_RUNNABLE,
+};
+
 struct kvm_tdx {
 	struct kvm kvm;
+
 	int hkid;
+	enum kvm_tdx_state state;
+
+	u64 attributes;
+	u64 xfam;
+
+	u64 tsc_offset;
 
 	struct tdx_td td;
 };
@@ -43,6 +57,17 @@ static __always_inline struct vcpu_tdx *to_tdx(struct kvm_vcpu *vcpu)
 	return container_of(vcpu, struct vcpu_tdx, vcpu);
 }
 
+static __always_inline u64 td_tdcs_exec_read64(struct kvm_tdx *kvm_tdx, u32 field)
+{
+	u64 err, data;
+
+	err = tdh_mng_rd(&kvm_tdx->td, TDCS_EXEC(field), &data);
+	if (unlikely(err)) {
+		pr_err("TDH_MNG_RD[EXEC.0x%x] failed: 0x%llx\n", field, err);
+		return 0;
+	}
+	return data;
+}
 #else
 static inline int tdx_bringup(void) { return 0; }
 static inline void tdx_cleanup(void) {}

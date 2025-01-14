@@ -1137,8 +1137,8 @@ void verify_host_reading_private_mem(void)
  */
 void guest_tdcall_vp_info(void)
 {
-	uint64_t err;
 	uint64_t rcx, rdx, r8, r9, r10, r11;
+	uint64_t err;
 
 	err = tdg_vp_info(&rcx, &rdx, &r8, &r9, &r10, &r11);
 	if (err)
@@ -1177,16 +1177,15 @@ void guest_tdcall_vp_info(void)
  */
 void verify_tdcall_vp_info(void)
 {
+	const struct kvm_cpuid_entry2 *cpuid_entry;
+	uint32_t ret_num_vcpus, ret_max_vcpus;
+	uint64_t rcx, rdx, r8, r9, r10, r11;
 	const int num_vcpus = 2;
 	struct kvm_vcpu *vcpus[num_vcpus];
-	struct kvm_vm *vm;
-
-	uint64_t rcx, rdx, r8, r9, r10, r11;
-	uint32_t ret_num_vcpus, ret_max_vcpus;
 	uint64_t attributes;
-	uint32_t i;
-	const struct kvm_cpuid_entry2 *cpuid_entry;
+	struct kvm_vm *vm;
 	int gpa_bits = -1;
+	uint32_t i;
 
 	vm = td_create();
 

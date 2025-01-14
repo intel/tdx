@@ -166,8 +166,8 @@ uint64_t tdg_vp_info(uint64_t *rcx, uint64_t *rdx,
 		     uint64_t *r8, uint64_t *r9,
 		     uint64_t *r10, uint64_t *r11)
 {
-	uint64_t ret;
 	struct tdx_module_output out;
+	uint64_t ret;
 
 	memset(&out, 0, sizeof(struct tdx_module_output));
 

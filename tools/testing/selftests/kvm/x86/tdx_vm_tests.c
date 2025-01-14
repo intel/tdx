@@ -712,8 +712,8 @@ void verify_guest_msr_writes(void)
  */
 void guest_hlt(void)
 {
-	uint64_t ret;
 	uint64_t interrupt_blocked_flag;
+	uint64_t ret;
 
 	interrupt_blocked_flag = 0;
 	ret = tdg_vp_vmcall_instruction_hlt(interrupt_blocked_flag);
@@ -741,8 +741,8 @@ void wake_me(int interval)
 
 void _verify_guest_hlt(int signum)
 {
-	struct kvm_vm *vm;
 	static struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
 
 	/*
 	 * This function will also be called by SIGALRM handler to check the

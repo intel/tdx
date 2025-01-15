@@ -549,6 +549,7 @@ int tdx_vm_init(struct kvm *kvm)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 
+	kvm->arch.has_protected_state = true;
 	kvm->arch.has_private_mem = true;
 
 	/*

@@ -299,6 +299,11 @@ static void tdx_td_vcpu_init(struct kvm_vcpu *vcpu)
 	vcpu_init_cpuid(vcpu, cpuid);
 	free(cpuid);
 	tdx_ioctl(vcpu->fd, KVM_TDX_INIT_VCPU, 0, NULL);
+	/*
+	 * Refresh CPUID to get KVM's "runtime" updates which are done by
+	 * KVM_TDX_INIT_VCPU.
+	 */
+	vcpu_get_cpuid(vcpu);
 }
 
 static void tdx_init_mem_region(struct kvm_vm *vm, void *source_pages,
@@ -441,11 +446,8 @@ struct kvm_vcpu *td_vcpu_add(struct kvm_vm *vm, uint32_t vcpu_id, void *guest_co
 {
 	struct kvm_vcpu *vcpu;
 
-	/*
-	 * TD setup will not use the value of rip set in vm_vcpu_add anyway, so
-	 * NULL can be used for guest_code.
-	 */
-	vcpu = vm_vcpu_add(vm, vcpu_id, NULL);
+	vm->arch.has_protected_regs = true;
+	vcpu = vm_arch_vcpu_add(vm, vcpu_id);
 
 	tdx_td_vcpu_init(vcpu);
 

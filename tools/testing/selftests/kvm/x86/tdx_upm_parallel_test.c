@@ -600,9 +600,8 @@ static void __verify_upm_test(int nr_guest_vcpus, struct guest_vcpu_config *conf
 	TEST_ASSERT_EQ(addr_gva2gpa(vm, TDX_UPM_TEST_AREA_GVA_SHARED),
 		       (vm_paddr_t)test_area_gpa_private);
 
-	sync_global_to_guest(vm, guest_args);
-
 	guest_thread_create_vcpus(vm, &guest_threads);
+	sync_global_to_guest(vm, guest_args);
 
 	td_finalize(vm);
 

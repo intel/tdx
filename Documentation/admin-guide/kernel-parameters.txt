@@ -1321,6 +1321,13 @@ Kernel parameters
 			The filter can be disabled or changed to another
 			driver later using sysfs.
 
+	tdx_dpamt=
+			[X86] Controls whether TDX will use Dynamic PAMT
+			to save memory, when supported.
+
+			Valid parameters: "on", "off"
+			Default: "off"
+
 	reg_file_data_sampling=
 			[X86] Controls mitigation for Register File Data
 			Sampling (RFDS) vulnerability. RFDS is a CPU

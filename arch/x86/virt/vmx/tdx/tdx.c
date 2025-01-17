@@ -471,6 +471,18 @@ static unsigned long tdmr_get_pamt_sz(struct tdmr_info *tdmr, int pgsz,
 	return pamt_sz;
 }
 
+static unsigned long tdmr_get_pamt_bitmap_sz(struct tdmr_info *tdmr)
+{
+	unsigned long pamt_sz, nr_pamt_entries;
+	int bits_per_entry;
+
+	bits_per_entry = tdx_sysinfo.tdmr.pamt_page_bitmap_entry_bits;
+	nr_pamt_entries = tdmr->size >> PAGE_SHIFT;
+	pamt_sz = DIV_ROUND_UP(nr_pamt_entries * bits_per_entry, BITS_PER_BYTE);
+
+	return ALIGN(pamt_sz, PAGE_SIZE);
+}
+
 /*
  * Locate a NUMA node which should hold the allocation of the @tdmr
  * PAMT.  This node will have some memory covered by the TDMR.  The
@@ -523,7 +535,16 @@ static int tdmr_set_up_pamt(struct tdmr_info *tdmr,
 	 * and the total PAMT size.
 	 */
 	tdmr_pamt_size = 0;
-	for (pgsz = TDX_PS_4K; pgsz < TDX_PS_NR; pgsz++) {
+	pgsz = TDX_PS_4K;
+
+	/* With Dynamic PAMT, PAMT_4K is replaced with a bitmap */
+	if (tdx_supports_dynamic_pamt(&tdx_sysinfo)) {
+		pamt_size[pgsz] = tdmr_get_pamt_bitmap_sz(tdmr);
+		tdmr_pamt_size += pamt_size[pgsz];
+		pgsz++;
+	}
+
+	for (; pgsz < TDX_PS_NR; pgsz++) {
 		pamt_size[pgsz] = tdmr_get_pamt_sz(tdmr, pgsz,
 					pamt_entry_size[pgsz]);
 		tdmr_pamt_size += pamt_size[pgsz];

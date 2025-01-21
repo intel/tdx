@@ -171,8 +171,12 @@ static void guest_ve_handler(struct ex_regs *regs)
 		return;
 
 #define MEM_PAGE_ACCEPT_LEVEL_4K 0
-	ret = tdg_mem_page_accept(ve.gpa, MEM_PAGE_ACCEPT_LEVEL_4K);
-	TDX_UPM_TEST_ASSERT(!ret);
+#define ALREADY_ACCEPTED_ERROR (TDCALL_ERROR_PAGE_ALREADY_ACCEPTED | MEM_PAGE_ACCEPT_LEVEL_4K)
+	do {
+		ret = tdg_mem_page_accept(ve.gpa, MEM_PAGE_ACCEPT_LEVEL_4K);
+	} while ((ret & TDCALL_STATUS_MASK) == TDCALL_OPERAND_BUSY);
+
+	TDX_UPM_TEST_ASSERT_WITH_DATA(!ret || ret == ALREADY_ACCEPTED_ERROR, ret);
 }
 
 static void vcpu_loop(struct kvm_vm *vm, struct kvm_vcpu *vcpu)

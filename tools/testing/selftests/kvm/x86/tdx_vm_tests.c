@@ -227,7 +227,7 @@ void verify_td_cpuid(void)
 
 	/* Get KVM CPUIDs for reference */
 	tdx_filter_cpuid(vm, vcpu->cpuid);
-	cpuid_entry = vcpu_get_cpuid_entry(vcpu, 1);
+	cpuid_entry = get_cpuid_entry(vcpu->cpuid, 1, 0);
 	TEST_ASSERT(cpuid_entry, "CPUID entry missing\n");
 
 	host_max_addressable_ids = (cpuid_entry->ebx >> 16) & 0xFF;

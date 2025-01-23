@@ -61,6 +61,8 @@ static struct tdmr_info_list tdx_tdmr_list;
  */
 static atomic_t *pamt_refcounts;
 
+static atomic_long_t tdx_pamt_count = ATOMIC_LONG_INIT(0);
+
 static enum tdx_module_status_t tdx_module_status;
 static DEFINE_MUTEX(tdx_module_lock);
 
@@ -2134,6 +2136,19 @@ static u64 tdh_phymem_pamt_add(struct page *page, u64 *pamt_pa_array)
 	return seamcall(TDH_PHYMEM_PAMT_ADD, &args.args);
 }
 
+void tdx_meminfo(struct seq_file *m)
+{
+	unsigned long usage;
+
+	if (!cpu_feature_enabled(X86_FEATURE_TDX_HOST_PLATFORM))
+		return;
+
+	usage = atomic_long_read(&tdx_pamt_count) *
+		tdx_dpamt_entry_pages() * PAGE_SIZE / SZ_1K;
+
+	seq_printf(m, "TDX:		%8lu kB\n", usage);
+}
+
 /* Remove PAMT backing for the given page. */
 static u64 tdh_phymem_pamt_remove(struct page *page, u64 *pamt_pa_array)
 {
@@ -2201,6 +2216,7 @@ int tdx_pamt_get(struct page *page, struct tdx_prealloc *prealloc)
 			 * to 1 (obviously).
 			 */
 			atomic_set(pamt_refcount, 1);
+			atomic_long_inc(&tdx_pamt_count);
 		} else if (IS_TDX_HPA_RANGE_NOT_FREE(tdx_status)) {
 			/*
 			 * Less obviously, another CPU's call to tdx_pamt_put() could have
@@ -2279,6 +2295,7 @@ void tdx_pamt_put(struct page *page)
 			 */
 			return;
 		}
+		atomic_long_dec(&tdx_pamt_count);
 	}
 
 	/*

@@ -18,6 +18,7 @@
 #define TDX_PREVIOUS_TLB_EPOCH_BUSY		0x8000020100000000ULL
 #define TDX_RND_NO_ENTROPY			0x8000020300000000ULL
 #define TDX_PAGE_METADATA_INCORRECT		0xC000030000000000ULL
+#define TDX_HPA_RANGE_NOT_FREE			0xC000030400000000ULL
 #define TDX_VCPU_NOT_ASSOCIATED			0x8000070200000000ULL
 #define TDX_KEY_GENERATION_FAILED		0x8000080000000000ULL
 #define TDX_KEY_STATE_INCORRECT			0xC000081100000000ULL
@@ -85,6 +86,11 @@ static inline bool tdx_operand_invalid(u64 err)
 static inline bool tdx_operand_busy(u64 err)
 {
 	return tdx_status(err) == TDX_OPERAND_BUSY;
+}
+
+static inline bool tdx_hpa_range_not_free(u64 err)
+{
+	return tdx_status(err) == TDX_HPA_RANGE_NOT_FREE;
 }
 #endif /* __ASSEMBLER__ */
 #endif /* _X86_TDX_ERRNO_H */

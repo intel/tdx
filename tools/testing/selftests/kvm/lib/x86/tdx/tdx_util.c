@@ -23,7 +23,8 @@ static char *tdx_cmd_str[] = {
 	"KVM_TDX_INIT_VM",
 	"KVM_TDX_INIT_VCPU",
 	"KVM_TDX_INIT_MEM_REGION",
-	"KVM_TDX_FINALIZE_VM"
+	"KVM_TDX_FINALIZE_VM",
+	"KVM_TDX_GET_CPUID"
 };
 
 #define TDX_MAX_CMD_STR (ARRAY_SIZE(tdx_cmd_str))

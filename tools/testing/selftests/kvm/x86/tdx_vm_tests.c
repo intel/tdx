@@ -226,7 +226,6 @@ void verify_td_cpuid(void)
 	printf("\t ... Verifying CPUID values from guest\n");
 
 	/* Get KVM CPUIDs for reference */
-	tdx_filter_cpuid(vm, vcpu->cpuid);
 	cpuid_entry = vcpu_get_cpuid_entry(vcpu, 1);
 	TEST_ASSERT(cpuid_entry, "CPUID entry missing\n");
 

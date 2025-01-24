@@ -6,6 +6,7 @@
 #include "nested.h"
 #include "pmu.h"
 #include "posted_intr.h"
+#include "tdx.h"
 
 #define VMX_REQUIRED_APICV_INHIBITS				\
 	(BIT(APICV_INHIBIT_REASON_DISABLED) |			\
@@ -170,6 +171,7 @@ struct kvm_x86_init_ops vt_init_ops __initdata = {
 
 static void __vt_exit(void)
 {
+	tdx_cleanup();
 	vmx_exit();
 	kvm_x86_vendor_exit();
 }
@@ -189,6 +191,11 @@ static int __init vt_init(void)
 	if (r)
 		return r;
 
+	/* tdx_init() has been taken */
+	r = tdx_bringup();
+	if (r)
+		goto err_tdx_bringup;
+
 	/*
 	 * Common KVM initialization _must_ come last, after this, /dev/kvm is
 	 * exposed to userspace!
@@ -200,8 +207,12 @@ static int __init vt_init(void)
 
 	return 0;
 
+	/* The sequence matches __vt_exit.  */
 err_kvm_init:
-	__vt_exit();
+	tdx_cleanup();
+err_tdx_bringup:
+	vmx_exit();
+	kvm_x86_vendor_exit();
 	return r;
 }
 module_init(vt_init);

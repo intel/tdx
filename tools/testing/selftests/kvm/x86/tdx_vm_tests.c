@@ -1203,13 +1203,14 @@ void verify_tdcall_vp_info(void)
 	printf("Verifying TDG.VP.INFO call:\n");
 
 	/* Get KVM CPUIDs for reference */
-	cpuid_entry = get_cpuid_entry(kvm_get_supported_cpuid(), 0x80000008, 0);
-	TEST_ASSERT(cpuid_entry, "CPUID entry missing\n");
-	gpa_bits = (cpuid_entry->eax & GENMASK(23, 16)) >> 16;
-	TEST_ASSERT_EQ((1UL << (gpa_bits - 1)), tdx_s_bit);
 
 	for (i = 0; i < num_vcpus; i++) {
 		struct kvm_vcpu *vcpu = vcpus[i];
+
+		cpuid_entry = vcpu_get_cpuid_entry(vcpu, 0x80000008);
+		TEST_ASSERT(cpuid_entry, "CPUID entry missing\n");
+		gpa_bits = (cpuid_entry->eax & GENMASK(23, 16)) >> 16;
+		TEST_ASSERT_EQ((1UL << (gpa_bits - 1)), tdx_s_bit);
 
 		/* Wait for guest to report rcx value */
 		td_vcpu_run(vcpu);

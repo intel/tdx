@@ -179,6 +179,14 @@ static void tdx_check_attributes(struct kvm_vm *vm, uint64_t attributes)
 
 void __tdx_mask_cpuid_features(struct kvm_cpuid_entry2 *entry)
 {
+	/*
+	 * Only entries with sub-leaf zero need to be masked, but some of these
+	 * leaves have other sub-leaves defined. Bail on any non-zero sub-leaf,
+	 * so they don't get unintentionally modified.
+	 */
+	if (entry->index)
+		return;
+
 	switch (entry->function) {
 	case 0x1:
 		entry->ecx &= ~(CPUID_EXT_VMX | CPUID_EXT_SMX);

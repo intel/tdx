@@ -268,8 +268,10 @@ static int read_sys_metadata_field(u64 field_id, u64 *data)
 	 */
 	args.rdx = field_id;
 	ret = seamcall_prerr_ret(TDH_SYS_RD, &args);
-	if (ret)
+	if (ret) {
+		pr_err("failed reading TDX field %llx\n", field_id);
 		return ret;
+	}
 
 	*data = args.r8;
 
@@ -1067,6 +1069,25 @@ static int init_tdmrs(struct tdmr_info_list *tdmr_list)
 static int init_tdx_module(void)
 {
 	int ret;
+	u64 value;
+	u32 major = 0, minor = 0, update = 0, internal = 0, build_num = 0, build_date = 0;
+
+        if (!(ret = read_sys_metadata_field(0x0800000100000005, &value)))
+                update = value;
+        if (!(ret = read_sys_metadata_field(0x0800000100000006, &value)))
+                internal = value;
+        if (!(ret = read_sys_metadata_field(0x8800000100000002, &value)))
+                build_num = value;
+        if (!(ret = read_sys_metadata_field(0x8800000200000001, &value)))
+                build_date = value;
+
+        if (!(ret = read_sys_metadata_field(0x0800000100000004, &value)))
+                major = value;
+        if (!(ret = read_sys_metadata_field(0x0800000100000003, &value)))
+                minor = value;
+
+	pr_warn("TDX module %d.%d.%02d.%02d, build number %d, build date %08x\n",
+		major, minor, update, internal, build_num, build_date);
 
 	ret = get_tdx_sys_info(&tdx_sysinfo);
 	if (ret)

@@ -2934,25 +2934,6 @@ void wait_for_freed_hugetlb_folios(void)
 	flush_work(&free_hpage_work);
 }
 
-typedef enum {
-	/*
-	 * For either 0/1: we checked the per-vma resv map, and one resv
-	 * count either can be reused (0), or an extra needed (1).
-	 */
-	MAP_CHG_REUSE = 0,
-	MAP_CHG_NEEDED = 1,
-	/*
-	 * Cannot use per-vma resv count can be used, hence a new resv
-	 * count is enforced.
-	 *
-	 * NOTE: This is mostly identical to MAP_CHG_NEEDED, except
-	 * that currently vma_needs_reservation() has an unwanted side
-	 * effect to either use end() or commit() to complete the
-	 * transaction.	 Hence it needs to differenciate from NEEDED.
-	 */
-	MAP_CHG_ENFORCED = 2,
-} map_chg_state;
-
 /*
  * NOTE! "cow_from_owner" represents a very hacky usage only used in CoW
  * faults of hugetlb private mappings on top of a non-page-cache folio (in
@@ -2966,46 +2947,45 @@ struct folio *alloc_hugetlb_folio(struct vm_area_struct *vma,
 	struct hugepage_subpool *spool = subpool_vma(vma);
 	struct hstate *h = hstate_vma(vma);
 	bool subpool_reservation_exists;
+	bool vma_reservation_exists;
 	bool reservation_exists;
+	bool charge_cgroup_rsvd;
 	struct folio *folio;
-	long retval;
-	map_chg_state map_chg;
 	int ret, idx;
 	struct hugetlb_cgroup *h_cg = NULL;
 	gfp_t gfp = htlb_alloc_mask(h) | __GFP_RETRY_MAYFAIL;
 
 	idx = hstate_index(h);
 
-	/* Whether we need a separate per-vma reservation? */
 	if (cow_from_owner) {
 		/*
 		 * Special case!  Since it's a CoW on top of a reserved
 		 * page, the private resv map doesn't count.  So it cannot
 		 * consume the per-vma resv map even if it's reserved.
 		 */
-		map_chg = MAP_CHG_ENFORCED;
+		vma_reservation_exists = false;
 	} else {
 		/*
 		 * Examine the region/reserve map to determine if the process
-		 * has a reservation for the page to be allocated.  A return
-		 * code of zero indicates a reservation exists (no change).
+		 * has a reservation for the page to be allocated and debit the
+		 * reservation.  If the number of pages required is 0,
+		 * reservation exists.
 		 */
-		retval = vma_needs_reservation(h, vma, addr);
-		if (retval < 0)
+		int npages_req = vma_needs_reservation(h, vma, addr);
+
+		if (npages_req < 0)
 			return ERR_PTR(-ENOMEM);
-		map_chg = retval ? MAP_CHG_NEEDED : MAP_CHG_REUSE;
+
+		vma_reservation_exists = npages_req == 0;
 	}
 
 	/*
-	 * Whether we need a separate global reservation?
-	 *
-	 * Processes that did not create the mapping will have no
-	 * reserves as indicated by the region/reserve map. Check
-	 * that the allocation will not exceed the subpool limit.
-	 * Or if it can get one from the pool reservation directly.
+	 * Debit subpool only if a vma reservation does not exist.  If
+	 * vma_reservation_exists, the vma reservation was either moved from the
+	 * subpool or taken directly from hstate in hugetlb_reserve_pages()
 	 */
 	subpool_reservation_exists = false;
-	if (map_chg) {
+	if (!vma_reservation_exists) {
 		int npages_req = hugepage_subpool_get_pages(spool, 1);
 
 		if (npages_req < 0)
@@ -3013,13 +2993,16 @@ struct folio *alloc_hugetlb_folio(struct vm_area_struct *vma,
 
 		subpool_reservation_exists = npages_req == 0;
 	}
-	reservation_exists = !map_chg || subpool_reservation_exists;
+
+	reservation_exists = vma_reservation_exists || subpool_reservation_exists;
 
 	/*
-	 * If this allocation is not consuming a per-vma reservation,
-	 * charge the hugetlb cgroup now.
+	 * If a vma_reservation_exists, we can skip charging hugetlb
+	 * reservations since that was charged in hugetlb_reserve_pages() when
+	 * the reservation was recorded on the resv_map.
 	 */
-	if (map_chg) {
+	charge_cgroup_rsvd = !vma_reservation_exists;
+	if (charge_cgroup_rsvd) {
 		ret = hugetlb_cgroup_charge_cgroup_rsvd(
 			idx, pages_per_huge_page(h), &h_cg);
 		if (ret)
@@ -3057,10 +3040,8 @@ struct folio *alloc_hugetlb_folio(struct vm_area_struct *vma,
 	}
 
 	hugetlb_cgroup_commit_charge(idx, pages_per_huge_page(h), h_cg, folio);
-	/* If allocation is not consuming a reservation, also store the
-	 * hugetlb_cgroup pointer on the page.
-	 */
-	if (map_chg) {
+
+	if (charge_cgroup_rsvd) {
 		hugetlb_cgroup_commit_charge_rsvd(idx, pages_per_huge_page(h),
 						  h_cg, folio);
 	}
@@ -3069,25 +3050,27 @@ struct folio *alloc_hugetlb_folio(struct vm_area_struct *vma,
 
 	hugetlb_set_folio_subpool(folio, spool);
 
-	if (map_chg != MAP_CHG_ENFORCED) {
-		/* commit() is only needed if the map_chg is not enforced */
-		retval = vma_commit_reservation(h, vma, addr);
+	/* If vma accounting wasn't bypassed earlier, follow up with commit. */
+	if (!cow_from_owner) {
+		int ret = vma_commit_reservation(h, vma, addr);
 		/*
-		 * Check for possible race conditions. When it happens..
-		 * The page was added to the reservation map between
-		 * vma_needs_reservation and vma_commit_reservation.
-		 * This indicates a race with hugetlb_reserve_pages.
+		 * If there is a discrepancy in reservation status between the
+		 * time of vma_needs_reservation() and vma_commit_reservation(),
+		 * then there the page must have been added to the reservation
+		 * map between vma_needs_reservation() and
+		 * vma_commit_reservation().
+		 *
 		 * Adjust for the subpool count incremented above AND
 		 * in hugetlb_reserve_pages for the same page.	Also,
 		 * the reservation count added in hugetlb_reserve_pages
 		 * no longer applies.
 		 */
-		if (unlikely(map_chg == MAP_CHG_NEEDED && retval == 0)) {
+		if (unlikely(!vma_reservation_exists && ret == 0)) {
 			long rsv_adjust;
 
 			rsv_adjust = hugepage_subpool_put_pages(spool, 1);
 			hugetlb_acct_memory(h, -rsv_adjust);
-			if (map_chg) {
+			if (charge_cgroup_rsvd) {
 				spin_lock_irq(&hugetlb_lock);
 				hugetlb_cgroup_uncharge_folio_rsvd(
 				    hstate_index(h), pages_per_huge_page(h),
@@ -3115,7 +3098,7 @@ struct folio *alloc_hugetlb_folio(struct vm_area_struct *vma,
 out_uncharge_cgroup:
 	hugetlb_cgroup_uncharge_cgroup(idx, pages_per_huge_page(h), h_cg);
 out_uncharge_cgroup_reservation:
-	if (map_chg)
+	if (charge_cgroup_rsvd)
 		hugetlb_cgroup_uncharge_cgroup_rsvd(idx, pages_per_huge_page(h),
 						    h_cg);
 out_subpool_put:
@@ -3123,15 +3106,15 @@ out_subpool_put:
 	 * put page to subpool iff the quota of subpool's rsv_hpages is used
 	 * during hugepage_subpool_get_pages.
 	 */
-	if (map_chg && reservation_exists) {
+	if (!vma_reservation_exists) {
 		long gbl_reserve = hugepage_subpool_put_pages(spool, 1);
 
 		hugetlb_acct_memory(h, -gbl_reserve);
 	}
 
-
 out_end_reservation:
-	if (map_chg != MAP_CHG_ENFORCED)
+	/* If vma accounting wasn't bypassed earlier, cleanup. */
+	if (!cow_from_owner)
 		vma_end_reservation(h, vma, addr);
 	return ERR_PTR(-ENOSPC);
 }

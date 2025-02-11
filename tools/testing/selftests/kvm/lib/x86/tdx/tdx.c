@@ -9,7 +9,7 @@
 
 void handle_userspace_map_gpa(struct kvm_vcpu *vcpu)
 {
-	handle_memory_conversion(vcpu->vm, vcpu->run->hypercall.args[0],
+	handle_memory_conversion(vcpu->vm, vcpu->id, vcpu->run->hypercall.args[0],
 				 vcpu->run->hypercall.args[1] << 12,
 				 vcpu->run->hypercall.args[2] & KVM_MAP_GPA_RANGE_ENCRYPTED);
 	vcpu->run->hypercall.ret = 0;

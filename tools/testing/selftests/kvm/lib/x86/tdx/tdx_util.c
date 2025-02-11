@@ -628,8 +628,8 @@ void td_vcpu_run(struct kvm_vcpu *vcpu)
  * minimum of calling KVM_MEMORY_ENCRYPT_REG_REGION and
  * KVM_MEMORY_ENCRYPT_UNREG_REGION.
  */
-void handle_memory_conversion(struct kvm_vm *vm, uint64_t gpa, uint64_t size,
-			      bool shared_to_private)
+void handle_memory_conversion(struct kvm_vm *vm, uint32_t vcpu_id, uint64_t gpa,
+			      uint64_t size, bool shared_to_private)
 {
 	struct kvm_memory_attributes range;
 
@@ -638,8 +638,8 @@ void handle_memory_conversion(struct kvm_vm *vm, uint64_t gpa, uint64_t size,
 	range.attributes = shared_to_private ? KVM_MEMORY_ATTRIBUTE_PRIVATE : 0;
 	range.flags = 0;
 
-	pr_debug("\t... call KVM_SET_MEMORY_ATTRIBUTES ioctl with gpa=%#lx, size=%#lx, attributes=%#llx\n",
-		 gpa, size, range.attributes);
+	pr_debug("\t... call KVM_SET_MEMORY_ATTRIBUTES ioctl from vCPU %u with gpa=%#lx, size=%#lx, attributes=%#llx\n",
+		 vcpu_id, gpa, size, range.attributes);
 
 	vm_ioctl(vm, KVM_SET_MEMORY_ATTRIBUTES, &range);
 }

@@ -158,7 +158,7 @@ void vcpu_run_and_manage_memory_conversions(struct kvm_vm *vm,
 		    vcpu->run->hypercall.nr == KVM_HC_MAP_GPA_RANGE) {
 			uint64_t gpa = vcpu->run->hypercall.args[0];
 
-			handle_memory_conversion(vm, gpa,
+			handle_memory_conversion(vm, vcpu->id, gpa,
 						 vcpu->run->hypercall.args[1] << 12,
 						 vcpu->run->hypercall.args[2] &
 						  KVM_MAP_GPA_RANGE_ENCRYPTED);

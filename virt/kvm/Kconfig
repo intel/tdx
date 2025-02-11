@@ -119,14 +119,14 @@ config KVM_GMEM
 config KVM_GENERIC_GMEM_POPULATE
        select KVM_GENERIC_MEMORY_ATTRIBUTES
        select KVM_GMEM
-       bool
+       bool "Enables guest_memfd and memory attribute support"
 
 config HAVE_KVM_ARCH_GMEM_PREPARE
-       bool
+       bool "Enables preparation step for new pages in guest_memfd"
        depends on KVM_GMEM
 
 config HAVE_KVM_ARCH_GMEM_INVALIDATE
-       bool
+       bool "Enables invalidation step on freeing pages in guest_memfd"
        depends on KVM_GMEM
 
 config KVM_GMEM_SHARED_MEM

@@ -8509,7 +8509,7 @@ __init int vmx_hardware_setup(void)
 	return r;
 }
 
-static void __exit vmx_cleanup_l1d_flush(void)
+static void vmx_cleanup_l1d_flush(void)
 {
 	if (vmx_l1d_flush_pages) {
 		free_pages((unsigned long)vmx_l1d_flush_pages, L1D_CACHE_ORDER);
@@ -8519,7 +8519,7 @@ static void __exit vmx_cleanup_l1d_flush(void)
 	l1tf_vmx_mitigation = VMENTER_L1D_FLUSH_AUTO;
 }
 
-void __exit vmx_exit(void)
+void vmx_exit(void)
 {
 	allow_smaller_maxphyaddr = false;
 

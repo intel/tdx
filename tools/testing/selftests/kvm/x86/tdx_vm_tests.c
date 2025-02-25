@@ -64,10 +64,10 @@ void verify_report_fatal_error(void)
 
 	TEST_ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_SYSTEM_EVENT);
 	TEST_ASSERT_EQ(vcpu->run->system_event.type, KVM_SYSTEM_EVENT_TDX_FATAL);
-	/* TDVMCALL_EXPOSE_REGS_MASK set R14 and R15 for optional error data. */
-	TEST_ASSERT_EQ(vcpu->run->system_event.ndata, 4);
-	TEST_ASSERT_EQ(vcpu->run->system_event.data[0], 0x0BAAAAAD00000000);
-	TEST_ASSERT_EQ(vcpu->run->system_event.data[1], 0);
+	TEST_ASSERT_EQ(vcpu->run->system_event.ndata, 16);
+
+	TEST_ASSERT_EQ(vcpu->run->system_event.data[12], 0x0BAAAAAD00000000);
+	TEST_ASSERT_EQ(vcpu->run->system_event.data[13], 0);
 
 	vcpu_run(vcpu);
 	tdx_test_assert_success(vcpu);

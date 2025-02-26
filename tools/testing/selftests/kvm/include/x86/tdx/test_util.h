@@ -12,11 +12,11 @@
 /*
  * Run a test in a new process.
  *
- * There might be multiple tests we are running and if one test fails, it will
+ * There might be multiple tests running and if one test fails, it will
  * prevent the subsequent tests to run due to how tests are failing with
- * TEST_ASSERT function. The run_in_new_process function will run a test in a
- * new process context and wait for it to finish or fail to prevent TEST_ASSERT
- * to kill the main testing process.
+ * TEST_ASSERT function. run_in_new_process() will run a test in a new process
+ * context and wait for it to finish or fail to prevent TEST_ASSERT to kill the
+ * main testing process.
  */
 int run_in_new_process(void (*func)(void));
 

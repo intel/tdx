@@ -98,7 +98,7 @@ uint64_t tdx_test_read_64bit(struct kvm_vcpu *vcpu, uint64_t port);
 
 /*
  * Read a 64 bit value from the guest in user space, sent using
- * tdx_test_report_64bit_to_user_space.
+ * tdx_test_report_64bit_to_user_space().
  */
 uint64_t tdx_test_read_64bit_report_from_guest(struct kvm_vcpu *vcpu);
 

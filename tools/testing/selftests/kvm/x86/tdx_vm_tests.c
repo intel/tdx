@@ -260,7 +260,7 @@ void verify_td_cpuid(void)
 }
 
 /*
- * Verifies get_td_vmcall_info functionality.
+ * Verifies TDG.VP.VMCALL<GetTdVmCallInfo> hypercall functionality.
  */
 void guest_code_get_td_vmcall_info(void)
 {

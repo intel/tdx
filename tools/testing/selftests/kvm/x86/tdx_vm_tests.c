@@ -893,7 +893,7 @@ void guest_mmio_writes(void)
 	if (ret)
 		tdx_test_fatal(ret);
 
-	// Write across page boundary.
+	/* Write across page boundary. */
 	ret = tdg_vp_vmcall_ve_request_mmio_write(PAGE_SIZE - 1, 8, 0);
 	if (ret)
 		tdx_test_fatal(ret);

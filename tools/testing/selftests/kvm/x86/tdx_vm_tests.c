@@ -561,7 +561,7 @@ void guest_msr_read(void)
 	if (ret)
 		tdx_test_fatal(ret);
 
-	/* We expect this call to fail since MSR_IA32_POWER_CTL is write only */
+	/* Expect this call to fail since MSR_IA32_POWER_CTL is write only */
 	ret = tdg_vp_vmcall_instruction_rdmsr(MSR_IA32_POWER_CTL, &data);
 	if (ret) {
 		ret = tdx_test_report_64bit_to_user_space(ret);
@@ -642,7 +642,7 @@ void guest_msr_write(void)
 	if (ret)
 		tdx_test_fatal(ret);
 
-	/* We expect this call to fail since MSR_IA32_MISC_ENABLE is read only */
+	/* Expect this call to fail since MSR_IA32_MISC_ENABLE is read only */
 	ret = tdg_vp_vmcall_instruction_wrmsr(MSR_IA32_MISC_ENABLE, 5);
 	if (ret) {
 		ret = tdx_test_report_64bit_to_user_space(ret);

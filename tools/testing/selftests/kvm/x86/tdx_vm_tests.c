@@ -818,7 +818,7 @@ void guest_mmio_reads(void)
 	if (data != 0x1234567890ABCDEF)
 		tdx_test_fatal(8);
 
-	// Read an invalid number of bytes.
+	/* Read an invalid number of bytes. */
 	ret = tdg_vp_vmcall_ve_request_mmio_read(mmio_test_addr, 10, &data);
 	if (ret)
 		tdx_test_fatal(ret);

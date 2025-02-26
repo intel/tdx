@@ -368,7 +368,7 @@ void guest_io_writes(void)
 	if (ret)
 		tdx_test_fatal(ret);
 
-	// Write an invalid number of bytes.
+	/* Write an invalid number of bytes. */
 	ret = tdg_vp_vmcall_instruction_io(TDX_IO_WRITES_TEST_PORT, 5,
 					   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
 					   &byte_4);

@@ -414,7 +414,7 @@ static void load_td_boot_parameters(struct td_boot_parameters *params,
  *
  * Input Args:
  *   vm - Virtual Machine
- *   vcpuid - The id of the VCPU to add to the VM.
+ *   vcpuid - The id of the vCPU to add to the VM.
  */
 struct kvm_vcpu *td_vcpu_add(struct kvm_vm *vm, uint32_t vcpu_id, void *guest_code)
 {
@@ -454,9 +454,8 @@ static void load_td_memory_region(struct kvm_vm *vm,
 		void *source_addr;
 
 		/*
-		 * KVM_TDX_INIT_MEM_REGION ioctl cannot encrypt memory in place,
-		 * hence we have to make a copy if there's only one backing
-		 * memory source
+		 * KVM_TDX_INIT_MEM_REGION ioctl cannot encrypt memory in place.
+		 * Make a copy if there's only one backing memory source.
 		 */
 		source_addr = mmap(NULL, size_to_load, PROT_READ | PROT_WRITE,
 				   MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);

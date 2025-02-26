@@ -55,14 +55,14 @@ struct __packed td_per_vcpu_parameters {
 /*
  * Boot parameters for the TD.
  *
- * Unlike a regular VM, we can't ask KVM to set registers such as esp, eip, etc
+ * Unlike a regular VM, KVM cannot set registers such as esp, eip, etc
  * before boot, so to run selftests, these registers' values have to be
  * initialized by the TD.
  *
  * This struct is loaded in TD private memory at TD_BOOT_PARAMETERS_GPA.
  *
  * The TD boot code will read off parameters from this struct and set up the
- * vcpu for executing selftests.
+ * vCPU for executing selftests.
  */
 struct __packed td_boot_parameters {
 	uint32_t cr0;

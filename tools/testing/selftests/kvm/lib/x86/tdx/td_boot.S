@@ -2,7 +2,7 @@
 
 #include "tdx/td_boot_asm.h"
 
-/* Offsets for reading struct td_boot_parameters */
+/* Offsets for reading struct td_boot_parameters. */
 #define TD_BOOT_PARAMETERS_CR0         0
 #define TD_BOOT_PARAMETERS_CR3         4
 #define TD_BOOT_PARAMETERS_CR4         8
@@ -10,7 +10,7 @@
 #define TD_BOOT_PARAMETERS_IDT         18
 #define TD_BOOT_PARAMETERS_PER_VCPU    24
 
-/* Offsets for reading struct td_per_vcpu_parameters */
+/* Offsets for reading struct td_per_vcpu_parameters. */
 #define TD_PER_VCPU_PARAMETERS_ESP_GVA     0
 #define TD_PER_VCPU_PARAMETERS_LJMP_TARGET 4
 
@@ -20,38 +20,37 @@
 
 .globl td_boot
 td_boot:
-	/* In this procedure, edi is used as a temporary register */
+	/* In this procedure, edi is used as a temporary register. */
 	cli
 
-	/* Paging is off */
+	/* Paging is off. */
 
 	movl $TD_BOOT_PARAMETERS_GPA, %ebx
 
 	/*
 	 * Find the address of struct td_per_vcpu_parameters for this
-	 * vCPU based on esi (TDX spec: initialized with vcpu id). Put
-	 * struct address into register for indirect addressing
+	 * vCPU based on esi (TDX spec: initialized with vCPU id). Put
+	 * struct address into register for indirect addressing.
 	 */
 	movl $SIZEOF_TD_PER_VCPU_PARAMETERS, %eax
 	mul %esi
 	leal TD_BOOT_PARAMETERS_PER_VCPU(%ebx), %edi
 	addl %edi, %eax
 
-	/* Setup stack */
+	/* Setup stack. */
 	movl TD_PER_VCPU_PARAMETERS_ESP_GVA(%eax), %esp
 
-	/* Setup GDT */
+	/* Setup GDT. */
 	leal TD_BOOT_PARAMETERS_GDT(%ebx), %edi
 	lgdt (%edi)
 
-	/* Setup IDT */
+	/* Setup IDT. */
 	leal TD_BOOT_PARAMETERS_IDT(%ebx), %edi
 	lidt (%edi)
 
 	/*
-	 * Set up control registers (There are no instructions to
-	 * mov from memory to control registers, hence we need to use ebx
-	 * as a scratch register)
+	 * Set up control registers (There are no instructions to mov from
+	 * memory to control registers, hence use ebx as a scratch register).
 	 */
 	movl TD_BOOT_PARAMETERS_CR4(%ebx), %edi
 	movl %edi, %cr4
@@ -60,13 +59,13 @@ td_boot:
 	movl TD_BOOT_PARAMETERS_CR0(%ebx), %edi
 	movl %edi, %cr0
 
-	/* Paging is on after setting the most significant bit on cr0 */
+	/* Paging is on after setting the most significant bit on cr0. */
 
 	/*
 	 * Jump to selftest guest code. Far jumps read <segment
 	 * selector:new eip> from <addr+4:addr>. This location has
-	 * already been set up in boot parameters, and we can read boot
-	 * parameters because boot code and boot parameters are loaded so
+	 * already been set up in boot parameters, and boot parameters can
+	 * be read because boot code and boot parameters are loaded so
 	 * that GVA and GPA are mapped 1:1.
 	 */
 	ljmp *TD_PER_VCPU_PARAMETERS_LJMP_TARGET(%eax)
@@ -76,7 +75,7 @@ reset_vector:
 	jmp td_boot
 	/*
 	 * Pad reset_vector to its full size of 16 bytes so that this
-	 * can be loaded with the end of reset_vector aligned to GPA=4G
+	 * can be loaded with the end of reset_vector aligned to GPA=4G.
 	 */
 	int3
 	int3
@@ -93,9 +92,9 @@ reset_vector:
 	int3
 	int3
 
-/* Leave marker so size of td_boot code can be computed */
+/* Leave marker so size of td_boot code can be computed. */
 .globl td_boot_code_end
 td_boot_code_end:
 
-/* Disable executable stack */
+/* Disable executable stack. */
 .section .note.GNU-stack,"",%progbits

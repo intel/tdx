@@ -623,8 +623,8 @@ void td_vcpu_run(struct kvm_vcpu *vcpu)
  * @shared_to_private to true for shared to private conversions and false
  * otherwise.
  *
- * Since this is just for selftests, we will just keep both pieces of backing
- * memory allocated and not deallocate/allocate memory; we'll just do the
+ * Since this is just for selftests, just keep both pieces of backing
+ * memory allocated and not deallocate/allocate memory; just do the
  * minimum of calling KVM_MEMORY_ENCRYPT_REG_REGION and
  * KVM_MEMORY_ENCRYPT_UNREG_REGION.
  */

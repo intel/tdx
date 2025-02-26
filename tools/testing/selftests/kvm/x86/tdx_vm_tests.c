@@ -222,7 +222,7 @@ void verify_td_cpuid(void)
 	tdx_test_check_guest_failure(vcpu);
 	tdx_test_assert_success(vcpu);
 
-	/* Verify the CPUID values we got from the guest. */
+	/* Verify the CPUID values received from the guest. */
 	printf("\t ... Verifying CPUID values from guest\n");
 
 	/* Get KVM CPUIDs for reference */
@@ -242,16 +242,16 @@ void verify_td_cpuid(void)
 	TEST_ASSERT_EQ(guest_max_addressable_ids, host_max_addressable_ids);
 
 	/* TODO: This only tests the native value. To properly test
-	 * "As Configured (if Native)" we need to override this value
-	 * in the TD params
+	 * "As Configured (if Native)" this value needs override in the
+	 * TD params.
 	 */
 	TEST_ASSERT_EQ(guest_fma_enabled, (cpuid_entry->ecx >> 12) & 0x1);
 
 	/* TODO: guest_initial_apic_id is calculated based on the number of
-	 * VCPUs in the TD. From the spec: "Virtual CPU index, starting from 0
+	 * vCPUs in the TD. From the spec: "Virtual CPU index, starting from 0
 	 * and allocated sequentially on each successful TDH.VP.INIT"
-	 * To test non-trivial values we either need a TD with multiple VCPUs
-	 * or to pick a different calculated value.
+	 * To test non-trivial values either use a TD with multiple vCPUs
+	 * or pick a different calculated value.
 	 */
 	TEST_ASSERT_EQ(guest_initial_apic_id, 0);
 

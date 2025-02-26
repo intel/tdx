@@ -100,7 +100,7 @@ void tdx_test_fatal(uint64_t error_code)
 
 uint64_t tdx_test_report_to_user_space(uint32_t data)
 {
-	/* Upcast data to match tdg_vp_vmcall_instruction_io signature */
+	/* Upcast data to match tdg_vp_vmcall_instruction_io() signature */
 	uint64_t data_64 = data;
 
 	return tdg_vp_vmcall_instruction_io(TDX_TEST_REPORT_PORT,

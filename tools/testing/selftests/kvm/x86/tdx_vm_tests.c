@@ -461,7 +461,7 @@ void guest_io_reads(void)
 	if (data != 0xFFABCDEF)
 		tdx_test_fatal(4);
 
-	// Read an invalid number of bytes.
+	/* Read an invalid number of bytes. */
 	ret = tdg_vp_vmcall_instruction_io(TDX_IO_READS_TEST_PORT, 5,
 					   TDG_VP_VMCALL_INSTRUCTION_IO_READ,
 					   &data);

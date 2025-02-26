@@ -966,7 +966,7 @@ void guest_code_cpuid_tdcall(void)
 	uint32_t eax, ebx, ecx, edx;
 	uint64_t err;
 
-	// Read CPUID leaf 0x1 from host.
+	/* Read CPUID leaf 0x1 from host. */
 	err = tdg_vp_vmcall_instruction_cpuid(/*eax=*/1, /*ecx=*/0,
 					      &eax, &ebx, &ecx, &edx);
 	if (err)
@@ -1039,7 +1039,7 @@ void verify_td_cpuid_tdcall(void)
 	TEST_ASSERT(cpuid_entry, "CPUID entry missing\n");
 
 	TEST_ASSERT_EQ(cpuid_entry->eax, eax);
-	// Mask lapic ID when comparing ebx.
+	/* Mask lapic ID when comparing ebx. */
 	TEST_ASSERT_EQ(cpuid_entry->ebx & ~0xFF000000, ebx & ~0xFF000000);
 	TEST_ASSERT_EQ(cpuid_entry->ecx, ecx);
 	TEST_ASSERT_EQ(cpuid_entry->edx, edx);

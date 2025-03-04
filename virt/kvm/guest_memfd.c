@@ -832,7 +832,7 @@ int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
 		goto out;
 	}
 
-	if (kvm_gmem_is_prepared(file, index, folio))
+	if (!kvm_gmem_is_prepared(file, index, folio))
 		r = kvm_gmem_prepare_folio(kvm, file, slot, gfn, folio);
 
 	folio_unlock(folio);

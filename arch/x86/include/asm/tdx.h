@@ -189,6 +189,18 @@ u64 tdh_phymem_page_wbinvd_tdr(struct tdx_td *td);
 u64 tdh_phymem_page_wbinvd_hkid(u64 hkid, kvm_pfn_t pfn);
 u64 tdh_iommu_setup(u64 reg_base, void *root, u64 *tdx_iommu_id);
 u64 tdh_iommu_clear(u64 tdx_iommu_id, void *root);
+u64 tdh_spdm_create(u64 func_id, struct tdx_hpa_list_info *spdm_mt, u64 *spdm_id);
+u64 tdh_spdm_delete(u64 spdm_id);
+u64 tdh_spdm_connect(u64 spdm_id, struct page *spdm_conf,
+		     struct page *spdm_rsp, struct page *spdm_req,
+		     struct tdx_hpa_list_info *spdm_out,
+		     u64 *spdm_req_or_out_len);
+u64 tdh_spdm_disconnect(u64 spdm_id, struct page *spdm_rsp,
+			struct page *spdm_req, u64 *spdm_req_len);
+u64 tdh_spdm_mng(u64 spdm_id, u64 spdm_op, struct page *spdm_param,
+		 struct page *spdm_rsp, struct page *spdm_req,
+		 struct tdx_hpa_list_info *spdm_out,
+		 u64 *spdm_req_or_out_len);
 #else
 static inline void tdx_init(void) { }
 static inline u32 tdx_get_nr_guest_keyids(void) { return 0; }

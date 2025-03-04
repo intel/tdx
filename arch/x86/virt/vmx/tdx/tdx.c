@@ -1186,7 +1186,7 @@ static_assert(sizeof(struct tdx_hpa_list) == PAGE_SIZE);
 #define HPA_LIST_INFO_PFN		GENMASK_U64(51, 12)
 #define HPA_LIST_INFO_LAST_ENTRY	GENMASK_U64(63, 55)
 
-static __init u64 to_hpa_list_info(struct tdx_hpa_list_info *info)
+static u64 to_hpa_list_info(struct tdx_hpa_list_info *info)
 {
 	return FIELD_PREP(HPA_LIST_INFO_FIRST_ENTRY, 0) |
 	       FIELD_PREP(HPA_LIST_INFO_PFN, PFN_DOWN(__pa(info->hpa_list))) |
@@ -2332,3 +2332,103 @@ u64 tdh_iommu_clear(u64 tdx_iommu_id, void *root)
 
 	return r;
 }
+
+u64 tdh_spdm_create(u64 func_id, struct tdx_hpa_list_info *spdm_mt, u64 *spdm_id)
+{
+	struct tdx_module_args args = {
+		.rcx = func_id,
+		.rdx = to_hpa_list_info(spdm_mt),
+	};
+	u64 ret;
+
+	ret = seamcall_ret(TDH_SPDM_CREATE, &args);
+
+	*spdm_id = args.rcx;
+
+	return ret;
+}
+EXPORT_SYMBOL_FOR_MODULES(tdh_spdm_create, "tdx-host");
+
+u64 tdh_spdm_delete(u64 spdm_id)
+{
+	struct tdx_module_args args = {
+		.rcx = spdm_id,
+		/*
+		 * All 1-s means no buffer, no need to receive the HPA list for
+		 * released pages.
+		 */
+		.rdx = U64_MAX,
+	};
+
+	return seamcall(TDH_SPDM_DELETE, &args);
+}
+EXPORT_SYMBOL_FOR_MODULES(tdh_spdm_delete, "tdx-host");
+
+u64 tdh_spdm_connect(u64 spdm_id, struct page *spdm_conf,
+		     struct page *spdm_rsp, struct page *spdm_req,
+		     struct tdx_hpa_list_info *spdm_out,
+		     u64 *spdm_req_or_out_len)
+{
+	struct tdx_module_args args = {
+		.rcx = spdm_id,
+		.rdx = page_to_phys(spdm_conf),
+		.r8 = page_to_phys(spdm_rsp),
+		.r9 = page_to_phys(spdm_req),
+		.r10 = to_hpa_list_info(spdm_out),
+	};
+	u64 ret;
+
+	do {
+		ret = seamcall_ret(TDH_SPDM_CONNECT, &args);
+	} while (ret == TDX_INTERRUPTED_RESUMABLE);
+
+	*spdm_req_or_out_len = args.rcx;
+
+	return ret;
+}
+EXPORT_SYMBOL_FOR_MODULES(tdh_spdm_connect, "tdx-host");
+
+u64 tdh_spdm_disconnect(u64 spdm_id, struct page *spdm_rsp,
+			struct page *spdm_req, u64 *spdm_req_len)
+{
+	struct tdx_module_args args = {
+		.rcx = spdm_id,
+		.rdx = page_to_phys(spdm_rsp),
+		.r8 = page_to_phys(spdm_req),
+	};
+	u64 ret;
+
+	do {
+		ret = seamcall_ret(TDH_SPDM_DISCONNECT, &args);
+	} while (ret == TDX_INTERRUPTED_RESUMABLE);
+
+	*spdm_req_len = args.rcx;
+
+	return ret;
+}
+EXPORT_SYMBOL_FOR_MODULES(tdh_spdm_disconnect, "tdx-host");
+
+u64 tdh_spdm_mng(u64 spdm_id, u64 spdm_op, struct page *spdm_param,
+		 struct page *spdm_rsp, struct page *spdm_req,
+		 struct tdx_hpa_list_info *spdm_out,
+		 u64 *spdm_req_or_out_len)
+{
+	struct tdx_module_args args = {
+		.rcx = spdm_id,
+		.rdx = spdm_op,
+		.r8 = spdm_param ? page_to_phys(spdm_param) : U64_MAX,
+		.r9 = page_to_phys(spdm_rsp),
+		.r10 = page_to_phys(spdm_req),
+		.r11 = spdm_out ? to_hpa_list_info(spdm_out) : U64_MAX,
+	};
+	u64 ret;
+
+	do {
+		ret = seamcall_ret(TDH_SPDM_MNG, &args);
+	} while (ret == TDX_INTERRUPTED_RESUMABLE);
+
+	*spdm_req_or_out_len = args.rcx;
+
+	return ret;
+}
+EXPORT_SYMBOL_FOR_MODULES(tdh_spdm_mng, "tdx-host");

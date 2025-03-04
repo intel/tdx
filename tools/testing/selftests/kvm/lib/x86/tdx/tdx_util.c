@@ -262,6 +262,7 @@ static void tdx_td_init(struct kvm_vm *vm, uint64_t attributes)
 	tdx_filter_cpuid(vm, &init_vm->cpuid);
 
 	tdx_ioctl(vm->fd, KVM_TDX_INIT_VM, 0, init_vm);
+	free(init_vm);
 }
 
 static void tdx_td_vcpu_init(struct kvm_vcpu *vcpu)

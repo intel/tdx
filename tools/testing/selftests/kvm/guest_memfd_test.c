@@ -142,41 +142,78 @@ static void test_file_size(int fd, size_t page_size, size_t total_size)
 	TEST_ASSERT_EQ(sb.st_blksize, page_size);
 }
 
-static void test_fallocate(int fd, size_t page_size, size_t total_size)
+static void assert_st_blocks_equals_size(int fd, size_t page_size, size_t expected_size)
 {
+	struct stat sb;
+	int ret;
+
+	/* TODO: st_blocks is not updated for 4K-page guest_memfd. */
+	if (page_size == getpagesize())
+		return;
+
+	ret = fstat(fd, &sb);
+	TEST_ASSERT(!ret, "fstat should succeed");
+	TEST_ASSERT_EQ(sb.st_blocks, expected_size / 512);
+}
+
+static void test_fallocate(int fd, size_t test_page_size, size_t total_size)
+{
+	size_t page_size;
 	int ret;
 
 	ret = fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, total_size);
 	TEST_ASSERT(!ret, "fallocate with aligned offset and size should succeed");
+	assert_st_blocks_equals_size(fd, test_page_size, total_size);
 
 	ret = fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
-			page_size - 1, page_size);
+			test_page_size - 1, test_page_size);
 	TEST_ASSERT(ret, "fallocate with unaligned offset should fail");
+	assert_st_blocks_equals_size(fd, test_page_size, total_size);
 
-	ret = fallocate(fd, FALLOC_FL_KEEP_SIZE, total_size, page_size);
+	ret = fallocate(fd, FALLOC_FL_KEEP_SIZE, total_size, test_page_size);
 	TEST_ASSERT(ret, "fallocate beginning at total_size should fail");
+	assert_st_blocks_equals_size(fd, test_page_size, total_size);
 
-	ret = fallocate(fd, FALLOC_FL_KEEP_SIZE, total_size + page_size, page_size);
+	ret = fallocate(fd, FALLOC_FL_KEEP_SIZE, total_size + test_page_size, test_page_size);
 	TEST_ASSERT(ret, "fallocate beginning after total_size should fail");
+	assert_st_blocks_equals_size(fd, test_page_size, total_size);
 
 	ret = fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
-			total_size, page_size);
+			total_size, test_page_size);
 	TEST_ASSERT(!ret, "fallocate(PUNCH_HOLE) at total_size should succeed");
+	assert_st_blocks_equals_size(fd, test_page_size, total_size);
 
 	ret = fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
-			total_size + page_size, page_size);
+			total_size + test_page_size, test_page_size);
 	TEST_ASSERT(!ret, "fallocate(PUNCH_HOLE) after total_size should succeed");
+	assert_st_blocks_equals_size(fd, test_page_size, total_size);
 
 	ret = fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
-			page_size, page_size - 1);
+			test_page_size, test_page_size - 1);
 	TEST_ASSERT(ret, "fallocate with unaligned size should fail");
+	assert_st_blocks_equals_size(fd, test_page_size, total_size);
 
 	ret = fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
-			page_size, page_size);
+			test_page_size, test_page_size);
 	TEST_ASSERT(!ret, "fallocate(PUNCH_HOLE) with aligned offset and size should succeed");
+	assert_st_blocks_equals_size(fd, test_page_size, total_size - test_page_size);
 
-	ret = fallocate(fd, FALLOC_FL_KEEP_SIZE, page_size, page_size);
+	ret = fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
+			test_page_size, test_page_size);
+	TEST_ASSERT(!ret, "fallocate(PUNCH_HOLE) in a hole should succeed");
+	assert_st_blocks_equals_size(fd, test_page_size, total_size - test_page_size);
+
+	ret = fallocate(fd, FALLOC_FL_KEEP_SIZE, test_page_size, test_page_size);
 	TEST_ASSERT(!ret, "fallocate to restore punched hole should succeed");
+	assert_st_blocks_equals_size(fd, test_page_size, total_size);
+
+	page_size = getpagesize();
+	if (test_page_size == page_size) {
+		ret = fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
+				test_page_size + page_size, page_size);
+		TEST_ASSERT(!ret, "fallocate(PUNCH_HOLE) of a subfolio should succeed");
+		assert_st_blocks_equals_size(fd, test_page_size, total_size);
+	}
 }
 
 static void test_invalid_punch_hole(int fd, size_t page_size, size_t total_size)

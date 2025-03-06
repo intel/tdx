@@ -4308,7 +4308,9 @@ static __no_kcsan fastpath_t svm_vcpu_run(struct kvm_vcpu *vcpu,
 		svm_set_dr6(vcpu, DR6_ACTIVE_LOW);
 
 	clgi();
-	kvm_load_guest_xsave_state(vcpu);
+
+	if (!vcpu->arch.guest_state_protected)
+		kvm_load_guest_xsave_state(vcpu);
 
 	/*
 	 * Hardware only context switches DEBUGCTL if LBR virtualization is
@@ -4351,7 +4353,8 @@ static __no_kcsan fastpath_t svm_vcpu_run(struct kvm_vcpu *vcpu,
 	    vcpu->arch.host_debugctl != svm->vmcb->save.dbgctl)
 		update_debugctlmsr(vcpu->arch.host_debugctl);
 
-	kvm_load_host_xsave_state(vcpu);
+	if (!vcpu->arch.guest_state_protected)
+		kvm_load_host_xsave_state(vcpu);
 	stgi();
 
 	/* Any pending NMI will happen here */

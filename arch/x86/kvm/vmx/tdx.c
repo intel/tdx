@@ -3000,9 +3000,23 @@ out:
 	return r;
 }
 
+static u64 tdx_guest_cr0(struct kvm_vcpu *vcpu, u64 cr4)
+{
+	u64 cr0 = ~CR0_RESERVED_BITS;
+
+	if (cr4 & X86_CR4_CET)
+		cr0 |= X86_CR0_WP;
+
+	cr0 |= X86_CR0_PE | X86_CR0_NE;
+	cr0 &= ~(X86_CR0_NW | X86_CR0_CD);
+
+	return cr0;
+}
+
 static int tdx_vcpu_init(struct kvm_vcpu *vcpu, struct kvm_tdx_cmd *cmd)
 {
 	u64 apic_base;
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 	int ret;
 
@@ -3028,6 +3042,18 @@ static int tdx_vcpu_init(struct kvm_vcpu *vcpu, struct kvm_tdx_cmd *cmd)
 	td_vmcs_write16(tdx, POSTED_INTR_NV, POSTED_INTR_VECTOR);
 	td_vmcs_write64(tdx, POSTED_INTR_DESC_ADDR, __pa(&tdx->vt.pi_desc));
 	td_vmcs_setbit32(tdx, PIN_BASED_VM_EXEC_CONTROL, PIN_BASED_POSTED_INTR);
+
+	/*
+	 * Just stuff something sensible in vcpu->arch.  Note that all runtime
+	 * access to CRn and XCR0 is blocked by guest_state_protected.
+	 */
+	vcpu->arch.cr4 = ~vcpu->arch.cr4_guest_rsvd_bits;
+	vcpu->arch.cr0 = tdx_guest_cr0(vcpu, vcpu->arch.cr4);
+	vcpu->arch.ia32_xss = kvm_tdx->xfam & kvm_caps.supported_xss;
+	vcpu->arch.xcr0 = kvm_tdx->xfam & kvm_caps.supported_xcr0;
+
+	/* TODO: freeze vCPU model before kvm_update_cpuid_runtime() */
+	kvm_update_cpuid_runtime(vcpu);
 
 	tdx->state = VCPU_TD_STATE_INITIALIZED;
 

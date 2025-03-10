@@ -5,6 +5,7 @@
  * Copyright (C) 2025 Intel Corporation
  */
 
+#include <linux/bitfield.h>
 #include <linux/device/faux.h>
 #include <linux/dmar.h>
 #include <linux/firmware.h>
@@ -27,8 +28,30 @@ MODULE_DEVICE_TABLE(x86cpu, tdx_host_ids);
 
 static const struct tdx_sys_info *tdx_sysinfo;
 
+#define TDISP_FUNC_ID		GENMASK(15, 0)
+#define TDISP_FUNC_ID_SEGMENT		GENMASK(23, 16)
+#define TDISP_FUNC_ID_SEG_VALID		BIT(24)
+
+static inline u32 tdisp_func_id(struct pci_dev *pdev)
+{
+	u32 func_id;
+
+	func_id = FIELD_PREP(TDISP_FUNC_ID_SEGMENT, pci_domain_nr(pdev->bus));
+	if (func_id)
+		func_id |= TDISP_FUNC_ID_SEG_VALID;
+	func_id |= FIELD_PREP(TDISP_FUNC_ID,
+			      PCI_DEVID(pdev->bus->number, pdev->devfn));
+
+	return func_id;
+}
+
 struct tdx_tsm_link {
 	struct pci_tsm_pf0 pci;
+	u32 func_id;
+
+	u64 spdm_id;
+	unsigned int spdm_mt_nr_pages;
+	void *spdm_mt;
 };
 
 static struct tdx_tsm_link *to_tdx_tsm_link(struct pci_tsm *tsm)
@@ -36,13 +59,80 @@ static struct tdx_tsm_link *to_tdx_tsm_link(struct pci_tsm *tsm)
 	return container_of(tsm, struct tdx_tsm_link, pci.base_tsm);
 }
 
+static int tdx_spdm_create(struct tdx_tsm_link *tlink)
+{
+	unsigned int nr_pages = tdx_sysinfo->tdx_connect.spdm_mt_page_count;
+	struct tdx_hpa_list_info info;
+	u64 spdm_id, sret;
+	void *spdm_mt;
+	int ret;
+
+	spdm_mt = alloc_pages_exact(nr_pages * PAGE_SIZE,
+				    GFP_KERNEL | __GFP_ZERO);
+	if (!spdm_mt)
+		return -ENOMEM;
+
+	ret = tdx_hpa_list_info_setup(&info, spdm_mt, nr_pages);
+	if (ret)
+		goto out_spdm_mt_free;
+
+	sret = tdh_spdm_create(tlink->func_id, &info, &spdm_id);
+
+	tdx_hpa_list_info_free(&info);
+
+	if (sret) {
+		ret = -EIO;
+		goto out_spdm_mt_free;
+	}
+
+	tlink->spdm_id = spdm_id;
+	tlink->spdm_mt = spdm_mt;
+	tlink->spdm_mt_nr_pages = nr_pages;
+	return 0;
+
+out_spdm_mt_free:
+	free_pages_exact(tlink->spdm_mt, nr_pages * PAGE_SIZE);
+	return ret;
+}
+
+static void tdx_spdm_delete(struct tdx_tsm_link *tlink)
+{
+	struct pci_dev *pdev = tlink->pci.base_tsm.pdev;
+	u64 sret;
+
+	sret = tdh_spdm_delete(tlink->spdm_id);
+	if (sret) {
+		/* leak the metadata pages */
+		pci_err(pdev, "fail to delete spdm 0x%llx\n", sret);
+		return;
+	}
+
+	free_pages_exact(tlink->spdm_mt, tlink->spdm_mt_nr_pages * PAGE_SIZE);
+	return;
+}
+
+static int tdx_spdm_session_setup(struct tdx_tsm_link *tlink)
+{
+	return tdx_spdm_create(tlink);
+}
+
+static void tdx_spdm_session_teardown(struct tdx_tsm_link *tlink)
+{
+	tdx_spdm_delete(tlink);
+}
+
 static int tdx_tsm_link_connect(struct pci_dev *pdev)
 {
-	return -ENXIO;
+	struct tdx_tsm_link *tlink = to_tdx_tsm_link(pdev->tsm);
+
+	return tdx_spdm_session_setup(tlink);
 }
 
 static void tdx_tsm_link_disconnect(struct pci_dev *pdev)
 {
+	struct tdx_tsm_link *tlink = to_tdx_tsm_link(pdev->tsm);
+
+	tdx_spdm_session_teardown(tlink);
 }
 
 static struct pci_tsm *tdx_tsm_link_pf0_probe(struct tsm_dev *tsm_dev,
@@ -60,6 +150,8 @@ static struct pci_tsm *tdx_tsm_link_pf0_probe(struct tsm_dev *tsm_dev,
 		kfree(tlink);
 		return NULL;
 	}
+
+	tlink->func_id = tdisp_func_id(pdev);
 
 	return &tlink->pci.base_tsm;
 }

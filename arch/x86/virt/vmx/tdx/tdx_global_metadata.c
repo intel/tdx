@@ -118,6 +118,12 @@ static __init int get_tdx_sys_info_connect(struct tdx_sys_info_connect *sysinfo_
 	int ret;
 	u64 val;
 
+	ret = read_sys_metadata_field(0x3000000100000002, &val);
+	if (ret)
+		return ret;
+
+	sysinfo_connect->spdm_mt_page_count = val;
+
 	ret = read_sys_metadata_field(0x3000000100000003, &val);
 	if (ret)
 		return ret;

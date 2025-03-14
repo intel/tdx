@@ -6432,6 +6432,11 @@ belonging to the slot via its userspace_addr.
 The use of GUEST_MEMFD_FLAG_SUPPORT_SHARED will not be allowed for CoCo VMs.
 This is validated when the guest_memfd instance is bound to the VM.
 
+If the capability KVM_CAP_GMEM_CONVERSIONS is supported, then the 'flags' field
+supports GUEST_MEMFD_FLAG_INIT_PRIVATE.  Setting GUEST_MEMFD_FLAG_INIT_PRIVATE
+will initialize the memory for the guest_memfd as guest-only and not faultable
+by the host.
+
 See KVM_SET_USER_MEMORY_REGION2 for additional details.
 
 4.143 KVM_PRE_FAULT_MEMORY

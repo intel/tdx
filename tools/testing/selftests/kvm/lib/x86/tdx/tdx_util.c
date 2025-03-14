@@ -7,9 +7,9 @@
 #include <sys/ioctl.h>
 
 #include "kvm_util.h"
-#include "test_util.h"
-#include "tdx/td_boot.h"
 #include "processor.h"
+#include "tdx/td_boot.h"
+#include "test_util.h"
 
 uint64_t tdx_s_bit;
 
@@ -249,10 +249,10 @@ static void tdx_td_init(struct kvm_vm *vm, uint64_t attributes)
 	memcpy(cpuid, tmp, kvm_cpuid2_size(tmp->nent));
 	tdx_mask_cpuid_features(cpuid);
 
-	init_vm = malloc(sizeof(*init_vm) +
+	init_vm = calloc(1, sizeof(*init_vm) +
 			 sizeof(init_vm->cpuid.entries[0]) * cpuid->nent);
+	TEST_ASSERT(init_vm, "vm allocation failed");
 
-	memset(init_vm, 0, sizeof(*init_vm));
 	memcpy(&init_vm->cpuid, cpuid, kvm_cpuid2_size(cpuid->nent));
 	free(cpuid);
 
@@ -302,7 +302,7 @@ static void tdx_init_mem_region(struct kvm_vm *vm, void *source_pages,
 	tdx_ioctl(vcpu->fd, KVM_TDX_INIT_MEM_REGION, metadata, &mem_region);
 }
 
-static void tdx_td_finalizemr(struct kvm_vm *vm)
+static void tdx_td_finalize_mr(struct kvm_vm *vm)
 {
 	tdx_ioctl(vm->fd, KVM_TDX_FINALIZE_VM, 0, NULL);
 }
@@ -352,10 +352,7 @@ static void load_td_per_vcpu_parameters(struct td_boot_parameters *params,
 					struct kvm_vcpu *vcpu,
 					void *guest_code)
 {
-	/* Store vcpu_index to match what the TDX module would store internally */
-	static uint32_t vcpu_index;
-
-	struct td_per_vcpu_parameters *vcpu_params = &params->per_vcpu[vcpu_index];
+	struct td_per_vcpu_parameters *vcpu_params = &params->per_vcpu[vcpu->id];
 
 	TEST_ASSERT(vcpu->initial_stack_addr != 0,
 		    "initial stack address should not be 0");
@@ -368,8 +365,6 @@ static void load_td_per_vcpu_parameters(struct td_boot_parameters *params,
 	vcpu_params->esp_gva = (uint32_t)(uint64_t)vcpu->initial_stack_addr;
 	vcpu_params->ljmp_target.eip_gva = (uint32_t)(uint64_t)guest_code;
 	vcpu_params->ljmp_target.code64_sel = sregs->cs.selector;
-
-	vcpu_index++;
 }
 
 static void load_td_common_parameters(struct td_boot_parameters *params,
@@ -388,6 +383,7 @@ static void load_td_common_parameters(struct td_boot_parameters *params,
 	TEST_ASSERT(params->cr3 != 0, "cr3 should not be 0");
 	TEST_ASSERT(params->cr4 != 0, "cr4 should not be 0");
 	TEST_ASSERT(params->gdtr.base != 0, "gdt base address should not be 0");
+	TEST_ASSERT(params->idtr.base != 0, "idt base address should not be 0");
 }
 
 static void load_td_boot_parameters(struct td_boot_parameters *params,
@@ -483,10 +479,11 @@ static void load_td_private_memory(struct kvm_vm *vm)
 
 struct kvm_vm *td_create(void)
 {
-	struct vm_shape shape;
+	const struct vm_shape shape = {
+		.mode = VM_MODE_DEFAULT,
+		.type = KVM_X86_TDX_VM,
+	};
 
-	shape.mode = VM_MODE_DEFAULT;
-	shape.type = KVM_X86_TDX_VM;
 	return ____vm_create(shape);
 }
 
@@ -500,7 +497,8 @@ static void td_setup_boot_code(struct kvm_vm *vm, enum vm_mem_backing_src_type s
 	vm_userspace_mem_region_add(vm, src_type, boot_code_base_gpa, 1, npages,
 				    KVM_MEM_GUEST_MEMFD);
 	vm->memslots[MEM_REGION_CODE] = 1;
-	addr = vm_vaddr_alloc_1to1(vm, boot_code_allocation, boot_code_base_gpa, MEM_REGION_CODE);
+	addr = vm_vaddr_identity_alloc(vm, boot_code_allocation,
+				       boot_code_base_gpa, MEM_REGION_CODE);
 	TEST_ASSERT_EQ(addr, boot_code_base_gpa);
 
 	load_td_boot_code(vm);
@@ -525,8 +523,8 @@ static void td_setup_boot_parameters(struct kvm_vm *vm, enum vm_mem_backing_src_
 	vm_userspace_mem_region_add(vm, src_type, TD_BOOT_PARAMETERS_GPA, 2,
 				    npages, KVM_MEM_GUEST_MEMFD);
 	vm->memslots[MEM_REGION_TDX_BOOT_PARAMS] = 2;
-	addr = vm_vaddr_alloc_1to1(vm, total_size, TD_BOOT_PARAMETERS_GPA,
-				   MEM_REGION_TDX_BOOT_PARAMS);
+	addr = vm_vaddr_identity_alloc(vm, total_size, TD_BOOT_PARAMETERS_GPA,
+				       MEM_REGION_TDX_BOOT_PARAMS);
 	TEST_ASSERT_EQ(addr, TD_BOOT_PARAMETERS_GPA);
 }
 
@@ -564,5 +562,5 @@ void td_finalize(struct kvm_vm *vm)
 
 	load_td_private_memory(vm);
 
-	tdx_td_finalizemr(vm);
+	tdx_td_finalize_mr(vm);
 }

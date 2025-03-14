@@ -3,6 +3,7 @@
 #define SELFTEST_TDX_TD_BOOT_H
 
 #include <stdint.h>
+
 #include "tdx/td_boot_asm.h"
 
 /*

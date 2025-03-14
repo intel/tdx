@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/wait.h>
 
 #include <linux/compiler.h>
 #include <linux/kernel.h>
@@ -202,15 +203,19 @@ skip:
 		guest_sync_shared(gpa, size, p3, p4);
 		memcmp_g(gpa, p4, size);
 
-		/* Reset the shared memory back to the initial pattern. */
-		memset((void *)gpa, init_p, size);
-
 		/*
 		 * Free (via PUNCH_HOLE) *all* private memory so that the next
 		 * iteration starts from a clean slate, e.g. with respect to
 		 * whether or not there are pages/folios in guest_mem.
 		 */
 		guest_map_shared(base_gpa, PER_CPU_DATA_SIZE, true);
+
+		/*
+		 * Reset the entire block back to the initial pattern. Do this
+		 * after fallocate(PUNCH_HOLE) because hole-punching zeroes
+		 * memory.
+		 */
+		memset((void *)base_gpa, init_p, PER_CPU_DATA_SIZE);
 	}
 }
 
@@ -286,7 +291,8 @@ static void guest_code(uint64_t base_gpa)
 	GUEST_DONE();
 }
 
-static void handle_exit_hypercall(struct kvm_vcpu *vcpu)
+static void handle_exit_hypercall(struct kvm_vcpu *vcpu,
+				  bool back_shared_memory_with_guest_memfd)
 {
 	struct kvm_run *run = vcpu->run;
 	uint64_t gpa = run->hypercall.args[0];
@@ -303,17 +309,81 @@ static void handle_exit_hypercall(struct kvm_vcpu *vcpu)
 	if (do_fallocate)
 		vm_guest_mem_fallocate(vm, gpa, size, map_shared);
 
-	if (set_attributes)
-		vm_set_memory_attributes(vm, gpa, size,
-					 map_shared ? 0 : KVM_MEMORY_ATTRIBUTE_PRIVATE);
+	if (set_attributes) {
+		if (back_shared_memory_with_guest_memfd) {
+			loff_t offset;
+			int guest_memfd;
+
+			guest_memfd = addr_gpa2guest_memfd(vm, gpa, &offset);
+
+			if (map_shared)
+				guest_memfd_convert_shared(guest_memfd, offset, size);
+			else
+				guest_memfd_convert_private(guest_memfd, offset, size);
+		} else {
+			uint64_t attrs;
+
+			attrs = map_shared ? 0 : KVM_MEMORY_ATTRIBUTE_PRIVATE;
+			vm_set_memory_attributes(vm, gpa, size, attrs);
+		}
+	}
 	run->hypercall.ret = 0;
+}
+
+static void assert_not_faultable(uint8_t *address)
+{
+	pid_t child_pid;
+
+	child_pid = fork();
+	TEST_ASSERT(child_pid != -1, "fork failed");
+
+	if (child_pid == 0) {
+		*address = 'A';
+		TEST_FAIL("Child should have exited with a signal");
+	} else {
+		int status;
+
+		waitpid(child_pid, &status, 0);
+
+		TEST_ASSERT(WIFSIGNALED(status),
+			    "Child should have exited with a signal");
+		TEST_ASSERT_EQ(WTERMSIG(status), SIGBUS);
+	}
+}
+
+static void add_memslot(struct kvm_vm *vm, uint64_t gpa, uint32_t slot,
+			uint64_t size, int guest_memfd,
+			uint64_t guest_memfd_offset)
+{
+	struct userspace_mem_region *region;
+
+	region = vm_mem_region_alloc(vm);
+
+	guest_memfd = vm_mem_region_install_guest_memfd(region, guest_memfd);
+
+	vm_mem_region_mmap(region, size, MAP_SHARED, guest_memfd, guest_memfd_offset);
+	vm_mem_region_install_memory(region, size, getpagesize());
+
+	region->region.slot = slot;
+	region->region.flags = KVM_MEM_GUEST_MEMFD;
+	region->region.guest_phys_addr = gpa;
+	region->region.guest_memfd_offset = guest_memfd_offset;
+
+	vm_mem_region_add(vm, region);
 }
 
 static bool run_vcpus;
 
-static void *__test_mem_conversions(void *__vcpu)
+struct test_thread_args
 {
-	struct kvm_vcpu *vcpu = __vcpu;
+	struct kvm_vcpu *vcpu;
+	bool back_shared_memory_with_guest_memfd;
+};
+
+static void *__test_mem_conversions(void *params)
+{
+	struct test_thread_args *args = params;
+	struct kvm_vcpu *vcpu = args->vcpu;
 	struct kvm_run *run = vcpu->run;
 	struct kvm_vm *vm = vcpu->vm;
 	struct ucall uc;
@@ -325,7 +395,10 @@ static void *__test_mem_conversions(void *__vcpu)
 		vcpu_run(vcpu);
 
 		if (run->exit_reason == KVM_EXIT_HYPERCALL) {
-			handle_exit_hypercall(vcpu);
+			handle_exit_hypercall(
+				vcpu,
+				args->back_shared_memory_with_guest_memfd);
+
 			continue;
 		}
 
@@ -349,8 +422,18 @@ static void *__test_mem_conversions(void *__vcpu)
 				size_t nr_bytes = min_t(size_t, vm->page_size, size - i);
 				uint8_t *hva = addr_gpa2hva(vm, gpa + i);
 
-				/* In all cases, the host should observe the shared data. */
-				memcmp_h(hva, gpa + i, uc.args[3], nr_bytes);
+				/* Check contents of memory */
+				if (args->back_shared_memory_with_guest_memfd &&
+				    uc.args[0] == SYNC_PRIVATE) {
+					assert_not_faultable(hva);
+				} else {
+					/*
+					 * If shared and private memory use
+					 * separate backing memory, the host
+					 * should always observe shared data.
+					 */
+					memcmp_h(hva, gpa + i, uc.args[3], nr_bytes);
+				}
 
 				/* For shared, write the new pattern to guest memory. */
 				if (uc.args[0] == SYNC_SHARED)
@@ -366,14 +449,16 @@ static void *__test_mem_conversions(void *__vcpu)
 	}
 }
 
-static void test_mem_conversions(enum vm_mem_backing_src_type src_type, uint32_t nr_vcpus,
-				 uint32_t nr_memslots)
+static void test_mem_conversions(enum vm_mem_backing_src_type src_type,
+				 uint32_t nr_vcpus, uint32_t nr_memslots,
+				 bool back_shared_memory_with_guest_memfd)
 {
 	/*
 	 * Allocate enough memory so that each vCPU's chunk of memory can be
 	 * naturally aligned with respect to the size of the backing store.
 	 */
 	const size_t alignment = max_t(size_t, SZ_2M, get_backing_src_pagesz(src_type));
+	struct test_thread_args *thread_args[KVM_MAX_VCPUS];
 	const size_t per_cpu_size = align_up(PER_CPU_DATA_SIZE, alignment);
 	const size_t memfd_size = per_cpu_size * nr_vcpus;
 	const size_t slot_size = memfd_size / nr_memslots;
@@ -381,6 +466,7 @@ static void test_mem_conversions(enum vm_mem_backing_src_type src_type, uint32_t
 	pthread_t threads[KVM_MAX_VCPUS];
 	struct kvm_vm *vm;
 	int memfd, i, r;
+	uint64_t flags;
 
 	const struct vm_shape shape = {
 		.mode = VM_MODE_DEFAULT,
@@ -394,12 +480,23 @@ static void test_mem_conversions(enum vm_mem_backing_src_type src_type, uint32_t
 
 	vm_enable_cap(vm, KVM_CAP_EXIT_HYPERCALL, (1 << KVM_HC_MAP_GPA_RANGE));
 
-	memfd = vm_create_guest_memfd(vm, memfd_size, 0);
+	flags = back_shared_memory_with_guest_memfd ?
+			GUEST_MEMFD_FLAG_SUPPORT_SHARED :
+			0;
+	memfd = vm_create_guest_memfd(vm, memfd_size, flags);
 
-	for (i = 0; i < nr_memslots; i++)
-		vm_mem_add(vm, src_type, BASE_DATA_GPA + slot_size * i,
-			   BASE_DATA_SLOT + i, slot_size / vm->page_size,
-			   KVM_MEM_GUEST_MEMFD, memfd, slot_size * i);
+	for (i = 0; i < nr_memslots; i++) {
+		if (back_shared_memory_with_guest_memfd) {
+			add_memslot(vm, BASE_DATA_GPA + slot_size * i,
+				    BASE_DATA_SLOT + i, slot_size, memfd,
+				    slot_size * i);
+		} else {
+			vm_mem_add(vm, src_type, BASE_DATA_GPA + slot_size * i,
+				   BASE_DATA_SLOT + i,
+				   slot_size / vm->page_size,
+				   KVM_MEM_GUEST_MEMFD, memfd, slot_size * i);
+		}
+	}
 
 	for (i = 0; i < nr_vcpus; i++) {
 		uint64_t gpa =  BASE_DATA_GPA + i * per_cpu_size;
@@ -412,13 +509,23 @@ static void test_mem_conversions(enum vm_mem_backing_src_type src_type, uint32_t
 		 */
 		virt_map(vm, gpa, gpa, PER_CPU_DATA_SIZE / vm->page_size);
 
-		pthread_create(&threads[i], NULL, __test_mem_conversions, vcpus[i]);
+		thread_args[i] = malloc(sizeof(struct test_thread_args));
+		TEST_ASSERT(thread_args[i] != NULL,
+			    "Could not allocate memory for thread parameters");
+		thread_args[i]->vcpu = vcpus[i];
+		thread_args[i]->back_shared_memory_with_guest_memfd =
+			back_shared_memory_with_guest_memfd;
+
+		pthread_create(&threads[i], NULL, __test_mem_conversions,
+			       (void *)thread_args[i]);
 	}
 
 	WRITE_ONCE(run_vcpus, true);
 
-	for (i = 0; i < nr_vcpus; i++)
+	for (i = 0; i < nr_vcpus; i++) {
 		pthread_join(threads[i], NULL);
+		free(thread_args[i]);
+	}
 
 	kvm_vm_free(vm);
 
@@ -440,7 +547,7 @@ static void test_mem_conversions(enum vm_mem_backing_src_type src_type, uint32_t
 static void usage(const char *cmd)
 {
 	puts("");
-	printf("usage: %s [-h] [-m nr_memslots] [-s mem_type] [-n nr_vcpus]\n", cmd);
+	printf("usage: %s [-h] [-g] [-m nr_memslots] [-s mem_type] [-n nr_vcpus]\n", cmd);
 	puts("");
 	backing_src_help("-s");
 	puts("");
@@ -448,18 +555,21 @@ static void usage(const char *cmd)
 	puts("");
 	puts(" -m: specify the number of memslots (default: 1)");
 	puts("");
+	puts(" -g: back shared memory with guest_memfd (default: false)");
+	puts("");
 }
 
 int main(int argc, char *argv[])
 {
 	enum vm_mem_backing_src_type src_type = DEFAULT_VM_MEM_SRC;
+	bool back_shared_memory_with_guest_memfd = false;
 	uint32_t nr_memslots = 1;
 	uint32_t nr_vcpus = 1;
 	int opt;
 
 	TEST_REQUIRE(kvm_check_cap(KVM_CAP_VM_TYPES) & BIT(KVM_X86_SW_PROTECTED_VM));
 
-	while ((opt = getopt(argc, argv, "hm:s:n:")) != -1) {
+	while ((opt = getopt(argc, argv, "hgm:s:n:")) != -1) {
 		switch (opt) {
 		case 's':
 			src_type = parse_backing_src_type(optarg);
@@ -470,6 +580,9 @@ int main(int argc, char *argv[])
 		case 'm':
 			nr_memslots = atoi_positive("nr_memslots", optarg);
 			break;
+		case 'g':
+			back_shared_memory_with_guest_memfd = true;
+			break;
 		case 'h':
 		default:
 			usage(argv[0]);
@@ -477,7 +590,9 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	test_mem_conversions(src_type, nr_vcpus, nr_memslots);
+	test_mem_conversions(src_type, nr_vcpus, nr_memslots,
+			     back_shared_memory_with_guest_memfd);
+
 
 	return 0;
 }

@@ -1827,6 +1827,42 @@ void *addr_gpa2hva(struct kvm_vm *vm, vm_paddr_t gpa)
 }
 
 /*
+ * Address VM Physical to guest_memfd
+ *
+ * Input Args:
+ *   vm - Virtual Machine
+ *   gpa - VM physical address
+ *
+ * Output Args:
+ *   offset - offset in guest_memfd for gpa
+ *
+ * Return:
+ *   guest_memfd for
+ *
+ * Locates the memory region containing the VM physical address given by gpa,
+ * within the VM given by vm.  When found, the guest_memfd providing the memory
+ * to the vm physical address and the offset in the file corresponding to the
+ * requested gpa is returned.  A TEST_ASSERT failure occurs if no region
+ * containing gpa exists.
+ */
+int addr_gpa2guest_memfd(struct kvm_vm *vm, vm_paddr_t gpa, loff_t *offset)
+{
+	struct userspace_mem_region *region;
+
+	gpa = vm_untag_gpa(vm, gpa);
+
+	region = userspace_mem_region_find(vm, gpa, gpa);
+	if (!region) {
+		TEST_FAIL("No vm physical memory at 0x%lx", gpa);
+		return -1;
+	}
+
+	*offset = region->region.guest_memfd_offset + gpa - region->region.guest_phys_addr;
+
+	return region->region.guest_memfd;
+}
+
+/*
  * Address Host Virtual to VM Physical
  *
  * Input Args:

@@ -898,24 +898,19 @@ void guest_code_cpuid_tdcall(void)
 	/* Read CPUID leaf 0x1 from host. */
 	err = tdg_vp_vmcall_instruction_cpuid(/*eax=*/1, /*ecx=*/0,
 					      &eax, &ebx, &ecx, &edx);
-	if (err)
-		tdx_test_fatal(err);
+	tdx_assert_error(err);
 
 	err = tdx_test_report_to_user_space(eax);
-	if (err)
-		tdx_test_fatal(err);
+	tdx_assert_error(err);
 
 	err = tdx_test_report_to_user_space(ebx);
-	if (err)
-		tdx_test_fatal(err);
+	tdx_assert_error(err);
 
 	err = tdx_test_report_to_user_space(ecx);
-	if (err)
-		tdx_test_fatal(err);
+	tdx_assert_error(err);
 
 	err = tdx_test_report_to_user_space(edx);
-	if (err)
-		tdx_test_fatal(err);
+	tdx_assert_error(err);
 
 	tdx_test_success();
 }
@@ -935,32 +930,19 @@ void verify_td_cpuid_tdcall(void)
 	printf("Verifying TD CPUID TDVMCALL:\n");
 
 	/* Wait for guest to report CPUID values */
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
-	tdx_test_assert_io(vcpu, TDX_TEST_REPORT_PORT, 4,
-			   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
-	eax = *(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset);
+	tdx_run(vcpu);
+	eax = tdx_test_read_report_from_guest(vcpu);
 
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
-	tdx_test_assert_io(vcpu, TDX_TEST_REPORT_PORT, 4,
-			   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
-	ebx = *(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset);
+	tdx_run(vcpu);
+	ebx = tdx_test_read_report_from_guest(vcpu);
 
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
-	tdx_test_assert_io(vcpu, TDX_TEST_REPORT_PORT, 4,
-			   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
-	ecx = *(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset);
+	tdx_run(vcpu);
+	ecx = tdx_test_read_report_from_guest(vcpu);
 
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
-	tdx_test_assert_io(vcpu, TDX_TEST_REPORT_PORT, 4,
-			   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
-	edx = *(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset);
+	tdx_run(vcpu);
+	edx = tdx_test_read_report_from_guest(vcpu);
 
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
+	tdx_run(vcpu);
 	tdx_test_assert_success(vcpu);
 
 	/* Get KVM CPUIDs for reference */

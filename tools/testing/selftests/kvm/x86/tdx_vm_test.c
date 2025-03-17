@@ -395,35 +395,27 @@ void guest_io_reads(void)
 	uint64_t ret;
 
 	ret = tdg_vp_vmcall_instruction_io(TDX_IO_READS_TEST_PORT, 1,
-					   TDG_VP_VMCALL_INSTRUCTION_IO_READ,
-					   &data);
-	if (ret)
-		tdx_test_fatal(ret);
+					   PORT_READ, &data);
+	tdx_assert_error(ret);
 	if (data != 0xAB)
 		tdx_test_fatal(1);
 
 	ret = tdg_vp_vmcall_instruction_io(TDX_IO_READS_TEST_PORT, 2,
-					   TDG_VP_VMCALL_INSTRUCTION_IO_READ,
-					   &data);
-	if (ret)
-		tdx_test_fatal(ret);
+					   PORT_READ, &data);
+	tdx_assert_error(ret);
 	if (data != 0xABCD)
 		tdx_test_fatal(2);
 
 	ret = tdg_vp_vmcall_instruction_io(TDX_IO_READS_TEST_PORT, 4,
-					   TDG_VP_VMCALL_INSTRUCTION_IO_READ,
-					   &data);
-	if (ret)
-		tdx_test_fatal(ret);
+					   PORT_READ, &data);
+	tdx_assert_error(ret);
 	if (data != 0xFFABCDEF)
 		tdx_test_fatal(4);
 
 	/* Read an invalid number of bytes. */
 	ret = tdg_vp_vmcall_instruction_io(TDX_IO_READS_TEST_PORT, 5,
-					   TDG_VP_VMCALL_INSTRUCTION_IO_READ,
-					   &data);
-	if (ret)
-		tdx_test_fatal(ret);
+					   PORT_READ, &data);
+	tdx_assert_error(ret);
 
 	tdx_test_success();
 }
@@ -440,29 +432,23 @@ void verify_guest_reads(void)
 
 	printf("Verifying guest reads:\n");
 
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
-	tdx_test_assert_io(vcpu, TDX_IO_READS_TEST_PORT, 1,
-			   TDG_VP_VMCALL_INSTRUCTION_IO_READ);
+	tdx_run(vcpu);
+	tdx_test_assert_io(vcpu, TDX_IO_READS_TEST_PORT, 1, PORT_READ);
 	*(uint8_t *)((void *)vcpu->run + vcpu->run->io.data_offset) = 0xAB;
 
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
-	tdx_test_assert_io(vcpu, TDX_IO_READS_TEST_PORT, 2,
-			   TDG_VP_VMCALL_INSTRUCTION_IO_READ);
+	tdx_run(vcpu);
+	tdx_test_assert_io(vcpu, TDX_IO_READS_TEST_PORT, 2, PORT_READ);
 	*(uint16_t *)((void *)vcpu->run + vcpu->run->io.data_offset) = 0xABCD;
 
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
-	tdx_test_assert_io(vcpu, TDX_IO_READS_TEST_PORT, 4,
-			   TDG_VP_VMCALL_INSTRUCTION_IO_READ);
+	tdx_run(vcpu);
+	tdx_test_assert_io(vcpu, TDX_IO_READS_TEST_PORT, 4, PORT_READ);
 	*(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset) = 0xFFABCDEF;
 
 	td_vcpu_run(vcpu);
 	TEST_ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_SYSTEM_EVENT);
 	TEST_ASSERT_EQ(vcpu->run->system_event.data[12], TDG_VP_VMCALL_INVALID_OPERAND);
 
-	td_vcpu_run(vcpu);
+	tdx_run(vcpu);
 	tdx_test_assert_success(vcpu);
 
 	kvm_vm_free(vm);

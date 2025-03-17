@@ -40,9 +40,8 @@ void tdx_test_success(void)
 {
 	uint64_t code = 0;
 
-	tdg_vp_vmcall_instruction_io(TDX_TEST_SUCCESS_PORT,
-				     TDX_TEST_SUCCESS_SIZE,
-				     TDG_VP_VMCALL_INSTRUCTION_IO_WRITE, &code);
+	tdg_vp_vmcall_instruction_io(TDX_TEST_SUCCESS_PORT, TDX_TEST_SUCCESS_SIZE,
+				     PORT_WRITE, &code);
 }
 
 /*
@@ -53,7 +52,7 @@ void tdx_test_assert_success(struct kvm_vcpu *vcpu)
 	TEST_ASSERT((vcpu->run->exit_reason == KVM_EXIT_IO) &&
 		    (vcpu->run->io.port == TDX_TEST_SUCCESS_PORT) &&
 		    (vcpu->run->io.size == TDX_TEST_SUCCESS_SIZE) &&
-		    (vcpu->run->io.direction == TDG_VP_VMCALL_INSTRUCTION_IO_WRITE),
+		    (vcpu->run->io.direction == PORT_WRITE),
 		    "Unexpected exit values while waiting for test completion: %u (%s) %d %d %d\n",
 		    vcpu->run->exit_reason,
 		    exit_reason_str(vcpu->run->exit_reason),

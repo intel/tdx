@@ -7,9 +7,6 @@
 #include <linux/bits.h>
 #include <linux/types.h>
 
-#define TDG_VP_VMCALL_INSTRUCTION_IO_READ 0
-#define TDG_VP_VMCALL_INSTRUCTION_IO_WRITE 1
-
 #define TDX_HCALL_HAS_OUTPUT BIT(0)
 
 #define TDX_HYPERCALL_STANDARD 0

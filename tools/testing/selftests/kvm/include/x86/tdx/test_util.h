@@ -9,6 +9,10 @@
 #define TDX_TEST_SUCCESS_PORT 0x30
 #define TDX_TEST_SUCCESS_SIZE 4
 
+/* Port I/O direction */
+#define PORT_READ	0
+#define PORT_WRITE	1
+
 /*
  * Run a test in a new process.
  *

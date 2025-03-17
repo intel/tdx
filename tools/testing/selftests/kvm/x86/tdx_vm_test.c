@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 #include <signal.h>
+
 #include "kvm_util.h"
 #include "tdx/tdx_util.h"
 #include "tdx/test_util.h"
 #include "test_util.h"
 
-void guest_code_lifecycle(void)
+static void guest_code_lifecycle(void)
 {
 	tdx_test_success();
 }
 
-void verify_td_lifecycle(void)
+static void verify_td_lifecycle(void)
 {
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;

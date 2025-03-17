@@ -4,6 +4,7 @@
 
 #include "tdx/tdcall.h"
 #include "tdx/tdx.h"
+#include "tdx/test_util.h"
 
 uint64_t tdg_vp_vmcall_instruction_io(uint64_t port, uint64_t size,
 				      uint64_t write, uint64_t *data)
@@ -110,7 +111,7 @@ uint64_t tdg_vp_vmcall_ve_request_mmio_read(uint64_t address, uint64_t size,
 	struct tdx_hypercall_args args = {
 		.r11 = TDG_VP_VMCALL_VE_REQUEST_MMIO,
 		.r12 = size,
-		.r13 = TDG_VP_VMCALL_VE_REQUEST_MMIO_READ,
+		.r13 = MMIO_READ,
 		.r14 = address,
 	};
 	uint64_t ret;

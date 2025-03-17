@@ -17,6 +17,10 @@
 #define PORT_READ	0
 #define PORT_WRITE	1
 
+/* MMIO direction */
+#define MMIO_READ	0
+#define MMIO_WRITE	1
+
 /*
  * Assert that some IO operation involving tdg_vp_vmcall_instruction_io() was
  * called in the guest.

@@ -652,8 +652,7 @@ void guest_hlt(void)
 
 	interrupt_blocked_flag = 0;
 	ret = tdg_vp_vmcall_instruction_hlt(interrupt_blocked_flag);
-	if (ret)
-		tdx_test_fatal(ret);
+	tdx_assert_error(ret);
 
 	tdx_test_success();
 }
@@ -707,7 +706,7 @@ void _verify_guest_hlt(int signum)
 
 	/* Wait 1 second for guest to execute HLT */
 	wake_me(1);
-	td_vcpu_run(vcpu);
+	tdx_run(vcpu);
 
 	tdx_test_assert_success(vcpu);
 

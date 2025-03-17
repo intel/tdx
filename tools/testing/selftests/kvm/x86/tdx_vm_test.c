@@ -462,7 +462,7 @@ void verify_guest_reads(void)
  * MSR_IA32_POWER_CTL: Allow write access
  */
 #define MSR_X2APIC_APIC_ICR 0x830
-static u64 tdx_msr_test_allow_bits = 0xFFFFFFFFFFFFFFFF;
+static u64 tdx_msr_test_allow_bits = ~0ULL;
 struct kvm_msr_filter tdx_msr_test_filter = {
 	.flags = KVM_MSR_FILTER_DEFAULT_DENY,
 	.ranges = {
@@ -489,27 +489,22 @@ void guest_msr_read(void)
 	uint64_t ret;
 
 	ret = tdg_vp_vmcall_instruction_rdmsr(MSR_X2APIC_APIC_ICR, &data);
-	if (ret)
-		tdx_test_fatal(ret);
+	tdx_assert_error(ret);
 
 	ret = tdx_test_report_64bit_to_user_space(data);
-	if (ret)
-		tdx_test_fatal(ret);
+	tdx_assert_error(ret);
 
 	ret = tdg_vp_vmcall_instruction_rdmsr(MSR_IA32_MISC_ENABLE, &data);
-	if (ret)
-		tdx_test_fatal(ret);
+	tdx_assert_error(ret);
 
 	ret = tdx_test_report_64bit_to_user_space(data);
-	if (ret)
-		tdx_test_fatal(ret);
+	tdx_assert_error(ret);
 
 	/* Expect this call to fail since MSR_IA32_POWER_CTL is write only */
 	ret = tdg_vp_vmcall_instruction_rdmsr(MSR_IA32_POWER_CTL, &data);
 	if (ret) {
 		ret = tdx_test_report_64bit_to_user_space(ret);
-		if (ret)
-			tdx_test_fatal(ret);
+		tdx_assert_error(ret);
 	} else {
 		tdx_test_fatal(-99);
 	}
@@ -552,22 +547,19 @@ void verify_guest_msr_reads(void)
 	vcpu_set_msr(vcpu, MSR_IA32_POWER_CTL, 6);
 
 	printf("\t ... Running guest\n");
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
+	tdx_run(vcpu);
 	data = tdx_test_read_64bit_report_from_guest(vcpu);
 	TEST_ASSERT_EQ(data, 4);
 
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
+	tdx_run(vcpu);
 	data = tdx_test_read_64bit_report_from_guest(vcpu);
 	TEST_ASSERT_EQ(data, 5);
 
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
+	tdx_run(vcpu);
 	data = tdx_test_read_64bit_report_from_guest(vcpu);
 	TEST_ASSERT_EQ(data, TDG_VP_VMCALL_INVALID_OPERAND);
 
-	td_vcpu_run(vcpu);
+	tdx_run(vcpu);
 	tdx_test_assert_success(vcpu);
 
 	kvm_vm_free(vm);
@@ -582,28 +574,26 @@ void guest_msr_write(void)
 	uint64_t ret;
 
 	ret = tdg_vp_vmcall_instruction_wrmsr(MSR_X2APIC_APIC_ICR, 4);
-	if (ret)
-		tdx_test_fatal(ret);
+	tdx_assert_error(ret);
 
 	/* Expect this call to fail since MSR_IA32_MISC_ENABLE is read only */
 	ret = tdg_vp_vmcall_instruction_wrmsr(MSR_IA32_MISC_ENABLE, 5);
 	if (ret) {
 		ret = tdx_test_report_64bit_to_user_space(ret);
-		if (ret)
-			tdx_test_fatal(ret);
+		tdx_assert_error(ret);
 	} else {
 		tdx_test_fatal(-99);
 	}
 
 	ret = tdg_vp_vmcall_instruction_wrmsr(MSR_IA32_POWER_CTL, 6);
-	if (ret)
-		tdx_test_fatal(ret);
+	tdx_assert_error(ret);
 
 	tdx_test_success();
 }
 
 void verify_guest_msr_writes(void)
 {
+	uint64_t ia32_misc_enable_val;
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
 	uint64_t data;
@@ -628,22 +618,24 @@ void verify_guest_msr_writes(void)
 	vcpu = td_vcpu_add(vm, 0, guest_msr_write);
 	td_finalize(vm);
 
+	ia32_misc_enable_val = vcpu_get_msr(vcpu, MSR_IA32_MISC_ENABLE);
+
 	printf("Verifying guest msr writes:\n");
 
 	printf("\t ... Running guest\n");
 	/* Only the write to MSR_IA32_MISC_ENABLE should trigger an exit */
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
+	tdx_run(vcpu);
 	data = tdx_test_read_64bit_report_from_guest(vcpu);
 	TEST_ASSERT_EQ(data, TDG_VP_VMCALL_INVALID_OPERAND);
 
-	td_vcpu_run(vcpu);
+	tdx_run(vcpu);
 	tdx_test_assert_success(vcpu);
 
 	printf("\t ... Verifying MSR values written by guest\n");
 
 	TEST_ASSERT_EQ(vcpu_get_msr(vcpu, MSR_X2APIC_APIC_ICR), 4);
-	TEST_ASSERT_EQ(vcpu_get_msr(vcpu, MSR_IA32_MISC_ENABLE), 0x1800);
+	TEST_ASSERT_EQ(vcpu_get_msr(vcpu, MSR_IA32_MISC_ENABLE),
+		       ia32_misc_enable_val);
 	TEST_ASSERT_EQ(vcpu_get_msr(vcpu, MSR_IA32_POWER_CTL), 6);
 
 	kvm_vm_free(vm);

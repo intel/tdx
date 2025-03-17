@@ -25,7 +25,7 @@ static void verify_td_lifecycle(void)
 
 	printf("Verifying TD lifecycle:\n");
 
-	vcpu_run(vcpu);
+	td_vcpu_run(vcpu);
 	tdx_test_assert_success(vcpu);
 
 	kvm_vm_free(vm);
@@ -43,8 +43,7 @@ void guest_code_report_fatal_error(void)
 	 * bit 63 is used to mark additional information in shared memory.
 	 */
 	err = 0x0BAAAAAD00000000;
-	if (err)
-		tdx_test_fatal(err);
+	tdx_test_fatal(err);
 
 	tdx_test_success();
 }
@@ -70,7 +69,7 @@ void verify_report_fatal_error(void)
 	TEST_ASSERT_EQ(vcpu->run->system_event.data[12], 0x0BAAAAAD00000000);
 	TEST_ASSERT_EQ(vcpu->run->system_event.data[13], 0);
 
-	vcpu_run(vcpu);
+	td_vcpu_run(vcpu);
 	tdx_test_assert_success(vcpu);
 
 	kvm_vm_free(vm);

@@ -3,9 +3,9 @@
 #define SELFTEST_TDX_TDX_H
 
 #include <stdint.h>
+
 #include "kvm_util.h"
 
-#define TDG_VP_VMCALL_INSTRUCTION_IO 30
 #define TDG_VP_VMCALL_REPORT_FATAL_ERROR 0x10003
 
 #define TDG_VP_VMCALL_INSTRUCTION_IO 30

@@ -810,25 +810,23 @@ void guest_mmio_writes(void)
 	uint64_t ret;
 
 	ret = tdg_vp_vmcall_ve_request_mmio_write(mmio_test_addr, 1, 0x12);
-	if (ret)
-		tdx_test_fatal(ret);
+	tdx_assert_error(ret);
 
 	ret = tdg_vp_vmcall_ve_request_mmio_write(mmio_test_addr, 2, 0x1234);
-	if (ret)
-		tdx_test_fatal(ret);
+	tdx_assert_error(ret);
 
 	ret = tdg_vp_vmcall_ve_request_mmio_write(mmio_test_addr, 4, 0x12345678);
-	if (ret)
-		tdx_test_fatal(ret);
+	tdx_assert_error(ret);
 
 	ret = tdg_vp_vmcall_ve_request_mmio_write(mmio_test_addr, 8, 0x1234567890ABCDEF);
-	if (ret)
-		tdx_test_fatal(ret);
+	tdx_assert_error(ret);
+
+	/* Make sure host and guest are synced to the same point of execution */
+	tdx_test_report_to_user_space(MMIO_SYNC_VALUE);
 
 	/* Write across page boundary. */
 	ret = tdg_vp_vmcall_ve_request_mmio_write(PAGE_SIZE - 1, 8, 0);
-	if (ret)
-		tdx_test_fatal(ret);
+	tdx_assert_error(ret);
 
 	tdx_test_success();
 }
@@ -852,24 +850,20 @@ void verify_mmio_writes(void)
 
 	printf("Verifying TD MMIO writes:\n");
 
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
-	tdx_test_assert_mmio(vcpu, TDX_MMIO_TEST_ADDR, 1, TDG_VP_VMCALL_VE_REQUEST_MMIO_WRITE);
+	tdx_run(vcpu);
+	tdx_test_assert_mmio(vcpu, TDX_MMIO_TEST_ADDR, 1, MMIO_WRITE);
 	byte_1 = *(uint8_t *)(vcpu->run->mmio.data);
 
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
-	tdx_test_assert_mmio(vcpu, TDX_MMIO_TEST_ADDR, 2, TDG_VP_VMCALL_VE_REQUEST_MMIO_WRITE);
+	tdx_run(vcpu);
+	tdx_test_assert_mmio(vcpu, TDX_MMIO_TEST_ADDR, 2, MMIO_WRITE);
 	byte_2 = *(uint16_t *)(vcpu->run->mmio.data);
 
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
-	tdx_test_assert_mmio(vcpu, TDX_MMIO_TEST_ADDR, 4, TDG_VP_VMCALL_VE_REQUEST_MMIO_WRITE);
+	tdx_run(vcpu);
+	tdx_test_assert_mmio(vcpu, TDX_MMIO_TEST_ADDR, 4, MMIO_WRITE);
 	byte_4 = *(uint32_t *)(vcpu->run->mmio.data);
 
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
-	tdx_test_assert_mmio(vcpu, TDX_MMIO_TEST_ADDR, 8, TDG_VP_VMCALL_VE_REQUEST_MMIO_WRITE);
+	tdx_run(vcpu);
+	tdx_test_assert_mmio(vcpu, TDX_MMIO_TEST_ADDR, 8, MMIO_WRITE);
 	byte_8 = *(uint64_t *)(vcpu->run->mmio.data);
 
 	TEST_ASSERT_EQ(byte_1, 0x12);
@@ -877,11 +871,14 @@ void verify_mmio_writes(void)
 	TEST_ASSERT_EQ(byte_4, 0x12345678);
 	TEST_ASSERT_EQ(byte_8, 0x1234567890ABCDEF);
 
+	tdx_run(vcpu);
+	TEST_ASSERT_EQ(tdx_test_read_report_from_guest(vcpu), MMIO_SYNC_VALUE);
+
 	td_vcpu_run(vcpu);
 	TEST_ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_SYSTEM_EVENT);
 	TEST_ASSERT_EQ(vcpu->run->system_event.data[12], TDG_VP_VMCALL_INVALID_OPERAND);
 
-	td_vcpu_run(vcpu);
+	tdx_run(vcpu);
 	tdx_test_assert_success(vcpu);
 
 	kvm_vm_free(vm);

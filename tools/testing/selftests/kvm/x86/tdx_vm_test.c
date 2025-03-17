@@ -975,11 +975,8 @@ void guest_host_read_priv_mem(void)
 
 	/* Exit so host can read value */
 	ret = tdg_vp_vmcall_instruction_io(TDX_HOST_READ_PRIVATE_MEM_PORT_TEST,
-					   4,
-					   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
-					   &placeholder);
-	if (ret)
-		tdx_test_fatal(ret);
+					   4, PORT_WRITE, &placeholder);
+	tdx_assert_error(ret);
 
 	/* Update guest_var's value and have host reread it. */
 	*((uint32_t *)tdx_test_host_read_private_mem_addr) = 0xFEDC;
@@ -1015,10 +1012,9 @@ void verify_host_reading_private_mem(void)
 
 	printf("Verifying host's behavior when reading TD private memory:\n");
 
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
+	tdx_run(vcpu);
 	tdx_test_assert_io(vcpu, TDX_HOST_READ_PRIVATE_MEM_PORT_TEST,
-			   4, TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
+			   4, PORT_WRITE);
 	printf("\t ... Guest's variable contains 0xABCD\n");
 
 	/* Host reads guest's variable. */
@@ -1026,8 +1022,7 @@ void verify_host_reading_private_mem(void)
 	printf("\t ... Host's read attempt value: %lu\n", first_host_read);
 
 	/* Guest updates variable and host rereads it. */
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
+	tdx_run(vcpu);
 	printf("\t ... Guest's variable updated to 0xFEDC\n");
 
 	second_host_read = *host_virt;

@@ -23,9 +23,8 @@
 #define TDX_SHARED_MEM_TEST_INFO_PORT 0x87
 
 /*
- * Shared variables between guest and host
+ * Shared variable between guest and host
  */
-static uint64_t test_mem_private_gpa;
 static uint64_t test_mem_shared_gpa;
 
 void guest_shared_mem(void)
@@ -46,14 +45,13 @@ void guest_shared_mem(void)
 
 	/* Exit so host can read shared value */
 	ret = tdg_vp_vmcall_instruction_io(TDX_SHARED_MEM_TEST_INFO_PORT, 4,
-					   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
-					   &placeholder);
+					   PORT_WRITE, &placeholder);
 	if (ret)
 		tdx_test_fatal_with_data(ret, __LINE__);
 
 	/* Read value written by host and send it back out for verification */
 	ret = tdg_vp_vmcall_instruction_io(TDX_SHARED_MEM_TEST_INFO_PORT, 4,
-					   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
+					   PORT_WRITE,
 					   (uint64_t *)test_mem_shared_gva);
 	if (ret)
 		tdx_test_fatal_with_data(ret, __LINE__);
@@ -62,6 +60,7 @@ void guest_shared_mem(void)
 int verify_shared_mem(void)
 {
 	vm_vaddr_t test_mem_private_gva;
+	uint64_t test_mem_private_gpa;
 	uint32_t *test_mem_hva;
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
@@ -84,11 +83,9 @@ int verify_shared_mem(void)
 		    "Guest address not found in guest memory regions\n");
 
 	test_mem_private_gpa = addr_gva2gpa(vm, test_mem_private_gva);
-	virt_pg_map_shared(vm, TDX_SHARED_MEM_TEST_SHARED_GVA,
-			   test_mem_private_gpa);
+	virt_map_shared(vm, TDX_SHARED_MEM_TEST_SHARED_GVA, test_mem_private_gpa, 1);
 
 	test_mem_shared_gpa = test_mem_private_gpa | vm->arch.s_bit;
-	sync_global_to_guest(vm, test_mem_private_gpa);
 	sync_global_to_guest(vm, test_mem_shared_gpa);
 
 	td_finalize(vm);
@@ -101,18 +98,15 @@ int verify_shared_mem(void)
 	printf("\t ... Starting guest execution\n");
 
 	/* Handle map gpa as shared */
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
+	tdx_run(vcpu);
 
-	td_vcpu_run(vcpu);
-	tdx_test_assert_io(vcpu, TDX_SHARED_MEM_TEST_INFO_PORT, 4,
-			   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
+	tdx_run(vcpu);
+	tdx_test_assert_io(vcpu, TDX_SHARED_MEM_TEST_INFO_PORT, 4, PORT_WRITE);
 	TEST_ASSERT_EQ(*test_mem_hva, TDX_SHARED_MEM_TEST_GUEST_WRITE_VALUE);
 
 	*test_mem_hva = TDX_SHARED_MEM_TEST_HOST_WRITE_VALUE;
-	td_vcpu_run(vcpu);
-	tdx_test_assert_io(vcpu, TDX_SHARED_MEM_TEST_INFO_PORT, 4,
-			   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
+	tdx_run(vcpu);
+	tdx_test_assert_io(vcpu, TDX_SHARED_MEM_TEST_INFO_PORT, 4, PORT_WRITE);
 	TEST_ASSERT_EQ(*(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset),
 		       TDX_SHARED_MEM_TEST_HOST_WRITE_VALUE);
 

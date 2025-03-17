@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
-#include <string.h>
 #include <linux/kvm_para.h>
+#include <string.h>
 
 #include "tdx/tdcall.h"
 #include "tdx/tdx.h"

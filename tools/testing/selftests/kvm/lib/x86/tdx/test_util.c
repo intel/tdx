@@ -116,7 +116,6 @@ uint64_t tdx_test_report_to_user_space(uint32_t data)
 					    &data_64);
 }
 
-
 uint32_t tdx_test_read_report_from_guest(struct kvm_vcpu *vcpu)
 {
 	uint32_t res;
@@ -133,15 +132,11 @@ uint64_t tdx_test_send_64bit(uint64_t port, uint64_t data)
 	uint64_t data_lo = data & 0xFFFFFFFF;
 	uint64_t err;
 
-	err = tdg_vp_vmcall_instruction_io(port, 4,
-					   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
-					   &data_lo);
+	err = tdg_vp_vmcall_instruction_io(port, 4, PORT_WRITE, &data_lo);
 	if (err)
 		return err;
 
-	return tdg_vp_vmcall_instruction_io(port, 4,
-					    TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
-					    &data_hi);
+	return tdg_vp_vmcall_instruction_io(port, 4, PORT_WRITE, &data_hi);
 }
 
 uint64_t tdx_test_report_64bit_to_user_space(uint64_t data)
@@ -154,12 +149,12 @@ uint64_t tdx_test_read_64bit(struct kvm_vcpu *vcpu, uint64_t port)
 	uint32_t lo, hi;
 	uint64_t res;
 
-	tdx_test_assert_io(vcpu, port, 4, TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
+	tdx_test_assert_io(vcpu, port, 4, PORT_WRITE);
 	lo = *(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset);
 
 	vcpu_run(vcpu);
 
-	tdx_test_assert_io(vcpu, port, 4, TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
+	tdx_test_assert_io(vcpu, port, 4, PORT_WRITE);
 	hi = *(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset);
 
 	res = hi;

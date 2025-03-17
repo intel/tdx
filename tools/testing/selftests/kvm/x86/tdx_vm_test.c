@@ -249,24 +249,19 @@ void guest_code_get_td_vmcall_info(void)
 	uint64_t err;
 
 	err = tdg_vp_vmcall_get_td_vmcall_info(&r11, &r12, &r13, &r14);
-	if (err)
-		tdx_test_fatal(err);
+	tdx_assert_error(err);
 
 	err = tdx_test_report_64bit_to_user_space(r11);
-	if (err)
-		tdx_test_fatal(err);
+	tdx_assert_error(err);
 
 	err = tdx_test_report_64bit_to_user_space(r12);
-	if (err)
-		tdx_test_fatal(err);
+	tdx_assert_error(err);
 
 	err = tdx_test_report_64bit_to_user_space(r13);
-	if (err)
-		tdx_test_fatal(err);
+	tdx_assert_error(err);
 
 	err = tdx_test_report_64bit_to_user_space(r14);
-	if (err)
-		tdx_test_fatal(err);
+	tdx_assert_error(err);
 
 	tdx_test_success();
 }
@@ -285,23 +280,19 @@ void verify_get_td_vmcall_info(void)
 	printf("Verifying TD get vmcall info:\n");
 
 	/* Wait for guest to report r11 value */
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
+	tdx_run(vcpu);
 	r11 = tdx_test_read_64bit_report_from_guest(vcpu);
 
 	/* Wait for guest to report r12 value */
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
+	tdx_run(vcpu);
 	r12 = tdx_test_read_64bit_report_from_guest(vcpu);
 
 	/* Wait for guest to report r13 value */
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
+	tdx_run(vcpu);
 	r13 = tdx_test_read_64bit_report_from_guest(vcpu);
 
 	/* Wait for guest to report r14 value */
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
+	tdx_run(vcpu);
 	r14 = tdx_test_read_64bit_report_from_guest(vcpu);
 
 	TEST_ASSERT_EQ(r11, 0);
@@ -310,8 +301,7 @@ void verify_get_td_vmcall_info(void)
 	TEST_ASSERT_EQ(r14, 0);
 
 	/* Wait for guest to complete execution */
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
+	tdx_run(vcpu);
 	tdx_test_assert_success(vcpu);
 
 	kvm_vm_free(vm);

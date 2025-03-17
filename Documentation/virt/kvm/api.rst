@@ -7164,6 +7164,31 @@ The valid value for 'flags' is:
 
 ::
 
+		/* KVM_EXIT_TDX_GET_QUOTE */
+		struct tdx_get_quote {
+			__u64 ret;
+			__u64 gpa;
+			__u64 size;
+		};
+
+If the exit reason is KVM_EXIT_TDX_GET_QUOTE, then it indicates that a TDX
+guest has requested to generate a TD-Quote signed by a service hosting
+TD-Quoting Enclave operating on the host. The 'gpa' field and 'size' specify
+the guest physical address and size of a shared-memory buffer, in which the
+TDX guest passes a TD Report. KVM checks the GPA from the TDX guest has the
+shared-bit set and drops the shared-bit in 'gpa' field before exiting to
+userspace. KVM doesn't do other sanity checks. The 'ret' field represents the
+return value of the GetQuote request. KVM only bridges the request to the
+userspace VMM, and the userspace VMM is responsible for setting up the return
+value since only userspace knows whether the request has been queued
+successfully or not. KVM sets the return code according to the 'ret' field
+before returning back to the TDX guest. When the request has been queued
+successfully, the TDX guest can poll the status field in the shared-memory area
+to check whether the Quote generation is completed or not. When completed, the
+generated Quote is returned via the same buffer.
+
+::
+
 		/* Fix the size of the union. */
 		char padding[256];
 	};

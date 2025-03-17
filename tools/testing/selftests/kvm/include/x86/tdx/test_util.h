@@ -21,10 +21,10 @@ void tdx_test_assert_io(struct kvm_vcpu *vcpu, uint16_t port, uint8_t size,
 			uint8_t direction);
 
 /*
- * Check and report if there was some failure in the guest, either an exception
- * like a triple fault, or if a tdx_test_fatal() was hit.
+ * Run the tdx vcpu and check if there was some failure in the guest, either
+ * an exception like a triple fault, or if a tdx_test_fatal() was hit.
  */
-void tdx_test_check_guest_failure(struct kvm_vcpu *vcpu);
+void tdx_run(struct kvm_vcpu *vcpu);
 
 /*
  * Run a test in a new process.
@@ -69,5 +69,12 @@ void tdx_test_fatal(uint64_t error_code);
  * execution is not expected to continue beyond this point.
  */
 void tdx_test_fatal_with_data(uint64_t error_code, uint64_t data_gpa);
+
+/*
+ * Assert on @error and report the @error to userspace.
+ * Return value from tdg_vp_vmcall_report_fatal_error() is ignored since execution
+ * is not expected to continue beyond this point.
+ */
+void tdx_assert_error(uint64_t error);
 
 #endif // SELFTEST_TDX_TEST_UTIL_H

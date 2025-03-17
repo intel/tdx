@@ -26,7 +26,7 @@ static void verify_td_lifecycle(void)
 
 	printf("Verifying TD lifecycle:\n");
 
-	td_vcpu_run(vcpu);
+	tdx_run(vcpu);
 	tdx_test_assert_success(vcpu);
 
 	kvm_vm_free(vm);
@@ -70,7 +70,7 @@ void verify_report_fatal_error(void)
 	TEST_ASSERT_EQ(vcpu->run->system_event.data[12], 0x0BAAAAAD00000000);
 	TEST_ASSERT_EQ(vcpu->run->system_event.data[13], 0);
 
-	td_vcpu_run(vcpu);
+	tdx_run(vcpu);
 	tdx_test_assert_success(vcpu);
 
 	kvm_vm_free(vm);
@@ -86,25 +86,20 @@ void verify_report_fatal_error(void)
  */
 void guest_ioexit(void)
 {
-	uint64_t data_out, data_in, delta;
+	uint64_t data_out, data_in;
 	uint64_t ret;
 
 	data_out = 0xAB;
 	ret = tdg_vp_vmcall_instruction_io(TDX_IOEXIT_TEST_PORT, 1,
-					   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
-					   &data_out);
-	if (ret)
-		tdx_test_fatal(ret);
+					   PORT_WRITE, &data_out);
+	tdx_assert_error(ret);
 
 	ret = tdg_vp_vmcall_instruction_io(TDX_IOEXIT_TEST_PORT, 1,
-					   TDG_VP_VMCALL_INSTRUCTION_IO_READ,
-					   &data_in);
-	if (ret)
-		tdx_test_fatal(ret);
+					   PORT_READ, &data_in);
+	tdx_assert_error(ret);
 
-	delta = data_in - data_out;
-	if (delta != 1)
-		tdx_test_fatal(ret);
+	if (data_in != 0xAC)
+		tdx_test_fatal(data_in);
 
 	tdx_test_success();
 }
@@ -123,32 +118,27 @@ void verify_td_ioexit(void)
 	printf("Verifying TD IO Exit:\n");
 
 	/* Wait for guest to do a IO write */
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
-	tdx_test_assert_io(vcpu, TDX_IOEXIT_TEST_PORT, 1,
-			   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
+	tdx_run(vcpu);
+	tdx_test_assert_io(vcpu, TDX_IOEXIT_TEST_PORT, 1, PORT_WRITE);
 	port_data = *(uint8_t *)((void *)vcpu->run + vcpu->run->io.data_offset);
 
-	printf("\t ... IO WRITE: OK\n");
+	printf("\t ... IO WRITE: DONE\n");
 
 	/*
 	 * Wait for the guest to do a IO read. Provide the previous written data
 	 * + 1 back to the guest
 	 */
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
-	tdx_test_assert_io(vcpu, TDX_IOEXIT_TEST_PORT, 1,
-			   TDG_VP_VMCALL_INSTRUCTION_IO_READ);
+	tdx_run(vcpu);
+	tdx_test_assert_io(vcpu, TDX_IOEXIT_TEST_PORT, 1, PORT_READ);
 	*(uint8_t *)((void *)vcpu->run + vcpu->run->io.data_offset) = port_data + 1;
 
-	printf("\t ... IO READ: OK\n");
+	printf("\t ... IO READ: DONE\n");
 
 	/*
 	 * Wait for the guest to complete execution successfully. The read
 	 * value is checked within the guest.
 	 */
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
+	tdx_run(vcpu);
 	tdx_test_assert_success(vcpu);
 
 	printf("\t ... IO verify read/write values: OK\n");

@@ -7,6 +7,7 @@
 #include "test_util.h"
 #include "kvm_util.h"
 #include "processor.h"
+#include "sparsebit.h"
 #include "ucall_common.h"
 
 #include <assert.h>
@@ -1631,6 +1632,7 @@ void virt_map_shared(struct kvm_vm *vm, uint64_t vaddr, uint64_t paddr,
 
 	while (npages--) {
 		virt_pg_map_shared(vm, vaddr, paddr);
+		sparsebit_set(vm->vpages_mapped, vaddr >> vm->page_shift);
 		vaddr += page_size;
 		paddr += page_size;
 	}

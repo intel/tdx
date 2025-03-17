@@ -322,29 +322,21 @@ void guest_io_writes(void)
 	uint64_t ret;
 
 	ret = tdg_vp_vmcall_instruction_io(TDX_IO_WRITES_TEST_PORT, 1,
-					   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
-					   &byte_1);
-	if (ret)
-		tdx_test_fatal(ret);
+					   PORT_WRITE, &byte_1);
+	tdx_assert_error(ret);
 
 	ret = tdg_vp_vmcall_instruction_io(TDX_IO_WRITES_TEST_PORT, 2,
-					   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
-					   &byte_2);
-	if (ret)
-		tdx_test_fatal(ret);
+					   PORT_WRITE, &byte_2);
+	tdx_assert_error(ret);
 
 	ret = tdg_vp_vmcall_instruction_io(TDX_IO_WRITES_TEST_PORT, 4,
-					   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
-					   &byte_4);
-	if (ret)
-		tdx_test_fatal(ret);
+					   PORT_WRITE, &byte_4);
+	tdx_assert_error(ret);
 
 	/* Write an invalid number of bytes. */
 	ret = tdg_vp_vmcall_instruction_io(TDX_IO_WRITES_TEST_PORT, 5,
-					   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE,
-					   &byte_4);
-	if (ret)
-		tdx_test_fatal(ret);
+					   PORT_WRITE, &byte_4);
+	tdx_assert_error(ret);
 
 	tdx_test_success();
 }
@@ -364,22 +356,16 @@ void verify_guest_writes(void)
 
 	printf("Verifying guest writes:\n");
 
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
-	tdx_test_assert_io(vcpu, TDX_IO_WRITES_TEST_PORT, 1,
-			   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
+	tdx_run(vcpu);
+	tdx_test_assert_io(vcpu, TDX_IO_WRITES_TEST_PORT, 1, PORT_WRITE);
 	byte_1 = *(uint8_t *)((void *)vcpu->run + vcpu->run->io.data_offset);
 
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
-	tdx_test_assert_io(vcpu, TDX_IO_WRITES_TEST_PORT, 2,
-			   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
+	tdx_run(vcpu);
+	tdx_test_assert_io(vcpu, TDX_IO_WRITES_TEST_PORT, 2, PORT_WRITE);
 	byte_2 = *(uint16_t *)((void *)vcpu->run + vcpu->run->io.data_offset);
 
-	td_vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
-	tdx_test_assert_io(vcpu, TDX_IO_WRITES_TEST_PORT, 4,
-			   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
+	tdx_run(vcpu);
+	tdx_test_assert_io(vcpu, TDX_IO_WRITES_TEST_PORT, 4, PORT_WRITE);
 	byte_4 = *(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset);
 
 	TEST_ASSERT_EQ(byte_1, 0xAB);
@@ -390,7 +376,7 @@ void verify_guest_writes(void)
 	TEST_ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_SYSTEM_EVENT);
 	TEST_ASSERT_EQ(vcpu->run->system_event.data[12], TDG_VP_VMCALL_INVALID_OPERAND);
 
-	td_vcpu_run(vcpu);
+	tdx_run(vcpu);
 	tdx_test_assert_success(vcpu);
 
 	kvm_vm_free(vm);

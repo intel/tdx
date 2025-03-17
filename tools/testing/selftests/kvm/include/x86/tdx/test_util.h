@@ -86,4 +86,10 @@ void tdx_assert_error(uint64_t error);
  */
 uint64_t tdx_test_report_to_user_space(uint32_t data);
 
+/*
+ * Read a 32 bit value from the guest in user space, sent using
+ * tdx_test_report_to_user_space().
+ */
+uint32_t tdx_test_read_report_from_guest(struct kvm_vcpu *vcpu);
+
 #endif // SELFTEST_TDX_TEST_UTIL_H

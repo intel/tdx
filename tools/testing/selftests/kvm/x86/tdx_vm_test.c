@@ -1047,33 +1047,26 @@ void guest_tdcall_vp_info(void)
 	uint64_t err;
 
 	err = tdg_vp_info(&rcx, &rdx, &r8, &r9, &r10, &r11);
-	if (err)
-		tdx_test_fatal(err);
+	tdx_assert_error(err);
 
 	/* return values to user space host */
 	err = tdx_test_report_64bit_to_user_space(rcx);
-	if (err)
-		tdx_test_fatal(err);
+	tdx_assert_error(err);
 
 	err = tdx_test_report_64bit_to_user_space(rdx);
-	if (err)
-		tdx_test_fatal(err);
+	tdx_assert_error(err);
 
 	err = tdx_test_report_64bit_to_user_space(r8);
-	if (err)
-		tdx_test_fatal(err);
+	tdx_assert_error(err);
 
 	err = tdx_test_report_64bit_to_user_space(r9);
-	if (err)
-		tdx_test_fatal(err);
+	tdx_assert_error(err);
 
 	err = tdx_test_report_64bit_to_user_space(r10);
-	if (err)
-		tdx_test_fatal(err);
+	tdx_assert_error(err);
 
 	err = tdx_test_report_64bit_to_user_space(r11);
-	if (err)
-		tdx_test_fatal(err);
+	tdx_assert_error(err);
 
 	tdx_test_success();
 }
@@ -1096,7 +1089,7 @@ void verify_tdcall_vp_info(void)
 	vm = td_create();
 
 #define TDX_TDPARAM_ATTR_SEPT_VE_DISABLE_BIT	BIT(28)
-	/* Setting attributes parameter used by TDH.MNG.INIT to 0x50000000 */
+	/* Setting attributes parameter used by TDH.MNG.INIT to 0x10000000 */
 	attributes = TDX_TDPARAM_ATTR_SEPT_VE_DISABLE_BIT;
 
 	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, attributes);
@@ -1119,33 +1112,27 @@ void verify_tdcall_vp_info(void)
 		TEST_ASSERT_EQ((1UL << (gpa_bits - 1)), tdx_s_bit);
 
 		/* Wait for guest to report rcx value */
-		td_vcpu_run(vcpu);
-		tdx_test_check_guest_failure(vcpu);
+		tdx_run(vcpu);
 		rcx = tdx_test_read_64bit_report_from_guest(vcpu);
 
 		/* Wait for guest to report rdx value */
-		td_vcpu_run(vcpu);
-		tdx_test_check_guest_failure(vcpu);
+		tdx_run(vcpu);
 		rdx = tdx_test_read_64bit_report_from_guest(vcpu);
 
 		/* Wait for guest to report r8 value */
-		td_vcpu_run(vcpu);
-		tdx_test_check_guest_failure(vcpu);
+		tdx_run(vcpu);
 		r8 = tdx_test_read_64bit_report_from_guest(vcpu);
 
 		/* Wait for guest to report r9 value */
-		td_vcpu_run(vcpu);
-		tdx_test_check_guest_failure(vcpu);
+		tdx_run(vcpu);
 		r9 = tdx_test_read_64bit_report_from_guest(vcpu);
 
 		/* Wait for guest to report r10 value */
-		td_vcpu_run(vcpu);
-		tdx_test_check_guest_failure(vcpu);
+		tdx_run(vcpu);
 		r10 = tdx_test_read_64bit_report_from_guest(vcpu);
 
 		/* Wait for guest to report r11 value */
-		td_vcpu_run(vcpu);
-		tdx_test_check_guest_failure(vcpu);
+		tdx_run(vcpu);
 		r11 = tdx_test_read_64bit_report_from_guest(vcpu);
 
 		ret_num_vcpus = r8 & 0xFFFFFFFF;
@@ -1169,9 +1156,8 @@ void verify_tdcall_vp_info(void)
 		TEST_ASSERT_EQ(r11, 0);
 
 		/* Wait for guest to complete execution */
-		td_vcpu_run(vcpu);
+		tdx_run(vcpu);
 
-		tdx_test_check_guest_failure(vcpu);
 		tdx_test_assert_success(vcpu);
 
 		printf("\t ... Guest completed run on VCPU=%u\n", i);

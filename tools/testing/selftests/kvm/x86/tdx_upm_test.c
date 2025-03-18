@@ -169,10 +169,14 @@ void vcpu_run_and_manage_memory_conversions(struct kvm_vm *vm,
 			uint64_t gpa = tdx_test_read_64bit(vcpu,
 							   TDX_UPM_TEST_ACCEPT_PRINT_PORT);
 
-			printf("\t ... guest accepting 1 page at GPA: 0x%lx\n", gpa);
+			printf("\t ... guest accepting 1 page at GPA: 0x%lx\n",
+			       gpa);
 			continue;
+		} else if (vcpu->run->exit_reason == KVM_EXIT_SYSTEM_EVENT) {
+			TEST_FAIL("Guest reported error. error code: %lld (0x%llx)\n",
+				  vcpu->run->system_event.data[12],
+				  vcpu->run->system_event.data[13]);
 		}
-
 		break;
 	}
 }
@@ -240,15 +244,14 @@ static void guest_upm_explicit(void)
 static void run_selftest(struct kvm_vm *vm, struct kvm_vcpu *vcpu,
 			 struct tdx_upm_test_area *test_area_base_hva)
 {
-	vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
+	tdx_run(vcpu);
 	tdx_test_assert_io(vcpu, TDX_TEST_REPORT_PORT, TDX_TEST_REPORT_SIZE,
-			   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
+			   PORT_WRITE);
 	TEST_ASSERT_EQ(*(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset),
 		       SYNC_CHECK_READ_PRIVATE_MEMORY_FROM_HOST);
 
 	/*
-	 * Check that host should read PATTERN_CONFIDENCE_CHECK from guest's
+	 * Check that host sees PATTERN_CONFIDENCE_CHECK when trying to read guest
 	 * private memory. This confirms that regular memory (userspace_addr in
 	 * struct kvm_userspace_memory_region) is used to back the host's view
 	 * of private memory, since PATTERN_CONFIDENCE_CHECK was written to that
@@ -258,9 +261,8 @@ static void run_selftest(struct kvm_vm *vm, struct kvm_vcpu *vcpu,
 		    "Host should read PATTERN_CONFIDENCE_CHECK from guest's private memory.");
 
 	vcpu_run_and_manage_memory_conversions(vm, vcpu);
-	tdx_test_check_guest_failure(vcpu);
 	tdx_test_assert_io(vcpu, TDX_TEST_REPORT_PORT, TDX_TEST_REPORT_SIZE,
-			   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
+			   PORT_WRITE);
 	TEST_ASSERT_EQ(*(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset),
 		       SYNC_CHECK_READ_SHARED_MEMORY_FROM_HOST);
 
@@ -275,9 +277,8 @@ static void run_selftest(struct kvm_vm *vm, struct kvm_vcpu *vcpu,
 		    "Host should be able to use shared memory.");
 
 	vcpu_run_and_manage_memory_conversions(vm, vcpu);
-	tdx_test_check_guest_failure(vcpu);
 	tdx_test_assert_io(vcpu, TDX_TEST_REPORT_PORT, TDX_TEST_REPORT_SIZE,
-			   TDG_VP_VMCALL_INSTRUCTION_IO_WRITE);
+			   PORT_WRITE);
 	TEST_ASSERT_EQ(*(uint32_t *)((void *)vcpu->run + vcpu->run->io.data_offset),
 		       SYNC_CHECK_READ_PRIVATE_MEMORY_FROM_HOST_AGAIN);
 
@@ -286,8 +287,7 @@ static void run_selftest(struct kvm_vm *vm, struct kvm_vcpu *vcpu,
 	TEST_ASSERT(check_focus_area(test_area_base_hva, PATTERN_HOST_FOCUS),
 		    "Host's view of private memory should be backed by regular memory.");
 
-	vcpu_run(vcpu);
-	tdx_test_check_guest_failure(vcpu);
+	tdx_run(vcpu);
 	tdx_test_assert_success(vcpu);
 
 	printf("\t ... PASSED\n");
@@ -318,7 +318,7 @@ static void guest_ve_handler(struct ex_regs *regs)
 
 #define MEM_PAGE_ACCEPT_LEVEL_4K 0
 #define MEM_PAGE_ACCEPT_LEVEL_2M 1
-	ret = tdg_mem_page_accept(ve.gpa, MEM_PAGE_ACCEPT_LEVEL_4K);
+	ret = tdg_mem_page_accept(ve.gpa & PAGE_MASK, MEM_PAGE_ACCEPT_LEVEL_4K);
 	TDX_UPM_TEST_ASSERT(!ret);
 }
 
@@ -347,10 +347,10 @@ static void verify_upm_test(void)
 				    3, test_area_npages, KVM_MEM_GUEST_MEMFD);
 	vm->memslots[MEM_REGION_TEST_DATA] = 3;
 
-	test_area_gva_private = ____vm_vaddr_alloc(vm, TDX_UPM_TEST_AREA_SIZE,
-						   TDX_UPM_TEST_AREA_GVA_PRIVATE,
-						   TDX_UPM_TEST_AREA_GPA,
-						   MEM_REGION_TEST_DATA, true);
+	test_area_gva_private = vm_vaddr_alloc_private(vm, TDX_UPM_TEST_AREA_SIZE,
+						       TDX_UPM_TEST_AREA_GVA_PRIVATE,
+						       TDX_UPM_TEST_AREA_GPA,
+						       MEM_REGION_TEST_DATA);
 	TEST_ASSERT_EQ(test_area_gva_private, TDX_UPM_TEST_AREA_GVA_PRIVATE);
 
 	test_area_gpa_private = (struct tdx_upm_test_area *)
@@ -358,7 +358,7 @@ static void verify_upm_test(void)
 	virt_map_shared(vm, TDX_UPM_TEST_AREA_GVA_SHARED,
 			(uint64_t)test_area_gpa_private,
 			test_area_npages);
-	TEST_ASSERT_EQ(addr_gva2gpa(vm, TDX_UPM_TEST_AREA_GVA_SHARED) & ~vm->arch.s_bit,
+	TEST_ASSERT_EQ(addr_gva2gpa(vm, TDX_UPM_TEST_AREA_GVA_SHARED),
 		       (vm_paddr_t)test_area_gpa_private);
 
 	test_area_base_hva = addr_gva2hva(vm, TDX_UPM_TEST_AREA_GVA_PRIVATE);

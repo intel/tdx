@@ -29,6 +29,7 @@
 #include <linux/acpi.h>
 #include <linux/suspend.h>
 #include <linux/idr.h>
+#include <linux/vmalloc.h>
 #include <asm/page.h>
 #include <asm/special_insns.h>
 #include <asm/msr-index.h>
@@ -49,6 +50,8 @@ static DEFINE_IDA(tdx_guest_keyid_pool);
 static DEFINE_PER_CPU(bool, tdx_lp_initialized);
 
 static struct tdmr_info_list tdx_tdmr_list;
+
+static atomic_t *pamt_refcounts;
 
 static enum tdx_module_status_t tdx_module_status;
 static DEFINE_MUTEX(tdx_module_lock);
@@ -183,6 +186,102 @@ int tdx_cpu_enable(void)
 }
 EXPORT_SYMBOL_GPL(tdx_cpu_enable);
 
+static atomic_t *tdx_get_pamt_refcount(unsigned long hpa)
+{
+	return &pamt_refcounts[hpa / PMD_SIZE];
+}
+
+static int pamt_refcount_populate(pte_t *pte, unsigned long addr, void *data)
+{
+	unsigned long vaddr;
+	pte_t entry;
+
+	if (!pte_none(ptep_get(pte)))
+		return 0;
+
+	vaddr = __get_free_page(GFP_KERNEL | __GFP_ZERO);
+	if (!vaddr)
+		return -ENOMEM;
+
+	entry = pfn_pte(PFN_DOWN(__pa(vaddr)), PAGE_KERNEL);
+
+	spin_lock(&init_mm.page_table_lock);
+	if (pte_none(ptep_get(pte)))
+		set_pte_at(&init_mm, addr, pte, entry);
+	else
+		free_page(vaddr);
+	spin_unlock(&init_mm.page_table_lock);
+
+	return 0;
+}
+
+static int pamt_refcount_depopulate(pte_t *pte, unsigned long addr,
+				    void *data)
+{
+	unsigned long vaddr;
+
+	vaddr = (unsigned long)__va(PFN_PHYS(pte_pfn(ptep_get(pte))));
+
+	spin_lock(&init_mm.page_table_lock);
+	if (!pte_none(ptep_get(pte))) {
+		pte_clear(&init_mm, addr, pte);
+		free_page(vaddr);
+	}
+	spin_unlock(&init_mm.page_table_lock);
+
+	return 0;
+}
+
+static int alloc_pamt_refcount(unsigned long start_pfn, unsigned long end_pfn)
+{
+	unsigned long start, end;
+
+	start = (unsigned long)tdx_get_pamt_refcount(PFN_PHYS(start_pfn));
+	end = (unsigned long)tdx_get_pamt_refcount(PFN_PHYS(end_pfn + 1));
+	start = round_down(start, PAGE_SIZE);
+	end = round_up(end, PAGE_SIZE);
+
+	return apply_to_page_range(&init_mm, start, end - start,
+				   pamt_refcount_populate, NULL);
+}
+
+static int init_pamt_metadata(void)
+{
+	size_t size = max_pfn / PTRS_PER_PTE * sizeof(*pamt_refcounts);
+	struct vm_struct *area;
+
+	if (!tdx_supports_dynamic_pamt(&tdx_sysinfo))
+		return 0;
+
+	/*
+	 * Reserve vmalloc range for PAMT reference counters. It covers all
+	 * physical address space up to max_pfn. It is going to be populated
+	 * from init_tdmr() only for present memory that available for TDX use.
+	 */
+	area = get_vm_area(size, VM_IOREMAP);
+	if (!area)
+		return -ENOMEM;
+
+	pamt_refcounts = area->addr;
+	return 0;
+}
+
+static void free_pamt_metadata(void)
+{
+	size_t size = max_pfn / PTRS_PER_PTE * sizeof(*pamt_refcounts);
+
+	if (!tdx_supports_dynamic_pamt(&tdx_sysinfo))
+		return;
+
+	size = round_up(size, PAGE_SIZE);
+	apply_to_existing_page_range(&init_mm,
+				     (unsigned long)pamt_refcounts,
+				     size, pamt_refcount_depopulate,
+				     NULL);
+	vfree(pamt_refcounts);
+	pamt_refcounts = NULL;
+}
+
 /*
  * Add a memory region as a TDX memory block.  The caller must make sure
  * all memory regions are added in address ascending order and don't
@@ -247,6 +346,10 @@ static int build_tdx_memlist(struct list_head *tmb_list)
 		 * ascending order and don't overlap.
 		 */
 		ret = add_tdx_memblock(tmb_list, start_pfn, end_pfn, nid);
+		if (ret)
+			goto err;
+
+		ret = alloc_pamt_refcount(start_pfn, end_pfn);
 		if (ret)
 			goto err;
 	}
@@ -1111,9 +1214,14 @@ static int init_tdx_module(void)
 	 */
 	get_online_mems();
 
-	ret = build_tdx_memlist(&tdx_memlist);
+	/* Reserve vmalloc range for PAMT reference counters */
+	ret = init_pamt_metadata();
 	if (ret)
 		goto out_put_tdxmem;
+
+	ret = build_tdx_memlist(&tdx_memlist);
+	if (ret)
+		goto err_free_pamt_metadata;
 
 	/* Allocate enough space for constructing TDMRs */
 	ret = alloc_tdmr_list(&tdx_tdmr_list, &tdx_sysinfo.tdmr);
@@ -1172,6 +1280,8 @@ err_free_tdmrs:
 	free_tdmr_list(&tdx_tdmr_list);
 err_free_tdxmem:
 	free_tdx_memlist(&tdx_memlist);
+err_free_pamt_metadata:
+	free_pamt_metadata();
 	goto out_put_tdxmem;
 }
 

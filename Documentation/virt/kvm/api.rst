@@ -7179,7 +7179,27 @@ TDX guest passes a TD report. When completed, the generated quote is returned
 via the same buffer. The 'ret' field represents the return value. The userspace
 should update the return value before resuming the vCPU according to TDX GHCI
 spec. It's an asynchronous request. After the TDVMCALL is returned and back to
-TDX guest, TDX guest can poll the status field of the shared-memory area.
+TDX guest, TDX guest can poll the status field of the shared-memory area. Or TDX
+guest can register an event-notify vector by TDVMCALL_SETUP_EVENT_NOTIFY, so
+that on completion, an interrupt can be injected to TDX guest.
+
+::
+
+		/* KVM_EXIT_TDX_SETUP_EVENT_NOTIFY */
+		struct tdx_get_quote {
+			__u64 ret;
+			__u8 vector;
+		};
+
+If the exit reason is KVM_EXIT_TDX_SETUP_EVENT_NOTIFY, then it indicates that a
+TDX guest has requested to specify an interrupt vector used as the event-notify
+vector. E.g., for GetQuote operation, which may take several seconds, if the
+TDX guest has set up the event-notify vector, the host injects an interrupt
+with the specified vector to the guest on the completion of the operation. The
+'vector' field specifies the interrupt vector, with a valid range [32, 255], to
+be used for the event-notify. The 'ret' field represents the return value. The
+userspace should update the return value before resuming the vCPU according
+to TDX GHCI spec.
 
 ::
 

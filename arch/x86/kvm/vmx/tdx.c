@@ -1463,7 +1463,10 @@ static int tdx_get_td_vm_call_info(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
-static int tdx_complete_get_quote(struct kvm_vcpu *vcpu)
+static_assert(offsetof(struct kvm_run, tdx_setup_event_notify.ret) ==
+	      offsetof(struct kvm_run, tdx_get_quote.ret));
+
+static int tdx_complete_tdcall_common(struct kvm_vcpu *vcpu)
 {
 	tdvmcall_set_return_code(vcpu, vcpu->run->tdx_get_quote.ret);
 	return 1;
@@ -1491,7 +1494,23 @@ static int tdx_get_quote(struct kvm_vcpu *vcpu)
 	vcpu->run->tdx_get_quote.gpa = gpa;
 	vcpu->run->tdx_get_quote.size = size;
 
-	vcpu->arch.complete_userspace_io = tdx_complete_get_quote;
+	vcpu->arch.complete_userspace_io = tdx_complete_tdcall_common;
+
+	return 0;
+}
+
+static int tdx_setup_event_notify(struct kvm_vcpu *vcpu)
+{
+	u64 vector = to_tdx(vcpu)->vp_enter_args.r12;
+
+	if (vector < 32 || vector > 255) {
+		tdvmcall_set_return_code(vcpu, TDVMCALL_STATUS_INVALID_OPERAND);
+		return 1;
+	}
+
+	vcpu->run->exit_reason = KVM_EXIT_TDX_SETUP_EVENT_NOTIFY;
+	vcpu->run->tdx_setup_event_notify.vector = (u8)vector;
+	vcpu->arch.complete_userspace_io = tdx_complete_tdcall_common;
 
 	return 0;
 }
@@ -1507,6 +1526,8 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 		return tdx_get_td_vm_call_info(vcpu);
 	case TDVMCALL_GET_QUOTE:
 		return tdx_get_quote(vcpu);
+	case TDVMCALL_SETUP_EVENT_NOTIFY:
+		return tdx_setup_event_notify(vcpu);
 	default:
 		break;
 	}

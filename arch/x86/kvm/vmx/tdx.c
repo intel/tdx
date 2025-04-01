@@ -1463,6 +1463,39 @@ static int tdx_get_td_vm_call_info(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static int tdx_complete_get_quote(struct kvm_vcpu *vcpu)
+{
+	tdvmcall_set_return_code(vcpu, vcpu->run->tdx_get_quote.ret);
+	return 1;
+}
+
+static int tdx_get_quote(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	u64 gpa = tdx->vp_enter_args.r12;
+	u64 size = tdx->vp_enter_args.r13;
+
+	/* The buffer must be shared memory. */
+	if (vt_is_tdx_private_gpa(vcpu->kvm, gpa) || size == 0) {
+		tdvmcall_set_return_code(vcpu, TDVMCALL_STATUS_INVALID_OPERAND);
+		return 1;
+	}
+
+	if (!PAGE_ALIGNED(gpa) || !PAGE_ALIGNED(size)) {
+		tdvmcall_set_return_code(vcpu, TDVMCALL_STATUS_ALIGN_ERROR);
+		return 1;
+	}
+
+	vcpu->run->exit_reason = KVM_EXIT_TDX_GET_QUOTE;
+	vcpu->run->tdx_get_quote.gpa = gpa;
+	vcpu->run->tdx_get_quote.size = size;
+
+	vcpu->arch.complete_userspace_io = tdx_complete_get_quote;
+
+	return 0;
+}
+
 static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 {
 	switch (tdvmcall_leaf(vcpu)) {
@@ -1472,6 +1505,8 @@ static int handle_tdvmcall(struct kvm_vcpu *vcpu)
 		return tdx_report_fatal_error(vcpu);
 	case TDVMCALL_GET_TD_VM_CALL_INFO:
 		return tdx_get_td_vm_call_info(vcpu);
+	case TDVMCALL_GET_QUOTE:
+		return tdx_get_quote(vcpu);
 	default:
 		break;
 	}

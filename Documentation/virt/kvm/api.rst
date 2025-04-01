@@ -7164,6 +7164,25 @@ The valid value for 'flags' is:
 
 ::
 
+		/* KVM_EXIT_TDX_GET_QUOTE */
+		struct tdx_get_quote {
+			__u64 ret;
+			__u64 gpa;
+			__u64 size;
+		};
+
+If the exit reason is KVM_EXIT_TDX_GET_QUOTE, then it indicates that a TDX
+guest has requested to generate a TD-Quote signed by a service hosting
+TD-Quoting Enclave operating on the host. The 'gpa' field and 'size' specify
+the guest physical address and size of a shared-memory buffer, in which the
+TDX guest passes a TD report. When completed, the generated quote is returned
+via the same buffer. The 'ret' field represents the return value. The userspace
+should update the return value before resuming the vCPU according to TDX GHCI
+spec. It's an asynchronous request. After the TDVMCALL is returned and back to
+TDX guest, TDX guest can poll the status field of the shared-memory area.
+
+::
+
 		/* Fix the size of the union. */
 		char padding[256];
 	};

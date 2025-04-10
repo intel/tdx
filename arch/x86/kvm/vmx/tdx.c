@@ -277,23 +277,33 @@ static inline void tdx_disassociate_vp(struct kvm_vcpu *vcpu)
 	vcpu->cpu = -1;
 }
 
-static void tdx_clear_page(struct page *page)
+static void tdx_clear_folio(struct folio *folio, unsigned long start_idx,
+			    unsigned long npages)
 {
 	const void *zero_page = (const void *) page_to_virt(ZERO_PAGE(0));
-	void *dest = page_to_virt(page);
-	unsigned long i;
 
 	/*
 	 * The page could have been poisoned.  MOVDIR64B also clears
 	 * the poison bit so the kernel can safely use the page again.
 	 */
-	for (i = 0; i < PAGE_SIZE; i += 64)
-		movdir64b(dest + i, zero_page);
+	for (unsigned long j = 0; j < npages; j++) {
+		void *dest = page_to_virt(folio_page(folio, start_idx + j));
+
+		for (unsigned long i = 0; i < PAGE_SIZE; i += 64)
+			movdir64b(dest + i, zero_page);
+	}
 	/*
 	 * MOVDIR64B store uses WC buffer.  Prevent following memory reads
 	 * from seeing potentially poisoned cache.
 	 */
 	__mb();
+}
+
+static inline void tdx_clear_page(struct page *page)
+{
+	struct folio *folio = page_folio(page);
+
+	tdx_clear_folio(folio, folio_page_idx(folio, page), 1);
 }
 
 static void tdx_no_vcpus_enter_start(struct kvm *kvm)
@@ -1736,7 +1746,7 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err);
 		return -EIO;
 	}
-	tdx_clear_page(page);
+	tdx_clear_folio(folio, folio_page_idx(folio, page), KVM_PAGES_PER_HPAGE(level));
 	tdx_pamt_put(page, level);
 	tdx_unpin(kvm, page);
 	return 0;

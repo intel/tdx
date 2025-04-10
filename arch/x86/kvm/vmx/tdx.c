@@ -276,7 +276,7 @@ static inline void tdx_disassociate_vp(struct kvm_vcpu *vcpu)
 	vcpu->cpu = -1;
 }
 
-static void tdx_clear_page(struct page *page)
+static void __tdx_clear_page(struct page *page)
 {
 	const void *zero_page = (const void *) page_to_virt(ZERO_PAGE(0));
 	void *dest = page_to_virt(page);
@@ -293,6 +293,15 @@ static void tdx_clear_page(struct page *page)
 	 * from seeing potentially poisoned cache.
 	 */
 	__mb();
+}
+
+static void tdx_clear_page(struct page *page, int level)
+{
+	unsigned long nr = KVM_PAGES_PER_HPAGE(level);
+	unsigned long idx = 0;
+
+	while (nr--)
+		__tdx_clear_page(nth_page(page, idx++));
 }
 
 static void tdx_no_vcpus_enter_start(struct kvm *kvm)
@@ -340,10 +349,9 @@ static int tdx_reclaim_page(struct page *page)
 
 	r = __tdx_reclaim_page(page);
 	if (!r)
-		tdx_clear_page(page);
+		tdx_clear_page(page, PG_LEVEL_4K);
 	return r;
 }
-
 
 /*
  * Reclaim the TD control page(s) which are crypto-protected by TDX guest's
@@ -588,7 +596,7 @@ static void tdx_reclaim_td_control_pages(struct kvm *kvm)
 		pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err);
 		return;
 	}
-	tdx_clear_page(kvm_tdx->td.tdr_page);
+	tdx_clear_page(kvm_tdx->td.tdr_page, PG_LEVEL_4K);
 
 	__free_page(kvm_tdx->td.tdr_page);
 	kvm_tdx->td.tdr_page = NULL;
@@ -1621,7 +1629,8 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err);
 		return -EIO;
 	}
-	tdx_clear_page(page);
+
+	tdx_clear_page(page, level);
 	tdx_unpin(kvm, page);
 	return 0;
 }

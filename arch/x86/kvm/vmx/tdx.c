@@ -1593,11 +1593,13 @@ static int tdx_mem_page_aug(struct kvm *kvm, gfn_t gfn,
 {
 	int tdx_level = pg_level_to_tdx_sept_level(level);
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct folio *folio = page_folio(page);
 	gpa_t gpa = gfn_to_gpa(gfn);
 	u64 entry, level_state;
 	u64 err;
 
-	err = tdh_mem_page_aug(&kvm_tdx->td, gpa, tdx_level, page, &entry, &level_state);
+	err = tdh_mem_page_aug(&kvm_tdx->td, gpa, tdx_level, folio,
+			       folio_page_idx(folio, page), &entry, &level_state);
 	if (unlikely(tdx_operand_busy(err))) {
 		tdx_unpin(kvm, page);
 		return -EBUSY;

@@ -325,7 +325,7 @@ static void tdx_no_vcpus_enter_stop(struct kvm *kvm)
 }
 
 /* TDH.PHYMEM.PAGE.RECLAIM is allowed only when destroying the TD. */
-static int __tdx_reclaim_page(struct page *page)
+static int __tdx_reclaim_page(struct page *page, int level)
 {
 	u64 err, tdx_pt, tdx_owner, tdx_size;
 
@@ -340,16 +340,18 @@ static int __tdx_reclaim_page(struct page *page)
 		pr_tdx_error_3(TDH_PHYMEM_PAGE_RECLAIM, err, tdx_pt, tdx_owner, tdx_size);
 		return -EIO;
 	}
+
+	WARN_ON_ONCE(tdx_size != pg_level_to_tdx_sept_level(level));
 	return 0;
 }
 
-static int tdx_reclaim_page(struct page *page)
+static int tdx_reclaim_page(struct page *page, int level)
 {
 	int r;
 
-	r = __tdx_reclaim_page(page);
+	r = __tdx_reclaim_page(page, level);
 	if (!r)
-		tdx_clear_page(page, PG_LEVEL_4K);
+		tdx_clear_page(page, level);
 	return r;
 }
 
@@ -364,7 +366,7 @@ static void tdx_reclaim_control_page(struct page *ctrl_page)
 	 * Leak the page if the kernel failed to reclaim the page.
 	 * The kernel cannot use it safely anymore.
 	 */
-	if (tdx_reclaim_page(ctrl_page))
+	if (tdx_reclaim_page(ctrl_page, PG_LEVEL_4K))
 		return;
 
 	__free_page(ctrl_page);
@@ -583,7 +585,7 @@ static void tdx_reclaim_td_control_pages(struct kvm *kvm)
 	if (!kvm_tdx->td.tdr_page)
 		return;
 
-	if (__tdx_reclaim_page(kvm_tdx->td.tdr_page))
+	if (__tdx_reclaim_page(kvm_tdx->td.tdr_page, PG_LEVEL_4K))
 		return;
 
 	/*
@@ -1791,7 +1793,7 @@ int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 	 * The HKID assigned to this TD was already freed and cache was
 	 * already flushed. We don't have to flush again.
 	 */
-	return tdx_reclaim_page(virt_to_page(private_spt));
+	return tdx_reclaim_page(virt_to_page(private_spt), PG_LEVEL_4K);
 }
 
 int tdx_sept_remove_private_spte(struct kvm *kvm, gfn_t gfn,

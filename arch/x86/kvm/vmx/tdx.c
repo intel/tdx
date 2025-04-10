@@ -1530,12 +1530,14 @@ static int tdx_mem_page_aug(struct kvm *kvm, gfn_t gfn,
  * The counter has to be zero on KVM_TDX_FINALIZE_VM, to ensure that there
  * are no half-initialized shared EPT pages.
  */
-static int tdx_mem_page_record_premap_cnt(struct kvm *kvm, gfn_t gfn,
-					  enum pg_level level, kvm_pfn_t pfn)
+static int tdx_mem_page_record_premap_cnt(struct kvm *kvm, enum pg_level level)
 {
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 
 	if (KVM_BUG_ON(kvm->arch.pre_fault_allowed, kvm))
+		return -EINVAL;
+
+	if (KVM_BUG_ON(level != PG_LEVEL_4K, kvm))
 		return -EINVAL;
 
 	/* nr_premapped will be decreased when tdh_mem_page_add() is called. */
@@ -1571,7 +1573,7 @@ int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	if (likely(kvm_tdx->state == TD_STATE_RUNNABLE))
 		return tdx_mem_page_aug(kvm, gfn, level, page);
 
-	return tdx_mem_page_record_premap_cnt(kvm, gfn, level, pfn);
+	return tdx_mem_page_record_premap_cnt(kvm, level);
 }
 
 static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
@@ -1666,7 +1668,7 @@ int tdx_sept_link_private_spt(struct kvm *kvm, gfn_t gfn,
 static int tdx_is_sept_zap_err_due_to_premap(struct kvm_tdx *kvm_tdx, u64 err,
 					     u64 entry, int level)
 {
-	if (!err || kvm_tdx->state == TD_STATE_RUNNABLE)
+	if (!err || kvm_tdx->state == TD_STATE_RUNNABLE || level > PG_LEVEL_4K)
 		return false;
 
 	if (err != (TDX_EPT_ENTRY_STATE_INCORRECT | TDX_OPERAND_ID_RCX))
@@ -3052,8 +3054,8 @@ struct tdx_gmem_post_populate_arg {
 	__u32 flags;
 };
 
-static int tdx_gmem_post_populate(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
-				  void __user *src, int order, void *_arg)
+static int tdx_gmem_post_populate_4k(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
+				     void __user *src, void *_arg)
 {
 	u64 error_code = PFERR_GUEST_FINAL_MASK | PFERR_PRIVATE_ACCESS;
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
@@ -3120,6 +3122,21 @@ out:
 	return ret;
 }
 
+static int tdx_gmem_post_populate(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
+				  void __user *src, int order, void *_arg)
+{
+	unsigned long i, npages = 1 << order;
+	int ret;
+
+	for (i = 0; i < npages; i++) {
+		ret = tdx_gmem_post_populate_4k(kvm, gfn + i, pfn + i,
+						src + i * PAGE_SIZE, _arg);
+		if (ret)
+			return ret;
+	}
+	return 0;
+}
+
 static int tdx_vcpu_init_mem_region(struct kvm_vcpu *vcpu, struct kvm_tdx_cmd *cmd)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
@@ -3166,20 +3183,15 @@ static int tdx_vcpu_init_mem_region(struct kvm_vcpu *vcpu, struct kvm_tdx_cmd *c
 		};
 		gmem_ret = kvm_gmem_populate(kvm, gpa_to_gfn(region.gpa),
 					     u64_to_user_ptr(region.source_addr),
-					     1, tdx_gmem_post_populate, &arg);
+					     region.nr_pages, tdx_gmem_post_populate, &arg);
 		if (gmem_ret < 0) {
 			ret = gmem_ret;
 			break;
 		}
 
-		if (gmem_ret != 1) {
-			ret = -EIO;
-			break;
-		}
-
-		region.source_addr += PAGE_SIZE;
-		region.gpa += PAGE_SIZE;
-		region.nr_pages--;
+		region.source_addr += PAGE_SIZE * gmem_ret;
+		region.gpa += PAGE_SIZE * gmem_ret;
+		region.nr_pages -= gmem_ret;
 
 		cond_resched();
 	}
@@ -3224,6 +3236,9 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 
 int tdx_gmem_private_max_mapping_level(struct kvm *kvm, kvm_pfn_t pfn)
 {
+	if (unlikely(to_kvm_tdx(kvm)->state != TD_STATE_RUNNABLE))
+		return PG_LEVEL_4K;
+
 	return PG_LEVEL_4K;
 }
 

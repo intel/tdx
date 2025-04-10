@@ -1595,9 +1595,18 @@ u64 tdh_mem_page_aug(struct tdx_td *td, u64 gpa, int level, struct page *page, u
 		.rdx = tdx_tdr_pa(td),
 		.r8 = page_to_phys(page),
 	};
+	unsigned long nr_pages = 1 << (level * 9);
+	struct folio *folio = page_folio(page);
+	unsigned long idx = 0;
 	u64 ret;
 
-	tdx_clflush_page(page);
+	if (!(level >= TDX_PS_4K && level < TDX_PS_NR) ||
+	    (folio_page_idx(folio, page) + nr_pages > folio_nr_pages(folio)))
+		return -EINVAL;
+
+	while (nr_pages--)
+		tdx_clflush_page(nth_page(page, idx++));
+
 	ret = seamcall_ret(TDH_MEM_PAGE_AUG, &args);
 
 	*ext_err1 = args.rcx;

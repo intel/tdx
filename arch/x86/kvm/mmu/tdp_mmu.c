@@ -1600,10 +1600,17 @@ out:
 	return ret;
 }
 
+static bool iter_cross_boundary(struct tdp_iter *iter, gfn_t start, gfn_t end)
+{
+	return !(iter->gfn >= start &&
+		 (iter->gfn + KVM_PAGES_PER_HPAGE(iter->level)) <= end);
+}
+
 static int tdp_mmu_split_huge_pages_root(struct kvm *kvm,
 					 struct kvm_mmu_page *root,
 					 gfn_t start, gfn_t end,
-					 int target_level, bool shared)
+					 int target_level, bool shared,
+					 bool only_cross_boundary)
 {
 	struct kvm_mmu_page *sp = NULL;
 	struct tdp_iter iter;
@@ -1614,6 +1621,10 @@ static int tdp_mmu_split_huge_pages_root(struct kvm *kvm,
 	 * Traverse the page table splitting all huge pages above the target
 	 * level into one lower level. For example, if we encounter a 1GB page
 	 * we split it into 512 2MB pages.
+	 *
+	 * When only_cross_boundary is true, just split huge pages above the
+	 * target level into one lower level if the huge pages cross the start
+	 * or end boundary.
 	 *
 	 * Since the TDP iterator uses a pre-order traversal, we are guaranteed
 	 * to visit an SPTE before ever visiting its children, which means we
@@ -1627,6 +1638,10 @@ retry:
 			continue;
 
 		if (!is_shadow_present_pte(iter.old_spte) || !is_large_pte(iter.old_spte))
+			continue;
+
+		if (only_cross_boundary &&
+		    !iter_cross_boundary(&iter, start, end))
 			continue;
 
 		if (!sp) {
@@ -1692,12 +1707,35 @@ void kvm_tdp_mmu_try_split_huge_pages(struct kvm *kvm,
 
 	kvm_lockdep_assert_mmu_lock_held(kvm, shared);
 	for_each_valid_tdp_mmu_root_yield_safe(kvm, root, slot->as_id) {
-		r = tdp_mmu_split_huge_pages_root(kvm, root, start, end, target_level, shared);
+		r = tdp_mmu_split_huge_pages_root(kvm, root, start, end, target_level,
+						  shared, false);
 		if (r) {
 			kvm_tdp_mmu_put_root(kvm, root);
 			break;
 		}
 	}
+}
+
+int kvm_tdp_mmu_gfn_range_split_cross_boundary_leafs(struct kvm *kvm,
+						     struct kvm_gfn_range *range,
+						     bool shared)
+{
+	enum kvm_tdp_mmu_root_types types;
+	struct kvm_mmu_page *root;
+	int r = 0;
+
+	kvm_lockdep_assert_mmu_lock_held(kvm, shared);
+	types = kvm_gfn_range_filter_to_root_types(kvm, range->attr_filter);
+
+	__for_each_tdp_mmu_root_yield_safe(kvm, root, range->slot->as_id, types) {
+		r = tdp_mmu_split_huge_pages_root(kvm, root, range->start, range->end,
+						  PG_LEVEL_4K, shared, true);
+		if (r) {
+			kvm_tdp_mmu_put_root(kvm, root);
+			break;
+		}
+	}
+	return r;
 }
 
 static bool tdp_mmu_need_write_protect(struct kvm *kvm, struct kvm_mmu_page *sp)

@@ -1644,6 +1644,40 @@ static bool __kvm_rmap_zap_gfn_range(struct kvm *kvm,
 				 start, end - 1, can_yield, true, flush);
 }
 
+/*
+ * Split large leafs crossing the boundary of the specified range.
+ * Only support TDP MMU. Do nothing if !tdp_mmu_enabled.
+ *
+ * This API does not flush TLB. Callers need to determine how/when to flush TLB
+ * according to their use cases, e.g.,
+ * - No need to flush TLB. e.g., if it's in a fault path or TLB flush has been
+ *   ensured.
+ * - Delay the TLB flush until after zaps if the split is invoked for precise
+ *   zapping.
+ * - Unconditionally flush TLB if a use case relies on pure split status (e.g.,
+ *   splitting for PML).
+ *
+ * Return value: 0 : success;  <0: failure
+ */
+int kvm_split_cross_boundary_leafs(struct kvm *kvm, struct kvm_gfn_range *range,
+				   bool shared)
+{
+	bool ret = 0;
+
+	lockdep_assert_once(kvm->mmu_invalidate_in_progress ||
+			    lockdep_is_held(&kvm->slots_lock) ||
+			    srcu_read_lock_held(&kvm->srcu));
+
+	if (!range->may_block)
+		return -EOPNOTSUPP;
+
+	if (tdp_mmu_enabled)
+		ret = kvm_tdp_mmu_gfn_range_split_cross_boundary_leafs(kvm, range,
+								       shared);
+	return ret;
+}
+EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_split_cross_boundary_leafs);
+
 bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)
 {
 	bool flush = false;

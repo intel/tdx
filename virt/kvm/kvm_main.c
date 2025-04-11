@@ -910,6 +910,13 @@ static int kvm_init_mmu_notifier(struct kvm *kvm)
 	return mmu_notifier_register(&kvm->mmu_notifier, current->mm);
 }
 
+int __weak kvm_split_cross_boundary_leafs(struct kvm *kvm,
+					  struct kvm_gfn_range *range,
+					  bool shared)
+{
+	return 0;
+}
+
 #else  /* !CONFIG_KVM_GENERIC_MMU_NOTIFIER */
 
 static int kvm_init_mmu_notifier(struct kvm *kvm)

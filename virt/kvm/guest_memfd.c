@@ -292,13 +292,14 @@ static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index, int 
 	return folio;
 }
 
-static void kvm_gmem_invalidate_begin(struct kvm_gmem *gmem, pgoff_t start,
-				      pgoff_t end)
+static int kvm_gmem_invalidate_begin(struct kvm_gmem *gmem, pgoff_t start,
+				     pgoff_t end, bool need_split)
 {
 	bool flush = false, found_memslot = false;
 	struct kvm_memory_slot *slot;
 	struct kvm *kvm = gmem->kvm;
 	unsigned long index;
+	int ret = 0;
 
 	xa_for_each_range(&gmem->bindings, index, slot, start, end - 1) {
 		pgoff_t pgoff = slot->gmem.pgoff;
@@ -319,14 +320,23 @@ static void kvm_gmem_invalidate_begin(struct kvm_gmem *gmem, pgoff_t start,
 			kvm_mmu_invalidate_begin(kvm);
 		}
 
+		if (need_split) {
+			ret = kvm_split_boundary_leafs(kvm, &gfn_range);
+			if (ret < 0)
+				goto out;
+
+			flush |= ret;
+		}
 		flush |= kvm_mmu_unmap_gfn_range(kvm, &gfn_range);
 	}
 
+out:
 	if (flush)
 		kvm_flush_remote_tlbs(kvm);
 
 	if (found_memslot)
 		KVM_MMU_UNLOCK(kvm);
+	return 0;
 }
 
 static void kvm_gmem_invalidate_end(struct kvm_gmem *gmem, pgoff_t start,
@@ -347,6 +357,7 @@ static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 	loff_t size = i_size_read(inode);
 	pgoff_t start, end;
 	struct kvm_gmem *gmem;
+	int ret = 0;
 
 	if (offset > size)
 		return 0;
@@ -361,18 +372,22 @@ static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 	 */
 	filemap_invalidate_lock(inode->i_mapping);
 
-	list_for_each_entry(gmem, gmem_list, entry)
-		kvm_gmem_invalidate_begin(gmem, start, end);
+	list_for_each_entry(gmem, gmem_list, entry) {
+		ret = kvm_gmem_invalidate_begin(gmem, start, end, true);
+		if (ret < 0)
+			goto out;
+	}
 
 	truncate_inode_pages_range(inode->i_mapping, offset, offset + len - 1);
 	kvm_gmem_mark_range_unprepared(inode, start, end - start);
 
+out:
 	list_for_each_entry(gmem, gmem_list, entry)
 		kvm_gmem_invalidate_end(gmem, start, end);
 
 	filemap_invalidate_unlock(inode->i_mapping);
 
-	return 0;
+	return ret;
 }
 
 static long kvm_gmem_allocate(struct inode *inode, loff_t offset, loff_t len)
@@ -440,7 +455,7 @@ static int kvm_gmem_release(struct inode *inode, struct file *file)
 	 * Zap all SPTEs pointed at by this file.  Do not free the backing
 	 * memory, as its lifetime is associated with the inode, not the file.
 	 */
-	kvm_gmem_invalidate_begin(gmem, 0, -1ul);
+	kvm_gmem_invalidate_begin(gmem, 0, -1ul, false);
 	kvm_gmem_invalidate_end(gmem, 0, -1ul);
 
 	list_del(&gmem->entry);
@@ -524,8 +539,9 @@ static int kvm_gmem_error_folio(struct address_space *mapping, struct folio *fol
 	start = folio->index;
 	end = start + folio_nr_pages(folio);
 
+	/* The size of the SEPT will not exceed the size of the folio */
 	list_for_each_entry(gmem, gmem_list, entry)
-		kvm_gmem_invalidate_begin(gmem, start, end);
+		kvm_gmem_invalidate_begin(gmem, start, end, false);
 
 	/*
 	 * Do not truncate the range, what action is taken in response to the

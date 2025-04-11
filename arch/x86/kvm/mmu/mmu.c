@@ -1647,6 +1647,33 @@ static bool __kvm_rmap_zap_gfn_range(struct kvm *kvm,
 				 start, end - 1, can_yield, true, flush);
 }
 
+/*
+ * Split large leafs crossing the boundary of the specified range
+ *
+ * Return value:
+ * 0 : success, no flush is required;
+ * 1 : success, flush is required;
+ * <0: failure.
+ */
+int kvm_split_cross_boundary_leafs(struct kvm *kvm, struct kvm_gfn_range *range,
+				   bool shared)
+{
+	bool ret = 0;
+
+	lockdep_assert_once(kvm->mmu_invalidate_in_progress ||
+			    lockdep_is_held(&kvm->slots_lock) ||
+			    srcu_read_lock_held(&kvm->srcu));
+
+	if (!range->may_block)
+		return -EOPNOTSUPP;
+
+	if (tdp_mmu_enabled)
+		ret = kvm_tdp_mmu_gfn_range_split_cross_boundary_leafs(kvm, range, shared);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(kvm_split_cross_boundary_leafs);
+
 bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)
 {
 	bool flush = false;

@@ -1574,10 +1574,17 @@ out:
 	return ret;
 }
 
+static bool iter_cross_boundary(struct tdp_iter *iter, gfn_t start, gfn_t end)
+{
+	return !(iter->gfn >= start &&
+		 (iter->gfn + KVM_PAGES_PER_HPAGE(iter->level)) <= end);
+}
+
 static int tdp_mmu_split_huge_pages_root(struct kvm *kvm,
 					 struct kvm_mmu_page *root,
 					 gfn_t start, gfn_t end,
-					 int target_level, bool shared)
+					 int target_level, bool shared,
+					 bool only_cross_bounday, bool *flush)
 {
 	struct kvm_mmu_page *sp = NULL;
 	struct tdp_iter iter;
@@ -1589,6 +1596,13 @@ static int tdp_mmu_split_huge_pages_root(struct kvm *kvm,
 	 * level into one lower level. For example, if we encounter a 1GB page
 	 * we split it into 512 2MB pages.
 	 *
+	 * When only_cross_bounday is true, just split huge pages above the
+	 * target level into one lower level if the huge pages cross the start
+	 * or end boundary.
+	 *
+	 * No need to update @flush for !only_cross_bounday cases, which rely
+	 * on the callers to do the TLB flush in the end.
+	 *
 	 * Since the TDP iterator uses a pre-order traversal, we are guaranteed
 	 * to visit an SPTE before ever visiting its children, which means we
 	 * will correctly recursively split huge pages that are more than one
@@ -1597,10 +1611,17 @@ static int tdp_mmu_split_huge_pages_root(struct kvm *kvm,
 	 */
 	for_each_tdp_pte_min_level(iter, kvm, root, target_level + 1, start, end) {
 retry:
-		if (tdp_mmu_iter_cond_resched(kvm, &iter, false, shared))
+		if (tdp_mmu_iter_cond_resched(kvm, &iter, *flush, shared)) {
+			if (only_cross_bounday)
+				*flush = false;
 			continue;
+		}
 
 		if (!is_shadow_present_pte(iter.old_spte) || !is_large_pte(iter.old_spte))
+			continue;
+
+		if (only_cross_bounday &&
+		    !iter_cross_boundary(&iter, start, end))
 			continue;
 
 		if (!sp) {
@@ -1637,6 +1658,8 @@ retry:
 			goto retry;
 
 		sp = NULL;
+		if (only_cross_bounday)
+			*flush = true;
 	}
 
 	rcu_read_unlock();
@@ -1663,15 +1686,54 @@ void kvm_tdp_mmu_try_split_huge_pages(struct kvm *kvm,
 {
 	struct kvm_mmu_page *root;
 	int r = 0;
+	bool flush = false;
 
 	kvm_lockdep_assert_mmu_lock_held(kvm, shared);
 	for_each_valid_tdp_mmu_root_yield_safe(kvm, root, slot->as_id) {
-		r = tdp_mmu_split_huge_pages_root(kvm, root, start, end, target_level, shared);
+		r = tdp_mmu_split_huge_pages_root(kvm, root, start, end, target_level,
+						  shared, false, &flush);
 		if (r) {
 			kvm_tdp_mmu_put_root(kvm, root);
 			break;
 		}
 	}
+}
+
+/*
+ * Split large leafs which cross the specified boundary
+ */
+static int tdp_mmu_split_cross_boundary_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
+					      gfn_t start, gfn_t end, bool shared,
+					      bool *flush)
+{
+	return tdp_mmu_split_huge_pages_root(kvm, root, start, end, PG_LEVEL_4K,
+					     shared, true, flush);
+}
+
+int kvm_tdp_mmu_gfn_range_split_cross_boundary_leafs(struct kvm *kvm,
+						     struct kvm_gfn_range *range,
+						     bool shared)
+{
+	enum kvm_tdp_mmu_root_types types;
+	struct kvm_mmu_page *root;
+	bool flush = false;
+	int ret;
+
+	kvm_lockdep_assert_mmu_lock_held(kvm, shared);
+	types = kvm_gfn_range_filter_to_root_types(kvm, range->attr_filter);
+
+	__for_each_tdp_mmu_root_yield_safe(kvm, root, range->slot->as_id, types) {
+		ret = tdp_mmu_split_cross_boundary_leafs(kvm, root, range->start,
+							 range->end, shared, &flush);
+		if (ret < 0) {
+			if (flush)
+				kvm_flush_remote_tlbs(kvm);
+
+			kvm_tdp_mmu_put_root(kvm, root);
+			return ret;
+		}
+	}
+	return flush;
 }
 
 static bool tdp_mmu_need_write_protect(struct kvm *kvm, struct kvm_mmu_page *sp)

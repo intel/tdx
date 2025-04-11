@@ -1640,6 +1640,27 @@ static bool __kvm_rmap_zap_gfn_range(struct kvm *kvm,
 				 start, end - 1, can_yield, true, flush);
 }
 
+/*
+ * Split large leafs at the boundary of the specified range for the mirror root
+ *
+ * Return value:
+ * 0 : success, no flush is required;
+ * 1 : success, flush is required;
+ * <0: failure.
+ */
+int kvm_split_boundary_leafs(struct kvm *kvm, struct kvm_gfn_range *range)
+{
+	bool ret = 0;
+
+	lockdep_assert_once(kvm->mmu_invalidate_in_progress ||
+			    lockdep_is_held(&kvm->slots_lock));
+
+	if (tdp_mmu_enabled)
+		ret = kvm_tdp_mmu_gfn_range_split_boundary(kvm, range);
+
+	return ret;
+}
+
 bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)
 {
 	bool flush = false;

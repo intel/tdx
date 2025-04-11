@@ -324,6 +324,8 @@ static void handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 				u64 old_spte, u64 new_spte, int level,
 				bool shared);
 
+static int tdp_mmu_split_huge_page(struct kvm *kvm, struct tdp_iter *iter,
+				   struct kvm_mmu_page *sp, bool shared);
 static struct kvm_mmu_page *tdp_mmu_alloc_sp_for_split(bool mirror);
 static void *get_external_spt(gfn_t gfn, u64 new_spte, int level);
 
@@ -962,6 +964,19 @@ bool kvm_tdp_mmu_zap_sp(struct kvm *kvm, struct kvm_mmu_page *sp)
 	return true;
 }
 
+static inline bool iter_split_required(struct kvm *kvm, struct kvm_mmu_page *root,
+				       struct tdp_iter *iter, gfn_t start, gfn_t end)
+{
+	if (!is_mirror_sp(root) || !is_large_pte(iter->old_spte))
+		return false;
+
+	/* Fully contained, no need to split */
+	if (iter->gfn >= start && iter->gfn + KVM_PAGES_PER_HPAGE(iter->level) <= end)
+		return false;
+
+	return true;
+}
+
 /*
  * If can_yield is true, will release the MMU lock and reschedule if the
  * scheduler needs the CPU or there is contention on the MMU lock. If this
@@ -990,6 +1005,8 @@ static bool tdp_mmu_zap_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
 		if (!is_shadow_present_pte(iter.old_spte) ||
 		    !is_last_spte(iter.old_spte, iter.level))
 			continue;
+
+		WARN_ON_ONCE(iter_split_required(kvm, root, &iter, start, end));
 
 		tdp_mmu_iter_set_spte(kvm, &iter, SHADOW_NONPRESENT_VALUE);
 
@@ -1246,9 +1263,6 @@ static int tdp_mmu_link_sp(struct kvm *kvm, struct tdp_iter *iter,
 	return 0;
 }
 
-static int tdp_mmu_split_huge_page(struct kvm *kvm, struct tdp_iter *iter,
-				   struct kvm_mmu_page *sp, bool shared);
-
 /*
  * Handle a TDP page fault (NPT/EPT violation/misconfiguration) by installing
  * page tables and SPTEs to translate the faulting guest physical address.
@@ -1339,6 +1353,102 @@ map_target_level:
 retry:
 	rcu_read_unlock();
 	return ret;
+}
+
+/*
+ * Split large leafs at the boundary of the specified range for the mirror root
+ */
+static int tdp_mmu_split_boundary_leafs(struct kvm *kvm, struct kvm_mmu_page *root,
+					gfn_t start, gfn_t end, bool can_yield, bool *flush)
+{
+	struct kvm_mmu_page *sp = NULL;
+	struct tdp_iter iter;
+
+	WARN_ON_ONCE(!can_yield);
+
+	if (!is_mirror_sp(root))
+		return 0;
+
+	end = min(end, tdp_mmu_max_gfn_exclusive());
+
+	lockdep_assert_held_write(&kvm->mmu_lock);
+
+	rcu_read_lock();
+
+	for_each_tdp_pte_min_level(iter, kvm, root, PG_LEVEL_4K, start, end) {
+retry:
+		if (can_yield &&
+		    tdp_mmu_iter_cond_resched(kvm, &iter, *flush, false)) {
+			*flush = false;
+			continue;
+		}
+
+		if (!is_shadow_present_pte(iter.old_spte) ||
+		    !is_last_spte(iter.old_spte, iter.level) ||
+		    !iter_split_required(kvm, root, &iter, start, end))
+			continue;
+
+		if (!sp) {
+			rcu_read_unlock();
+
+			write_unlock(&kvm->mmu_lock);
+
+			sp = tdp_mmu_alloc_sp_for_split(true);
+
+			write_lock(&kvm->mmu_lock);
+
+			if (!sp) {
+				trace_kvm_mmu_split_huge_page(iter.gfn, iter.old_spte,
+							      iter.level, -ENOMEM);
+				return -ENOMEM;
+			}
+			rcu_read_lock();
+
+			iter.yielded = true;
+			continue;
+		}
+		tdp_mmu_init_child_sp(sp, &iter);
+
+		if (tdp_mmu_split_huge_page(kvm, &iter, sp, false))
+			goto retry;
+
+		sp = NULL;
+		/*
+		 * Set yielded in case after splitting to a lower level,
+		 * the new iter requires furter splitting.
+		 */
+		iter.yielded = true;
+		*flush = true;
+	}
+
+	rcu_read_unlock();
+
+	/* Leave it here though it should be impossible for the mirror root */
+	if (sp)
+		tdp_mmu_free_sp(sp);
+	return 0;
+}
+
+int kvm_tdp_mmu_gfn_range_split_boundary(struct kvm *kvm, struct kvm_gfn_range *range)
+{
+	enum kvm_tdp_mmu_root_types types;
+	struct kvm_mmu_page *root;
+	bool flush = false;
+	int ret;
+
+	types = kvm_gfn_range_filter_to_root_types(kvm, range->attr_filter) | KVM_INVALID_ROOTS;
+
+	__for_each_tdp_mmu_root_yield_safe(kvm, root, range->slot->as_id, types) {
+		ret = tdp_mmu_split_boundary_leafs(kvm, root, range->start, range->end,
+						   range->may_block, &flush);
+		if (ret < 0) {
+			if (flush)
+				kvm_flush_remote_tlbs(kvm);
+
+			return ret;
+		}
+	}
+	return flush;
 }
 
 /* Used by mmu notifier via kvm_unmap_gfn_range() */

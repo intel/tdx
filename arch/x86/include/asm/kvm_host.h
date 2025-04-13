@@ -1814,7 +1814,7 @@ struct kvm_x86_ops {
 
 	/* Split the external page table into smaller page tables */
 	int (*split_external_spt)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
-				  void *external_spt);
+				  void *external_spt, bool mmu_lock_shared);
 
 	bool (*has_wbinvd_exit)(void);
 

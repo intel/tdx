@@ -1834,13 +1834,36 @@ static int tdx_spte_demote_private_spte(struct kvm *kvm, gfn_t gfn,
 }
 
 int tdx_sept_split_private_spt(struct kvm *kvm, gfn_t gfn, enum pg_level level,
-			       void *private_spt)
+			       void *private_spt, bool mmu_lock_shared)
 {
 	struct page *page = virt_to_page(private_spt);
 	int ret;
 
 	if (KVM_BUG_ON(to_kvm_tdx(kvm)->state != TD_STATE_RUNNABLE || level != PG_LEVEL_2M, kvm))
 		return -EINVAL;
+
+	/*
+	 * Split request with mmu_lock held for reading can only occur when one
+	 * vCPU accepts at 2MB level while another vCPU accepts at 4KB level.
+	 * Ignore this 4KB mapping request by setting violation_request_level to
+	 * 2MB and returning -EBUSY for retry. Then the next fault at 2MB level
+	 * would be a spurious fault. The vCPU accepting at 2MB will accept the
+	 * whole 2MB range.
+	 */
+	if (mmu_lock_shared) {
+		struct kvm_vcpu *vcpu = kvm_get_running_vcpu();
+		struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+		if (KVM_BUG_ON(!vcpu, kvm))
+			return -EOPNOTSUPP;
+
+		/* Request to map as 2MB leaf for the whole 2MB range */
+		tdx->violation_gfn_start = gfn_round_for_level(gfn, level);
+		tdx->violation_gfn_end = tdx->violation_gfn_start + KVM_PAGES_PER_HPAGE(level);
+		tdx->violation_request_level = level;
+
+		return -EBUSY;
+	}
 
 	ret = tdx_sept_zap_private_spte(kvm, gfn, level, page);
 	if (ret <= 0)

@@ -4910,12 +4910,12 @@ next_pfn:
 	}
 }
 
-int sev_private_max_mapping_level(struct kvm *kvm, kvm_pfn_t pfn)
+int sev_private_max_mapping_level(struct kvm_vcpu *vcpu, kvm_pfn_t pfn, gfn_t gfn)
 {
 	int level, rc;
 	bool assigned;
 
-	if (!sev_snp_guest(kvm))
+	if (!sev_snp_guest(vcpu->kvm))
 		return 0;
 
 	rc = snp_lookup_rmpentry(pfn, &assigned, &level);

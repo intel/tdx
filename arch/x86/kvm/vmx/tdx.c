@@ -1806,6 +1806,51 @@ int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 	return tdx_reclaim_page(virt_to_page(private_spt), PG_LEVEL_4K);
 }
 
+static int tdx_spte_demote_private_spte(struct kvm *kvm, gfn_t gfn,
+					enum pg_level level, struct page *page)
+{
+	int tdx_level = pg_level_to_tdx_sept_level(level);
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	gpa_t gpa = gfn_to_gpa(gfn);
+	u64 err, entry, level_state;
+
+	do {
+		err = tdh_mem_page_demote(&kvm_tdx->td, gpa, tdx_level, page,
+					  &entry, &level_state);
+	} while (err == TDX_INTERRUPTED_RESTARTABLE);
+
+	if (unlikely(tdx_operand_busy(err))) {
+		tdx_no_vcpus_enter_start(kvm);
+		err = tdh_mem_page_demote(&kvm_tdx->td, gpa, tdx_level, page,
+					  &entry, &level_state);
+		tdx_no_vcpus_enter_stop(kvm);
+	}
+
+	if (KVM_BUG_ON(err, kvm)) {
+		pr_tdx_error_2(TDH_MEM_PAGE_DEMOTE, err, entry, level_state);
+		return -EIO;
+	}
+	return 0;
+}
+
+int tdx_sept_split_private_spt(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+			       void *private_spt)
+{
+	struct page *page = virt_to_page(private_spt);
+	int ret;
+
+	if (KVM_BUG_ON(to_kvm_tdx(kvm)->state != TD_STATE_RUNNABLE || level != PG_LEVEL_2M, kvm))
+		return -EINVAL;
+
+	ret = tdx_sept_zap_private_spte(kvm, gfn, level, page);
+	if (ret <= 0)
+		return ret;
+
+	tdx_track(kvm);
+
+	return tdx_spte_demote_private_spte(kvm, gfn, level, page);
+}
+
 int tdx_sept_remove_private_spte(struct kvm *kvm, gfn_t gfn,
 				 enum pg_level level, kvm_pfn_t pfn)
 {

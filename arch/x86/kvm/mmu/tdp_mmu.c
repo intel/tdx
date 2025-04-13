@@ -325,6 +325,7 @@ static void handle_changed_spte(struct kvm *kvm, int as_id, gfn_t gfn,
 				bool shared);
 
 static struct kvm_mmu_page *tdp_mmu_alloc_sp_for_split(bool mirror);
+static void *get_external_spt(gfn_t gfn, u64 new_spte, int level);
 
 static void tdp_account_mmu_page(struct kvm *kvm, struct kvm_mmu_page *sp)
 {
@@ -384,6 +385,19 @@ static void remove_external_spte(struct kvm *kvm, gfn_t gfn, u64 old_spte,
 	KVM_BUG_ON(ret, kvm);
 }
 
+static int split_external_spt(struct kvm *kvm, gfn_t gfn, u64 old_spte,
+			      u64 new_spte, int level)
+{
+	void *external_spt = get_external_spt(gfn, new_spte, level);
+	int ret;
+
+	KVM_BUG_ON(!external_spt, kvm);
+
+	ret = static_call(kvm_x86_split_external_spt)(kvm, gfn, level, external_spt);
+	KVM_BUG_ON(ret, kvm);
+
+	return ret;
+}
 /**
  * handle_removed_pt() - handle a page table removed from the TDP structure
  *
@@ -764,13 +778,13 @@ static u64 tdp_mmu_set_spte(struct kvm *kvm, int as_id, tdp_ptep_t sptep,
 
 	handle_changed_spte(kvm, as_id, gfn, old_spte, new_spte, level, false);
 
-	/*
-	 * Users that do non-atomic setting of PTEs don't operate on mirror
-	 * roots, so don't handle it and bug the VM if it's seen.
-	 */
 	if (is_mirror_sptep(sptep)) {
-		KVM_BUG_ON(is_shadow_present_pte(new_spte), kvm);
-		remove_external_spte(kvm, gfn, old_spte, level);
+		if (!is_shadow_present_pte(new_spte))
+			remove_external_spte(kvm, gfn, old_spte, level);
+		else if (is_last_spte(old_spte, level) && !is_last_spte(new_spte, level))
+			split_external_spt(kvm, gfn, old_spte, new_spte, level);
+		else
+			KVM_BUG_ON(1, kvm);
 	}
 
 	return old_spte;

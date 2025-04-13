@@ -1859,10 +1859,34 @@ static inline bool tdx_is_sept_violation_unexpected_pending(struct kvm_vcpu *vcp
 	return !(eq & EPT_VIOLATION_PROT_MASK) && !(eq & EPT_VIOLATION_EXEC_FOR_RING3_LIN);
 }
 
+static inline void tdx_get_accept_level(struct kvm_vcpu *vcpu, gpa_t gpa)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	int level = -1;
+
+	u64 eeq_type = tdx->ext_exit_qualification & TDX_EXT_EXIT_QUAL_TYPE_MASK;
+
+	u32 eeq_info = (tdx->ext_exit_qualification & TDX_EXT_EXIT_QUAL_INFO_MASK) >>
+			TDX_EXT_EXIT_QUAL_INFO_SHIFT;
+
+	if (eeq_type == TDX_EXT_EXIT_QUAL_TYPE_ACCEPT) {
+		level = (eeq_info & GENMASK(2, 0)) + 1;
+
+		tdx->violation_gfn_start = gfn_round_for_level(gpa_to_gfn(gpa), level);
+		tdx->violation_gfn_end = tdx->violation_gfn_start + KVM_PAGES_PER_HPAGE(level);
+		tdx->violation_request_level = level;
+	} else {
+		tdx->violation_gfn_start = -1;
+		tdx->violation_gfn_end = -1;
+		tdx->violation_request_level = -1;
+	}
+}
+
 static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 {
 	unsigned long exit_qual;
-	gpa_t gpa = to_tdx(vcpu)->exit_gpa;
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	gpa_t gpa = tdx->exit_gpa;
 	bool local_retry = false;
 	int ret;
 
@@ -1883,6 +1907,8 @@ static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 		 * due to aliasing a single HPA to multiple GPAs.
 		 */
 		exit_qual = EPT_VIOLATION_ACC_WRITE;
+
+		tdx_get_accept_level(vcpu, gpa);
 
 		/* Only private GPA triggers zero-step mitigation */
 		local_retry = true;
@@ -2917,6 +2943,9 @@ static int tdx_td_vcpu_init(struct kvm_vcpu *vcpu, u64 vcpu_rcx)
 
 	vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
 
+	tdx->violation_gfn_start = -1;
+	tdx->violation_gfn_end = -1;
+	tdx->violation_request_level = -1;
 	return 0;
 
 free_tdcx:
@@ -3260,8 +3289,13 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 
 int tdx_gmem_private_max_mapping_level(struct kvm_vcpu *vcpu, kvm_pfn_t pfn, gfn_t gfn)
 {
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
 	if (unlikely(to_kvm_tdx(vcpu->kvm)->state != TD_STATE_RUNNABLE))
 		return PG_LEVEL_4K;
+
+	if (gfn >= tdx->violation_gfn_start && gfn < tdx->violation_gfn_end)
+		return tdx->violation_request_level;
 
 	return PG_LEVEL_2M;
 }

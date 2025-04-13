@@ -70,6 +70,10 @@ struct vcpu_tdx {
 
 	u64 map_gpa_next;
 	u64 map_gpa_end;
+
+	u64 violation_gfn_start;
+	u64 violation_gfn_end;
+	int violation_request_level;
 };
 
 void tdh_vp_rd_failed(struct vcpu_tdx *tdx, char *uclass, u32 field, u64 err);

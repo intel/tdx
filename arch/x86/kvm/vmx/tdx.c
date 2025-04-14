@@ -1586,6 +1586,23 @@ int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	return tdx_mem_page_record_premap_cnt(kvm, level);
 }
 
+static inline u64 tdx_wbinvd_page(struct kvm *kvm, u64 hkid, struct page *page, int level)
+{
+	unsigned long nr = KVM_PAGES_PER_HPAGE(level);
+	unsigned long idx = 0;
+	u64 err;
+
+	while (nr--) {
+		err = tdh_phymem_page_wbinvd_hkid(hkid, nth_page(page, idx++));
+
+		if (KVM_BUG_ON(err, kvm)) {
+			pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err);
+			return err;
+		}
+	}
+	return err;
+}
+
 static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 				      enum pg_level level, struct page *page)
 {
@@ -1625,12 +1642,9 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		return -EIO;
 	}
 
-	err = tdh_phymem_page_wbinvd_hkid((u16)kvm_tdx->hkid, page);
-
-	if (KVM_BUG_ON(err, kvm)) {
-		pr_tdx_error(TDH_PHYMEM_PAGE_WBINVD, err);
+	err = tdx_wbinvd_page(kvm, kvm_tdx->hkid, page, level);
+	if (err)
 		return -EIO;
-	}
 
 	tdx_clear_page(page, level);
 	tdx_unpin(kvm, page);

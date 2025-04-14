@@ -1561,10 +1561,6 @@ int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	struct page *page = pfn_to_page(pfn);
 
-	/* TODO: handle large pages. */
-	if (KVM_BUG_ON(level != PG_LEVEL_4K, kvm))
-		return -EINVAL;
-
 	/*
 	 * Because guest_memfd doesn't support page migration with
 	 * a_ops->migrate_folio (yet), no callback is triggered for KVM on page
@@ -1612,8 +1608,7 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 	gpa_t gpa = gfn_to_gpa(gfn);
 	u64 err, entry, level_state;
 
-	/* TODO: handle large pages. */
-	if (KVM_BUG_ON(level != PG_LEVEL_4K, kvm))
+	if (KVM_BUG_ON(kvm_tdx->state != TD_STATE_RUNNABLE && level != PG_LEVEL_4K, kvm))
 		return -EINVAL;
 
 	if (KVM_BUG_ON(!is_hkid_assigned(kvm_tdx), kvm))
@@ -1714,8 +1709,8 @@ static int tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn,
 	gpa_t gpa = gfn_to_gpa(gfn) & KVM_HPAGE_MASK(level);
 	u64 err, entry, level_state;
 
-	/* For now large page isn't supported yet. */
-	WARN_ON_ONCE(level != PG_LEVEL_4K);
+	/* Before TD runnable, large page is not supported */
+	WARN_ON_ONCE(kvm_tdx->state != TD_STATE_RUNNABLE && level != PG_LEVEL_4K);
 
 	err = tdh_mem_range_block(&kvm_tdx->td, gpa, tdx_level, &entry, &level_state);
 
@@ -1816,6 +1811,9 @@ int tdx_sept_remove_private_spte(struct kvm *kvm, gfn_t gfn,
 {
 	struct page *page = pfn_to_page(pfn);
 	int ret;
+
+	WARN_ON_ONCE(folio_page_idx(page_folio(page), page) + KVM_PAGES_PER_HPAGE(level) >
+		     folio_nr_pages(page_folio(page)));
 
 	/*
 	 * HKID is released after all private pages have been removed, and set
@@ -3265,7 +3263,7 @@ int tdx_gmem_private_max_mapping_level(struct kvm *kvm, kvm_pfn_t pfn)
 	if (unlikely(to_kvm_tdx(kvm)->state != TD_STATE_RUNNABLE))
 		return PG_LEVEL_4K;
 
-	return PG_LEVEL_4K;
+	return PG_LEVEL_2M;
 }
 
 static int tdx_online_cpu(unsigned int cpu)

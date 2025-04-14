@@ -1501,9 +1501,9 @@ void tdx_load_mmu_pgd(struct kvm_vcpu *vcpu, hpa_t root_hpa, int pgd_level)
 	td_vmcs_write64(to_tdx(vcpu), SHARED_EPT_POINTER, root_hpa);
 }
 
-static void tdx_unpin(struct kvm *kvm, struct page *page)
+static void tdx_unpin(struct kvm *kvm, struct page *page, int level)
 {
-	put_page(page);
+	folio_put_refs(page_folio(page), KVM_PAGES_PER_HPAGE(level));
 }
 
 static int tdx_mem_page_aug(struct kvm *kvm, gfn_t gfn,
@@ -1517,13 +1517,13 @@ static int tdx_mem_page_aug(struct kvm *kvm, gfn_t gfn,
 
 	err = tdh_mem_page_aug(&kvm_tdx->td, gpa, tdx_level, page, &entry, &level_state);
 	if (unlikely(tdx_operand_busy(err))) {
-		tdx_unpin(kvm, page);
+		tdx_unpin(kvm, page, level);
 		return -EBUSY;
 	}
 
 	if (KVM_BUG_ON(err, kvm)) {
 		pr_tdx_error_2(TDH_MEM_PAGE_AUG, err, entry, level_state);
-		tdx_unpin(kvm, page);
+		tdx_unpin(kvm, page, level);
 		return -EIO;
 	}
 
@@ -1570,10 +1570,11 @@ int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	 * a_ops->migrate_folio (yet), no callback is triggered for KVM on page
 	 * migration.  Until guest_memfd supports page migration, prevent page
 	 * migration.
-	 * TODO: Once guest_memfd introduces callback on page migration,
-	 * implement it and remove get_page/put_page().
+	 * TODO: To support in-place-conversion in gmem in futre, remove
+	 * folio_ref_add()/folio_put_refs(). Only increase the folio ref count
+	 * when there're errors during removing private pages.
 	 */
-	get_page(page);
+	folio_ref_add(page_folio(page), KVM_PAGES_PER_HPAGE(level));
 
 	/*
 	 * Read 'pre_fault_allowed' before 'kvm_tdx->state'; see matching
@@ -1647,7 +1648,7 @@ static int tdx_sept_drop_private_spte(struct kvm *kvm, gfn_t gfn,
 		return -EIO;
 
 	tdx_clear_page(page, level);
-	tdx_unpin(kvm, page);
+	tdx_unpin(kvm, page, level);
 	return 0;
 }
 
@@ -1727,7 +1728,7 @@ static int tdx_sept_zap_private_spte(struct kvm *kvm, gfn_t gfn,
 	if (tdx_is_sept_zap_err_due_to_premap(kvm_tdx, err, entry, level) &&
 	    !KVM_BUG_ON(!atomic64_read(&kvm_tdx->nr_premapped), kvm)) {
 		atomic64_dec(&kvm_tdx->nr_premapped);
-		tdx_unpin(kvm, page);
+		tdx_unpin(kvm, page, level);
 		return 0;
 	}
 

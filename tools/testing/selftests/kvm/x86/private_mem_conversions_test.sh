@@ -57,6 +57,17 @@ backing_src_types+=( shmem )
 	backing_src_types+=( shared_hugetlb ) || \
 	echo "skipping shared_hugetlb backing source type"
 
+private_mem_backing_src_types=( private_mem_guest_mem )
+[ -n "$hugepage_default_enabled" ] && \
+	private_mem_backing_src_types+=( private_mem_hugetlb ) || \
+	echo "skipping private_mem_hugetlb backing source type"
+[ -n "$hugepage_2mb_enabled" ] && \
+	private_mem_backing_src_types+=( private_mem_hugetlb_2mb ) || \
+	echo "skipping private_mem_hugetlb_2mb backing source type"
+[ -n "$hugepage_1gb_enabled" ] && \
+	private_mem_backing_src_types+=( private_mem_hugetlb_1gb ) || \
+	echo "skipping private_mem_hugetlb_1gb backing source type"
+
 set +e
 
 TEST_EXECUTABLE="$(dirname "$0")/private_mem_conversions_test"
@@ -66,17 +77,21 @@ TEST_EXECUTABLE="$(dirname "$0")/private_mem_conversions_test"
 
 	for src_type in "${backing_src_types[@]}"; do
 
-		set -x
+		for private_mem_src_type in "${private_mem_backing_src_types[@]}"; do
 
-                $TEST_EXECUTABLE -s "$src_type" -n $num_vcpus_to_test
-		$TEST_EXECUTABLE -s "$src_type" -n $num_vcpus_to_test -m $num_memslots_to_test
+			set -x
 
-                $TEST_EXECUTABLE -s "$src_type" -n $num_vcpus_to_test -g
-		$TEST_EXECUTABLE -s "$src_type" -n $num_vcpus_to_test -m $num_memslots_to_test -g
+			$TEST_EXECUTABLE -s "$src_type" -p "$private_mem_src_type" -n $num_vcpus_to_test
+			$TEST_EXECUTABLE -s "$src_type" -p "$private_mem_src_type" -n $num_vcpus_to_test -m $num_memslots_to_test
 
-		{ set +x; } 2>/dev/null
+			$TEST_EXECUTABLE -s "$src_type" -p "$private_mem_src_type" -n $num_vcpus_to_test -g
+			$TEST_EXECUTABLE -s "$src_type" -p "$private_mem_src_type" -n $num_vcpus_to_test -m $num_memslots_to_test -g
 
-		echo
+			{ set +x; } 2>/dev/null
+
+			echo
+
+		done
 
 	done
 )

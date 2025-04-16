@@ -4910,7 +4910,8 @@ next_pfn:
 	}
 }
 
-int sev_private_max_mapping_level(struct kvm_vcpu *vcpu, kvm_pfn_t pfn, gfn_t gfn)
+int sev_private_max_mapping_level(struct kvm_vcpu *vcpu, kvm_pfn_t pfn, gfn_t gfn,
+				  bool prefetch)
 {
 	int level, rc;
 	bool assigned;

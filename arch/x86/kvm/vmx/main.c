@@ -881,10 +881,11 @@ static int vt_vcpu_mem_enc_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 	return tdx_vcpu_ioctl(vcpu, argp);
 }
 
-static int vt_gmem_private_max_mapping_level(struct kvm_vcpu *vcpu, kvm_pfn_t pfn, gfn_t gfn)
+static int vt_gmem_private_max_mapping_level(struct kvm_vcpu *vcpu, kvm_pfn_t pfn,
+					     gfn_t gfn, bool prefetch)
 {
 	if (is_td(vcpu->kvm))
-		return tdx_gmem_private_max_mapping_level(vcpu, pfn, gfn);
+		return tdx_gmem_private_max_mapping_level(vcpu, pfn, gfn, prefetch);
 
 	return 0;
 }

@@ -3332,11 +3332,12 @@ int tdx_vcpu_ioctl(struct kvm_vcpu *vcpu, void __user *argp)
 	return ret;
 }
 
-int tdx_gmem_private_max_mapping_level(struct kvm_vcpu *vcpu, kvm_pfn_t pfn, gfn_t gfn)
+int tdx_gmem_private_max_mapping_level(struct kvm_vcpu *vcpu, kvm_pfn_t pfn,
+				       gfn_t gfn, bool prefetch)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 
-	if (unlikely(to_kvm_tdx(vcpu->kvm)->state != TD_STATE_RUNNABLE))
+	if (unlikely((to_kvm_tdx(vcpu->kvm)->state != TD_STATE_RUNNABLE) || prefetch))
 		return PG_LEVEL_4K;
 
 	if (gfn >= tdx->violation_gfn_start && gfn < tdx->violation_gfn_end)

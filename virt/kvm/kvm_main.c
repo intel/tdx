@@ -511,7 +511,7 @@ static inline struct kvm *mmu_notifier_to_kvm(struct mmu_notifier *mn)
 	return container_of(mn, struct kvm, mmu_notifier);
 }
 
-typedef bool (*gfn_handler_t)(struct kvm *kvm, struct kvm_gfn_range *range);
+typedef int (*gfn_handler_t)(struct kvm *kvm, struct kvm_gfn_range *range);
 
 typedef void (*on_lock_fn_t)(struct kvm *kvm);
 
@@ -595,6 +595,7 @@ static __always_inline kvm_mn_ret_t kvm_handle_hva_range(struct kvm *kvm,
 		kvm_for_each_memslot_in_hva_range(node, slots,
 						  range->start, range->end - 1) {
 			unsigned long hva_start, hva_end;
+			int ret;
 
 			slot = container_of(node, struct kvm_memory_slot, hva_node[slots->node_idx]);
 			hva_start = max_t(unsigned long, range->start, slot->userspace_addr);
@@ -635,7 +636,9 @@ static __always_inline kvm_mn_ret_t kvm_handle_hva_range(struct kvm *kvm,
 						goto mmu_unlock;
 				}
 			}
-			r.ret |= range->handler(kvm, &gfn_range);
+			ret = range->handler(kvm, &gfn_range);
+			WARN_ON_ONCE(ret < 0);
+			r.ret |= ret;
 		}
 	}
 
@@ -721,7 +724,7 @@ void kvm_mmu_invalidate_range_add(struct kvm *kvm, gfn_t start, gfn_t end)
 	}
 }
 
-bool kvm_mmu_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)
+int kvm_mmu_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)
 {
 	kvm_mmu_invalidate_range_add(kvm, range->start, range->end);
 	return kvm_unmap_gfn_range(kvm, range);
@@ -2413,7 +2416,8 @@ static __always_inline void kvm_handle_gfn_range(struct kvm *kvm,
 	struct kvm_memslots *slots;
 	struct kvm_memslot_iter iter;
 	bool found_memslot = false;
-	bool ret = false;
+	bool flush = false;
+	int ret = 0;
 	int i;
 
 	gfn_range.arg = range->arg;
@@ -2446,19 +2450,22 @@ static __always_inline void kvm_handle_gfn_range(struct kvm *kvm,
 					range->on_lock(kvm);
 			}
 
-			ret |= range->handler(kvm, &gfn_range);
+			ret = range->handler(kvm, &gfn_range);
+			if (ret < 0)
+				goto err;
+			flush |= ret;
 		}
 	}
-
-	if (range->flush_on_ret && ret)
+err:
+	if (range->flush_on_ret && flush)
 		kvm_flush_remote_tlbs(kvm);
 
 	if (found_memslot)
 		KVM_MMU_UNLOCK(kvm);
 }
 
-static bool kvm_pre_set_memory_attributes(struct kvm *kvm,
-					  struct kvm_gfn_range *range)
+static int kvm_pre_set_memory_attributes(struct kvm *kvm,
+					 struct kvm_gfn_range *range)
 {
 	/*
 	 * Unconditionally add the range to the invalidation set, regardless of

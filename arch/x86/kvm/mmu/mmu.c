@@ -7694,6 +7694,9 @@ void kvm_mmu_pre_destroy_vm(struct kvm *kvm)
 int kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
 				       struct kvm_gfn_range *range)
 {
+	bool flush = false;
+	int ret;
+
 	/*
 	 * Zap SPTEs even if the slot can't be mapped PRIVATE.  KVM x86 only
 	 * supports KVM_MEMORY_ATTRIBUTE_PRIVATE, and so it *seems* like KVM
@@ -7706,7 +7709,7 @@ int kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
 	 * a hugepage can be used for affected ranges.
 	 */
 	if (WARN_ON_ONCE(!kvm_arch_has_private_mem(kvm)))
-		return false;
+		return 0;
 
 	/* Unmap the old attribute page. */
 	if (range->arg.attributes & KVM_MEMORY_ATTRIBUTE_PRIVATE)
@@ -7714,7 +7717,13 @@ int kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
 	else
 		range->attr_filter = KVM_FILTER_PRIVATE;
 
-	return kvm_unmap_gfn_range(kvm, range);
+	ret = kvm_split_boundary_leafs(kvm, range);
+	if (ret < 0)
+		return ret;
+	flush |= ret;
+
+	flush |= kvm_unmap_gfn_range(kvm, range);
+	return flush;
 }
 
 static bool hugepage_test_mixed(struct kvm_memory_slot *slot, gfn_t gfn,
@@ -7769,7 +7778,7 @@ int kvm_arch_post_set_memory_attributes(struct kvm *kvm,
 	 * SHARED may now allow hugepages.
 	 */
 	if (WARN_ON_ONCE(!kvm_arch_has_private_mem(kvm)))
-		return false;
+		return 0;
 
 	/*
 	 * The sequence matters here: upper levels consume the result of lower
@@ -7816,7 +7825,7 @@ int kvm_arch_post_set_memory_attributes(struct kvm *kvm,
 				hugepage_set_mixed(slot, gfn, level);
 		}
 	}
-	return false;
+	return 0;
 }
 
 void kvm_mmu_init_memslot_memory_attributes(struct kvm *kvm,

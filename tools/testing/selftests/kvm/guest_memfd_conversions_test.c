@@ -4,6 +4,7 @@
  *
  * Copyright (c) 2024, Google LLC.
  */
+#include <linux/guestmem.h>
 #include <linux/kvm.h>
 #include <linux/sizes.h>
 #include <stdio.h>
@@ -580,6 +581,97 @@ static void test_fault_type_independent_of_mem_attributes(size_t test_page_size)
 	cleanup_test(test_page_size, vm, guest_memfd, mem);
 }
 
+static void test_truncate_shared_while_pinned(size_t test_page_size)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	int guest_memfd;
+	char *mem;
+	int ret;
+
+	vm = setup_test(test_page_size, /*init_private=*/false, &vcpu,
+			&guest_memfd, &mem);
+
+	ret = fallocate(guest_memfd, FALLOC_FL_KEEP_SIZE, 0, test_page_size);
+	TEST_ASSERT(!ret, "fallocate should have succeeded");
+
+	pin_pages(mem, test_page_size);
+
+	ret = fallocate(guest_memfd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
+			0, test_page_size);
+	if (test_page_size == PAGE_SIZE) {
+		TEST_ASSERT(!ret, "truncate should have succeeded since there is no need to merge");
+	} else {
+		TEST_ASSERT(ret, "truncate should have failed since pages are pinned");
+		TEST_ASSERT_EQ(errno, EAGAIN);
+	}
+
+	unpin_pages();
+
+	ret = fallocate(guest_memfd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
+			0, test_page_size);
+	TEST_ASSERT(!ret, "truncate should succeed now that pages are unpinned");
+
+	cleanup_test(test_page_size, vm, guest_memfd, mem);
+}
+
+static void test_truncate_private(size_t test_page_size)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	int guest_memfd;
+	char *mem;
+	int ret;
+
+	vm = setup_test(test_page_size, /*init_private=*/true, &vcpu,
+			&guest_memfd, &mem);
+
+	ret = fallocate(guest_memfd, FALLOC_FL_KEEP_SIZE, 0, test_page_size);
+	TEST_ASSERT(!ret, "fallocate should have succeeded");
+
+	ret = fallocate(guest_memfd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
+			0, test_page_size);
+	TEST_ASSERT(!ret, "truncate should have succeeded since there is no need to merge");
+
+	cleanup_test(test_page_size, vm, guest_memfd, mem);
+}
+
+static void __test_close_with_pinning(size_t test_page_size, bool init_private)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	int guest_memfd;
+	char *mem;
+	int ret;
+
+	vm = setup_test(test_page_size, init_private, &vcpu, &guest_memfd, &mem);
+
+	ret = fallocate(guest_memfd, FALLOC_FL_KEEP_SIZE, 0, test_page_size);
+	TEST_ASSERT(!ret, "fallocate should have succeeded");
+
+	if (!init_private)
+		pin_pages(mem, test_page_size);
+
+	cleanup_test(test_page_size, vm, guest_memfd, mem);
+
+	if (!init_private)
+		unpin_pages();
+
+	/*
+	 * Test this with ./guest_memfd_wrap_test_check_hugetlb_reporting.sh to
+	 * check that the HugeTLB page got merged and returned to HugeTLB.
+	 *
+	 * Sleep here to give kernel worker time to do the merge and return.
+	 */
+	sleep(1);
+}
+
+static void test_close_with_pinning(size_t test_page_size)
+{
+	__test_close_with_pinning(test_page_size, true);
+	__test_close_with_pinning(test_page_size, false);
+}
+
 static void test_with_size(size_t test_page_size)
 {
 	test_sharing(test_page_size);
@@ -590,6 +682,9 @@ static void test_with_size(size_t test_page_size)
 	test_truncate_should_not_change_mappability(test_page_size);
 	test_conversions_should_fail_if_memory_has_elevated_refcount(test_page_size);
 	test_fault_type_independent_of_mem_attributes(test_page_size);
+	test_truncate_shared_while_pinned(test_page_size);
+	test_truncate_private(test_page_size);
+	test_close_with_pinning(test_page_size);
 }
 
 int main(int argc, char *argv[])

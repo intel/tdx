@@ -318,9 +318,9 @@ static void tdx_no_vcpus_enter_stop(struct kvm *kvm)
 /* TDH.PHYMEM.PAGE.RECLAIM is allowed only when destroying the TD. */
 static int __tdx_reclaim_page(struct page *page)
 {
-	u64 err, rcx, rdx, r8;
+	u64 err, tdx_pt, tdx_owner, tdx_size;
 
-	err = tdh_phymem_page_reclaim(page, &rcx, &rdx, &r8);
+	err = tdh_phymem_page_reclaim(page, &tdx_pt, &tdx_owner, &tdx_size);
 
 	/*
 	 * No need to check for TDX_OPERAND_BUSY; all TD pages are freed
@@ -328,7 +328,7 @@ static int __tdx_reclaim_page(struct page *page)
 	 * released at this point, so there is no possibility of contention.
 	 */
 	if (WARN_ON_ONCE(err)) {
-		pr_tdx_error_3(TDH_PHYMEM_PAGE_RECLAIM, err, rcx, rdx, r8);
+		pr_tdx_error_3(TDH_PHYMEM_PAGE_RECLAIM, err, tdx_pt, tdx_owner, tdx_size);
 		return -EIO;
 	}
 	return 0;

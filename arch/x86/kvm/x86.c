@@ -13597,6 +13597,7 @@ bool kvm_arch_has_irq_bypass(void)
 {
 	return enable_apicv && irq_remapping_cap(IRQ_POSTING_CAP);
 }
+EXPORT_SYMBOL_GPL(kvm_arch_has_irq_bypass);
 
 int kvm_arch_irq_bypass_add_producer(struct irq_bypass_consumer *cons,
 				      struct irq_bypass_producer *prod)

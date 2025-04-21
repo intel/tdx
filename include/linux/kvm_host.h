@@ -1666,6 +1666,7 @@ int kvm_arch_flush_remote_tlbs_range(struct kvm *kvm, gfn_t gfn, u64 nr_pages);
 void kvm_arch_register_noncoherent_dma(struct kvm *kvm);
 void kvm_arch_unregister_noncoherent_dma(struct kvm *kvm);
 bool kvm_arch_has_noncoherent_dma(struct kvm *kvm);
+bool kvm_arch_has_irq_bypass(void);
 #else
 static inline void kvm_arch_register_noncoherent_dma(struct kvm *kvm)
 {
@@ -1679,6 +1680,7 @@ static inline bool kvm_arch_has_noncoherent_dma(struct kvm *kvm)
 {
 	return false;
 }
+static bool kvm_arch_has_irq_bypass(void) { return false };
 #endif
 #ifdef __KVM_HAVE_ARCH_ASSIGNED_DEVICE
 void kvm_arch_start_assignment(struct kvm *kvm);

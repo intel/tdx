@@ -40,6 +40,7 @@ __printf(5, 6) void ucall_assert(uint64_t cmd, const char *exp,
 				 const char *fmt, ...);
 uint64_t get_ucall(struct kvm_vcpu *vcpu, struct ucall *uc);
 void ucall_init(struct kvm_vm *vm, vm_paddr_t mmio_gpa);
+void ucall_free(struct ucall *uc);
 int ucall_nr_pages_required(uint64_t page_size);
 
 /*

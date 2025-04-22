@@ -21,24 +21,24 @@ int ucall_nr_pages_required(uint64_t page_size)
 
 /*
  * ucall_pool holds per-VM values (global data is duplicated by each VM), it
- * must not be accessed from host code.
+ * should generally not be accessed from host code other than via ucall_free(),
+ * to cleanup after using GUEST_DONE()
  */
 static struct ucall_header *ucall_pool;
 
 void ucall_init(struct kvm_vm *vm, vm_paddr_t mmio_gpa)
 {
-	struct ucall_header *hdr;
 	struct ucall *uc;
 	vm_vaddr_t vaddr;
 	int i;
 
-	vaddr = vm_vaddr_alloc_shared(vm, sizeof(*hdr), KVM_UTIL_MIN_VADDR,
-				      MEM_REGION_DATA);
-	hdr = (struct ucall_header *)addr_gva2hva(vm, vaddr);
-	memset(hdr, 0, sizeof(*hdr));
+	vaddr = vm_vaddr_alloc_shared(vm, sizeof(*ucall_pool),
+				      KVM_UTIL_MIN_VADDR, MEM_REGION_DATA);
+	ucall_pool = (struct ucall_header *)addr_gva2hva(vm, vaddr);
+	memset(ucall_pool, 0, sizeof(*ucall_pool));
 
 	for (i = 0; i < KVM_MAX_VCPUS; ++i) {
-		uc = &hdr->ucalls[i];
+		uc = &ucall_pool->ucalls[i];
 		uc->hva = uc;
 	}
 
@@ -73,7 +73,7 @@ ucall_failed:
 	return NULL;
 }
 
-static void ucall_free(struct ucall *uc)
+void ucall_free(struct ucall *uc)
 {
 	/* Beware, here be pointer arithmetic.  */
 	clear_bit(uc - ucall_pool->ucalls, ucall_pool->in_use);

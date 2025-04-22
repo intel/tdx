@@ -1244,6 +1244,7 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	struct tdp_iter iter;
 	struct kvm_mmu_page *sp;
 	int ret = RET_PF_RETRY;
+	bool is_mirror = is_mirror_sp(root);
 
 	kvm_mmu_hugepage_adjust(vcpu, fault);
 
@@ -1254,8 +1255,8 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	for_each_tdp_pte(iter, kvm, root, fault->gfn, fault->gfn + 1) {
 		int r;
 
-		if (fault->nx_huge_page_workaround_enabled)
-			disallowed_hugepage_adjust(fault, iter.old_spte, iter.level);
+		if (fault->nx_huge_page_workaround_enabled || is_mirror)
+			disallowed_hugepage_adjust(fault, iter.old_spte, iter.level, is_mirror);
 
 		/*
 		 * If SPTE has been frozen by another thread, just give up and
@@ -1278,7 +1279,7 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		 */
 		sp = tdp_mmu_alloc_sp(vcpu);
 		tdp_mmu_init_child_sp(sp, &iter);
-		if (is_mirror_sp(sp))
+		if (is_mirror)
 			kvm_mmu_alloc_external_spt(vcpu, sp);
 
 		sp->nx_huge_page_disallowed = fault->huge_page_disallowed;

@@ -717,7 +717,7 @@ static int FNAME(fetch)(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
 		 * large page, as the leaf could be executable.
 		 */
 		if (fault->nx_huge_page_workaround_enabled)
-			disallowed_hugepage_adjust(fault, *it.sptep, it.level);
+			disallowed_hugepage_adjust(fault, *it.sptep, it.level, false);
 
 		base_gfn = gfn_round_for_level(fault->gfn, it.level);
 		if (it.level == fault->goal_level)

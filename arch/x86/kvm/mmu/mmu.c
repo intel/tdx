@@ -3326,13 +3326,13 @@ void kvm_mmu_hugepage_adjust(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 	fault->pfn &= ~mask;
 }
 
-void disallowed_hugepage_adjust(struct kvm_page_fault *fault, u64 spte, int cur_level)
+void disallowed_hugepage_adjust(struct kvm_page_fault *fault, u64 spte, int cur_level, bool is_mirror)
 {
 	if (cur_level > PG_LEVEL_4K &&
 	    cur_level == fault->goal_level &&
 	    is_shadow_present_pte(spte) &&
 	    !is_large_pte(spte) &&
-	    spte_to_child_sp(spte)->nx_huge_page_disallowed) {
+	    (spte_to_child_sp(spte)->nx_huge_page_disallowed || is_mirror)) {
 		/*
 		 * A small SPTE exists for this pfn, but FNAME(fetch),
 		 * direct_map(), or kvm_tdp_mmu_map() would like to create a
@@ -3363,7 +3363,7 @@ static int direct_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 		 * large page, as the leaf could be executable.
 		 */
 		if (fault->nx_huge_page_workaround_enabled)
-			disallowed_hugepage_adjust(fault, *it.sptep, it.level);
+			disallowed_hugepage_adjust(fault, *it.sptep, it.level, false);
 
 		base_gfn = gfn_round_for_level(fault->gfn, it.level);
 		if (it.level == fault->goal_level)

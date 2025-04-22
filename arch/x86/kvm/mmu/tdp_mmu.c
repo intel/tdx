@@ -1267,6 +1267,8 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	struct tdp_iter iter;
 	struct kvm_mmu_page *sp;
 	int ret = RET_PF_RETRY;
+	bool hugepage_adjust_disallowed = fault->nx_huge_page_workaround_enabled ||
+					  kvm_has_mirrored_tdp(kvm);
 
 	KVM_MMU_WARN_ON(!root || root->role.invalid);
 
@@ -1279,7 +1281,7 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 	for_each_tdp_pte(iter, kvm, root, fault->gfn, fault->gfn + 1) {
 		int r;
 
-		if (fault->nx_huge_page_workaround_enabled)
+		if (hugepage_adjust_disallowed)
 			disallowed_hugepage_adjust(fault, iter.old_spte, iter.level);
 
 		/*

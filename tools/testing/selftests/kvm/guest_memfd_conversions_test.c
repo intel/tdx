@@ -672,6 +672,92 @@ static void test_close_with_pinning(size_t test_page_size)
 	__test_close_with_pinning(test_page_size, false);
 }
 
+static void test_allocate_subfolios(size_t test_page_size)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	size_t increment;
+	int guest_memfd;
+	size_t nr_pages;
+	char *mem;
+	int i;
+
+	if (test_page_size == PAGE_SIZE)
+		return;
+
+	vm = setup_test(test_page_size, /*init_private=*/false, &vcpu,
+			&guest_memfd, &mem);
+
+	nr_pages = test_page_size / PAGE_SIZE;
+
+	/*
+	 * Loop backwards to check allocation of the correct subfolio within the
+	 * huge folio. If it were allocated wrongly, the second loop would error
+	 * out because one or more of the checks would be wrong.
+	 */
+	increment = nr_pages >> 1;
+	for (i = nr_pages - 1; i >= 0; i -= increment)
+		host_use_memory(mem + i * PAGE_SIZE, 'X', 'A' + i);
+	for (i = nr_pages - 1; i >= 0; i -= increment)
+		host_use_memory(mem + i * PAGE_SIZE, 'A' + i, 'A' + i);
+
+	cleanup_test(test_page_size, vm, guest_memfd, mem);
+}
+
+static void test_convert_subfolios(size_t test_page_size)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	size_t increment;
+	int guest_memfd;
+	size_t nr_pages;
+	int to_convert;
+	char *mem;
+	int i;
+
+	if (test_page_size == PAGE_SIZE)
+		return;
+
+	vm = setup_test(test_page_size, /*init_private=*/true, &vcpu,
+			&guest_memfd, &mem);
+
+	nr_pages = test_page_size / PAGE_SIZE;
+
+	increment = nr_pages >> 1;
+	for (i = 0; i < nr_pages; i += increment) {
+		guest_use_memory(vcpu,
+				 GUEST_MEMFD_SHARING_TEST_GVA + i * PAGE_SIZE,
+				 'X', 'A', 0);
+		assert_host_cannot_fault(mem + i * PAGE_SIZE);
+	}
+
+	to_convert = round_up(nr_pages / 2, increment);
+	guest_memfd_convert_shared(guest_memfd, to_convert * PAGE_SIZE, PAGE_SIZE);
+
+
+	for (i = 0; i < nr_pages; i += increment) {
+		if (i == to_convert)
+			host_use_memory(mem + i * PAGE_SIZE, 'A', 'B');
+		else
+			assert_host_cannot_fault(mem + i * PAGE_SIZE);
+
+		guest_use_memory(vcpu,
+				 GUEST_MEMFD_SHARING_TEST_GVA + i * PAGE_SIZE,
+				 'X', 'B', 0);
+	}
+
+	guest_memfd_convert_private(guest_memfd, to_convert * PAGE_SIZE, PAGE_SIZE);
+
+	for (i = 0; i < nr_pages; i += increment) {
+		guest_use_memory(vcpu,
+				 GUEST_MEMFD_SHARING_TEST_GVA + i * PAGE_SIZE,
+				 'B', 'C', 0);
+		assert_host_cannot_fault(mem + i * PAGE_SIZE);
+	}
+
+	cleanup_test(test_page_size, vm, guest_memfd, mem);
+}
+
 static void test_with_size(size_t test_page_size)
 {
 	test_sharing(test_page_size);
@@ -685,6 +771,8 @@ static void test_with_size(size_t test_page_size)
 	test_truncate_shared_while_pinned(test_page_size);
 	test_truncate_private(test_page_size);
 	test_close_with_pinning(test_page_size);
+	test_allocate_subfolios(test_page_size);
+	test_convert_subfolios(test_page_size);
 }
 
 int main(int argc, char *argv[])

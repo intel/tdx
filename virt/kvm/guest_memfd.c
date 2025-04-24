@@ -3,10 +3,13 @@
 #include <linux/backing-dev.h>
 #include <linux/falloc.h>
 #include <linux/fs.h>
+#include <linux/guestmem.h>
 #include <linux/kvm_host.h>
 #include <linux/maple_tree.h>
 #include <linux/pseudo_fs.h>
 #include <linux/pagemap.h>
+
+#include <uapi/linux/guestmem.h>
 
 #include "kvm_mm.h"
 
@@ -21,6 +24,10 @@ struct kvm_gmem {
 struct kvm_gmem_inode_private {
 #ifdef CONFIG_KVM_GMEM_SHARED_MEM
 	struct maple_tree shareability;
+#endif
+#ifdef CONFIG_KVM_GMEM_HUGETLB
+	const struct guestmem_allocator_operations *allocator_ops;
+	void *allocator_private;
 #endif
 };
 
@@ -39,6 +46,44 @@ static struct kvm_gmem_inode_private *kvm_gmem_private(struct inode *inode)
 {
 	return inode->i_mapping->i_private_data;
 }
+
+#ifdef CONFIG_KVM_GMEM_HUGETLB
+
+static const struct guestmem_allocator_operations *
+kvm_gmem_allocator_ops(struct inode *inode)
+{
+	return kvm_gmem_private(inode)->allocator_ops;
+}
+
+static void *kvm_gmem_allocator_private(struct inode *inode)
+{
+	return kvm_gmem_private(inode)->allocator_private;
+}
+
+static bool kvm_gmem_has_custom_allocator(struct inode *inode)
+{
+	return kvm_gmem_allocator_ops(inode) != NULL;
+}
+
+#else
+
+static const struct guestmem_allocator_operations *
+kvm_gmem_allocator_ops(struct inode *inode)
+{
+	return NULL;
+}
+
+static void *kvm_gmem_allocator_private(struct inode *inode)
+{
+	return NULL;
+}
+
+static bool kvm_gmem_has_custom_allocator(struct inode *inode)
+{
+	return false;
+}
+
+#endif
 
 /**
  * folio_file_pfn - like folio_file_page, but return a pfn.
@@ -510,7 +555,6 @@ static int kvm_gmem_filemap_add_folio(struct address_space *mapping,
 static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index)
 {
 	struct folio *folio;
-	gfp_t gfp;
 	int ret;
 
 repeat:
@@ -518,17 +562,24 @@ repeat:
 	if (!IS_ERR(folio))
 		return folio;
 
-	gfp = mapping_gfp_mask(inode->i_mapping);
+	if (kvm_gmem_has_custom_allocator(inode)) {
+		void *p = kvm_gmem_allocator_private(inode);
 
-	/* TODO: Support huge pages. */
-	folio = filemap_alloc_folio(gfp, 0);
-	if (!folio)
-		return ERR_PTR(-ENOMEM);
+		folio = kvm_gmem_allocator_ops(inode)->alloc_folio(p);
+		if (IS_ERR(folio))
+			return folio;
+	} else {
+		gfp_t gfp = mapping_gfp_mask(inode->i_mapping);
 
-	ret = mem_cgroup_charge(folio, NULL, gfp);
-	if (ret) {
-		folio_put(folio);
-		return ERR_PTR(ret);
+		folio = filemap_alloc_folio(gfp, 0);
+		if (!folio)
+			return ERR_PTR(-ENOMEM);
+
+		ret = mem_cgroup_charge(folio, NULL, gfp);
+		if (ret) {
+			folio_put(folio);
+			return ERR_PTR(ret);
+		}
 	}
 
 	ret = kvm_gmem_filemap_add_folio(inode->i_mapping, folio, index);
@@ -609,6 +660,80 @@ static void kvm_gmem_invalidate_end(struct kvm_gmem *gmem, pgoff_t start,
 		kvm_mmu_invalidate_end(kvm);
 		KVM_MMU_UNLOCK(kvm);
 	}
+}
+
+/**
+ * kvm_gmem_truncate_indices() - Truncates all folios beginning @index for
+ * @nr_pages.
+ *
+ * @mapping: filemap to truncate pages from.
+ * @index: the index in the filemap to begin truncation.
+ * @nr_pages: number of PAGE_SIZE pages to truncate.
+ *
+ * Return: the number of PAGE_SIZE pages that were actually truncated.
+ */
+static long kvm_gmem_truncate_indices(struct address_space *mapping,
+				      pgoff_t index, size_t nr_pages)
+{
+	struct folio_batch fbatch;
+	long truncated;
+	pgoff_t last;
+
+	last = index + nr_pages - 1;
+
+	truncated = 0;
+	folio_batch_init(&fbatch);
+	while (filemap_get_folios(mapping, &index, last, &fbatch)) {
+		unsigned int i;
+
+		for (i = 0; i < folio_batch_count(&fbatch); ++i) {
+			struct folio *f = fbatch.folios[i];
+
+			truncated += folio_nr_pages(f);
+			folio_lock(f);
+			truncate_inode_folio(f->mapping, f);
+			folio_unlock(f);
+		}
+
+		folio_batch_release(&fbatch);
+		cond_resched();
+	}
+
+	return truncated;
+}
+
+/**
+ * kvm_gmem_truncate_inode_aligned_pages() - Removes entire folios from filemap
+ * in @inode.
+ *
+ * @inode: inode to remove folios from.
+ * @index: start of range to be truncated. Must be hugepage aligned.
+ * @nr_pages: number of PAGE_SIZE pages to be iterated over.
+ *
+ * Removes folios beginning @index for @nr_pages from filemap in @inode, updates
+ * inode metadata.
+ */
+static void kvm_gmem_truncate_inode_aligned_pages(struct inode *inode,
+						  pgoff_t index,
+						  size_t nr_pages)
+{
+	size_t nr_per_huge_page;
+	long num_freed;
+	pgoff_t idx;
+	void *priv;
+
+	priv = kvm_gmem_allocator_private(inode);
+	nr_per_huge_page = kvm_gmem_allocator_ops(inode)->nr_pages_in_folio(priv);
+
+	num_freed = 0;
+	for (idx = index; idx < index + nr_pages; idx += nr_per_huge_page) {
+		num_freed += kvm_gmem_truncate_indices(
+			inode->i_mapping, idx, nr_per_huge_page);
+	}
+
+	spin_lock(&inode->i_lock);
+	inode->i_blocks -= (num_freed << PAGE_SHIFT) / 512;
+	spin_unlock(&inode->i_lock);
 }
 
 static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
@@ -940,6 +1065,13 @@ static void kvm_gmem_free_inode(struct inode *inode)
 {
 	struct kvm_gmem_inode_private *private = kvm_gmem_private(inode);
 
+	/* private may be NULL if inode creation process had an error. */
+	if (private && kvm_gmem_has_custom_allocator(inode)) {
+		void *p = kvm_gmem_allocator_private(inode);
+
+		kvm_gmem_allocator_ops(inode)->inode_teardown(p, inode->i_size);
+	}
+
 	kfree(private);
 
 	free_inode_nonrcu(inode);
@@ -959,8 +1091,24 @@ static void kvm_gmem_destroy_inode(struct inode *inode)
 #endif
 }
 
+static void kvm_gmem_evict_inode(struct inode *inode)
+{
+	truncate_inode_pages_final_prepare(inode->i_mapping);
+
+	if (kvm_gmem_has_custom_allocator(inode)) {
+		size_t nr_pages = inode->i_size >> PAGE_SHIFT;
+
+		kvm_gmem_truncate_inode_aligned_pages(inode, 0, nr_pages);
+	} else {
+		truncate_inode_pages(inode->i_mapping, 0);
+	}
+
+	clear_inode(inode);
+}
+
 static const struct super_operations kvm_gmem_super_operations = {
 	.statfs		= simple_statfs,
+	.evict_inode	= kvm_gmem_evict_inode,
 	.destroy_inode	= kvm_gmem_destroy_inode,
 	.free_inode	= kvm_gmem_free_inode,
 };
@@ -1062,6 +1210,12 @@ static void kvm_gmem_free_folio(struct folio *folio)
 {
 	folio_clear_unevictable(folio);
 
+	/*
+	 * No-op for 4K page since the PG_uptodate is cleared as part of
+	 * freeing, but may be required for other allocators to reset page.
+	 */
+	folio_clear_uptodate(folio);
+
 	kvm_gmem_invalidate(folio);
 }
 
@@ -1103,6 +1257,25 @@ static struct inode *kvm_gmem_inode_make_secure_inode(const char *name,
 	err = kvm_gmem_shareability_setup(private, size, flags);
 	if (err)
 		goto out;
+
+#ifdef CONFIG_KVM_GMEM_HUGETLB
+	if (flags & GUEST_MEMFD_FLAG_HUGETLB) {
+		void *allocator_priv;
+		size_t nr_pages;
+
+		allocator_priv = guestmem_hugetlb_ops.inode_setup(size, flags);
+		if (IS_ERR(allocator_priv)) {
+			err = PTR_ERR(allocator_priv);
+			goto out;
+		}
+
+		private->allocator_ops = &guestmem_hugetlb_ops;
+		private->allocator_private = allocator_priv;
+
+		nr_pages = guestmem_hugetlb_ops.nr_pages_in_folio(allocator_priv);
+		inode->i_blkbits = ilog2(nr_pages << PAGE_SHIFT);
+	}
+#endif
 
 	inode->i_private = (void *)(unsigned long)flags;
 	inode->i_op = &kvm_gmem_iops;
@@ -1199,6 +1372,10 @@ err_fd:
 	return err;
 }
 
+/* Mask of bits belonging to allocators and are opaque to guest_memfd. */
+#define SUPPORTED_CUSTOM_ALLOCATOR_MASK \
+	(GUESTMEM_HUGETLB_FLAG_MASK << GUESTMEM_HUGETLB_FLAG_SHIFT)
+
 int kvm_gmem_create(struct kvm *kvm, struct kvm_create_guest_memfd *args)
 {
 	loff_t size = args->size;
@@ -1210,6 +1387,12 @@ int kvm_gmem_create(struct kvm *kvm, struct kvm_create_guest_memfd *args)
 
 	if (flags & GUEST_MEMFD_FLAG_SUPPORT_SHARED)
 		valid_flags |= GUEST_MEMFD_FLAG_INIT_PRIVATE;
+
+	if (IS_ENABLED(CONFIG_KVM_GMEM_HUGETLB) &&
+	    flags & GUEST_MEMFD_FLAG_HUGETLB) {
+		valid_flags |= GUEST_MEMFD_FLAG_HUGETLB |
+			       SUPPORTED_CUSTOM_ALLOCATOR_MASK;
+	}
 
 	if (flags & ~valid_flags)
 		return -EINVAL;

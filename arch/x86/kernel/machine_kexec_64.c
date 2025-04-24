@@ -29,6 +29,7 @@
 #include <asm/set_memory.h>
 #include <asm/cpu.h>
 #include <asm/efi.h>
+#include <asm/processor.h>
 
 #ifdef CONFIG_ACPI
 /*
@@ -384,15 +385,15 @@ void __nocfi machine_kexec(struct kimage *image)
 {
 	unsigned long reloc_start = (unsigned long)__relocate_kernel_start;
 	relocate_kernel_fn *relocate_kernel_ptr;
-	unsigned int host_mem_enc_active;
+	unsigned int cache_incoherent;
 	int save_ftrace_enabled;
 	void *control_page;
 
 	/*
-	 * This must be done before load_segments() since if call depth tracking
-	 * is used then GS must be valid to make any function calls.
+	 * This must be done before load_segments(), since it resets
+	 * GS to 0 and percpu data needs the correct GS to work.
 	 */
-	host_mem_enc_active = cc_platform_has(CC_ATTR_HOST_MEM_ENCRYPT);
+	cache_incoherent = this_cpu_read(cache_state_incoherent);
 
 #ifdef CONFIG_KEXEC_JUMP
 	if (image->preserve_context)
@@ -436,6 +437,10 @@ void __nocfi machine_kexec(struct kimage *image)
 	 *
 	 * Take advantage of this here by force loading the segments,
 	 * before the GDT is zapped with an invalid value.
+	 *
+	 * load_segments() resets GS to 0.  Don't make any function call
+	 * after here since call depth tracking uses percpu variables to
+	 * operate (relocate_kernel() is explicitly ignored by call depth
 	 */
 	load_segments();
 
@@ -444,7 +449,7 @@ void __nocfi machine_kexec(struct kimage *image)
 					   virt_to_phys(control_page),
 					   image->start,
 					   image->preserve_context,
-					   host_mem_enc_active);
+					   cache_incoherent);
 
 #ifdef CONFIG_KEXEC_JUMP
 	if (image->preserve_context)

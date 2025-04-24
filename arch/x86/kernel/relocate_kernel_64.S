@@ -67,7 +67,7 @@ SYM_CODE_START_NOALIGN(relocate_kernel)
 	 * %rsi pa_control_page
 	 * %rdx start address
 	 * %rcx preserve_context
-	 * %r8  host_mem_enc_active
+	 * %r8  cache_incoherent
 	 */
 
 	/* Save the CPU context, used for jumping back */
@@ -129,7 +129,7 @@ SYM_CODE_START_LOCAL_NOALIGN(identity_mapped)
 	/*
 	 * %rdi	indirection page
 	 * %rdx start address
-	 * %r8 host_mem_enc_active
+	 * %r8 cache_incoherent
 	 * %r9 page table page
 	 * %r11 preserve_context
 	 * %r13 original CR4 when relocate_kernel() was invoked
@@ -200,14 +200,21 @@ SYM_CODE_START_LOCAL_NOALIGN(identity_mapped)
 	movq	%r9, %cr3
 
 	/*
+	 * If the memory cache is in incoherent state, e.g., due to
+	 * memory encryption, do wbinvd to flush cache.
+	 *
 	 * If SME is active, there could be old encrypted cache line
 	 * entries that will conflict with the now unencrypted memory
 	 * used by kexec. Flush the caches before copying the kernel.
+	 *
+	 * Note SME sets this flag to true when the platform supports
+	 * SME, so the wbinvd is performed even SME is not activated
+	 * by the kernel.  But this has no harm.
 	 */
 	testq	%r8, %r8
-	jz .Lsme_off
+	jz .Lnowbinvd
 	wbinvd
-.Lsme_off:
+.Lnowbinvd:
 
 	call	swap_pages
 

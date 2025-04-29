@@ -2390,6 +2390,7 @@ extern void truncate_pagecache(struct inode *inode, loff_t new);
 extern void truncate_setsize(struct inode *inode, loff_t newsize);
 void pagecache_isize_extended(struct inode *inode, loff_t from, loff_t to);
 void truncate_pagecache_range(struct inode *inode, loff_t offset, loff_t end);
+int truncate_inode_folio(struct address_space *mapping, struct folio *folio);
 int generic_error_remove_folio(struct address_space *mapping,
 		struct folio *folio);
 

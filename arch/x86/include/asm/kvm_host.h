@@ -2278,18 +2278,8 @@ void kvm_configure_mmu(bool enable_tdp, int tdp_forced_root_level,
 
 #ifdef CONFIG_KVM_GMEM
 #define kvm_arch_supports_gmem(kvm) ((kvm)->arch.supports_gmem)
-
-/*
- * CoCo VMs with hardware support that use guest_memfd only for backing private
- * memory, e.g., TDX, cannot use guest_memfd with userspace mapping enabled.
- */
-#define kvm_arch_vm_supports_gmem_shared_mem(kvm)			\
-	(IS_ENABLED(CONFIG_KVM_GMEM_SHARED_MEM) &&			\
-	 ((kvm)->arch.vm_type == KVM_X86_SW_PROTECTED_VM ||		\
-	  (kvm)->arch.vm_type == KVM_X86_DEFAULT_VM))
 #else
 #define kvm_arch_supports_gmem(kvm) false
-#define kvm_arch_vm_supports_gmem_shared_mem(kvm) false
 #endif
 
 #define kvm_arch_has_readonly_mem(kvm) (!(kvm)->arch.has_protected_state)

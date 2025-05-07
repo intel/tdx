@@ -1205,7 +1205,7 @@ int kvm_gmem_create(struct kvm *kvm, struct kvm_create_guest_memfd *args)
 	u64 flags = args->flags;
 	u64 valid_flags = 0;
 
-	if (kvm_arch_vm_supports_gmem_shared_mem(kvm))
+	if (IS_ENABLED(CONFIG_KVM_GMEM_SHARED_MEM))
 		valid_flags |= GUEST_MEMFD_FLAG_SUPPORT_SHARED;
 
 	if (flags & GUEST_MEMFD_FLAG_SUPPORT_SHARED)
@@ -1275,13 +1275,9 @@ int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
 	    offset + size > i_size_read(inode))
 		goto err;
 
-	if (kvm_gmem_supports_shared(inode)) {
-		if (!kvm_arch_vm_supports_gmem_shared_mem(kvm))
-			goto err;
-
-		if (slot->userspace_addr &&
-		    !kvm_gmem_is_same_range(kvm, slot, file, offset))
-			goto err;
+	if (kvm_gmem_supports_shared(inode) && slot->userspace_addr &&
+	    !kvm_gmem_is_same_range(kvm, slot, file, offset)) {
+		goto err;
 	}
 
 	filemap_invalidate_lock(inode->i_mapping);

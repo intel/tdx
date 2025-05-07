@@ -4916,7 +4916,8 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
 #endif
 #ifdef CONFIG_KVM_GMEM_SHARED_MEM
 	case KVM_CAP_GMEM_SHARED_MEM:
-		return !kvm || kvm_arch_vm_supports_gmem_shared_mem(kvm);
+	case KVM_CAP_GMEM_CONVERSION:
+		return true;
 #endif
 	default:
 		break;

@@ -401,13 +401,31 @@ static void test_with_type(unsigned long vm_type, uint64_t guest_memfd_flags,
 	kvm_vm_release(vm);
 }
 
+static void test_vm_with_gmem_flag(struct kvm_vm *vm, uint64_t flag,
+				   bool expect_valid)
+{
+	size_t page_size = getpagesize();
+	int fd;
+
+	fd = __vm_create_guest_memfd(vm, page_size, flag);
+
+	if (expect_valid) {
+		TEST_ASSERT(fd > 0,
+			    "guest_memfd() with flag '0x%lx' should be valid",
+			    flag);
+		close(fd);
+	} else {
+		TEST_ASSERT(fd == -1 && errno == EINVAL,
+			    "guest_memfd() with flag '0x%lx' should fail with EINVAL",
+			    flag);
+	}
+}
+
 static void test_vm_type_gmem_flag_validity(unsigned long vm_type,
 					    uint64_t expected_valid_flags)
 {
-	size_t page_size = getpagesize();
 	struct kvm_vm *vm;
 	uint64_t flag = 0;
-	int fd;
 
 	if (!(kvm_check_cap(KVM_CAP_VM_TYPES) & BIT(vm_type)))
 		return;
@@ -415,17 +433,11 @@ static void test_vm_type_gmem_flag_validity(unsigned long vm_type,
 	vm = vm_create_barebones_type(vm_type);
 
 	for (flag = BIT(0); flag; flag <<= 1) {
-		fd = __vm_create_guest_memfd(vm, page_size, flag);
+		test_vm_with_gmem_flag(vm, flag, flag & expected_valid_flags);
 
-		if (flag & expected_valid_flags) {
-			TEST_ASSERT(fd > 0,
-				    "guest_memfd() with flag '0x%lx' should be valid",
-				    flag);
-			close(fd);
-		} else {
-			TEST_ASSERT(fd == -1 && errno == EINVAL,
-				    "guest_memfd() with flag '0x%lx' should fail with EINVAL",
-				    flag);
+		if (flag == GUEST_MEMFD_FLAG_SUPPORT_SHARED) {
+			test_vm_with_gmem_flag(
+				vm, flag | GUEST_MEMFD_FLAG_INIT_PRIVATE, true);
 		}
 	}
 

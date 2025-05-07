@@ -16,6 +16,7 @@
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 #include "kvm_util.h"
 #include "test_util.h"
@@ -34,7 +35,7 @@ static void test_file_read_write(int fd)
 		    "pwrite on a guest_mem fd should fail");
 }
 
-static void test_mmap_allowed(int fd, size_t page_size, size_t total_size)
+static void test_faulting_allowed(int fd, size_t page_size, size_t total_size)
 {
 	const char val = 0xaa;
 	char *mem;
@@ -60,6 +61,53 @@ static void test_mmap_allowed(int fd, size_t page_size, size_t total_size)
 	memset(mem, val, total_size);
 	for (i = 0; i < total_size; i++)
 		TEST_ASSERT_EQ(mem[i], val);
+
+	ret = munmap(mem, total_size);
+	TEST_ASSERT(!ret, "munmap should succeed");
+}
+
+static void assert_not_faultable(char *address)
+{
+	pid_t child_pid;
+
+	child_pid = fork();
+	TEST_ASSERT(child_pid != -1, "fork failed");
+
+	if (child_pid == 0) {
+		*address = 'A';
+		TEST_FAIL("Child should have exited with a signal");
+	} else {
+		int status;
+
+		waitpid(child_pid, &status, 0);
+
+		TEST_ASSERT(WIFSIGNALED(status),
+			    "Child should have exited with a signal");
+		TEST_ASSERT_EQ(WTERMSIG(status), SIGBUS);
+	}
+}
+
+static void test_faulting_sigbus(int fd, size_t total_size)
+{
+	char *mem;
+	int ret;
+
+	mem = mmap(NULL, total_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	TEST_ASSERT(mem != MAP_FAILED, "mmaping() guest memory should pass.");
+
+	assert_not_faultable(mem);
+
+	ret = munmap(mem, total_size);
+	TEST_ASSERT(!ret, "munmap should succeed");
+}
+
+static void test_mmap_allowed(int fd, size_t total_size)
+{
+	char *mem;
+	int ret;
+
+	mem = mmap(NULL, total_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	TEST_ASSERT(mem != MAP_FAILED, "mmaping() guest memory should pass.");
 
 	ret = munmap(mem, total_size);
 	TEST_ASSERT(!ret, "munmap should succeed");
@@ -364,40 +412,74 @@ static void test_bind_guest_memfd_wrt_userspace_addr(struct kvm_vm *vm)
 	close(fd);
 }
 
-static void test_with_type(unsigned long vm_type, uint64_t guest_memfd_flags,
-			   bool expect_mmap_allowed)
+static void test_guest_memfd_features(struct kvm_vm *vm, size_t page_size,
+				      uint64_t guest_memfd_flags,
+				      bool expect_mmap_allowed,
+				      bool expect_faulting_allowed)
 {
-	struct kvm_vm *vm;
 	size_t total_size;
-	size_t page_size;
 	int fd;
 
-	if (!(kvm_check_cap(KVM_CAP_VM_TYPES) & BIT(vm_type)))
-		return;
-
-	page_size = getpagesize();
 	total_size = page_size * 4;
 
-	vm = vm_create_barebones_type(vm_type);
+	if (expect_faulting_allowed)
+		TEST_REQUIRE(expect_mmap_allowed);
 
-	test_create_guest_memfd_multiple(vm);
-	test_bind_guest_memfd_wrt_userspace_addr(vm);
 	test_create_guest_memfd_invalid_sizes(vm, guest_memfd_flags, page_size);
 
 	fd = vm_create_guest_memfd(vm, total_size, guest_memfd_flags);
 
 	test_file_read_write(fd);
 
-	if (expect_mmap_allowed)
-		test_mmap_allowed(fd, page_size, total_size);
-	else
+	if (expect_mmap_allowed) {
+		test_mmap_allowed(fd, total_size);
+
+		if (expect_faulting_allowed)
+			test_faulting_allowed(fd, page_size, total_size);
+		else
+			test_faulting_sigbus(fd, total_size);
+	} else {
 		test_mmap_denied(fd, page_size, total_size);
+	}
 
 	test_file_size(fd, page_size, total_size);
 	test_fallocate(fd, page_size, total_size);
 	test_invalid_punch_hole(fd, page_size, total_size);
 
 	close(fd);
+}
+
+static void test_with_type(unsigned long vm_type, uint64_t guest_memfd_flags,
+			   bool expect_mmap_allowed)
+{
+	struct kvm_vm *vm;
+	size_t page_size;
+
+	if (!(kvm_check_cap(KVM_CAP_VM_TYPES) & BIT(vm_type)))
+		return;
+
+	vm = vm_create_barebones_type(vm_type);
+
+	test_create_guest_memfd_multiple(vm);
+	test_bind_guest_memfd_wrt_userspace_addr(vm);
+
+	page_size = getpagesize();
+	if (guest_memfd_flags & GUEST_MEMFD_FLAG_SUPPORT_SHARED) {
+		test_guest_memfd_features(vm, page_size, guest_memfd_flags,
+					  expect_mmap_allowed, true);
+
+		if (kvm_has_cap(KVM_CAP_GMEM_CONVERSION)) {
+			uint64_t flags = guest_memfd_flags |
+					 GUEST_MEMFD_FLAG_INIT_PRIVATE;
+
+			test_guest_memfd_features(vm, page_size, flags,
+						  expect_mmap_allowed, false);
+		}
+	} else {
+		test_guest_memfd_features(vm, page_size, guest_memfd_flags,
+					  expect_mmap_allowed, false);
+	}
+
 	kvm_vm_release(vm);
 }
 

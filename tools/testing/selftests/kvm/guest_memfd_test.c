@@ -435,7 +435,8 @@ static void test_vm_type_gmem_flag_validity(unsigned long vm_type,
 	for (flag = BIT(0); flag; flag <<= 1) {
 		test_vm_with_gmem_flag(vm, flag, flag & expected_valid_flags);
 
-		if (flag == GUEST_MEMFD_FLAG_SUPPORT_SHARED) {
+		if (flag == GUEST_MEMFD_FLAG_SUPPORT_SHARED &&
+		    kvm_has_cap(KVM_CAP_GMEM_CONVERSION)) {
 			test_vm_with_gmem_flag(
 				vm, flag | GUEST_MEMFD_FLAG_INIT_PRIVATE, true);
 		}
@@ -444,7 +445,7 @@ static void test_vm_type_gmem_flag_validity(unsigned long vm_type,
 	kvm_vm_release(vm);
 }
 
-static void test_gmem_flag_validity(void)
+static void test_gmem_flag_validity_without_conversion_cap(void)
 {
 	uint64_t non_coco_vm_valid_flags = 0;
 
@@ -462,11 +463,30 @@ static void test_gmem_flag_validity(void)
 #endif
 }
 
+static void test_gmem_flag_validity(void)
+{
+	/* After conversions are supported, all VM types support shared mem. */
+	uint64_t valid_flags = GUEST_MEMFD_FLAG_SUPPORT_SHARED;
+
+	test_vm_type_gmem_flag_validity(VM_TYPE_DEFAULT, valid_flags);
+
+#ifdef __x86_64__
+	test_vm_type_gmem_flag_validity(KVM_X86_SW_PROTECTED_VM, valid_flags);
+	test_vm_type_gmem_flag_validity(KVM_X86_SEV_VM, valid_flags);
+	test_vm_type_gmem_flag_validity(KVM_X86_SEV_ES_VM, valid_flags);
+	test_vm_type_gmem_flag_validity(KVM_X86_SNP_VM, valid_flags);
+	test_vm_type_gmem_flag_validity(KVM_X86_TDX_VM, valid_flags);
+#endif
+}
+
 int main(int argc, char *argv[])
 {
 	TEST_REQUIRE(kvm_has_cap(KVM_CAP_GUEST_MEMFD));
 
-	test_gmem_flag_validity();
+	if (kvm_has_cap(KVM_CAP_GMEM_CONVERSION))
+		test_gmem_flag_validity();
+	else
+		test_gmem_flag_validity_without_conversion_cap();
 
 	test_with_type(VM_TYPE_DEFAULT, 0, false);
 	if (kvm_has_cap(KVM_CAP_GMEM_SHARED_MEM)) {

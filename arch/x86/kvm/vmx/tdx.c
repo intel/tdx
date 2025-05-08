@@ -5,7 +5,9 @@
 #include <asm/fpu/xcr.h>
 #include <linux/misc_cgroup.h>
 #include <linux/mmu_context.h>
+#include <linux/reboot.h>
 #include <asm/tdx.h>
+#include <asm/processor.h>
 #include "capabilities.h"
 #include "mmu.h"
 #include "x86_ops.h"
@@ -444,6 +446,18 @@ void tdx_disable_virtualization_cpu(void)
 		tdx_flush_vp(&arg);
 	}
 	local_irq_restore(flags);
+
+	/*
+	 * No more TDX activity on this CPU from here.  Flush cache to
+	 * avoid having to do WBINVD in stop_this_cpu() during kexec.
+	 *
+	 * Kexec calls native_stop_other_cpus() to stop remote CPUs
+	 * before booting to new kernel, but that code has a "race"
+	 * when the normal REBOOT IPI times out and NMIs are sent to
+	 * remote CPUs to stop them.  Doing WBINVD in stop_this_cpu()
+	 * could potentially increase the possibility of the "race".
+	 */
+	tdx_cpu_flush_cache();
 }
 
 #define TDX_SEAMCALL_RETRIES 10000

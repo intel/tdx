@@ -5,7 +5,9 @@
 #include <asm/fpu/xcr.h>
 #include <linux/misc_cgroup.h>
 #include <linux/mmu_context.h>
+#include <linux/reboot.h>
 #include <asm/tdx.h>
+#include <asm/processor.h>
 #include "capabilities.h"
 #include "mmu.h"
 #include "x86_ops.h"
@@ -3347,6 +3349,33 @@ static int tdx_offline_cpu(unsigned int cpu)
 	return -EBUSY;
 }
 
+static void smp_func_cpu_flush_cache(void *unused)
+{
+	tdx_cpu_flush_cache();
+}
+
+static int tdx_reboot_notify(struct notifier_block *nb, unsigned long code,
+			     void *unused)
+{
+	/*
+	 * Flush cache for all CPUs upon the reboot notifier.  This
+	 * avoids having to do WBINVD in stop_this_cpu() during kexec.
+	 *
+	 * Kexec calls native_stop_other_cpus() to stop remote CPUs
+	 * before booting to new kernel, but that code has a "race"
+	 * when the normal REBOOT IPI timesout and NMIs are sent to
+	 * remote CPUs to stop them.  Doing WBINVD in stop_this_cpu()
+	 * could potentially increase the posibility of the "race".
+	 */
+	if (code == SYS_RESTART)
+		on_each_cpu(smp_func_cpu_flush_cache, NULL, 1);
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block tdx_reboot_nb = {
+	.notifier_call = tdx_reboot_notify,
+};
+
 static void __do_tdx_cleanup(void)
 {
 	/*
@@ -3504,6 +3533,11 @@ void tdx_cleanup(void)
 {
 	if (enable_tdx) {
 		misc_cg_set_capacity(MISC_CG_RES_TDX, 0);
+		/*
+		 * Ignore the return value.  See the comment in
+		 * tdx_bringup().
+		 */
+		unregister_reboot_notifier(&tdx_reboot_nb);
 		__tdx_cleanup();
 		kvm_disable_virtualization();
 	}
@@ -3586,6 +3620,17 @@ int __init tdx_bringup(void)
 
 		enable_tdx = 0;
 	}
+
+	if (enable_tdx)
+		/*
+		 * Ignore the return value.  @tdx_reboot_nb is used to flush
+		 * cache for all CPUs upon rebooting to avoid having to do
+		 * WBINVD in kexec while the kexec-ing CPU stops all remote
+		 * CPUs.  Failure to register isn't fatal, because if KVM
+		 * doesn't flush cache explicitly upon rebooting the kexec
+		 * will do it anyway.
+		 */
+		register_reboot_notifier(&tdx_reboot_nb);
 
 	return r;
 

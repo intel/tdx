@@ -5,6 +5,7 @@
  * Copyright (c) 2024, Google LLC.
  */
 #include <linux/kvm.h>
+#include <linux/sizes.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -228,6 +229,11 @@ static struct kvm_vm *setup_test(size_t test_page_size, bool init_private,
 	if (init_private)
 		flags |= GUEST_MEMFD_FLAG_INIT_PRIVATE;
 
+	if (test_page_size == SZ_2M)
+		flags |= GUEST_MEMFD_FLAG_HUGETLB | GUESTMEM_HUGETLB_FLAG_2MB;
+	else if (test_page_size == SZ_1G)
+		flags |= GUEST_MEMFD_FLAG_HUGETLB | GUESTMEM_HUGETLB_FLAG_1GB;
+
 	*guest_memfd = vm_create_guest_memfd(vm, test_page_size, flags);
 	TEST_ASSERT(*guest_memfd > 0, "guest_memfd creation failed");
 
@@ -249,79 +255,80 @@ static void cleanup_test(size_t guest_memfd_size, struct kvm_vm *vm,
 		TEST_ASSERT_EQ(close(guest_memfd), 0);
 }
 
-static void test_sharing(void)
+static void test_sharing(size_t test_page_size)
 {
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
 	int guest_memfd;
 	char *mem;
 
-	vm = setup_test(PAGE_SIZE, /*init_private=*/false, &vcpu, &guest_memfd, &mem);
+	vm = setup_test(test_page_size, /*init_private=*/false, &vcpu, &guest_memfd, &mem);
 
 	host_use_memory(mem, 'X', 'A');
 	guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA, 'A', 'B', 0);
 
 	/* Toggle private flag of memory attributes and run the test again. */
-	guest_memfd_convert_private(guest_memfd, 0, PAGE_SIZE);
+	guest_memfd_convert_private(guest_memfd, 0, test_page_size);
 
 	assert_host_cannot_fault(mem);
 	guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA, 'B', 'C', 0);
 
-	guest_memfd_convert_shared(guest_memfd, 0, PAGE_SIZE);
+	guest_memfd_convert_shared(guest_memfd, 0, test_page_size);
 
 	host_use_memory(mem, 'C', 'D');
 	guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA, 'D', 'E', 0);
 
-	cleanup_test(PAGE_SIZE, vm, guest_memfd, mem);
+	cleanup_test(test_page_size, vm, guest_memfd, mem);
 }
 
-static void test_init_mappable_false(void)
+static void test_init_mappable_false(size_t test_page_size)
 {
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
 	int guest_memfd;
 	char *mem;
 
-	vm = setup_test(PAGE_SIZE, /*init_private=*/true, &vcpu, &guest_memfd, &mem);
+	vm = setup_test(test_page_size, /*init_private=*/true, &vcpu, &guest_memfd, &mem);
 
 	assert_host_cannot_fault(mem);
 	guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA, 'X', 'A', 0);
 
-	guest_memfd_convert_shared(guest_memfd, 0, PAGE_SIZE);
+	guest_memfd_convert_shared(guest_memfd, 0, test_page_size);
 
 	host_use_memory(mem, 'A', 'B');
 	guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA, 'B', 'C', 0);
 
-	cleanup_test(PAGE_SIZE, vm, guest_memfd, mem);
+	cleanup_test(test_page_size, vm, guest_memfd, mem);
 }
 
 /*
  * Test that even if there are no folios yet, conversion requests are recorded
  * in guest_memfd.
  */
-static void test_conversion_before_allocation(void)
+static void test_conversion_before_allocation(size_t test_page_size)
 {
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
 	int guest_memfd;
 	char *mem;
 
-	vm = setup_test(PAGE_SIZE, /*init_private=*/false, &vcpu, &guest_memfd, &mem);
+	vm = setup_test(test_page_size, /*init_private=*/false, &vcpu, &guest_memfd, &mem);
 
-	guest_memfd_convert_private(guest_memfd, 0, PAGE_SIZE);
+	guest_memfd_convert_private(guest_memfd, 0, test_page_size);
 
 	assert_host_cannot_fault(mem);
 	guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA, 'X', 'A', 0);
 
-	guest_memfd_convert_shared(guest_memfd, 0, PAGE_SIZE);
+	guest_memfd_convert_shared(guest_memfd, 0, test_page_size);
 
 	host_use_memory(mem, 'A', 'B');
 	guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA, 'B', 'C', 0);
 
-	cleanup_test(PAGE_SIZE, vm, guest_memfd, mem);
+	cleanup_test(test_page_size, vm, guest_memfd, mem);
 }
 
-static void __test_conversion_if_not_all_folios_allocated(int total_nr_pages,
+static void __test_conversion_if_not_all_folios_allocated(size_t test_page_size,
+							  int total_nr_pages,
 							  int page_to_fault)
 {
 	const int second_page_to_fault = 8;
@@ -332,15 +339,15 @@ static void __test_conversion_if_not_all_folios_allocated(int total_nr_pages,
 	char *mem;
 	int i;
 
-	total_size = PAGE_SIZE * total_nr_pages;
+	total_size = test_page_size * total_nr_pages;
 	vm = setup_test(total_size, /*init_private=*/false, &vcpu, &guest_memfd, &mem);
 
 	/*
 	 * Fault 2 of the pages to test filemap range operations except when
 	 * page_to_fault == second_page_to_fault.
 	 */
-	host_use_memory(mem + page_to_fault * PAGE_SIZE, 'X', 'A');
-	host_use_memory(mem + second_page_to_fault * PAGE_SIZE, 'X', 'A');
+	host_use_memory(mem + page_to_fault * test_page_size, 'X', 'A');
+	host_use_memory(mem + second_page_to_fault * test_page_size, 'X', 'A');
 
 	guest_memfd_convert_private(guest_memfd, 0, total_size);
 
@@ -348,37 +355,37 @@ static void __test_conversion_if_not_all_folios_allocated(int total_nr_pages,
 		bool is_faulted;
 		char expected;
 
-		assert_host_cannot_fault(mem + i * PAGE_SIZE);
+		assert_host_cannot_fault(mem + i * test_page_size);
 
 		is_faulted = i == page_to_fault || i == second_page_to_fault;
 		expected = is_faulted ? 'A' : 'X';
 		guest_use_memory(vcpu,
-				 GUEST_MEMFD_SHARING_TEST_GVA + i * PAGE_SIZE,
+				 GUEST_MEMFD_SHARING_TEST_GVA + i * test_page_size,
 				 expected, 'B', 0);
 	}
 
 	guest_memfd_convert_shared(guest_memfd, 0, total_size);
 
 	for (i = 0; i < total_nr_pages; ++i) {
-		host_use_memory(mem + i * PAGE_SIZE, 'B', 'C');
+		host_use_memory(mem + i * test_page_size, 'B', 'C');
 		guest_use_memory(vcpu,
-				 GUEST_MEMFD_SHARING_TEST_GVA + i * PAGE_SIZE,
+				 GUEST_MEMFD_SHARING_TEST_GVA + i * test_page_size,
 				 'C', 'D', 0);
 	}
 
 	cleanup_test(total_size, vm, guest_memfd, mem);
 }
 
-static void test_conversion_if_not_all_folios_allocated(void)
+static void test_conversion_if_not_all_folios_allocated(size_t test_page_size)
 {
 	const int total_nr_pages = 16;
 	int i;
 
 	for (i = 0; i < total_nr_pages; ++i)
-		__test_conversion_if_not_all_folios_allocated(total_nr_pages, i);
+		__test_conversion_if_not_all_folios_allocated(test_page_size, total_nr_pages, i);
 }
 
-static void test_conversions_should_not_affect_surrounding_pages(void)
+static void test_conversions_should_not_affect_surrounding_pages(size_t test_page_size)
 {
 	struct kvm_vcpu *vcpu;
 	int page_to_convert;
@@ -391,40 +398,40 @@ static void test_conversions_should_not_affect_surrounding_pages(void)
 
 	page_to_convert = 2;
 	nr_pages = 4;
-	total_size = PAGE_SIZE * nr_pages;
+	total_size = test_page_size * nr_pages;
 
 	vm = setup_test(total_size, /*init_private=*/false, &vcpu, &guest_memfd, &mem);
 
 	for (i = 0; i < nr_pages; ++i) {
-		host_use_memory(mem + i * PAGE_SIZE, 'X', 'A');
-		guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA + i * PAGE_SIZE,
+		host_use_memory(mem + i * test_page_size, 'X', 'A');
+		guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA + i * test_page_size,
 				 'A', 'B', 0);
 	}
 
-	guest_memfd_convert_private(guest_memfd, PAGE_SIZE * page_to_convert, PAGE_SIZE);
+	guest_memfd_convert_private(guest_memfd, test_page_size * page_to_convert, test_page_size);
 
 
 	for (i = 0; i < nr_pages; ++i) {
 		char to_check;
 
 		if (i == page_to_convert) {
-			assert_host_cannot_fault(mem + i * PAGE_SIZE);
+			assert_host_cannot_fault(mem + i * test_page_size);
 			to_check = 'B';
 		} else {
-			host_use_memory(mem + i * PAGE_SIZE, 'B', 'C');
+			host_use_memory(mem + i * test_page_size, 'B', 'C');
 			to_check = 'C';
 		}
 
-		guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA + i * PAGE_SIZE,
+		guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA + i * test_page_size,
 				 to_check, 'D', 0);
 	}
 
-	guest_memfd_convert_shared(guest_memfd, PAGE_SIZE * page_to_convert, PAGE_SIZE);
+	guest_memfd_convert_shared(guest_memfd, test_page_size * page_to_convert, test_page_size);
 
 
 	for (i = 0; i < nr_pages; ++i) {
-		host_use_memory(mem + i * PAGE_SIZE, 'D', 'E');
-		guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA + i * PAGE_SIZE,
+		host_use_memory(mem + i * test_page_size, 'D', 'E');
+		guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA + i * test_page_size,
 				 'E', 'F', 0);
 	}
 
@@ -432,7 +439,7 @@ static void test_conversions_should_not_affect_surrounding_pages(void)
 }
 
 static void __test_conversions_should_fail_if_memory_has_elevated_refcount(
-	int nr_pages, int page_to_convert)
+	size_t test_page_size, int nr_pages, int page_to_convert)
 {
 	struct kvm_vcpu *vcpu;
 	loff_t error_offset;
@@ -443,50 +450,50 @@ static void __test_conversions_should_fail_if_memory_has_elevated_refcount(
 	int ret;
 	int i;
 
-	total_size = PAGE_SIZE * nr_pages;
+	total_size = test_page_size * nr_pages;
 	vm = setup_test(total_size, /*init_private=*/false, &vcpu, &guest_memfd, &mem);
 
-	pin_pages(mem + page_to_convert * PAGE_SIZE, PAGE_SIZE);
+	pin_pages(mem + page_to_convert * test_page_size, test_page_size);
 
 	for (i = 0; i < nr_pages; i++) {
-		host_use_memory(mem + i * PAGE_SIZE, 'X', 'A');
-		guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA + i * PAGE_SIZE,
+		host_use_memory(mem + i * test_page_size, 'X', 'A');
+		guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA + i * test_page_size,
 				 'A', 'B', 0);
 	}
 
 	error_offset = 0;
-	ret = __guest_memfd_convert_private(guest_memfd, page_to_convert * PAGE_SIZE,
-					    PAGE_SIZE, &error_offset);
+	ret = __guest_memfd_convert_private(guest_memfd, page_to_convert * test_page_size,
+					    test_page_size, &error_offset);
 	TEST_ASSERT_EQ(ret, -1);
 	TEST_ASSERT_EQ(errno, EAGAIN);
-	TEST_ASSERT_EQ(error_offset, page_to_convert * PAGE_SIZE);
+	TEST_ASSERT_EQ(error_offset, page_to_convert * test_page_size);
 
 	unpin_pages();
 
-	guest_memfd_convert_private(guest_memfd, page_to_convert * PAGE_SIZE, PAGE_SIZE);
+	guest_memfd_convert_private(guest_memfd, page_to_convert * test_page_size, test_page_size);
 
 	for (i = 0; i < nr_pages; i++) {
 		char expected;
 
 		if (i == page_to_convert)
-			assert_host_cannot_fault(mem + i * PAGE_SIZE);
+			assert_host_cannot_fault(mem + i * test_page_size);
 		else
-			host_use_memory(mem + i * PAGE_SIZE, 'B', 'C');
+			host_use_memory(mem + i * test_page_size, 'B', 'C');
 
 		expected = i == page_to_convert ? 'X' : 'C';
-		guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA + i * PAGE_SIZE,
+		guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA + i * test_page_size,
 				 expected, 'D', 0);
 	}
 
-	guest_memfd_convert_shared(guest_memfd, page_to_convert * PAGE_SIZE, PAGE_SIZE);
+	guest_memfd_convert_shared(guest_memfd, page_to_convert * test_page_size, test_page_size);
 
 
 	for (i = 0; i < nr_pages; i++) {
 		char expected = i == page_to_convert ? 'X' : 'D';
 
-		host_use_memory(mem + i * PAGE_SIZE, expected, 'E');
+		host_use_memory(mem + i * test_page_size, expected, 'E');
 		guest_use_memory(vcpu,
-				 GUEST_MEMFD_SHARING_TEST_GVA + i * PAGE_SIZE,
+				 GUEST_MEMFD_SHARING_TEST_GVA + i * test_page_size,
 				 'E', 'F', 0);
 	}
 
@@ -496,15 +503,18 @@ static void __test_conversions_should_fail_if_memory_has_elevated_refcount(
  * This test depends on CONFIG_GUP_TEST to provide a kernel module that exposes
  * pin_user_pages() to userspace.
  */
-static void test_conversions_should_fail_if_memory_has_elevated_refcount(void)
+static void test_conversions_should_fail_if_memory_has_elevated_refcount(
+		size_t test_page_size)
 {
 	int i;
 
-	for (i = 0; i < 4; i++)
-		__test_conversions_should_fail_if_memory_has_elevated_refcount(4, i);
+	for (i = 0; i < 4; i++) {
+		__test_conversions_should_fail_if_memory_has_elevated_refcount(
+			test_page_size, 4, i);
+	}
 }
 
-static void test_truncate_should_not_change_mappability(void)
+static void test_truncate_should_not_change_mappability(size_t test_page_size)
 {
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
@@ -512,40 +522,40 @@ static void test_truncate_should_not_change_mappability(void)
 	char *mem;
 	int ret;
 
-	vm = setup_test(PAGE_SIZE, /*init_private=*/false, &vcpu, &guest_memfd, &mem);
+	vm = setup_test(test_page_size, /*init_private=*/false, &vcpu, &guest_memfd, &mem);
 
 	host_use_memory(mem, 'X', 'A');
 
 	ret = fallocate(guest_memfd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
-			0, PAGE_SIZE);
+			0, test_page_size);
 	TEST_ASSERT(!ret, "truncating the first page should succeed");
 
 	host_use_memory(mem, 'X', 'A');
 
-	guest_memfd_convert_private(guest_memfd, 0, PAGE_SIZE);
+	guest_memfd_convert_private(guest_memfd, 0, test_page_size);
 
 	assert_host_cannot_fault(mem);
 	guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA, 'A', 'A', 0);
 
 	ret = fallocate(guest_memfd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
-			0, PAGE_SIZE);
+			0, test_page_size);
 	TEST_ASSERT(!ret, "truncating the first page should succeed");
 
 	assert_host_cannot_fault(mem);
 	guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA, 'X', 'A', 0);
 
-	cleanup_test(PAGE_SIZE, vm, guest_memfd, mem);
+	cleanup_test(test_page_size, vm, guest_memfd, mem);
 }
 
-static void test_fault_type_independent_of_mem_attributes(void)
+static void test_fault_type_independent_of_mem_attributes(size_t test_page_size)
 {
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
 	int guest_memfd;
 	char *mem;
 
-	vm = setup_test(PAGE_SIZE, /*init_private=*/true, &vcpu, &guest_memfd, &mem);
-	vm_mem_set_shared(vm, GUEST_MEMFD_SHARING_TEST_GPA, PAGE_SIZE);
+	vm = setup_test(test_page_size, /*init_private=*/true, &vcpu, &guest_memfd, &mem);
+	vm_mem_set_shared(vm, GUEST_MEMFD_SHARING_TEST_GPA, test_page_size);
 
 	/*
 	 * kvm->mem_attr_array set to shared, guest_memfd memory initialized as
@@ -558,8 +568,8 @@ static void test_fault_type_independent_of_mem_attributes(void)
 	/* Guest can fault and use memory. */
 	guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA, 'X', 'A', 0);
 
-	guest_memfd_convert_shared(guest_memfd, 0, PAGE_SIZE);
-	vm_mem_set_private(vm, GUEST_MEMFD_SHARING_TEST_GPA, PAGE_SIZE);
+	guest_memfd_convert_shared(guest_memfd, 0, test_page_size);
+	vm_mem_set_private(vm, GUEST_MEMFD_SHARING_TEST_GPA, test_page_size);
 
 	/* Host can use shared memory. */
 	host_use_memory(mem, 'X', 'A');
@@ -567,7 +577,19 @@ static void test_fault_type_independent_of_mem_attributes(void)
 	/* Guest can also use shared memory. */
 	guest_use_memory(vcpu, GUEST_MEMFD_SHARING_TEST_GVA, 'X', 'A', 0);
 
-	cleanup_test(PAGE_SIZE, vm, guest_memfd, mem);
+	cleanup_test(test_page_size, vm, guest_memfd, mem);
+}
+
+static void test_with_size(size_t test_page_size)
+{
+	test_sharing(test_page_size);
+	test_init_mappable_false(test_page_size);
+	test_conversion_before_allocation(test_page_size);
+	test_conversion_if_not_all_folios_allocated(test_page_size);
+	test_conversions_should_not_affect_surrounding_pages(test_page_size);
+	test_truncate_should_not_change_mappability(test_page_size);
+	test_conversions_should_fail_if_memory_has_elevated_refcount(test_page_size);
+	test_fault_type_independent_of_mem_attributes(test_page_size);
 }
 
 int main(int argc, char *argv[])
@@ -576,14 +598,17 @@ int main(int argc, char *argv[])
 	TEST_REQUIRE(kvm_check_cap(KVM_CAP_GMEM_SHARED_MEM));
 	TEST_REQUIRE(kvm_check_cap(KVM_CAP_GMEM_CONVERSION));
 
-	test_sharing();
-	test_init_mappable_false();
-	test_conversion_before_allocation();
-	test_conversion_if_not_all_folios_allocated();
-	test_conversions_should_not_affect_surrounding_pages();
-	test_truncate_should_not_change_mappability();
-	test_conversions_should_fail_if_memory_has_elevated_refcount();
-	test_fault_type_independent_of_mem_attributes();
+	printf("Test guest_memfd with 4K pages\n");
+	test_with_size(PAGE_SIZE);
+	printf("\tPASSED\n");
+
+	printf("Test guest_memfd with 2M pages\n");
+	test_with_size(SZ_2M);
+	printf("\tPASSED\n");
+
+	printf("Test guest_memfd with 1G pages\n");
+	test_with_size(SZ_1G);
+	printf("\tPASSED\n");
 
 	return 0;
 }

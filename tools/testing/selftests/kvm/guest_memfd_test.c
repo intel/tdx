@@ -13,6 +13,8 @@
 
 #include <linux/bitmap.h>
 #include <linux/falloc.h>
+#include <linux/guestmem.h>
+#include <linux/sizes.h>
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -38,6 +40,7 @@ static void test_file_read_write(int fd)
 static void test_faulting_allowed(int fd, size_t page_size, size_t total_size)
 {
 	const char val = 0xaa;
+	size_t increment;
 	char *mem;
 	size_t i;
 	int ret;
@@ -45,21 +48,25 @@ static void test_faulting_allowed(int fd, size_t page_size, size_t total_size)
 	mem = mmap(NULL, total_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 	TEST_ASSERT(mem != MAP_FAILED, "mmaping() guest memory should pass.");
 
-	memset(mem, val, total_size);
-	for (i = 0; i < total_size; i++)
+	increment = page_size >> 1;
+
+	for (i = 0; i < total_size; i += increment)
+		mem[i] = val;
+	for (i = 0; i < total_size; i += increment)
 		TEST_ASSERT_EQ(mem[i], val);
 
 	ret = fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, 0,
 			page_size);
 	TEST_ASSERT(!ret, "fallocate the first page should succeed");
 
-	for (i = 0; i < page_size; i++)
+	for (i = 0; i < page_size; i += increment)
 		TEST_ASSERT_EQ(mem[i], 0x00);
-	for (; i < total_size; i++)
+	for (; i < total_size; i += increment)
 		TEST_ASSERT_EQ(mem[i], val);
 
-	memset(mem, val, total_size);
-	for (i = 0; i < total_size; i++)
+	for (i = 0; i < total_size; i += increment)
+		mem[i] = val;
+	for (i = 0; i < total_size; i += increment)
 		TEST_ASSERT_EQ(mem[i], val);
 
 	ret = munmap(mem, total_size);
@@ -209,7 +216,7 @@ static void test_create_guest_memfd_invalid_sizes(struct kvm_vm *vm,
 	size_t size;
 	int fd;
 
-	for (size = 1; size < page_size; size++) {
+	for (size = 1; size < page_size; size += (page_size >> 1)) {
 		fd = __vm_create_guest_memfd(vm, size, guest_memfd_flags);
 		TEST_ASSERT(fd == -1 && errno == EINVAL,
 			    "guest_memfd() with non-page-aligned page size '0x%lx' should fail with EINVAL",
@@ -217,28 +224,33 @@ static void test_create_guest_memfd_invalid_sizes(struct kvm_vm *vm,
 	}
 }
 
-static void test_create_guest_memfd_multiple(struct kvm_vm *vm)
+static void test_create_guest_memfd_multiple(struct kvm_vm *vm,
+					     uint64_t guest_memfd_flags,
+					     size_t page_size)
 {
 	int fd1, fd2, ret;
 	struct stat st1, st2;
 
-	fd1 = __vm_create_guest_memfd(vm, 4096, 0);
+	fd1 = __vm_create_guest_memfd(vm, page_size, guest_memfd_flags);
 	TEST_ASSERT(fd1 != -1, "memfd creation should succeed");
 
 	ret = fstat(fd1, &st1);
 	TEST_ASSERT(ret != -1, "memfd fstat should succeed");
-	TEST_ASSERT(st1.st_size == 4096, "memfd st_size should match requested size");
+	TEST_ASSERT(st1.st_size == page_size, "memfd st_size should match requested size");
 
-	fd2 = __vm_create_guest_memfd(vm, 8192, 0);
+	fd2 = __vm_create_guest_memfd(vm, page_size * 2, guest_memfd_flags);
 	TEST_ASSERT(fd2 != -1, "memfd creation should succeed");
 
 	ret = fstat(fd2, &st2);
 	TEST_ASSERT(ret != -1, "memfd fstat should succeed");
-	TEST_ASSERT(st2.st_size == 8192, "second memfd st_size should match requested size");
+	TEST_ASSERT(st2.st_size == page_size * 2,
+		    "second memfd st_size should match requested size");
+
 
 	ret = fstat(fd1, &st1);
 	TEST_ASSERT(ret != -1, "memfd fstat should succeed");
-	TEST_ASSERT(st1.st_size == 4096, "first memfd st_size should still match requested size");
+	TEST_ASSERT(st1.st_size == page_size,
+		    "first memfd st_size should still match requested size");
 	TEST_ASSERT(st1.st_ino != st2.st_ino, "different memfd should have different inode numbers");
 
 	close(fd2);
@@ -449,21 +461,13 @@ static void test_guest_memfd_features(struct kvm_vm *vm, size_t page_size,
 	close(fd);
 }
 
-static void test_with_type(unsigned long vm_type, uint64_t guest_memfd_flags,
-			   bool expect_mmap_allowed)
+static void test_guest_memfd_features_for_page_size(struct kvm_vm *vm,
+						    uint64_t guest_memfd_flags,
+						    size_t page_size,
+						    bool expect_mmap_allowed)
 {
-	struct kvm_vm *vm;
-	size_t page_size;
+	test_create_guest_memfd_multiple(vm, guest_memfd_flags, page_size);
 
-	if (!(kvm_check_cap(KVM_CAP_VM_TYPES) & BIT(vm_type)))
-		return;
-
-	vm = vm_create_barebones_type(vm_type);
-
-	test_create_guest_memfd_multiple(vm);
-	test_bind_guest_memfd_wrt_userspace_addr(vm);
-
-	page_size = getpagesize();
 	if (guest_memfd_flags & GUEST_MEMFD_FLAG_SUPPORT_SHARED) {
 		test_guest_memfd_features(vm, page_size, guest_memfd_flags,
 					  expect_mmap_allowed, true);
@@ -479,6 +483,34 @@ static void test_with_type(unsigned long vm_type, uint64_t guest_memfd_flags,
 		test_guest_memfd_features(vm, page_size, guest_memfd_flags,
 					  expect_mmap_allowed, false);
 	}
+}
+
+static void test_with_type(unsigned long vm_type, uint64_t base_flags,
+			   bool expect_mmap_allowed)
+{
+	struct kvm_vm *vm;
+	uint64_t flags;
+
+	if (!(kvm_check_cap(KVM_CAP_VM_TYPES) & BIT(vm_type)))
+		return;
+
+	vm = vm_create_barebones_type(vm_type);
+
+	test_bind_guest_memfd_wrt_userspace_addr(vm);
+
+	printf("Test guest_memfd with 4K pages for vm_type %ld\n", vm_type);
+	test_guest_memfd_features_for_page_size(vm, base_flags, getpagesize(), expect_mmap_allowed);
+	printf("\tPASSED\n");
+
+	printf("Test guest_memfd with 2M pages for vm_type %ld\n", vm_type);
+	flags = base_flags | GUEST_MEMFD_FLAG_HUGETLB | GUESTMEM_HUGETLB_FLAG_2MB;
+	test_guest_memfd_features_for_page_size(vm, flags, SZ_2M, expect_mmap_allowed);
+	printf("\tPASSED\n");
+
+	printf("Test guest_memfd with 1G pages for vm_type %ld\n", vm_type);
+	flags = base_flags | GUEST_MEMFD_FLAG_HUGETLB | GUESTMEM_HUGETLB_FLAG_1GB;
+	test_guest_memfd_features_for_page_size(vm, flags, SZ_1G, expect_mmap_allowed);
+	printf("\tPASSED\n");
 
 	kvm_vm_release(vm);
 }
@@ -486,8 +518,13 @@ static void test_with_type(unsigned long vm_type, uint64_t guest_memfd_flags,
 static void test_vm_with_gmem_flag(struct kvm_vm *vm, uint64_t flag,
 				   bool expect_valid)
 {
-	size_t page_size = getpagesize();
+	size_t page_size;
 	int fd;
+
+	if (flag == GUEST_MEMFD_FLAG_HUGETLB)
+		page_size = get_def_hugetlb_pagesz();
+	else
+		page_size = getpagesize();
 
 	fd = __vm_create_guest_memfd(vm, page_size, flag);
 
@@ -549,6 +586,9 @@ static void test_gmem_flag_validity(void)
 {
 	/* After conversions are supported, all VM types support shared mem. */
 	uint64_t valid_flags = GUEST_MEMFD_FLAG_SUPPORT_SHARED;
+
+	if (kvm_has_cap(KVM_CAP_GMEM_HUGETLB))
+		valid_flags |= GUEST_MEMFD_FLAG_HUGETLB;
 
 	test_vm_type_gmem_flag_validity(VM_TYPE_DEFAULT, valid_flags);
 

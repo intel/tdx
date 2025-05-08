@@ -4919,6 +4919,10 @@ static int kvm_vm_ioctl_check_extension_generic(struct kvm *kvm, long arg)
 	case KVM_CAP_GMEM_CONVERSION:
 		return true;
 #endif
+#ifdef CONFIG_KVM_GMEM_HUGETLB
+	case KVM_CAP_GMEM_HUGETLB:
+		return true;
+#endif
 	default:
 		break;
 	}

@@ -709,19 +709,27 @@ err:
 	return ret;
 }
 
+static inline bool kvm_gmem_should_split_at_index(struct inode *inode,
+						  pgoff_t index)
+{
+	pgoff_t index_floor;
+	size_t nr_pages;
+	void *priv;
+
+	priv = kvm_gmem_allocator_private(inode);
+	nr_pages = kvm_gmem_allocator_ops(inode)->nr_pages_in_folio(priv);
+	index_floor = round_down(index, nr_pages);
+
+	return kvm_gmem_has_some_shared(inode, index_floor, nr_pages);
+}
+
 static inline int kvm_gmem_try_split_folio_in_filemap(struct inode *inode,
 						      struct folio *folio)
 {
-	size_t to_nr_pages;
-	void *priv;
-
 	if (!kvm_gmem_has_custom_allocator(inode))
 		return 0;
 
-	priv = kvm_gmem_allocator_private(inode);
-	to_nr_pages = kvm_gmem_allocator_ops(inode)->nr_pages_in_page(priv);
-
-	if (kvm_gmem_has_some_shared(inode, folio->index, to_nr_pages))
+	if (kvm_gmem_should_split_at_index(inode, folio->index))
 		return kvm_gmem_split_folio_in_filemap(inode, folio);
 
 	return 0;
@@ -889,6 +897,12 @@ static long kvm_gmem_merge_truncate_indices(struct inode *inode, pgoff_t index,
 }
 
 #else
+
+static inline bool kvm_gmem_should_split_at_index(struct inode *inode,
+						  pgoff_t index)
+{
+	return false;
+}
 
 static inline int kvm_gmem_try_split_folio_in_filemap(struct inode *inode,
 						      struct folio *folio)
@@ -1523,7 +1537,7 @@ static inline struct file *kvm_gmem_get_file(struct kvm_memory_slot *slot)
 	return get_file_active(&slot->gmem.file);
 }
 
-static pgoff_t kvm_gmem_get_index(struct kvm_memory_slot *slot, gfn_t gfn)
+static pgoff_t kvm_gmem_get_index(const struct kvm_memory_slot *slot, gfn_t gfn)
 {
 	return gfn - slot->base_gfn + slot->gmem.pgoff;
 }
@@ -2245,14 +2259,52 @@ out:
 EXPORT_SYMBOL_GPL(kvm_gmem_get_pfn);
 
 /**
- * Returns the mapping order for this @gfn in @slot.
+ * kvm_gmem_mapping_order() - Get the mapping order for this @gfn in @slot.
+ *
+ * @slot: the memslot that gfn belongs to.
+ * @gfn: the gfn to look up mapping order for.
  *
  * This is equal to max_order that would be returned if kvm_gmem_get_pfn() were
  * called now.
+ *
+ * Return: the mapping order for this @gfn in @slot.
  */
 int kvm_gmem_mapping_order(const struct kvm_memory_slot *slot, gfn_t gfn)
 {
-	return 0;
+	struct inode *inode;
+	struct file *file;
+	int ret;
+
+	file = kvm_gmem_get_file((struct kvm_memory_slot *)slot);
+	if (!file)
+		return 0;
+
+	inode = file_inode(file);
+
+	ret = 0;
+	if (kvm_gmem_has_custom_allocator(inode)) {
+		bool should_split;
+		pgoff_t index;
+
+		index = kvm_gmem_get_index(slot, gfn);
+
+		filemap_invalidate_lock_shared(inode->i_mapping);
+		should_split = kvm_gmem_should_split_at_index(inode, index);
+		filemap_invalidate_unlock_shared(inode->i_mapping);
+
+		if (!should_split) {
+			size_t nr_pages;
+			void *priv;
+
+			priv = kvm_gmem_allocator_private(inode);
+			nr_pages = kvm_gmem_allocator_ops(inode)->nr_pages_in_folio(priv);
+
+			ret = ilog2(nr_pages);
+		}
+	}
+
+	fput(file);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(kvm_gmem_mapping_order);
 

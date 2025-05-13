@@ -388,6 +388,23 @@ static int kvm_gmem_mmap(struct file *file, struct vm_area_struct *vma)
 
 	return 0;
 }
+
+bool kvm_gmem_memslot_supports_shared(const struct kvm_memory_slot *slot)
+{
+	struct file *file;
+	bool ret;
+
+	file = kvm_gmem_get_file((struct kvm_memory_slot *)slot);
+	if (!file)
+		return false;
+
+	ret = kvm_gmem_supports_shared(file_inode(file));
+
+	fput(file);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(kvm_gmem_memslot_supports_shared);
+
 #else
 #define kvm_gmem_mmap NULL
 #endif /* CONFIG_KVM_GMEM_SHARED_MEM */

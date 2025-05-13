@@ -197,6 +197,173 @@ static void test_create_guest_memfd_multiple(struct kvm_vm *vm)
 	close(fd1);
 }
 
+#define GUEST_MEMFD_TEST_SLOT 10
+#define GUEST_MEMFD_TEST_GPA 0x100000000
+
+static void
+test_bind_guest_memfd_disabling_range_match_validation(struct kvm_vm *vm,
+						       int fd)
+{
+	size_t page_size = getpagesize();
+	int ret;
+
+	ret = __vm_set_user_memory_region2(vm, GUEST_MEMFD_TEST_SLOT,
+					   KVM_MEM_GUEST_MEMFD,
+					   GUEST_MEMFD_TEST_GPA, page_size, 0,
+					   fd, 0);
+	TEST_ASSERT(!ret,
+		    "setting slot->userspace_addr to 0 should disable validation");
+	ret = __vm_set_user_memory_region2(vm, GUEST_MEMFD_TEST_SLOT,
+					   KVM_MEM_GUEST_MEMFD,
+					   GUEST_MEMFD_TEST_GPA, 0, 0,
+					   fd, 0);
+	TEST_ASSERT(!ret, "Deleting memslot should work");
+}
+
+static void
+test_bind_guest_memfd_anon_memory_in_userspace_addr(struct kvm_vm *vm, int fd)
+{
+	size_t page_size = getpagesize();
+	void *userspace_addr;
+	int ret;
+
+	userspace_addr = mmap(NULL, page_size, PROT_READ | PROT_WRITE,
+			      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+	ret = __vm_set_user_memory_region2(vm, GUEST_MEMFD_TEST_SLOT,
+					   KVM_MEM_GUEST_MEMFD,
+					   GUEST_MEMFD_TEST_GPA, page_size,
+					   userspace_addr, fd, 0);
+	TEST_ASSERT(ret == -1,
+		    "slot->userspace_addr is not from the guest_memfd and should fail");
+}
+
+static void test_bind_guest_memfd_shared_memory_other_file_in_userspace_addr(
+	struct kvm_vm *vm, int fd)
+{
+	size_t page_size = getpagesize();
+	void *userspace_addr;
+	int other_fd;
+	int ret;
+
+	other_fd = memfd_create("shared_memory_other_file", 0);
+	TEST_ASSERT(other_fd > 0, "Creating other file should succeed");
+
+	userspace_addr = mmap(NULL, page_size, PROT_READ | PROT_WRITE,
+			      MAP_SHARED, other_fd, 0);
+
+	ret = __vm_set_user_memory_region2(vm, GUEST_MEMFD_TEST_SLOT,
+					   KVM_MEM_GUEST_MEMFD,
+					   GUEST_MEMFD_TEST_GPA, page_size,
+					   userspace_addr, fd, 0);
+	TEST_ASSERT(ret == -1,
+		    "slot->userspace_addr is not from the guest_memfd and should fail");
+
+	TEST_ASSERT(!munmap(userspace_addr, page_size),
+		    "munmap() to cleanup should succeed");
+
+	close(other_fd);
+}
+
+static void
+test_bind_guest_memfd_other_guest_memfd_in_userspace_addr(struct kvm_vm *vm,
+							  int fd)
+{
+	size_t page_size = getpagesize();
+	void *userspace_addr;
+	int other_fd;
+	int ret;
+
+	other_fd = vm_create_guest_memfd(vm, page_size * 2,
+					 GUEST_MEMFD_FLAG_SUPPORT_SHARED);
+	TEST_ASSERT(other_fd > 0, "Creating other file should succeed");
+
+	userspace_addr = mmap(NULL, page_size, PROT_READ | PROT_WRITE,
+			      MAP_SHARED, other_fd, 0);
+
+	ret = __vm_set_user_memory_region2(vm, GUEST_MEMFD_TEST_SLOT,
+					   KVM_MEM_GUEST_MEMFD,
+					   GUEST_MEMFD_TEST_GPA, page_size,
+					   userspace_addr, fd, 0);
+	TEST_ASSERT(ret == -1,
+		    "slot->userspace_addr is not from the guest_memfd and should fail");
+
+	TEST_ASSERT(!munmap(userspace_addr, page_size),
+		    "munmap() to cleanup should succeed");
+
+	close(other_fd);
+}
+
+static void
+test_bind_guest_memfd_other_range_in_userspace_addr(struct kvm_vm *vm, int fd)
+{
+	size_t page_size = getpagesize();
+	void *userspace_addr;
+	int ret;
+
+	userspace_addr = mmap(NULL, page_size, PROT_READ | PROT_WRITE,
+			      MAP_SHARED, fd, page_size);
+
+	ret = __vm_set_user_memory_region2(vm, GUEST_MEMFD_TEST_SLOT,
+					   KVM_MEM_GUEST_MEMFD,
+					   GUEST_MEMFD_TEST_GPA, page_size,
+					   userspace_addr, fd, 0);
+	TEST_ASSERT(ret == -1,
+		    "slot->userspace_addr is not from the same range and should fail");
+
+	TEST_ASSERT(!munmap(userspace_addr, page_size),
+		    "munmap() to cleanup should succeed");
+}
+
+static void
+test_bind_guest_memfd_same_range_in_userspace_addr(struct kvm_vm *vm, int fd)
+{
+	size_t page_size = getpagesize();
+	void *userspace_addr;
+	int ret;
+
+	userspace_addr = mmap(NULL, page_size, PROT_READ | PROT_WRITE,
+			      MAP_SHARED, fd, page_size);
+
+	ret = __vm_set_user_memory_region2(vm, GUEST_MEMFD_TEST_SLOT,
+					   KVM_MEM_GUEST_MEMFD,
+					   GUEST_MEMFD_TEST_GPA, page_size,
+					   userspace_addr, fd, page_size);
+	TEST_ASSERT(!ret,
+		    "slot->userspace_addr is the same range and should succeed");
+
+	TEST_ASSERT(!munmap(userspace_addr, page_size),
+		    "munmap() to cleanup should succeed");
+
+	ret = __vm_set_user_memory_region2(vm, GUEST_MEMFD_TEST_SLOT,
+					   KVM_MEM_GUEST_MEMFD,
+					   GUEST_MEMFD_TEST_GPA, 0, 0,
+					   fd, 0);
+	TEST_ASSERT(!ret, "Deleting memslot should work");
+}
+
+static void test_bind_guest_memfd_wrt_userspace_addr(struct kvm_vm *vm)
+{
+	size_t page_size = getpagesize();
+	int fd;
+
+	if (!vm_check_cap(vm, KVM_CAP_GUEST_MEMFD) ||
+	    !vm_check_cap(vm, KVM_CAP_GMEM_SHARED_MEM))
+		return;
+
+	fd = vm_create_guest_memfd(vm, page_size * 2,
+				   GUEST_MEMFD_FLAG_SUPPORT_SHARED);
+
+	test_bind_guest_memfd_disabling_range_match_validation(vm, fd);
+	test_bind_guest_memfd_anon_memory_in_userspace_addr(vm, fd);
+	test_bind_guest_memfd_shared_memory_other_file_in_userspace_addr(vm, fd);
+	test_bind_guest_memfd_other_guest_memfd_in_userspace_addr(vm, fd);
+	test_bind_guest_memfd_other_range_in_userspace_addr(vm, fd);
+	test_bind_guest_memfd_same_range_in_userspace_addr(vm, fd);
+
+	close(fd);
+}
+
 static void test_with_type(unsigned long vm_type, uint64_t guest_memfd_flags,
 			   bool expect_mmap_allowed)
 {
@@ -214,6 +381,7 @@ static void test_with_type(unsigned long vm_type, uint64_t guest_memfd_flags,
 	vm = vm_create_barebones_type(vm_type);
 
 	test_create_guest_memfd_multiple(vm);
+	test_bind_guest_memfd_wrt_userspace_addr(vm);
 	test_create_guest_memfd_invalid_sizes(vm, guest_memfd_flags, page_size);
 
 	fd = vm_create_guest_memfd(vm, total_size, guest_memfd_flags);

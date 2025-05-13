@@ -545,6 +545,32 @@ int kvm_gmem_create(struct kvm *kvm, struct kvm_create_guest_memfd *args)
 	return __kvm_gmem_create(kvm, size, flags);
 }
 
+static bool kvm_gmem_is_same_range(struct kvm *kvm,
+				   struct kvm_memory_slot *slot,
+				   struct file *file, loff_t offset)
+{
+	struct mm_struct *mm = kvm->mm;
+	loff_t userspace_addr_offset;
+	struct vm_area_struct *vma;
+	bool ret = false;
+
+	mmap_read_lock(mm);
+
+	vma = vma_lookup(mm, slot->userspace_addr);
+	if (!vma)
+		goto out;
+
+	if (vma->vm_file != file)
+		goto out;
+
+	userspace_addr_offset = slot->userspace_addr - vma->vm_start;
+	ret = userspace_addr_offset + (vma->vm_pgoff << PAGE_SHIFT) == offset;
+out:
+	mmap_read_unlock(mm);
+
+	return ret;
+}
+
 int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
 		  unsigned int fd, loff_t offset)
 {
@@ -574,9 +600,14 @@ int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,
 	    offset + size > i_size_read(inode))
 		goto err;
 
-	if (kvm_gmem_supports_shared(inode) &&
-	    !kvm_arch_vm_supports_gmem_shared_mem(kvm))
-		goto err;
+	if (kvm_gmem_supports_shared(inode)) {
+		if (!kvm_arch_vm_supports_gmem_shared_mem(kvm))
+			goto err;
+
+		if (slot->userspace_addr &&
+		    !kvm_gmem_is_same_range(kvm, slot, file, offset))
+			goto err;
+	}
 
 	filemap_invalidate_lock(inode->i_mapping);
 

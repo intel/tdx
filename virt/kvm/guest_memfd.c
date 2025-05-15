@@ -1635,6 +1635,17 @@ bool kvm_gmem_memslot_supports_shared(const struct kvm_memory_slot *slot)
 }
 EXPORT_SYMBOL_GPL(kvm_gmem_memslot_supports_shared);
 
+/*
+ * kvm_gmem_is_private() - Return true if this gfn is private to the guest.
+ *
+ * @slot: memslot where gfn belongs to.
+ * @gfn: the gfn to query shareability for.
+ *
+ * Context: This function is racy, it reads shareability using a snapshot. The
+ *          caller has to ensure that shareability being changed later will be
+ *          handled.
+ * Return: true if this gfn is private to the guest.
+ */
 bool kvm_gmem_is_private(struct kvm_memory_slot *slot, gfn_t gfn)
 {
 	struct inode *inode;
@@ -1649,9 +1660,7 @@ bool kvm_gmem_is_private(struct kvm_memory_slot *slot, gfn_t gfn)
 	index = kvm_gmem_get_index(slot, gfn);
 	inode = file_inode(file);
 
-	filemap_invalidate_lock_shared(inode->i_mapping);
 	ret = kvm_gmem_shareability_get(inode, index) == SHAREABILITY_GUEST;
-	filemap_invalidate_unlock_shared(inode->i_mapping);
 
 	fput(file);
 	return ret;
@@ -2267,6 +2276,9 @@ EXPORT_SYMBOL_GPL(kvm_gmem_get_pfn);
  * This is equal to max_order that would be returned if kvm_gmem_get_pfn() were
  * called now.
  *
+ * Context: This function is racy, it reads shareability using a snapshot. The
+ *          caller has to ensure that shareability being changed later will be
+ *          handled.
  * Return: the mapping order for this @gfn in @slot.
  */
 int kvm_gmem_mapping_order(const struct kvm_memory_slot *slot, gfn_t gfn)
@@ -2287,11 +2299,7 @@ int kvm_gmem_mapping_order(const struct kvm_memory_slot *slot, gfn_t gfn)
 		pgoff_t index;
 
 		index = kvm_gmem_get_index(slot, gfn);
-
-		filemap_invalidate_lock_shared(inode->i_mapping);
 		should_split = kvm_gmem_should_split_at_index(inode, index);
-		filemap_invalidate_unlock_shared(inode->i_mapping);
-
 		if (!should_split) {
 			size_t nr_pages;
 			void *priv;

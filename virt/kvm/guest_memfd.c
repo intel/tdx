@@ -37,15 +37,8 @@ enum shareability {
 };
 
 static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index);
-static void kvm_gmem_invalidate_begin(struct kvm_gmem *gmem, pgoff_t start,
-				      pgoff_t end);
-static void kvm_gmem_invalidate_end(struct kvm_gmem *gmem, pgoff_t start,
-				    pgoff_t end);
 static int __kvm_gmem_filemap_add_folio(struct address_space *mapping,
 					struct folio *folio, pgoff_t index);
-static int kvm_gmem_restructure_folios_in_range(struct inode *inode,
-						pgoff_t start, size_t nr_pages,
-						bool is_split_operation);
 
 static struct kvm_gmem_inode_private *kvm_gmem_private(struct inode *inode)
 {
@@ -442,6 +435,9 @@ static void kvm_gmem_convert_invalidate_begin(struct inode *inode,
 		kvm_gmem_invalidate_begin(gmem, invalidate_start, invalidate_end);
 }
 
+static void kvm_gmem_invalidate_end(struct kvm_gmem *gmem, pgoff_t start,
+				    pgoff_t end);
+
 static void kvm_gmem_convert_invalidate_end(struct inode *inode,
 					    struct conversion_work *work)
 {
@@ -486,6 +482,10 @@ static int kvm_gmem_convert_should_proceed(struct inode *inode,
 
 	return 0;
 }
+
+static int kvm_gmem_restructure_folios_in_range(struct inode *inode,
+						pgoff_t start, size_t nr_pages,
+						bool is_split_operation);
 
 static int kvm_gmem_convert_execute_work(struct inode *inode,
 					 struct conversion_work *work,
@@ -910,13 +910,6 @@ static inline int kvm_gmem_try_split_folio_in_filemap(struct inode *inode,
 	return 0;
 }
 
-static int kvm_gmem_restructure_folios_in_range(struct inode *inode,
-						pgoff_t start, size_t nr_pages,
-						bool is_split_operation)
-{
-	return 0;
-}
-
 static long kvm_gmem_merge_truncate_indices(struct inode *inode, pgoff_t index,
 					   size_t nr_pages)
 {
@@ -927,15 +920,34 @@ static long kvm_gmem_merge_truncate_indices(struct inode *inode, pgoff_t index,
 
 #else
 
-static int kvm_gmem_shareability_setup(struct maple_tree *mt, loff_t size, u64 flags)
+static inline struct folio *kvm_gmem_get_shared_folio(struct inode *inode, pgoff_t index)
+{
+	WARN_ONCE(1, "Unexpected call to get shared folio.");
+	return NULL;
+}
+
+static inline int kvm_gmem_try_split_folio_in_filemap(struct inode *inode,
+						      struct folio *folio)
 {
 	return 0;
 }
 
-static inline struct folio *kvm_gmem_get_shared_folio(struct inode *inode, pgoff_t index)
+static inline bool kvm_gmem_should_split_at_index(struct inode *inode,
+						  pgoff_t index)
 {
-	WARN_ONCE("Unexpected call to get shared folio.")
-	return NULL;
+	return false;
+}
+
+static inline bool kvm_gmem_has_some_shared(struct inode *inode, pgoff_t start,
+					    size_t nr_pages)
+{
+	return false;
+}
+
+static long kvm_gmem_merge_truncate_indices(struct inode *inode, pgoff_t index,
+					   size_t nr_pages)
+{
+	return 0;
 }
 
 #endif /* CONFIG_KVM_GMEM_SHARED_MEM */
@@ -1667,7 +1679,14 @@ bool kvm_gmem_is_private(struct kvm_memory_slot *slot, gfn_t gfn)
 }
 
 #else
+
 #define kvm_gmem_mmap NULL
+
+static bool kvm_gmem_supports_shared(struct inode *inode)
+{
+	return false;
+}
+
 #endif /* CONFIG_KVM_GMEM_SHARED_MEM */
 
 static long kvm_gmem_ioctl(struct file *file, unsigned int ioctl,
@@ -1702,6 +1721,7 @@ static long kvm_gmem_ioctl(struct file *file, unsigned int ioctl,
 #endif
 	default:
 		r = -ENOTTY;
+		goto out;
 	}
 out:
 	return r;
@@ -1733,9 +1753,9 @@ static void kvm_gmem_free_inode(struct inode *inode)
 
 static void kvm_gmem_destroy_inode(struct inode *inode)
 {
+#ifdef CONFIG_KVM_GMEM_SHARED_MEM
 	struct kvm_gmem_inode_private *private = kvm_gmem_private(inode);
 
-#ifdef CONFIG_KVM_GMEM_SHARED_MEM
 	/*
 	 * mtree_destroy() can't be used within rcu callback, hence can't be
 	 * done in ->free_inode().
@@ -1909,12 +1929,14 @@ static struct inode *kvm_gmem_inode_make_secure_inode(const char *name,
 	if (!private)
 		goto out;
 
+#ifdef CONFIG_KVM_GMEM_SHARED_MEM
 	mt_init(&private->shareability);
 	inode->i_mapping->i_private_data = private;
 
 	err = kvm_gmem_shareability_setup(private, size, flags);
 	if (err)
 		goto out;
+#endif
 
 #ifdef CONFIG_KVM_GMEM_HUGETLB
 	if (flags & GUEST_MEMFD_FLAG_HUGETLB) {

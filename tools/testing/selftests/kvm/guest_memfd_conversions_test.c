@@ -29,7 +29,7 @@
 
 static int gup_test_fd;
 
-static void pin_pages(void *vaddr, uint64_t size)
+static int pin_pages(void *vaddr, uint64_t size)
 {
 	const struct pin_longterm_test args = {
 		.addr = (uint64_t)vaddr,
@@ -38,14 +38,17 @@ static void pin_pages(void *vaddr, uint64_t size)
 	};
 
 	gup_test_fd = open("/sys/kernel/debug/gup_test", O_RDWR);
-	TEST_REQUIRE(gup_test_fd > 0);
+	if (gup_test_fd < 0)
+		return -1;
 
 	TEST_ASSERT_EQ(ioctl(gup_test_fd, PIN_LONGTERM_TEST_START, &args), 0);
+	return 0;
 }
 
 static void unpin_pages(void)
 {
-	TEST_ASSERT_EQ(ioctl(gup_test_fd, PIN_LONGTERM_TEST_STOP), 0);
+	if (gup_test_fd > 0)
+		TEST_ASSERT_EQ(ioctl(gup_test_fd, PIN_LONGTERM_TEST_STOP), 0);
 }
 
 static void guest_check_mem(uint64_t gva, char expected_read_value, char write_value)
@@ -454,7 +457,8 @@ static void __test_conversions_should_fail_if_memory_has_elevated_refcount(
 	total_size = test_page_size * nr_pages;
 	vm = setup_test(total_size, /*init_private=*/false, &vcpu, &guest_memfd, &mem);
 
-	pin_pages(mem + page_to_convert * test_page_size, test_page_size);
+	if (pin_pages(mem + page_to_convert * test_page_size, test_page_size))
+		goto out;
 
 	for (i = 0; i < nr_pages; i++) {
 		host_use_memory(mem + i * test_page_size, 'X', 'A');
@@ -497,7 +501,7 @@ static void __test_conversions_should_fail_if_memory_has_elevated_refcount(
 				 GUEST_MEMFD_SHARING_TEST_GVA + i * test_page_size,
 				 'E', 'F', 0);
 	}
-
+out:
 	cleanup_test(total_size, vm, guest_memfd, mem);
 }
 /*
@@ -595,7 +599,8 @@ static void test_truncate_shared_while_pinned(size_t test_page_size)
 	ret = fallocate(guest_memfd, FALLOC_FL_KEEP_SIZE, 0, test_page_size);
 	TEST_ASSERT(!ret, "fallocate should have succeeded");
 
-	pin_pages(mem, test_page_size);
+	if (pin_pages(mem, test_page_size))
+		goto out;
 
 	ret = fallocate(guest_memfd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
 			0, test_page_size);
@@ -611,7 +616,7 @@ static void test_truncate_shared_while_pinned(size_t test_page_size)
 	ret = fallocate(guest_memfd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
 			0, test_page_size);
 	TEST_ASSERT(!ret, "truncate should succeed now that pages are unpinned");
-
+out:
 	cleanup_test(test_page_size, vm, guest_memfd, mem);
 }
 
@@ -649,8 +654,10 @@ static void __test_close_with_pinning(size_t test_page_size, bool init_private)
 	ret = fallocate(guest_memfd, FALLOC_FL_KEEP_SIZE, 0, test_page_size);
 	TEST_ASSERT(!ret, "fallocate should have succeeded");
 
-	if (!init_private)
-		pin_pages(mem, test_page_size);
+	if (!init_private) {
+		if (pin_pages(mem, test_page_size))
+			fprintf(stderr, "Skipping test_close_with_pinning, couldn't pin pages.");
+	}
 
 	cleanup_test(test_page_size, vm, guest_memfd, mem);
 

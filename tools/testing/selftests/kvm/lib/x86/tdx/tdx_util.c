@@ -11,6 +11,7 @@
 #include "tdx/td_boot.h"
 #include "tdx/tdx.h"
 #include "test_util.h"
+#include "ucall_common.h"
 
 uint64_t tdx_s_bit;
 
@@ -566,6 +567,43 @@ static void td_setup_boot_parameters(struct kvm_vm *vm, enum vm_mem_backing_src_
 	TEST_ASSERT_EQ(addr, TD_BOOT_PARAMETERS_GPA);
 }
 
+/*
+ * GPA where ucall headers/pool will be set up
+ *
+ * TD_UCALL_POOL_GPA is arbitrarily chosen to
+ *
+ * + Be within the 4GB address space
+ * + Not clash with the other memslots for boot parameters, boot code and test
+ *   code
+ */
+#define TD_UCALL_POOL_GPA 0x30000000
+/*
+ * GPA to use for ucall MMIO writes
+ *
+ * TD_UCALL_MMIO_GPA is arbitrarily chosen to
+ *
+ * + Be within the 4GB address space
+ * + Not clash with the other memslots for boot parameters, boot code and test
+ *   code
+ * + Not be configured in any memslot (unconfigured GPAs are treated as
+ *   MMIOs). For now, TDX VMs can't be used with KVM_MEM_READONLY so using
+ *   readonly memslots won't work for TDX VMs.
+ */
+#define TD_UCALL_MMIO_GPA 0x40000000
+#define TD_UCALL_MEMSLOT  4
+
+static void td_setup_ucall(struct kvm_vm *vm)
+{
+	int npages;
+
+	npages = ucall_nr_pages_required(PAGE_SIZE);
+	vm_userspace_mem_region_add(vm, VM_MEM_SRC_ANONYMOUS, TD_UCALL_POOL_GPA,
+				    TD_UCALL_MEMSLOT, npages, 0);
+	vm->memslots[MEM_REGION_UCALL] = TD_UCALL_MEMSLOT;
+
+	ucall_init(vm, TD_UCALL_MMIO_GPA);
+}
+
 void td_initialize(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
 		   uint64_t attributes)
 {
@@ -592,6 +630,8 @@ void td_initialize(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
 
 	td_setup_boot_code(vm, src_type);
 	td_setup_boot_parameters(vm, src_type);
+
+	td_setup_ucall(vm);
 }
 
 void td_finalize(struct kvm_vm *vm)

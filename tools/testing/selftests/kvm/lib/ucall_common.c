@@ -33,7 +33,8 @@ void ucall_init(struct kvm_vm *vm, vm_paddr_t mmio_gpa)
 	int i;
 
 	vaddr = vm_vaddr_alloc_shared(vm, sizeof(*ucall_pool),
-				      KVM_UTIL_MIN_VADDR, MEM_REGION_DATA);
+				      KVM_UTIL_MIN_VADDR, MEM_REGION_UCALL);
+
 	ucall_pool = (struct ucall_header *)addr_gva2hva(vm, vaddr);
 	memset(ucall_pool, 0, sizeof(*ucall_pool));
 

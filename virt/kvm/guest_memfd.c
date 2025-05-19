@@ -60,7 +60,7 @@ static void *kvm_gmem_allocator_private(struct inode *inode)
 
 static bool kvm_gmem_has_custom_allocator(struct inode *inode)
 {
-	return kvm_gmem_allocator_ops(inode) != NULL;
+	return kvm_gmem_private(inode) && kvm_gmem_allocator_ops(inode) != NULL;
 }
 
 #else
@@ -1760,7 +1760,7 @@ static void kvm_gmem_destroy_inode(struct inode *inode)
 	 * mtree_destroy() can't be used within rcu callback, hence can't be
 	 * done in ->free_inode().
 	 */
-	if (private)
+	if (private && kvm_gmem_supports_shared(inode))
 		mtree_destroy(&private->shareability);
 #endif
 }
@@ -1929,13 +1929,16 @@ static struct inode *kvm_gmem_inode_make_secure_inode(const char *name,
 	if (!private)
 		goto out;
 
-#ifdef CONFIG_KVM_GMEM_SHARED_MEM
-	mt_init(&private->shareability);
 	inode->i_mapping->i_private_data = private;
 
-	err = kvm_gmem_shareability_setup(private, size, flags);
-	if (err)
-		goto out;
+#ifdef CONFIG_KVM_GMEM_SHARED_MEM
+	if (flags & GUEST_MEMFD_FLAG_SUPPORT_SHARED) {
+		mt_init(&private->shareability);
+
+		err = kvm_gmem_shareability_setup(private, size, flags);
+		if (err)
+			goto out;
+	}
 #endif
 
 #ifdef CONFIG_KVM_GMEM_HUGETLB

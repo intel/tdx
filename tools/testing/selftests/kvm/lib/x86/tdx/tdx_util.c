@@ -636,7 +636,7 @@ void handle_memory_conversion(struct kvm_vm *vm, uint32_t vcpu_id, uint64_t gpa,
 	range.attributes = shared_to_private ? KVM_MEMORY_ATTRIBUTE_PRIVATE : 0;
 	range.flags = 0;
 
-	pr_debug("\t... call KVM_SET_MEMORY_ATTRIBUTES ioctl from vCPU %u with gpa=%#lx, size=%#lx, attributes=%#llx\n",
+	pr_debug("\t ... call KVM_SET_MEMORY_ATTRIBUTES ioctl from vCPU %u with gpa=%#lx, size=%#lx, attributes=%#llx\n",
 		 vcpu_id, gpa, size, range.attributes);
 
 	vm_ioctl(vm, KVM_SET_MEMORY_ATTRIBUTES, &range);

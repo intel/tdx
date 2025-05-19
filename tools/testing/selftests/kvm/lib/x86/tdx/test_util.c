@@ -72,10 +72,16 @@ int run_in_new_process(void (*func)(void))
 	if (ret == -1)
 		return -1;
 
-	if (WIFEXITED(wstatus) && WEXITSTATUS(wstatus))
+	if (WIFEXITED(wstatus) && WEXITSTATUS(wstatus)) {
+		pr_debug("Test exited with status %d\n", WEXITSTATUS(wstatus));
 		return -1;
-	else if (WIFSIGNALED(wstatus))
+	} else if (WIFSIGNALED(wstatus)) {
+		int sig = WTERMSIG(wstatus);
+
+		pr_debug("Test exited with signal SIG%s (%s)\n",
+			 sigabbrev_np(sig), strsignal(sig));
 		return -1;
+	}
 
 	return 0;
 }

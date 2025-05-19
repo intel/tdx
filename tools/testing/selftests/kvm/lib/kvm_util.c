@@ -1837,7 +1837,7 @@ void *addr_gpa2hva(struct kvm_vm *vm, vm_paddr_t gpa)
  *   offset - offset in guest_memfd for gpa
  *
  * Return:
- *   guest_memfd for
+ *   guest_memfd for the given gpa
  *
  * Locates the memory region containing the VM physical address given by gpa,
  * within the VM given by vm.  When found, the guest_memfd providing the memory

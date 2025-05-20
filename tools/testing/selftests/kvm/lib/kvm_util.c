@@ -1868,6 +1868,26 @@ int addr_gpa2guest_memfd(struct kvm_vm *vm, vm_paddr_t gpa, loff_t *offset)
 }
 
 /*
+ * Address VM Physical to userspace_mem_region
+ *
+ * Input Args:
+ *   vm - Virtual Machine
+ *   gpa - VM physical address
+ *
+ * Return:
+ *   userspace_mem_region for a given gpa
+ *
+ * Locates the memory region containing the VM physical address given by gpa,
+ * within the VM given by vm and return that.
+ */
+struct userspace_mem_region *addr_gpa2region(struct kvm_vm *vm, vm_paddr_t gpa)
+{
+	gpa = vm_untag_gpa(vm, gpa);
+
+	return userspace_mem_region_find(vm, gpa, gpa);
+}
+
+/*
  * Address Host Virtual to VM Physical
  *
  * Input Args:

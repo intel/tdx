@@ -56,17 +56,31 @@ static void unpin_pages(void)
 		TEST_ASSERT_EQ(ioctl(gup_test_fd, PIN_LONGTERM_TEST_STOP), 0);
 }
 
-static void guest_check_mem(uint64_t gva, char expected_read_value, char write_value)
+static void guest_check_mem(void)
 {
-	char *mem = (char *)gva;
+	char expected_read_value = 'X';
+	struct ucall uc;
+	char write_value = 'X';
+	uint64_t gva = 0;
+	uint64_t cmd;
+	char *mem;
 
-	if (expected_read_value != 'X')
-		GUEST_ASSERT_EQ(*mem, expected_read_value);
+	for (;;) {
+		cmd = ucall_read(&uc, UCALL_SYNC, 3, gva, expected_read_value,
+				 write_value);
+		GUEST_ASSERT_EQ(cmd, UCALL_SYNC);
+		gva = uc.args[0];
+		expected_read_value = uc.args[1];
+		write_value = uc.args[2];
 
-	if (write_value != 'X')
-		*mem = write_value;
+		mem = (char *)gva;
 
-	GUEST_DONE();
+		if (expected_read_value != 'X')
+			GUEST_ASSERT_EQ(*mem, expected_read_value);
+
+		if (write_value != 'X')
+			*mem = write_value;
+	}
 }
 
 static int vcpu_run_handle_basic_ucalls(struct kvm_vcpu *vcpu)
@@ -109,7 +123,8 @@ static void guest_use_memory(struct kvm_vcpu *vcpu, uint64_t gva,
 			     char expected_read_value, char write_value,
 			     int expected_errno)
 {
-	struct kvm_regs original_regs;
+	struct ucall *p_uc;
+	uint64_t cmd;
 	int rc;
 
 	if (expected_errno > 0) {
@@ -117,17 +132,13 @@ static void guest_use_memory(struct kvm_vcpu *vcpu, uint64_t gva,
 		write_value = 'Z';
 	}
 
-	/*
-	 * Backup and vCPU state from first run so that guest_check_mem can be
-	 * run again and again.
-	 */
-	vcpu_regs_get(vcpu, &original_regs);
-
-	vcpu_args_set(vcpu, 3, gva, expected_read_value, write_value);
-	vcpu_arch_set_entry_point(vcpu, guest_check_mem);
+	cmd = get_writable_ucall(vcpu, &p_uc);
+	TEST_ASSERT_EQ(cmd, UCALL_SYNC);
+	p_uc->args[0] = gva;
+	p_uc->args[1] = expected_read_value;
+	p_uc->args[2] = write_value;
 
 	rc = vcpu_run_handle_basic_ucalls(vcpu);
-
 	if (expected_errno) {
 		TEST_ASSERT_EQ(rc, -1);
 		TEST_ASSERT_EQ(errno, expected_errno);
@@ -144,7 +155,7 @@ static void guest_use_memory(struct kvm_vcpu *vcpu, uint64_t gva,
 		struct ucall uc;
 
 		TEST_ASSERT_EQ(rc, 0);
-		TEST_ASSERT_EQ(get_ucall(vcpu, &uc), UCALL_DONE);
+		TEST_ASSERT_EQ(get_ucall(vcpu, &uc), UCALL_SYNC);
 
 		/*
 		 * UCALL_DONE() uses up one struct ucall slot. To reuse the slot
@@ -152,8 +163,6 @@ static void guest_use_memory(struct kvm_vcpu *vcpu, uint64_t gva,
 		 */
 		ucall_free((struct ucall *)uc.hva);
 	}
-
-	vcpu_regs_set(vcpu, &original_regs);
 }
 
 /**
@@ -232,7 +241,8 @@ static struct kvm_vm *setup_test(size_t test_page_size, bool init_private,
 	uint64_t flags;
 
 	test_nr_pages = test_page_size / PAGE_SIZE;
-	vm = __vm_create_shape_with_one_vcpu(shape, vcpu, test_nr_pages, NULL);
+	vm = __vm_create_shape_with_one_vcpu(shape, vcpu, test_nr_pages,
+					     guest_check_mem);
 
 	flags = GUEST_MEMFD_FLAG_SUPPORT_SHARED;
 	if (init_private)
@@ -251,6 +261,8 @@ static struct kvm_vm *setup_test(size_t test_page_size, bool init_private,
 	virt_map(vm, GUEST_MEMFD_SHARING_TEST_GVA, GUEST_MEMFD_SHARING_TEST_GPA,
 		 test_nr_pages);
 
+	/* Run it to set guest up to receive commands. */
+	vcpu_run(*vcpu);
 	return vm;
 }
 

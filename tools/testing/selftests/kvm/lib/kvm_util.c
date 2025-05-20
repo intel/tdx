@@ -1101,7 +1101,8 @@ void vm_mem_region_madvise_thp(struct userspace_mem_region *region, int advice)
  * Returns the guest_memfd that was installed in the @region.
  */
 int vm_mem_region_install_guest_memfd(struct userspace_mem_region *region,
-				      int guest_memfd)
+				      int guest_memfd,
+				      uint64_t guest_memfd_flags)
 {
 	/*
 	 * Install a unique fd for each memslot so that the fd can be closed
@@ -1111,6 +1112,7 @@ int vm_mem_region_install_guest_memfd(struct userspace_mem_region *region,
 	guest_memfd = dup(guest_memfd);
 	TEST_ASSERT(guest_memfd >= 0, __KVM_SYSCALL_ERROR("dup()", guest_memfd));
 	region->region.guest_memfd = guest_memfd;
+	region->guest_memfd_flags = guest_memfd_flags;
 
 	return guest_memfd;
 }
@@ -1274,9 +1276,12 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
 				guest_memfd_offset == 0,
 				"Offset must be zero when creating new guest_memfd");
 			guest_memfd = vm_create_guest_memfd(vm, memslot_size, 0);
+		} else {
+			pr_debug("If guest_memfd %d was created with flags != 0, please use the more flexible vm_mem_region_install_guest_memfd(). %s only supports adding guest_memfds with flags == 0.\n",
+				 guest_memfd, __func__);
 		}
 
-		vm_mem_region_install_guest_memfd(region, guest_memfd);
+		vm_mem_region_install_guest_memfd(region, guest_memfd, 0);
 	}
 
 	region->region.slot = slot;

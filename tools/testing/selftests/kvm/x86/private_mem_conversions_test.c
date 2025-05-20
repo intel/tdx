@@ -353,13 +353,14 @@ static void assert_not_faultable(uint8_t *address)
 
 static void add_memslot(struct kvm_vm *vm, uint64_t gpa, uint32_t slot,
 			uint64_t size, int guest_memfd,
-			uint64_t guest_memfd_offset)
+			uint64_t guest_memfd_offset, uint64_t guest_memfd_flags)
 {
 	struct userspace_mem_region *region;
 
 	region = vm_mem_region_alloc(vm);
 
-	guest_memfd = vm_mem_region_install_guest_memfd(region, guest_memfd);
+	guest_memfd = vm_mem_region_install_guest_memfd(region, guest_memfd,
+							guest_memfd_flags);
 
 	vm_mem_region_mmap(region, size, MAP_SHARED, guest_memfd, guest_memfd_offset);
 	vm_mem_region_install_memory(region, size, getpagesize());
@@ -499,7 +500,7 @@ static void test_mem_conversions(enum vm_mem_backing_src_type src_type,
 		if (back_shared_memory_with_guest_memfd) {
 			add_memslot(vm, BASE_DATA_GPA + slot_size * i,
 				    BASE_DATA_SLOT + i, slot_size, memfd,
-				    slot_size * i);
+				    slot_size * i, flags);
 		} else {
 			vm_mem_add(vm, src_type, BASE_DATA_GPA + slot_size * i,
 				   BASE_DATA_SLOT + i,

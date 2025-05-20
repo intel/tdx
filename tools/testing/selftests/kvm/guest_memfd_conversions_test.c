@@ -205,7 +205,8 @@ static void assert_host_cannot_fault(char *address)
 	}
 }
 
-static void *add_memslot(struct kvm_vm *vm, size_t memslot_size, int guest_memfd)
+static void *add_memslot(struct kvm_vm *vm, size_t memslot_size,
+			 int guest_memfd, uint64_t guest_memfd_flags)
 {
 	struct userspace_mem_region *region;
 	void *mem;
@@ -214,7 +215,8 @@ static void *add_memslot(struct kvm_vm *vm, size_t memslot_size, int guest_memfd
 
 	region = vm_mem_region_alloc(vm);
 
-	guest_memfd = vm_mem_region_install_guest_memfd(region, guest_memfd);
+	guest_memfd = vm_mem_region_install_guest_memfd(region, guest_memfd,
+							guest_memfd_flags);
 	mem = vm_mem_region_mmap(region, memslot_size, MAP_SHARED, guest_memfd, 0);
 	vm_mem_region_install_memory(region, memslot_size, PAGE_SIZE);
 
@@ -256,7 +258,7 @@ static struct kvm_vm *setup_test(size_t test_page_size, bool init_private,
 	*guest_memfd = vm_create_guest_memfd(vm, test_page_size, flags);
 	TEST_ASSERT(*guest_memfd > 0, "guest_memfd creation failed");
 
-	*mem = add_memslot(vm, test_page_size, *guest_memfd);
+	*mem = add_memslot(vm, test_page_size, *guest_memfd, flags);
 
 	virt_map(vm, GUEST_MEMFD_SHARING_TEST_GVA, GUEST_MEMFD_SHARING_TEST_GPA,
 		 test_nr_pages);

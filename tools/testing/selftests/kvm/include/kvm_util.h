@@ -38,6 +38,7 @@ struct userspace_mem_region {
 	struct kvm_userspace_memory_region2 region;
 	struct sparsebit *unused_phy_pages;
 	struct sparsebit *protected_phy_pages;
+	int guest_memfd_flags;
 	int fd;
 	off_t offset;
 	/*
@@ -765,7 +766,8 @@ void vm_mem_region_install_memory(struct userspace_mem_region *region,
 				  size_t memslot_size, size_t alignment);
 void vm_mem_region_madvise_thp(struct userspace_mem_region *region, int advice);
 int vm_mem_region_install_guest_memfd(struct userspace_mem_region *region,
-				      int guest_memfd);
+				      int guest_memfd,
+				      size_t guest_memfd_flags);
 void *vm_mem_region_mmap_alias(struct userspace_mem_region *region, int flags,
 			       size_t alignment);
 void vm_mem_region_add(struct kvm_vm *vm, struct userspace_mem_region *region);

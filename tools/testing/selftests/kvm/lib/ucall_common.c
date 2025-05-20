@@ -119,10 +119,11 @@ void ucall_fmt(uint64_t cmd, const char *fmt, ...)
 	ucall_free(uc);
 }
 
-void ucall(uint64_t cmd, int nargs, ...)
+static uint64_t do_ucall(struct ucall *uc_out, uint64_t cmd, int nargs,
+			 va_list va)
 {
 	struct ucall *uc;
-	va_list va;
+	uint64_t out;
 	int i;
 
 	uc = ucall_alloc();
@@ -131,14 +132,41 @@ void ucall(uint64_t cmd, int nargs, ...)
 
 	nargs = min(nargs, UCALL_MAX_ARGS);
 
-	va_start(va, nargs);
 	for (i = 0; i < nargs; ++i)
 		WRITE_ONCE(uc->args[i], va_arg(va, uint64_t));
-	va_end(va);
 
 	ucall_arch_do_ucall((vm_vaddr_t)uc->hva);
 
+	out = UCALL_NONE;
+	if (uc_out) {
+		memcpy(uc_out, uc, sizeof(*uc));
+		out = uc_out->cmd;
+	}
+
 	ucall_free(uc);
+
+	return out;
+}
+
+void ucall(uint64_t cmd, int nargs, ...)
+{
+	va_list va;
+
+	va_start(va, nargs);
+	do_ucall(NULL, cmd, nargs, va);
+	va_end(va);
+}
+
+uint64_t ucall_read(struct ucall *uc_out, uint64_t cmd, int nargs, ...)
+{
+	uint64_t out;
+	va_list va;
+
+	va_start(va, nargs);
+	out = do_ucall(uc_out, cmd, nargs, va);
+	va_end(va);
+
+	return out;
 }
 
 uint64_t get_ucall(struct kvm_vcpu *vcpu, struct ucall *uc)

@@ -34,6 +34,7 @@ void ucall_arch_do_ucall(vm_vaddr_t uc);
 void *ucall_arch_get_ucall(struct kvm_vcpu *vcpu);
 
 void ucall(uint64_t cmd, int nargs, ...);
+uint64_t ucall_read(struct ucall *uc_out, uint64_t cmd, int nargs, ...);
 __printf(2, 3) void ucall_fmt(uint64_t cmd, const char *fmt, ...);
 __printf(5, 6) void ucall_assert(uint64_t cmd, const char *exp,
 				 const char *file, unsigned int line,

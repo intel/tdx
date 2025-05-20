@@ -169,24 +169,46 @@ uint64_t ucall_read(struct ucall *uc_out, uint64_t cmd, int nargs, ...)
 	return out;
 }
 
+struct ucall *do_get_ucall(struct kvm_vcpu *vcpu)
+{
+	struct ucall *uc;
+
+	uc = ucall_arch_get_ucall(vcpu);
+	if (!uc)
+		return NULL;
+
+	TEST_ASSERT(uc != (struct ucall *)GUEST_UCALL_FAILED,
+		    "Guest failed to allocate ucall struct");
+
+	vcpu_run_complete_io(vcpu);
+
+	return uc;
+}
+
 uint64_t get_ucall(struct kvm_vcpu *vcpu, struct ucall *uc)
 {
-	struct ucall ucall;
-	void *addr;
+	struct ucall *uc_received;
+
+	uc_received = do_get_ucall(vcpu);
+	if (!uc_received)
+		return UCALL_NONE;
 
 	if (!uc)
-		uc = &ucall;
+		return uc_received->cmd;
 
-	addr = ucall_arch_get_ucall(vcpu);
-	if (addr) {
-		TEST_ASSERT(addr != (void *)GUEST_UCALL_FAILED,
-			    "Guest failed to allocate ucall struct");
-
-		memcpy(uc, addr, sizeof(*uc));
-		vcpu_run_complete_io(vcpu);
-	} else {
-		memset(uc, 0, sizeof(*uc));
-	}
-
+	memcpy(uc, uc_received, sizeof(*uc));
 	return uc->cmd;
+}
+
+uint64_t get_writable_ucall(struct kvm_vcpu *vcpu, struct ucall **uc)
+{
+	struct ucall *uc_received;
+
+	uc_received = do_get_ucall(vcpu);
+	*uc = uc_received;
+
+	if (!uc_received)
+		return UCALL_NONE;
+
+	return uc_received->cmd;
 }

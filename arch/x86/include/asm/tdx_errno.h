@@ -1,14 +1,13 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /* architectural status code for SEAMCALL */
 
-#ifndef __KVM_X86_TDX_ERRNO_H
-#define __KVM_X86_TDX_ERRNO_H
-
-#define TDX_SEAMCALL_STATUS_MASK		0xFFFFFFFF00000000ULL
+#ifndef _X86_TDX_ERRNO_H
+#define _X86_TDX_ERRNO_H
 
 /*
  * TDX SEAMCALL Status Codes (returned in RAX)
  */
+#define TDX_SUCCESS				0ULL
 #define TDX_NON_RECOVERABLE_VCPU		0x4000000100000000ULL
 #define TDX_NON_RECOVERABLE_TD			0x4000000200000000ULL
 #define TDX_NON_RECOVERABLE_TD_NON_ACCESSIBLE	0x6000000500000000ULL
@@ -17,6 +16,7 @@
 #define TDX_OPERAND_INVALID			0xC000010000000000ULL
 #define TDX_OPERAND_BUSY			0x8000020000000000ULL
 #define TDX_PREVIOUS_TLB_EPOCH_BUSY		0x8000020100000000ULL
+#define TDX_RND_NO_ENTROPY			0x8000020300000000ULL
 #define TDX_PAGE_METADATA_INCORRECT		0xC000030000000000ULL
 #define TDX_VCPU_NOT_ASSOCIATED			0x8000070200000000ULL
 #define TDX_KEY_GENERATION_FAILED		0x8000080000000000ULL
@@ -37,4 +37,54 @@
 #define TDX_OPERAND_ID_SEPT			0x92
 #define TDX_OPERAND_ID_TD_EPOCH			0xa9
 
-#endif /* __KVM_X86_TDX_ERRNO_H */
+#define TDX_STATUS_MASK				0xFFFFFFFF00000000ULL
+
+/*
+ * SW-defined error codes.
+ *
+ * Bits 47:40 == 0xFF indicate Reserved status code class that never used by
+ * TDX module.
+ */
+#define TDX_ERROR				_BITULL(63)
+#define TDX_NON_RECOVERABLE			_BITULL(62)
+#define TDX_SW_ERROR				(TDX_ERROR | GENMASK_ULL(47, 40))
+#define TDX_SEAMCALL_VMFAILINVALID		(TDX_SW_ERROR | _UL(0xFFFF0000))
+
+#define TDX_SEAMCALL_GP				(TDX_SW_ERROR | X86_TRAP_GP)
+#define TDX_SEAMCALL_UD				(TDX_SW_ERROR | X86_TRAP_UD)
+
+#ifndef __ASSEMBLER__
+#include <linux/bits.h>
+#include <linux/types.h>
+
+static inline u64 tdx_status(u64 err)
+{
+	return err & TDX_STATUS_MASK;
+}
+
+static inline bool tdx_sw_error(u64 err)
+{
+	return (err & TDX_SW_ERROR) == TDX_SW_ERROR;
+}
+
+static inline bool tdx_success(u64 err)
+{
+	return tdx_status(err) == TDX_SUCCESS;
+}
+
+static inline bool tdx_rnd_no_entropy(u64 err)
+{
+	return tdx_status(err) == TDX_RND_NO_ENTROPY;
+}
+
+static inline bool tdx_operand_invalid(u64 err)
+{
+	return tdx_status(err) == TDX_OPERAND_INVALID;
+}
+
+static inline bool tdx_operand_busy(u64 err)
+{
+	return tdx_status(err) == TDX_OPERAND_BUSY;
+}
+#endif /* __ASSEMBLER__ */
+#endif /* _X86_TDX_ERRNO_H */

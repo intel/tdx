@@ -2342,6 +2342,19 @@ int kvm_gmem_mapping_order(const struct kvm_memory_slot *slot, gfn_t gfn)
 EXPORT_SYMBOL_GPL(kvm_gmem_mapping_order);
 
 #ifdef CONFIG_KVM_GENERIC_GMEM_POPULATE
+
+static bool kvm_range_is_all_private(struct kvm *kvm, gfn_t gfn, size_t nr_pages)
+{
+	size_t i;
+
+	for (i = 0; i < nr_pages; ++i) {
+		if (!kvm_mem_is_private(kvm, gfn + i))
+			return false;
+	}
+
+	return true;
+}
+
 long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long npages,
 		       kvm_gmem_populate_cb post_populate, void *opaque)
 {
@@ -2397,9 +2410,7 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long 
 			(npages - i) < (1 << max_order));
 
 		ret = -EINVAL;
-		while (!kvm_range_has_memory_attributes(kvm, gfn, gfn + (1 << max_order),
-							KVM_MEMORY_ATTRIBUTE_PRIVATE,
-							KVM_MEMORY_ATTRIBUTE_PRIVATE)) {
+		while (!kvm_range_is_all_private(kvm, gfn, 1 << max_order)) {
 			if (!max_order)
 				goto put_folio_and_exit;
 			max_order--;

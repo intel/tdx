@@ -1677,6 +1677,7 @@ bool kvm_gmem_is_private(struct kvm_memory_slot *slot, gfn_t gfn)
 	fput(file);
 	return ret;
 }
+EXPORT_SYMBOL_GPL(kvm_gmem_is_private);
 
 #else
 

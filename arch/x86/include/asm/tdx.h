@@ -117,7 +117,7 @@ static __always_inline u64 sc_retry(sc_func_t func, u64 fn,
 		preempt_disable();
 		ret = __seamcall_dirty_cache(func, fn, args);
 		preempt_enable();
-	} while (ret == TDX_RND_NO_ENTROPY && --retry);
+	} while (IS_TDX_RND_NO_ENTROPY(ret) && --retry);
 
 	return ret;
 }

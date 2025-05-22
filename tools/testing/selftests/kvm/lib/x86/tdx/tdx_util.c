@@ -615,8 +615,10 @@ static void td_setup_ucall(struct kvm_vm *vm)
 	ucall_init(vm, TD_UCALL_MMIO_GPA);
 }
 
-void td_initialize(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
-		   uint64_t attributes)
+void td_initialize_with_extra_mem_pages(struct kvm_vm *vm,
+					enum vm_mem_backing_src_type src_type,
+					uint64_t attributes,
+					size_t extra_mem_pages)
 {
 	uint64_t nr_pages_required;
 
@@ -624,7 +626,7 @@ void td_initialize(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
 
 	tdx_td_init(vm, attributes);
 
-	nr_pages_required = vm_nr_pages_required(VM_MODE_DEFAULT, 1, 0);
+	nr_pages_required = vm_nr_pages_required(VM_MODE_DEFAULT, 1, extra_mem_pages);
 
 	/*
 	 * Add memory (add 0th memslot) for TD. This will be used to setup the
@@ -644,6 +646,13 @@ void td_initialize(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
 
 	td_setup_ucall(vm);
 }
+
+void td_initialize(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
+		   uint64_t attributes)
+{
+	td_initialize_with_extra_mem_pages(vm, src_type, attributes, 0);
+}
+
 
 void td_finalize(struct kvm_vm *vm)
 {

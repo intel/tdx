@@ -454,6 +454,7 @@ static void load_td_memory_region(struct kvm_vm *vm,
 	const vm_paddr_t gpa_base = region->region.guest_phys_addr;
 	const uint64_t hva_base = region->region.userspace_addr;
 	const sparsebit_idx_t lowest_page_in_region = gpa_base >> vm->page_shift;
+	bool using_guest_memfd_for_shared_memory;
 	bool memslot_has_guest_memfd;
 
 	sparsebit_idx_t i;
@@ -463,6 +464,8 @@ static void load_td_memory_region(struct kvm_vm *vm,
 		return;
 
 	memslot_has_guest_memfd = region->region.guest_memfd != -1;
+	using_guest_memfd_for_shared_memory = region->guest_memfd_flags &
+					      GUEST_MEMFD_FLAG_SUPPORT_SHARED;
 
 	sparsebit_for_each_set_range(protected_pages, i, j) {
 		const uint64_t size_to_load = (j - i + 1) * vm->page_size;
@@ -471,7 +474,7 @@ static void load_td_memory_region(struct kvm_vm *vm,
 		const uint64_t hva = hva_base + offset;
 		const uint64_t gpa = gpa_base + offset;
 		void *source_addr = (void *)hva;
-		bool needs_copy;
+		bool needs_spare_memory_for_loading;
 
 		vm_set_memory_attributes(vm, gpa, size_to_load,
 					 KVM_MEMORY_ATTRIBUTE_PRIVATE);
@@ -488,20 +491,28 @@ static void load_td_memory_region(struct kvm_vm *vm,
 		 * If this memslot_has_guest_memfd, then this memslot should
 		 * have memory backed from two sources: hva for shared memory
 		 * and gpa will be backed by guest_memfd.
+		 *
+		 * If using_guest_memfd_for_shared_memory, then hva would be
+		 * mmap()-ed from the same guest_memfd. However, in this case,
+		 * since this memory range is protected (private), guest_memfd
+		 * cannot be faulted by the host. Hence, skip copying from hva.
 		 */
-		needs_copy = !memslot_has_guest_memfd;
-		if (needs_copy) {
+		needs_spare_memory_for_loading = !memslot_has_guest_memfd ||
+			using_guest_memfd_for_shared_memory;
+
+		if (needs_spare_memory_for_loading) {
 			source_addr = mmap(NULL, size_to_load, PROT_READ | PROT_WRITE,
 					   MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 			TEST_ASSERT(source_addr,
 				    "Could not allocate memory for loading memory region");
 
-			memcpy(source_addr, (void *)hva, size_to_load);
+			if (!using_guest_memfd_for_shared_memory)
+				memcpy(source_addr, (void *)hva, size_to_load);
 		}
 
 		tdx_init_mem_region(vm, source_addr, gpa, size_to_load);
 
-		if (needs_copy)
+		if (needs_spare_memory_for_loading)
 			munmap(source_addr, size_to_load);
 	}
 }

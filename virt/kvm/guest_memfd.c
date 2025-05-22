@@ -2421,7 +2421,7 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long 
 			break;
 		}
 
-		if (is_prepared) {
+		if (kvm->arch.vm_type != KVM_X86_TDX_VM && is_prepared) {
 			folio_unlock(folio);
 			folio_put(folio);
 			ret = -EEXIST;

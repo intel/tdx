@@ -2356,6 +2356,27 @@ static bool kvm_range_is_all_private(struct kvm *kvm, gfn_t gfn, size_t nr_pages
 	return true;
 }
 
+static size_t private_npages_to_populate(struct kvm *kvm, gfn_t gfn,
+					 size_t npages_to_populate)
+{
+	int order;
+
+	if (npages_to_populate == 1) {
+		return kvm_mem_is_private(kvm, gfn) ? 1 : 0;
+	}
+
+	order = ilog2(npages_to_populate);
+	while (!kvm_range_is_all_private(kvm, gfn, 1 << order)) {
+		if (order == 0)
+			return 0;
+
+		order--;
+	}
+
+
+	return 1 << order;
+}
+
 long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long npages,
 		       kvm_gmem_populate_cb post_populate, void *opaque)
 {
@@ -2410,14 +2431,13 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long 
 		folio_unlock(folio);
 		WARN_ON(!IS_ALIGNED(gfn, 1 << max_order));
 
-		ret = -EINVAL;
-		while (!kvm_range_is_all_private(kvm, gfn, 1 << max_order)) {
-			if (!max_order)
-				goto put_folio_and_exit;
-			max_order--;
-		}
-
 		npages_to_populate = min(npages - i, 1 << max_order);
+		npages_to_populate = private_npages_to_populate(
+			kvm, gfn, npages_to_populate);
+		if (npages_to_populate == 0) {
+			ret = -EINVAL;
+			goto put_folio_and_exit;
+		}
 
 		p = src ? src + i * PAGE_SIZE : NULL;
 		ret = post_populate(kvm, gfn, pfn, p, npages_to_populate, opaque);

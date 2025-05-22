@@ -2362,6 +2362,7 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long 
 	struct file *file;
 	struct kvm_memory_slot *slot;
 	void __user *p;
+	size_t npages_to_populate;
 
 	int ret = 0, max_order;
 	long i;
@@ -2379,7 +2380,7 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long 
 		return -EFAULT;
 
 	npages = min_t(ulong, slot->npages - (start_gfn - slot->base_gfn), npages);
-	for (i = 0; i < npages; i += (1 << max_order)) {
+	for (i = 0; i < npages; i += npages_to_populate) {
 		struct folio *folio;
 		gfn_t gfn = start_gfn + i;
 		pgoff_t index = kvm_gmem_get_index(slot, gfn);
@@ -2407,8 +2408,7 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long 
 		}
 
 		folio_unlock(folio);
-		WARN_ON(!IS_ALIGNED(gfn, 1 << max_order) ||
-			(npages - i) < (1 << max_order));
+		WARN_ON(!IS_ALIGNED(gfn, 1 << max_order));
 
 		ret = -EINVAL;
 		while (!kvm_range_is_all_private(kvm, gfn, 1 << max_order)) {
@@ -2417,8 +2417,10 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long 
 			max_order--;
 		}
 
+		npages_to_populate = min(npages - i, 1 << max_order);
+
 		p = src ? src + i * PAGE_SIZE : NULL;
-		ret = post_populate(kvm, gfn, pfn, p, max_order, opaque);
+		ret = post_populate(kvm, gfn, pfn, p, npages_to_populate, opaque);
 		if (!ret)
 			kvm_gmem_mark_prepared(folio);
 

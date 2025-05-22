@@ -3149,7 +3149,7 @@ struct tdx_gmem_post_populate_arg {
 };
 
 static int tdx_gmem_post_populate(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
-				  void __user *src, int order, void *_arg)
+				  void __user *src, size_t npages, void *_arg)
 {
 	u64 error_code = PFERR_GUEST_FINAL_MASK | PFERR_PRIVATE_ACCESS;
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);

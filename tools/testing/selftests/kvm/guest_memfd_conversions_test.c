@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Test conversion flows for guest_memfd.
+ * Test conversion flows for guest_memfd, such as
+ *
+ * + conversions ordering with respect to allocations
+ * + conversions failing when there are unexpected refcounts
+ * + general truncation behavior
+ * + correctness of subfolio conversions
  *
  * Copyright (c) 2024, Google LLC.
  */
@@ -285,7 +290,7 @@ static void test_sharing(size_t test_page_size)
 	cleanup_test(test_page_size, vm, guest_memfd, mem);
 }
 
-static void test_init_mappable_false(size_t test_page_size)
+static void test_init_private(size_t test_page_size)
 {
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
@@ -519,7 +524,8 @@ static void test_conversions_should_fail_if_memory_has_elevated_refcount(
 	}
 }
 
-static void test_truncate_should_not_change_mappability(size_t test_page_size)
+static void
+test_truncate_should_not_change_shared_private_status(size_t test_page_size)
 {
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
@@ -768,11 +774,11 @@ static void test_convert_subfolios(size_t test_page_size)
 static void test_with_size(size_t test_page_size)
 {
 	test_sharing(test_page_size);
-	test_init_mappable_false(test_page_size);
+	test_init_private(test_page_size);
 	test_conversion_before_allocation(test_page_size);
 	test_conversion_if_not_all_folios_allocated(test_page_size);
 	test_conversions_should_not_affect_surrounding_pages(test_page_size);
-	test_truncate_should_not_change_mappability(test_page_size);
+	test_truncate_should_not_change_shared_private_status(test_page_size);
 	test_conversions_should_fail_if_memory_has_elevated_refcount(test_page_size);
 	test_fault_type_independent_of_mem_attributes(test_page_size);
 	test_truncate_shared_while_pinned(test_page_size);

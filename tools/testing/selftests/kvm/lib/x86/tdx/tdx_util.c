@@ -667,15 +667,40 @@ void td_vcpu_run(struct kvm_vcpu *vcpu)
 void handle_memory_conversion(struct kvm_vm *vm, uint32_t vcpu_id, uint64_t gpa,
 			      uint64_t size, bool shared_to_private)
 {
-	struct kvm_memory_attributes range;
+	struct userspace_mem_region *region;
 
-	range.address = gpa;
-	range.size = size;
-	range.attributes = shared_to_private ? KVM_MEMORY_ATTRIBUTE_PRIVATE : 0;
-	range.flags = 0;
+	region = addr_gpa2region(vm, gpa);
+	TEST_ASSERT(region != NULL, "Unexpected NULL userspace_mem_region.");
 
-	pr_debug("\t ... call KVM_SET_MEMORY_ATTRIBUTES ioctl from vCPU %u with gpa=%#lx, size=%#lx, attributes=%#llx\n",
-		 vcpu_id, gpa, size, range.attributes);
+	if (region->guest_memfd_flags & GUEST_MEMFD_FLAG_SUPPORT_SHARED) {
+		int guest_memfd;
+		loff_t offset;
 
-	vm_ioctl(vm, KVM_SET_MEMORY_ATTRIBUTES, &range);
+		guest_memfd = region->region.guest_memfd;
+		offset = gpa - region->region.guest_phys_addr +
+			 region->region.guest_memfd_offset;
+
+		pr_debug("\t ... call guest_memfd ioctl from vCPU %u to convert (to %s) gpa=%#lx (offset=%#lx), size=%#lx\n",
+			 vcpu_id, shared_to_private ? "private" : "shared", gpa,
+			 offset, size);
+
+		if (shared_to_private)
+			guest_memfd_convert_private(guest_memfd, offset, size);
+		else
+			guest_memfd_convert_shared(guest_memfd, offset, size);
+	} else {
+		struct kvm_memory_attributes range = {
+			.address = gpa,
+			.size = size,
+			.attributes = shared_to_private ?
+					      KVM_MEMORY_ATTRIBUTE_PRIVATE :
+					      0,
+			.flags = 0,
+		};
+
+		pr_debug("\t ... call KVM_SET_MEMORY_ATTRIBUTES ioctl from vCPU %u with gpa=%#lx, size=%#lx, attributes=%#llx\n",
+			 vcpu_id, gpa, size, range.attributes);
+
+		vm_ioctl(vm, KVM_SET_MEMORY_ATTRIBUTES, &range);
+	}
 }

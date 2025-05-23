@@ -23,30 +23,31 @@
 #include <kvm_util.h>
 #include <processor.h>
 
+#include "ucall_common.h"
 #define BASE_DATA_SLOT		10
 #define BASE_DATA_GPA		((uint64_t)(1ull << 32))
 #define PER_CPU_DATA_SIZE	((uint64_t)(SZ_2M + PAGE_SIZE))
 
 /* Horrific macro so that the line info is captured accurately :-( */
-#define memcmp_g(gpa, pattern,  size)								\
+#define memcmp_g(gva, pattern,  size)								\
 do {												\
-	uint8_t *mem = (uint8_t *)gpa;								\
+	uint8_t *mem = (uint8_t *)gva;								\
 	size_t i;										\
 												\
 	for (i = 0; i < size; i++)								\
 		__GUEST_ASSERT(mem[i] == pattern,						\
-			       "Guest expected 0x%x at offset %lu (gpa 0x%lx), got 0x%x",	\
-			       pattern, i, gpa + i, mem[i]);					\
+			       "Guest expected 0x%x at offset %lu (gva 0x%lx), got 0x%x",	\
+			       pattern, i, gva + i, mem[i]);					\
 } while (0)
 
-static void memcmp_h(uint8_t *mem, uint64_t gpa, uint8_t pattern, size_t size)
+static void memcmp_h(uint8_t *mem, uint64_t gva, uint8_t pattern, size_t size)
 {
 	size_t i;
 
 	for (i = 0; i < size; i++)
 		TEST_ASSERT(mem[i] == pattern,
-			    "Host expected 0x%x at gpa 0x%lx, got 0x%x",
-			    pattern, gpa + i, mem[i]);
+			    "Host expected 0x%x at gva 0x%lx, got 0x%x",
+			    pattern, gva + i, mem[i]);
 }
 
 /*
@@ -67,6 +68,7 @@ static void memcmp_h(uint8_t *mem, uint64_t gpa, uint8_t pattern, size_t size)
 #define GUEST_STAGE(o, s) { .offset = o, .size = s }
 
 enum ucall_syncs {
+	SYNC_BASE_ADDR = NUM_UCALLS + 1,
 	SYNC_SHARED,
 	SYNC_PRIVATE,
 };
@@ -128,7 +130,7 @@ struct {
 	GUEST_STAGE(SZ_2M, PAGE_SIZE),
 };
 
-static void guest_test_explicit_conversion(uint64_t base_gpa, bool do_fallocate)
+static void guest_test_explicit_conversion(uint64_t base_addr, bool do_fallocate)
 {
 	const uint8_t def_p = 0xaa;
 	const uint8_t init_p = 0xcc;
@@ -136,14 +138,14 @@ static void guest_test_explicit_conversion(uint64_t base_gpa, bool do_fallocate)
 	int i;
 
 	/* Memory should be shared by default. */
-	memset((void *)base_gpa, def_p, PER_CPU_DATA_SIZE);
-	memcmp_g(base_gpa, def_p, PER_CPU_DATA_SIZE);
-	guest_sync_shared(base_gpa, PER_CPU_DATA_SIZE, def_p, init_p);
+	memset((void *)base_addr, def_p, PER_CPU_DATA_SIZE);
+	memcmp_g(base_addr, def_p, PER_CPU_DATA_SIZE);
+	guest_sync_shared(base_addr, PER_CPU_DATA_SIZE, def_p, init_p);
 
-	memcmp_g(base_gpa, init_p, PER_CPU_DATA_SIZE);
+	memcmp_g(base_addr, init_p, PER_CPU_DATA_SIZE);
 
 	for (i = 0; i < ARRAY_SIZE(test_ranges); i++) {
-		uint64_t gpa = base_gpa + test_ranges[i].offset;
+		uint64_t addr = base_addr + test_ranges[i].offset;
 		uint64_t size = test_ranges[i].size;
 		uint8_t p1 = 0x11;
 		uint8_t p2 = 0x22;
@@ -154,7 +156,7 @@ static void guest_test_explicit_conversion(uint64_t base_gpa, bool do_fallocate)
 		 * Set the test region to pattern one to differentiate it from
 		 * the data range as a whole (contains the initial pattern).
 		 */
-		memset((void *)gpa, p1, size);
+		memset((void *)addr, p1, size);
 
 		/*
 		 * Convert to private, set and verify the private data, and
@@ -164,26 +166,26 @@ static void guest_test_explicit_conversion(uint64_t base_gpa, bool do_fallocate)
 		 * punching a hole in private memory is destructive, i.e.
 		 * previous values aren't guaranteed to be preserved.
 		 */
-		guest_map_private(gpa, size, do_fallocate);
+		guest_map_private(addr, size, do_fallocate);
 
 		if (size > PAGE_SIZE) {
-			memset((void *)gpa, p2, PAGE_SIZE);
+			memset((void *)addr, p2, PAGE_SIZE);
 			goto skip;
 		}
 
-		memset((void *)gpa, p2, size);
-		guest_sync_private(gpa, size, p1);
+		memset((void *)addr, p2, size);
+		guest_sync_private(addr, size, p1);
 
 		/*
 		 * Verify that the private memory was set to pattern two, and
 		 * that shared memory still holds the initial pattern.
 		 */
-		memcmp_g(gpa, p2, size);
-		if (gpa > base_gpa)
-			memcmp_g(base_gpa, init_p, gpa - base_gpa);
-		if (gpa + size < base_gpa + PER_CPU_DATA_SIZE)
-			memcmp_g(gpa + size, init_p,
-				 (base_gpa + PER_CPU_DATA_SIZE) - (gpa + size));
+		memcmp_g(addr, p2, size);
+		if (addr > base_addr)
+			memcmp_g(base_addr, init_p, addr - base_addr);
+		if (addr + size < base_addr + PER_CPU_DATA_SIZE)
+			memcmp_g(addr + size, init_p,
+				 (base_addr + PER_CPU_DATA_SIZE) - (addr + size));
 
 		/*
 		 * Convert odd-number page frames back to shared to verify KVM
@@ -191,12 +193,12 @@ static void guest_test_explicit_conversion(uint64_t base_gpa, bool do_fallocate)
 		 */
 		for (j = 0; j < size; j += PAGE_SIZE) {
 			if ((j >> PAGE_SHIFT) & 1) {
-				guest_map_shared(gpa + j, PAGE_SIZE, do_fallocate);
-				guest_sync_shared(gpa + j, PAGE_SIZE, p1, p3);
+				guest_map_shared(addr + j, PAGE_SIZE, do_fallocate);
+				guest_sync_shared(addr + j, PAGE_SIZE, p1, p3);
 
-				memcmp_g(gpa + j, p3, PAGE_SIZE);
+				memcmp_g(addr + j, p3, PAGE_SIZE);
 			} else {
-				guest_sync_private(gpa + j, PAGE_SIZE, p1);
+				guest_sync_private(addr + j, PAGE_SIZE, p1);
 			}
 		}
 
@@ -206,24 +208,24 @@ skip:
 		 * pattern three to fill in the even-number frames before
 		 * asking the host to verify (and write pattern four).
 		 */
-		guest_map_shared(gpa, size, do_fallocate);
-		memset((void *)gpa, p3, size);
-		guest_sync_shared(gpa, size, p3, p4);
-		memcmp_g(gpa, p4, size);
+		guest_map_shared(addr, size, do_fallocate);
+		memset((void *)addr, p3, size);
+		guest_sync_shared(addr, size, p3, p4);
+		memcmp_g(addr, p4, size);
 
 		/*
 		 * Free (via PUNCH_HOLE) *all* private memory so that the next
 		 * iteration starts from a clean slate, e.g. with respect to
 		 * whether or not there are pages/folios in guest_mem.
 		 */
-		guest_map_shared(base_gpa, PER_CPU_DATA_SIZE, true);
+		guest_map_shared(base_addr, PER_CPU_DATA_SIZE, true);
 
 		/*
 		 * Reset the entire block back to the initial pattern. Do this
 		 * after fallocate(PUNCH_HOLE) because hole-punching zeroes
 		 * memory.
 		 */
-		memset((void *)base_gpa, init_p, PER_CPU_DATA_SIZE);
+		memset((void *)base_addr, init_p, PER_CPU_DATA_SIZE);
 	}
 }
 
@@ -240,7 +242,7 @@ static void guest_punch_hole(uint64_t gpa, uint64_t size)
  * proper conversion.  Freeing (PUNCH_HOLE) should zap SPTEs, and reallocating
  * (subsequent fault) should zero memory.
  */
-static void guest_test_punch_hole(uint64_t base_gpa, bool precise)
+static void guest_test_punch_hole(uint64_t base_addr, bool precise)
 {
 	const uint8_t init_p = 0xcc;
 	int i;
@@ -249,10 +251,10 @@ static void guest_test_punch_hole(uint64_t base_gpa, bool precise)
 	 * Convert the entire range to private, this testcase is all about
 	 * punching holes in guest_memfd, i.e. shared mappings aren't needed.
 	 */
-	guest_map_private(base_gpa, PER_CPU_DATA_SIZE, false);
+	guest_map_private(base_addr, PER_CPU_DATA_SIZE, false);
 
 	for (i = 0; i < ARRAY_SIZE(test_ranges); i++) {
-		uint64_t gpa = base_gpa + test_ranges[i].offset;
+		uint64_t gpa = base_addr + test_ranges[i].offset;
 		uint64_t size = test_ranges[i].size;
 
 		/*
@@ -261,15 +263,15 @@ static void guest_test_punch_hole(uint64_t base_gpa, bool precise)
 		 * reallocating should obviously work, and freeing all memory
 		 * minimizes the probability of cross-testcase influence.
 		 */
-		guest_punch_hole(base_gpa, PER_CPU_DATA_SIZE);
+		guest_punch_hole(base_addr, PER_CPU_DATA_SIZE);
 
 		/* Fault-in and initialize memory, and verify the pattern. */
 		if (precise) {
 			memset((void *)gpa, init_p, size);
 			memcmp_g(gpa, init_p, size);
 		} else {
-			memset((void *)base_gpa, init_p, PER_CPU_DATA_SIZE);
-			memcmp_g(base_gpa, init_p, PER_CPU_DATA_SIZE);
+			memset((void *)base_addr, init_p, PER_CPU_DATA_SIZE);
+			memcmp_g(base_addr, init_p, PER_CPU_DATA_SIZE);
 		}
 
 		/*
@@ -281,21 +283,29 @@ static void guest_test_punch_hole(uint64_t base_gpa, bool precise)
 	}
 }
 
-static void guest_code(uint64_t base_gpa)
+static void guest_code(void)
 {
+	uint64_t base_addr;
+	struct ucall uc;
+	uint64_t cmd;
+
+	cmd = ucall_read(&uc, UCALL_SYNC, 0);
+	GUEST_ASSERT_EQ(cmd, SYNC_BASE_ADDR);
+	base_addr = uc.args[0];
+
 	/*
 	 * Run the conversion test twice, with and without doing fallocate() on
 	 * the guest_memfd backing when converting between shared and private.
 	 */
-	guest_test_explicit_conversion(base_gpa, false);
-	guest_test_explicit_conversion(base_gpa, true);
+	guest_test_explicit_conversion(base_addr, false);
+	guest_test_explicit_conversion(base_addr, true);
 
 	/*
 	 * Run the PUNCH_HOLE test twice too, once with the entire guest_memfd
 	 * faulted in, once with only the target range faulted in.
 	 */
-	guest_test_punch_hole(base_gpa, false);
-	guest_test_punch_hole(base_gpa, true);
+	guest_test_punch_hole(base_addr, false);
+	guest_test_punch_hole(base_addr, true);
 	GUEST_DONE();
 }
 
@@ -382,12 +392,31 @@ static void add_memslot(struct kvm_vm *vm, uint64_t gpa, uint32_t slot,
 
 static bool run_vcpus;
 
+static void setup_guest_base_addr(struct kvm_vcpu *vcpu, uint64_t base_addr)
+{
+	struct ucall *uc;
+
+	vcpu_run(vcpu);
+
+	get_writable_ucall(vcpu, &uc);
+	uc->cmd = SYNC_BASE_ADDR;
+	uc->args[0] = base_addr;
+}
+
+struct thread_args {
+	struct kvm_vcpu *vcpu;
+	uint64_t base_addr;
+};
+
 static void *__test_mem_conversions(void *params)
 {
-	struct kvm_vcpu *vcpu = params;
+	struct thread_args *args = params;
+	struct kvm_vcpu *vcpu = args->vcpu;
 	struct kvm_run *run = vcpu->run;
 	struct kvm_vm *vm = vcpu->vm;
 	struct ucall uc;
+
+	setup_guest_base_addr(vcpu, args->base_addr);
 
 	while (!READ_ONCE(run_vcpus))
 		;
@@ -491,6 +520,16 @@ static struct kvm_vm *test_vm_setup(size_t per_cpu_size, struct kvm_vcpu *vcpus[
 		}
 	}
 
+	for (i = 0; i < test_params.nr_vcpus; i++) {
+		uint64_t gpa = BASE_DATA_GPA + i * per_cpu_size;
+
+		/*
+		 * Map only what is needed so that an out-of-bounds access
+		 * results #PF => SHUTDOWN instead of data corruption.
+		 */
+		virt_map(vm, gpa, gpa, PER_CPU_DATA_SIZE / vm->page_size);
+	}
+
 	*guest_memfd = memfd;
 	return vm;
 }
@@ -498,6 +537,7 @@ static struct kvm_vm *test_vm_setup(size_t per_cpu_size, struct kvm_vcpu *vcpus[
 static void test_mem_conversions(void)
 {
 	struct kvm_vcpu *vcpus[KVM_MAX_VCPUS];
+	struct thread_args thread_args[KVM_MAX_VCPUS];
 	pthread_t threads[KVM_MAX_VCPUS];
 	size_t per_cpu_size;
 	size_t memfd_size;
@@ -520,18 +560,11 @@ static void test_mem_conversions(void)
 	vm = test_vm_setup(per_cpu_size, vcpus, &memfd);
 
 	for (i = 0; i < test_params.nr_vcpus; i++) {
-		uint64_t gpa =  BASE_DATA_GPA + i * per_cpu_size;
-
-		vcpu_args_set(vcpus[i], 1, gpa);
-
-		/*
-		 * Map only what is needed so that an out-of-bounds access
-		 * results #PF => SHUTDOWN instead of data corruption.
-		 */
-		virt_map(vm, gpa, gpa, PER_CPU_DATA_SIZE / vm->page_size);
+		thread_args[i].vcpu = vcpus[i];
+		thread_args[i].base_addr = BASE_DATA_GPA + i * per_cpu_size;
 
 		pthread_create(&threads[i], NULL, __test_mem_conversions,
-			       (void *)vcpus[i]);
+			       (void *)&thread_args[i]);
 	}
 
 	WRITE_ONCE(run_vcpus, true);

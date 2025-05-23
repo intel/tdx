@@ -447,34 +447,19 @@ static void *__test_mem_conversions(void *params)
 	}
 }
 
-static void test_mem_conversions(void)
+static struct kvm_vm *test_vm_setup(size_t per_cpu_size, struct kvm_vcpu *vcpus[KVM_MAX_VCPUS], int *guest_memfd)
 {
-	struct kvm_vcpu *vcpus[KVM_MAX_VCPUS];
-	pthread_t threads[KVM_MAX_VCPUS];
-	size_t per_cpu_size;
-	size_t memfd_size;
-	struct kvm_vm *vm;
-	size_t alignment;
-	size_t slot_size;
-	int memfd, i, r;
-	uint64_t flags;
-
 	const struct vm_shape shape = {
 		.mode = VM_MODE_DEFAULT,
 		.type = KVM_X86_SW_PROTECTED_VM,
 	};
+	struct kvm_vm *vm;
+	size_t memfd_size;
+	size_t slot_size;
+	uint64_t flags;
+	int memfd;
+	int i;
 
-	/*
-	 * Allocate enough memory so that each vCPU's chunk of memory can be
-	 * naturally aligned with respect to the size of the backing store.
-	 */
-	alignment = max_t(
-		size_t, SZ_2M,
-		max_t(size_t,
-		      get_backing_src_pagesz(test_params.shared_mem_src_type),
-		      get_private_mem_backing_src_pagesz(test_params.private_mem_src_type)));
-
-	per_cpu_size = align_up(PER_CPU_DATA_SIZE, alignment);
 	memfd_size = per_cpu_size * test_params.nr_vcpus;
 	slot_size = memfd_size / test_params.nr_memslots;
 
@@ -505,6 +490,34 @@ static void test_mem_conversions(void)
 
 		}
 	}
+
+	*guest_memfd = memfd;
+	return vm;
+}
+
+static void test_mem_conversions(void)
+{
+	struct kvm_vcpu *vcpus[KVM_MAX_VCPUS];
+	pthread_t threads[KVM_MAX_VCPUS];
+	size_t per_cpu_size;
+	size_t memfd_size;
+	struct kvm_vm *vm;
+	size_t alignment;
+	int memfd, i, r;
+
+	/*
+	 * Allocate enough memory so that each vCPU's chunk of memory can be
+	 * naturally aligned with respect to the size of the backing store.
+	 */
+	alignment = max_t(
+		size_t, SZ_2M,
+		max_t(size_t,
+		      get_backing_src_pagesz(test_params.shared_mem_src_type),
+		      get_private_mem_backing_src_pagesz(test_params.private_mem_src_type)));
+
+	per_cpu_size = align_up(PER_CPU_DATA_SIZE, alignment);
+	memfd_size = per_cpu_size * test_params.nr_vcpus;
+	vm = test_vm_setup(per_cpu_size, vcpus, &memfd);
 
 	for (i = 0; i < test_params.nr_vcpus; i++) {
 		uint64_t gpa =  BASE_DATA_GPA + i * per_cpu_size;

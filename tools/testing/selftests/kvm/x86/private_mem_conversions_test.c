@@ -2,6 +2,7 @@
 /*
  * Copyright (C) 2022, Google LLC.
  */
+#include <asm/vmx.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <pthread.h>
@@ -24,9 +25,15 @@
 #include <processor.h>
 
 #include "ucall_common.h"
+#include "tdx/tdx.h"
+#include "tdx/tdx_util.h"
+
 #define BASE_DATA_SLOT		10
 #define BASE_DATA_GPA		((uint64_t)(1ull << 32))
 #define PER_CPU_DATA_SIZE	((uint64_t)(SZ_2M + PAGE_SIZE))
+
+/* Select any bit that can be used as a flag */
+#define TD_GVA_SHARED_BIT BIT_ULL(36)
 
 /* Horrific macro so that the line info is captured accurately :-( */
 #define memcmp_g(gva, pattern,  size)								\
@@ -91,23 +98,37 @@ static struct test_params {
 	bool back_shared_memory_with_guest_memfd;
 	uint32_t nr_vcpus;
 	uint32_t nr_memslots;
+	uint8_t vm_type;
 } test_params;
 
-/* Arbitrary values, KVM doesn't care about the attribute flags. */
+/* Arbitrary values; KVM_X86_SW_PROTECTED_VM doesn't care about the attribute flags. */
 #define MAP_GPA_SET_ATTRIBUTES	BIT(0)
 #define MAP_GPA_SHARED		BIT(1)
 #define MAP_GPA_DO_FALLOCATE	BIT(2)
 
+static uint64_t arch_s_bit;
+
 static void guest_map_mem(uint64_t gpa, uint64_t size, bool map_shared,
 			  bool do_fallocate)
 {
-	uint64_t flags = MAP_GPA_SET_ATTRIBUTES;
+	if (test_params.vm_type == KVM_X86_TDX_VM) {
+		uint64_t failed_gpa;
+		uint64_t ret;
 
-	if (map_shared)
-		flags |= MAP_GPA_SHARED;
-	if (do_fallocate)
-		flags |= MAP_GPA_DO_FALLOCATE;
-	kvm_hypercall_map_gpa_range(gpa, size, flags);
+		if (map_shared)
+			gpa |= arch_s_bit;
+
+		ret = tdg_vp_vmcall_map_gpa(gpa, size, &failed_gpa);
+		GUEST_ASSERT_EQ(ret, 0);
+	} else {
+		uint64_t flags = MAP_GPA_SET_ATTRIBUTES;
+
+		if (map_shared)
+			flags |= MAP_GPA_SHARED;
+		if (do_fallocate)
+			flags |= MAP_GPA_DO_FALLOCATE;
+		kvm_hypercall_map_gpa_range(gpa, size, flags);
+	}
 }
 
 static void guest_map_shared(uint64_t gpa, uint64_t size, bool do_fallocate)
@@ -131,33 +152,63 @@ struct {
 	GUEST_STAGE(SZ_2M, PAGE_SIZE),
 };
 
+static uint64_t make_shared(uint64_t addr)
+{
+	if (test_params.vm_type == KVM_X86_TDX_VM)
+		addr |= TD_GVA_SHARED_BIT;
+
+	return addr;
+}
+
+static uint64_t make_private(uint64_t addr)
+{
+	if (test_params.vm_type == KVM_X86_TDX_VM)
+		addr &= ~TD_GVA_SHARED_BIT;
+
+	return addr;
+}
+
 static void guest_test_explicit_conversion(uint64_t base_addr, bool do_fallocate)
 {
 	const uint8_t def_p = 0xaa;
 	const uint8_t init_p = 0xcc;
+	uint64_t base_gva_shared;
+	uint64_t base_gpa;
 	uint64_t j;
 	int i;
 
 	/* Memory should be shared by default. */
-	memset((void *)base_addr, def_p, PER_CPU_DATA_SIZE);
-	memcmp_g(base_addr, def_p, PER_CPU_DATA_SIZE);
-	guest_sync_shared(base_addr, PER_CPU_DATA_SIZE, def_p, init_p);
+	base_gva_shared = make_shared(base_addr);
+	base_gpa = base_addr;
 
-	memcmp_g(base_addr, init_p, PER_CPU_DATA_SIZE);
+	memset((void *)base_gva_shared, def_p, PER_CPU_DATA_SIZE);
+	memcmp_g(base_gva_shared, def_p, PER_CPU_DATA_SIZE);
+	guest_sync_shared(base_gpa, PER_CPU_DATA_SIZE, def_p, init_p);
+
+	memcmp_g(base_gva_shared, init_p, PER_CPU_DATA_SIZE);
 
 	for (i = 0; i < ARRAY_SIZE(test_ranges); i++) {
-		uint64_t addr = base_addr + test_ranges[i].offset;
-		uint64_t size = test_ranges[i].size;
-		uint8_t p1 = 0x11;
-		uint8_t p2 = 0x22;
-		uint8_t p3 = 0x33;
-		uint8_t p4 = 0x44;
+		const uint8_t p1 = 0x11;
+		const uint8_t p2 = 0x22;
+		const uint8_t p3 = 0x33;
+		const uint8_t p4 = 0x44;
+		uint64_t gva_private;
+		uint64_t gva_shared;
+		uint64_t size;
+		uint64_t addr;
+		uint64_t gpa;
+
+		size = test_ranges[i].size;
+		addr = base_addr + test_ranges[i].offset;
+		gpa = addr;
+		gva_shared = make_shared(addr);
+		gva_private = make_private(addr);
 
 		/*
 		 * Set the test region to pattern one to differentiate it from
 		 * the data range as a whole (contains the initial pattern).
 		 */
-		memset((void *)addr, p1, size);
+		memset((void *)gva_shared, p1, size);
 
 		/*
 		 * Convert to private, set and verify the private data, and
@@ -167,25 +218,25 @@ static void guest_test_explicit_conversion(uint64_t base_addr, bool do_fallocate
 		 * punching a hole in private memory is destructive, i.e.
 		 * previous values aren't guaranteed to be preserved.
 		 */
-		guest_map_private(addr, size, do_fallocate);
+		guest_map_private(gpa, size, do_fallocate);
 
 		if (size > PAGE_SIZE) {
-			memset((void *)addr, p2, PAGE_SIZE);
+			memset((void *)gva_private, p2, PAGE_SIZE);
 			goto skip;
 		}
 
-		memset((void *)addr, p2, size);
-		guest_sync_private(addr, size, p1);
+		memset((void *)gva_private, p2, size);
+		guest_sync_private(gpa, size, p1);
 
 		/*
 		 * Verify that the private memory was set to pattern two, and
 		 * that shared memory still holds the initial pattern.
 		 */
-		memcmp_g(addr, p2, size);
+		memcmp_g(gva_private, p2, size);
 		if (addr > base_addr)
-			memcmp_g(base_addr, init_p, addr - base_addr);
+			memcmp_g(base_gva_shared, init_p, addr - base_addr);
 		if (addr + size < base_addr + PER_CPU_DATA_SIZE)
-			memcmp_g(addr + size, init_p,
+			memcmp_g(gva_shared + size, init_p,
 				 (base_addr + PER_CPU_DATA_SIZE) - (addr + size));
 
 		/*
@@ -194,12 +245,12 @@ static void guest_test_explicit_conversion(uint64_t base_addr, bool do_fallocate
 		 */
 		for (j = 0; j < size; j += PAGE_SIZE) {
 			if ((j >> PAGE_SHIFT) & 1) {
-				guest_map_shared(addr + j, PAGE_SIZE, do_fallocate);
-				guest_sync_shared(addr + j, PAGE_SIZE, p1, p3);
+				guest_map_shared(gpa + j, PAGE_SIZE, do_fallocate);
+				guest_sync_shared(gpa + j, PAGE_SIZE, p1, p3);
 
-				memcmp_g(addr + j, p3, PAGE_SIZE);
+				memcmp_g(gva_shared + j, p3, PAGE_SIZE);
 			} else {
-				guest_sync_private(addr + j, PAGE_SIZE, p1);
+				guest_sync_private(gpa + j, PAGE_SIZE, p1);
 			}
 		}
 
@@ -209,24 +260,24 @@ skip:
 		 * pattern three to fill in the even-number frames before
 		 * asking the host to verify (and write pattern four).
 		 */
-		guest_map_shared(addr, size, do_fallocate);
-		memset((void *)addr, p3, size);
-		guest_sync_shared(addr, size, p3, p4);
-		memcmp_g(addr, p4, size);
+		guest_map_shared(gpa, size, do_fallocate);
+		memset((void *)gva_shared, p3, size);
+		guest_sync_shared(gpa, size, p3, p4);
+		memcmp_g(gva_shared, p4, size);
 
 		/*
 		 * Free (via PUNCH_HOLE) *all* private memory so that the next
 		 * iteration starts from a clean slate, e.g. with respect to
 		 * whether or not there are pages/folios in guest_mem.
 		 */
-		guest_map_shared(base_addr, PER_CPU_DATA_SIZE, true);
+		guest_map_shared(base_gpa, PER_CPU_DATA_SIZE, true);
 
 		/*
 		 * Reset the entire block back to the initial pattern. Do this
 		 * after fallocate(PUNCH_HOLE) because hole-punching zeroes
 		 * memory.
 		 */
-		memset((void *)base_addr, init_p, PER_CPU_DATA_SIZE);
+		memset((void *)base_gva_shared, init_p, PER_CPU_DATA_SIZE);
 	}
 }
 
@@ -294,9 +345,13 @@ static void guest_code(void)
 	/*
 	 * Run the conversion test twice, with and without doing fallocate() on
 	 * the guest_memfd backing when converting between shared and private.
+	 *
+	 * For TDX VMs, fallocate() is not performed by userspace VMM,
+	 * do_fallocate is ignored.
 	 */
 	guest_test_explicit_conversion(base_addr, false);
-	guest_test_explicit_conversion(base_addr, true);
+	if (test_params.vm_type != KVM_X86_TDX_VM)
+		guest_test_explicit_conversion(base_addr, true);
 
 	/*
 	 * Run the PUNCH_HOLE test twice too, once with the entire guest_memfd
@@ -310,12 +365,26 @@ static void guest_code(void)
 static void handle_exit_hypercall(struct kvm_vcpu *vcpu)
 {
 	struct kvm_run *run = vcpu->run;
-	uint64_t gpa = run->hypercall.args[0];
-	uint64_t size = run->hypercall.args[1] * PAGE_SIZE;
-	bool set_attributes = run->hypercall.args[2] & MAP_GPA_SET_ATTRIBUTES;
-	bool map_shared = run->hypercall.args[2] & MAP_GPA_SHARED;
-	bool do_fallocate = run->hypercall.args[2] & MAP_GPA_DO_FALLOCATE;
 	struct kvm_vm *vm = vcpu->vm;
+	uint64_t size;
+	uint64_t gpa;
+	bool set_attributes;
+	bool map_shared;
+	bool do_fallocate;
+
+	gpa = run->hypercall.args[0];
+	size = run->hypercall.args[1] * PAGE_SIZE;
+
+	if (test_params.vm_type == KVM_X86_TDX_VM) {
+		set_attributes = true;
+		map_shared = !(vcpu->run->hypercall.args[2] &
+			       KVM_MAP_GPA_RANGE_ENCRYPTED);
+		do_fallocate = false;
+	} else {
+		set_attributes = run->hypercall.args[2] & MAP_GPA_SET_ATTRIBUTES;
+		map_shared = run->hypercall.args[2] & MAP_GPA_SHARED;
+		do_fallocate = run->hypercall.args[2] & MAP_GPA_DO_FALLOCATE;
+	}
 
 	TEST_ASSERT(run->hypercall.nr == KVM_HC_MAP_GPA_RANGE,
 		    "Wanted MAP_GPA_RANGE (%u), got '%llu'",
@@ -420,6 +489,8 @@ static void *__test_mem_conversions(void *params)
 		;
 
 	for ( ;; ) {
+		uint32_t expected_ucall_exit_reason;
+
 		vcpu_run(vcpu);
 
 		if (run->exit_reason == KVM_EXIT_HYPERCALL) {
@@ -427,18 +498,25 @@ static void *__test_mem_conversions(void *params)
 			continue;
 		}
 
-		TEST_ASSERT(run->exit_reason == KVM_EXIT_IO,
-			    "Wanted KVM_EXIT_IO, got exit reason: %u (%s)",
-			    run->exit_reason, exit_reason_str(run->exit_reason));
+		expected_ucall_exit_reason =
+			test_params.vm_type == KVM_X86_TDX_VM ? KVM_EXIT_MMIO :
+								KVM_EXIT_IO;
+		TEST_ASSERT(run->exit_reason == expected_ucall_exit_reason,
+			    "Wanted %s, got exit reason: %u (%s)",
+			    exit_reason_str(expected_ucall_exit_reason),
+			    run->exit_reason,
+			    exit_reason_str(run->exit_reason));
 
 		switch (get_ucall(vcpu, &uc)) {
 		case UCALL_ABORT:
 			REPORT_GUEST_ASSERT(uc);
+		case UCALL_PRINTF:
+			REPORT_GUEST_PRINTF(uc);
+			break;
 		case UCALL_PUNCH_HOLE: {
 			uint64_t gpa  = uc.args[0];
 			size_t size = uc.args[1];
 
-			fprintf(stderr, "zeroing gpa=%lx, size=%lx\n", gpa, size);
 			vm_guest_mem_fallocate(vm, gpa, size, true);
 			break;
 		}
@@ -536,7 +614,84 @@ static struct kvm_vm *test_vm_setup(size_t per_cpu_size, struct kvm_vcpu *vcpus[
 		virt_map(vm, gpa, gpa, PER_CPU_DATA_SIZE / vm->page_size);
 	}
 
+	sync_global_to_guest(vm, test_params);
+
 	*guest_memfd = memfd;
+	return vm;
+}
+
+static void guest_ve_handler(struct ex_regs *regs)
+{
+	struct ve_info ve;
+	uint64_t ret;
+
+	ret = tdg_vp_veinfo_get(&ve);
+	GUEST_ASSERT(!ret);
+
+	/* For this test, we will only handle EXIT_REASON_EPT_VIOLATION */
+	GUEST_ASSERT_EQ(ve.exit_reason, EXIT_REASON_EPT_VIOLATION);
+
+#define MEM_PAGE_ACCEPT_LEVEL_4K 0
+#define MEM_PAGE_ACCEPT_LEVEL_2M 1
+	ret = tdg_mem_page_accept(ve.gpa & PAGE_MASK, MEM_PAGE_ACCEPT_LEVEL_4K);
+	GUEST_ASSERT(!ret);
+}
+
+static struct kvm_vm *test_td_setup(size_t per_cpu_size,
+				    struct kvm_vcpu *vcpus[KVM_MAX_VCPUS],
+				    int *guest_memfd)
+{
+	uint64_t guest_memfd_flags;
+	size_t per_cpu_nr_pages;
+	size_t test_nr_pages;
+	struct kvm_vm *vm;
+	size_t test_size;
+	size_t slot_size;
+	int i;
+
+	vm = td_create();
+
+	test_size = per_cpu_size * test_params.nr_vcpus;
+	test_nr_pages = test_size >> vm->page_shift;
+	td_initialize_with_extra_mem_pages(vm, VM_MEM_SRC_ANONYMOUS, 0, test_nr_pages);
+
+	for (i = 0; i < test_params.nr_vcpus; ++i)
+		vcpus[i] = td_vcpu_add(vm, i, guest_code);
+
+	vm_install_exception_handler(vm, VE_VECTOR, guest_ve_handler);
+
+	test_params.back_shared_memory_with_guest_memfd = true;
+	guest_memfd_flags = GUEST_MEMFD_FLAG_SUPPORT_SHARED;
+	*guest_memfd = vm_create_guest_memfd(vm, test_size, guest_memfd_flags);
+	TEST_ASSERT(*guest_memfd > 0, "guest_memfd creation failed");
+
+	slot_size = test_size / test_params.nr_memslots;
+	for (i = 0; i < test_params.nr_memslots; i++) {
+		add_memslot(vm, BASE_DATA_GPA + slot_size * i,
+			    BASE_DATA_SLOT + i, slot_size, *guest_memfd,
+			    slot_size * i, guest_memfd_flags);
+	}
+
+	write_guest_global(vm, arch_s_bit, vm->arch.s_bit);
+	sync_global_to_guest(vm, test_params);
+
+	per_cpu_nr_pages = PER_CPU_DATA_SIZE / vm->page_size;
+	for (i = 0; i < test_params.nr_vcpus; i++) {
+		uint64_t gpa = BASE_DATA_GPA + i * per_cpu_size;
+
+		/*
+		 * By mapping the same GPA as shared and private, the TD does
+		 * not have to remap its page tables at runtime to perform
+		 * private and shared accesses.
+		 */
+		virt_map_private(vm, gpa, gpa, per_cpu_nr_pages);
+		virt_map_shared(vm, gpa | TD_GVA_SHARED_BIT, gpa, per_cpu_nr_pages);
+	}
+
+	td_finalize(vm);
+
+	vm_enable_cap(vm, KVM_CAP_EXIT_HYPERCALL, BIT_ULL(KVM_HC_MAP_GPA_RANGE));
+
 	return vm;
 }
 
@@ -563,7 +718,17 @@ static void test_mem_conversions(void)
 
 	per_cpu_size = align_up(PER_CPU_DATA_SIZE, alignment);
 	memfd_size = per_cpu_size * test_params.nr_vcpus;
-	vm = test_vm_setup(per_cpu_size, vcpus, &memfd);
+
+	switch (test_params.vm_type) {
+	case KVM_X86_SW_PROTECTED_VM:
+		vm = test_vm_setup(per_cpu_size, vcpus, &memfd);
+		break;
+	case KVM_X86_TDX_VM:
+		vm = test_td_setup(per_cpu_size, vcpus, &memfd);
+		break;
+	default:
+		TEST_FAIL("Unknown vm type %d.", test_params.vm_type);
+	}
 
 	for (i = 0; i < test_params.nr_vcpus; i++) {
 		thread_args[i].vcpu = vcpus[i];
@@ -595,6 +760,16 @@ static void test_mem_conversions(void)
 	close(memfd);
 }
 
+static uint8_t parse_vm_type(const char *string)
+{
+	if (strcmp(string, "sw_protected") == 0)
+		return KVM_X86_SW_PROTECTED_VM;
+	else if (strcmp(string, "tdx") == 0)
+		return KVM_X86_TDX_VM;
+	else
+		TEST_FAIL("Unknown vm type %s.", string);
+}
+
 static void usage(const char *cmd)
 {
 	puts("");
@@ -623,11 +798,12 @@ int main(int argc, char *argv[])
 		.back_shared_memory_with_guest_memfd = false,
 		.nr_vcpus = 1,
 		.nr_memslots = 1,
+		.vm_type = KVM_X86_SW_PROTECTED_VM,
 	};
 
 	TEST_REQUIRE(kvm_check_cap(KVM_CAP_VM_TYPES) & BIT(KVM_X86_SW_PROTECTED_VM));
 
-	while ((opt = getopt(argc, argv, "hgm:s:p:n:")) != -1) {
+	while ((opt = getopt(argc, argv, "hgm:s:p:n:v:")) != -1) {
 		switch (opt) {
 		case 's':
 			test_params.shared_mem_src_type = parse_backing_src_type(optarg);
@@ -643,6 +819,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'g':
 			test_params.back_shared_memory_with_guest_memfd = true;
+			break;
+		case 'v':
+			test_params.vm_type = parse_vm_type(optarg);
 			break;
 		case 'h':
 		default:

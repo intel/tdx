@@ -71,6 +71,7 @@ enum ucall_syncs {
 	SYNC_BASE_ADDR = NUM_UCALLS + 1,
 	SYNC_SHARED,
 	SYNC_PRIVATE,
+	UCALL_PUNCH_HOLE,
 };
 
 static void guest_sync_shared(uint64_t gpa, uint64_t size,
@@ -231,10 +232,7 @@ skip:
 
 static void guest_punch_hole(uint64_t gpa, uint64_t size)
 {
-	/* "Mapping" memory shared via fallocate() is done via PUNCH_HOLE. */
-	uint64_t flags = MAP_GPA_SHARED | MAP_GPA_DO_FALLOCATE;
-
-	kvm_hypercall_map_gpa_range(gpa, size, flags);
+	ucall(UCALL_PUNCH_HOLE, 2, gpa, size);
 }
 
 /*
@@ -436,6 +434,14 @@ static void *__test_mem_conversions(void *params)
 		switch (get_ucall(vcpu, &uc)) {
 		case UCALL_ABORT:
 			REPORT_GUEST_ASSERT(uc);
+		case UCALL_PUNCH_HOLE: {
+			uint64_t gpa  = uc.args[0];
+			size_t size = uc.args[1];
+
+			fprintf(stderr, "zeroing gpa=%lx, size=%lx\n", gpa, size);
+			vm_guest_mem_fallocate(vm, gpa, size, true);
+			break;
+		}
 		case UCALL_SYNC: {
 			uint64_t gpa  = uc.args[1];
 			size_t size = uc.args[2];

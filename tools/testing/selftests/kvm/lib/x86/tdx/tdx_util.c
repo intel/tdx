@@ -449,7 +449,7 @@ struct kvm_vcpu *td_vcpu_add(struct kvm_vm *vm, uint32_t vcpu_id, void *guest_co
 static void load_td_memory_region(struct kvm_vm *vm,
 				  struct userspace_mem_region *region)
 {
-	const struct sparsebit *pages = region->protected_phy_pages;
+	const struct sparsebit *protected_pages = region->protected_phy_pages;
 	const vm_paddr_t gpa_base = region->region.guest_phys_addr;
 	const uint64_t hva_base = region->region.userspace_addr;
 	const sparsebit_idx_t lowest_page_in_region = gpa_base >> vm->page_shift;
@@ -458,12 +458,12 @@ static void load_td_memory_region(struct kvm_vm *vm,
 	sparsebit_idx_t i;
 	sparsebit_idx_t j;
 
-	if (!sparsebit_any_set(pages))
+	if (!sparsebit_any_set(protected_pages))
 		return;
 
 	memslot_has_guest_memfd = region->region.guest_memfd != -1;
 
-	sparsebit_for_each_set_range(pages, i, j) {
+	sparsebit_for_each_set_range(protected_pages, i, j) {
 		const uint64_t size_to_load = (j - i + 1) * vm->page_size;
 		const uint64_t offset =
 			(i - lowest_page_in_region) * vm->page_size;

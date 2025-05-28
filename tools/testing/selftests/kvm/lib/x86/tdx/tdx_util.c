@@ -453,12 +453,15 @@ static void load_td_memory_region(struct kvm_vm *vm,
 	const vm_paddr_t gpa_base = region->region.guest_phys_addr;
 	const uint64_t hva_base = region->region.userspace_addr;
 	const sparsebit_idx_t lowest_page_in_region = gpa_base >> vm->page_shift;
+	bool memslot_has_guest_memfd;
 
 	sparsebit_idx_t i;
 	sparsebit_idx_t j;
 
 	if (!sparsebit_any_set(pages))
 		return;
+
+	memslot_has_guest_memfd = region->region.guest_memfd != -1;
 
 	sparsebit_for_each_set_range(pages, i, j) {
 		const uint64_t size_to_load = (j - i + 1) * vm->page_size;
@@ -467,15 +470,26 @@ static void load_td_memory_region(struct kvm_vm *vm,
 		const uint64_t hva = hva_base + offset;
 		const uint64_t gpa = gpa_base + offset;
 		void *source_addr = (void *)hva;
+		bool needs_copy;
 
 		vm_set_memory_attributes(vm, gpa, size_to_load,
 					 KVM_MEMORY_ATTRIBUTE_PRIVATE);
 
 		/*
-		 * KVM_TDX_INIT_MEM_REGION ioctl cannot encrypt memory in place.
-		 * Make a copy if there's only one backing memory source.
+		 * Here, memory is being loaded from hva to gpa. If the memory
+		 * mapped to hva is also used to back gpa, then a copy has to be
+		 * made just for loading, since KVM_TDX_INIT_MEM_REGION ioctl
+		 * cannot encrypt memory in place.
+		 *
+		 * To determine if memory mapped to hva is also used to back
+		 * gpa, use a heuristic:
+		 *
+		 * If this memslot_has_guest_memfd, then this memslot should
+		 * have memory backed from two sources: hva for shared memory
+		 * and gpa will be backed by guest_memfd.
 		 */
-		if (region->region.guest_memfd == -1) {
+		needs_copy = !memslot_has_guest_memfd;
+		if (needs_copy) {
 			source_addr = mmap(NULL, size_to_load, PROT_READ | PROT_WRITE,
 					   MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 			TEST_ASSERT(source_addr,
@@ -487,7 +501,7 @@ static void load_td_memory_region(struct kvm_vm *vm,
 
 		tdx_init_mem_region(vm, source_addr, gpa, size_to_load);
 
-		if (region->region.guest_memfd == -1)
+		if (needs_copy)
 			munmap(source_addr, size_to_load);
 	}
 }

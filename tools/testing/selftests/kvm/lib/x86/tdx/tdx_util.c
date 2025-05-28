@@ -326,21 +326,6 @@ static void tdx_td_finalize_mr(struct kvm_vm *vm)
 }
 
 /*
- * Other ioctls
- */
-
-/*
- * Register a memory region that may contain encrypted data in KVM.
- */
-static void register_encrypted_memory_region(struct kvm_vm *vm,
-					     struct userspace_mem_region *region)
-{
-	vm_set_memory_attributes(vm, region->region.guest_phys_addr,
-				 region->region.memory_size,
-				 KVM_MEMORY_ATTRIBUTE_PRIVATE);
-}
-
-/*
  * TD creation/setup/finalization
  */
 
@@ -475,9 +460,6 @@ static void load_td_memory_region(struct kvm_vm *vm,
 	if (!sparsebit_any_set(pages))
 		return;
 
-	if (region->region.guest_memfd != -1)
-		register_encrypted_memory_region(vm, region);
-
 	sparsebit_for_each_set_range(pages, i, j) {
 		const uint64_t size_to_load = (j - i + 1) * vm->page_size;
 		const uint64_t offset =
@@ -485,6 +467,9 @@ static void load_td_memory_region(struct kvm_vm *vm,
 		const uint64_t hva = hva_base + offset;
 		const uint64_t gpa = gpa_base + offset;
 		void *source_addr = (void *)hva;
+
+		vm_set_memory_attributes(vm, gpa, size_to_load,
+					 KVM_MEMORY_ATTRIBUTE_PRIVATE);
 
 		/*
 		 * KVM_TDX_INIT_MEM_REGION ioctl cannot encrypt memory in place.

@@ -496,7 +496,6 @@ static void load_td_memory_region(struct kvm_vm *vm,
 				    "Could not allocate memory for loading memory region");
 
 			memcpy(source_addr, (void *)hva, size_to_load);
-			memset((void *)hva, 0, size_to_load);
 		}
 
 		tdx_init_mem_region(vm, source_addr, gpa, size_to_load);

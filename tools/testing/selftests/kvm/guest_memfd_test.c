@@ -108,13 +108,37 @@ static void test_faulting_sigbus(int fd, size_t total_size)
 	TEST_ASSERT(!ret, "munmap should succeed");
 }
 
-static void test_mmap_allowed(int fd, size_t total_size)
+static void test_mmap_allowed(int fd, size_t page_size, size_t total_size)
 {
+	void *mmap_fixed_test_address = (void *)0x600000000000UL;
 	char *mem;
 	int ret;
 
+	if (page_size > SZ_4K) {
+		mem = mmap(NULL, SZ_4K, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		TEST_ASSERT(mem == MAP_FAILED, "mmaping() unaligned size should fail.");
+		TEST_ASSERT_EQ(errno, EINVAL);
+
+		mem = mmap(mmap_fixed_test_address + SZ_4K, page_size,
+			   PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, fd, 0);
+		TEST_ASSERT(mem == MAP_FAILED, "MAP_FIXED with unaligned address should fail.");
+		TEST_ASSERT_EQ(errno, EINVAL);
+	}
+
+	if (page_size > SZ_2M) {
+		mem = mmap(NULL, SZ_2M, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		TEST_ASSERT(mem == MAP_FAILED, "mmaping() unaligned size should fail.");
+		TEST_ASSERT_EQ(errno, EINVAL);
+
+		mem = mmap(mmap_fixed_test_address + SZ_2M, page_size,
+			   PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, fd, 0);
+		TEST_ASSERT(mem == MAP_FAILED, "MAP_FIXED with unaligned address should fail.");
+		TEST_ASSERT_EQ(errno, EINVAL);
+	}
+
 	mem = mmap(NULL, total_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 	TEST_ASSERT(mem != MAP_FAILED, "mmaping() guest memory should pass.");
+	TEST_ASSERT(IS_ALIGNED((size_t)mem, page_size), "mmap() must return an address aligned to page_size");
 
 	ret = munmap(mem, total_size);
 	TEST_ASSERT(!ret, "munmap should succeed");
@@ -481,7 +505,7 @@ static void test_guest_memfd_features(struct kvm_vm *vm, size_t page_size,
 	test_file_read_write(fd);
 
 	if (expect_mmap_allowed) {
-		test_mmap_allowed(fd, total_size);
+		test_mmap_allowed(fd, page_size, total_size);
 
 		if (expect_faulting_allowed)
 			test_faulting_allowed(fd, page_size, total_size);

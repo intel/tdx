@@ -2068,10 +2068,16 @@ static void tdx_free_pamt_pages(struct list_head *pamt_pages)
 	}
 }
 
-static int tdx_alloc_pamt_pages(struct list_head *pamt_pages)
+static int tdx_alloc_pamt_pages(struct list_head *pamt_pages,
+				 struct page *(alloc)(void *data), void *data)
 {
 	for (int i = 0; i < tdx_nr_pamt_pages(); i++) {
-		struct page *page = alloc_page(GFP_KERNEL);
+		struct page *page;
+
+		if (alloc)
+			page = alloc(data);
+		else
+			page = alloc_page(GFP_KERNEL);
 		if (!page)
 			goto fail;
 		list_add(&page->lru, pamt_pages);
@@ -2116,7 +2122,8 @@ static int tdx_pamt_add(atomic_t *pamt_refcount, unsigned long hpa,
 	return 0;
 }
 
-static int tdx_pamt_get(struct page *page, enum pg_level level)
+int tdx_pamt_get(struct page *page, enum pg_level level,
+		 struct page *(alloc)(void *data), void *data)
 {
 	unsigned long hpa = page_to_phys(page);
 	atomic_t *pamt_refcount;
@@ -2135,7 +2142,7 @@ static int tdx_pamt_get(struct page *page, enum pg_level level)
 	if (atomic_inc_not_zero(pamt_refcount))
 		return 0;
 
-	if (tdx_alloc_pamt_pages(&pamt_pages))
+	if (tdx_alloc_pamt_pages(&pamt_pages, alloc, data))
 		return -ENOMEM;
 
 	ret = tdx_pamt_add(pamt_refcount, hpa, &pamt_pages);
@@ -2144,8 +2151,9 @@ static int tdx_pamt_get(struct page *page, enum pg_level level)
 
 	return ret >= 0 ? 0 : ret;
 }
+EXPORT_SYMBOL_GPL(tdx_pamt_get);
 
-static void tdx_pamt_put(struct page *page, enum pg_level level)
+void tdx_pamt_put(struct page *page, enum pg_level level)
 {
 	unsigned long hpa = page_to_phys(page);
 	atomic_t *pamt_refcount;
@@ -2180,6 +2188,7 @@ static void tdx_pamt_put(struct page *page, enum pg_level level)
 
 	tdx_free_pamt_pages(&pamt_pages);
 }
+EXPORT_SYMBOL_GPL(tdx_pamt_put);
 
 struct page *tdx_alloc_page(void)
 {
@@ -2189,7 +2198,7 @@ struct page *tdx_alloc_page(void)
 	if (!page)
 		return NULL;
 
-	if (tdx_pamt_get(page, PG_LEVEL_4K)) {
+	if (tdx_pamt_get(page, PG_LEVEL_4K, NULL, NULL)) {
 		__free_page(page);
 		return NULL;
 	}

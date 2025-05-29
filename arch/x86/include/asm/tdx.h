@@ -118,6 +118,10 @@ u32 tdx_get_nr_guest_keyids(void);
 void tdx_guest_keyid_free(unsigned int keyid);
 
 int tdx_nr_pamt_pages(void);
+int tdx_pamt_get(struct page *page, enum pg_level level,
+		 struct page *(alloc)(void *data), void *data);
+void tdx_pamt_put(struct page *page, enum pg_level level);
+
 struct page *tdx_alloc_page(void);
 void tdx_free_page(struct page *page);
 

@@ -8,6 +8,7 @@
 
 #include "kvm_util.h"
 #include "processor.h"
+#include "sparsebit.h"
 #include "tdx/td_boot.h"
 #include "tdx/tdx.h"
 #include "test_util.h"
@@ -514,15 +515,20 @@ static void load_td_memory_region(struct kvm_vm *vm,
 		using_guest_memfd_for_shared_memory;
 
 	sparsebit_for_each_set_range(protected_pages, i, j) {
-		const uint64_t size_to_load = (j - i + 1) * vm->page_size;
-		const uint64_t offset =
-			(i - lowest_page_in_region) * vm->page_size;
-		const uint64_t hva = hva_base + offset;
-		const uint64_t gpa = gpa_base + offset;
+		sparsebit_idx_t m;
+		sparsebit_idx_t n;
 
-		__load_td_memory_region(vm, (void *)hva, gpa, size_to_load,
-					needs_spare_memory_for_loading,
-					using_guest_memfd_for_shared_memory);
+		sparsebit_for_each_set_range_between(vm->arch.tdx_pages_to_initialize, i, j, m, n) {
+			const uint64_t size_to_load = (n - m + 1) * vm->page_size;
+			const uint64_t offset =
+				(m - lowest_page_in_region) * vm->page_size;
+			const uint64_t hva = hva_base + offset;
+			const uint64_t gpa = gpa_base + offset;
+
+			__load_td_memory_region(vm, (void *)hva, gpa, size_to_load,
+						needs_spare_memory_for_loading,
+						using_guest_memfd_for_shared_memory);
+		}
 	}
 }
 
@@ -542,8 +548,19 @@ struct kvm_vm *td_create(void)
 		.mode = VM_MODE_DEFAULT,
 		.type = KVM_X86_TDX_VM,
 	};
+	struct kvm_vm *vm;
 
-	return ____vm_create(shape);
+	vm = ____vm_create(shape);
+
+	vm->arch.tdx_pages_to_initialize = sparsebit_alloc();
+
+	return vm;
+}
+
+void td_mark_pages_for_loading(struct kvm_vm *vm, uint64_t gpa, size_t size)
+{
+	sparsebit_set_num(vm->arch.tdx_pages_to_initialize,
+			  gpa >> vm->page_shift, size >> vm->page_shift);
 }
 
 static void td_setup_boot_code(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type)
@@ -556,6 +573,8 @@ static void td_setup_boot_code(struct kvm_vm *vm, enum vm_mem_backing_src_type s
 	vm_userspace_mem_region_add(vm, src_type, boot_code_base_gpa, 1, npages,
 				    KVM_MEM_GUEST_MEMFD);
 	vm->memslots[MEM_REGION_CODE] = 1;
+	td_mark_pages_for_loading(vm, boot_code_base_gpa, npages << vm->page_shift);
+
 	addr = vm_vaddr_identity_alloc(vm, boot_code_allocation,
 				       boot_code_base_gpa, MEM_REGION_CODE);
 	TEST_ASSERT_EQ(addr, boot_code_base_gpa);
@@ -582,6 +601,7 @@ static void td_setup_boot_parameters(struct kvm_vm *vm, enum vm_mem_backing_src_
 	vm_userspace_mem_region_add(vm, src_type, TD_BOOT_PARAMETERS_GPA, 2,
 				    npages, KVM_MEM_GUEST_MEMFD);
 	vm->memslots[MEM_REGION_TDX_BOOT_PARAMS] = 2;
+	td_mark_pages_for_loading(vm, TD_BOOT_PARAMETERS_GPA, total_size);
 	addr = vm_vaddr_identity_alloc(vm, total_size, TD_BOOT_PARAMETERS_GPA,
 				       MEM_REGION_TDX_BOOT_PARAMS);
 	TEST_ASSERT_EQ(addr, TD_BOOT_PARAMETERS_GPA);
@@ -629,6 +649,7 @@ void td_initialize_with_extra_mem_pages(struct kvm_vm *vm,
 					uint64_t attributes,
 					size_t extra_mem_pages)
 {
+	struct userspace_mem_region *region;
 	uint64_t nr_pages_required;
 
 	tdx_enable_capabilities(vm);
@@ -643,6 +664,9 @@ void td_initialize_with_extra_mem_pages(struct kvm_vm *vm,
 	 */
 	vm_userspace_mem_region_add(vm, src_type, 0, 0, nr_pages_required,
 				    KVM_MEM_GUEST_MEMFD);
+	region = memslot2region(vm, 0);
+	td_mark_pages_for_loading(vm, region->region.guest_phys_addr,
+				  region->region.memory_size);
 
 	kvm_vm_elf_load(vm, program_invocation_name);
 	tdx_s_bit = vm->arch.s_bit;

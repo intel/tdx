@@ -833,6 +833,10 @@ static void __vm_mem_region_delete(struct kvm_vm *vm,
 	free(region);
 }
 
+__weak void kvm_arch_vm_free(struct kvm_vm *vm)
+{
+}
+
 /*
  * Destroys and frees the VM pointed to by vmp.
  */
@@ -852,6 +856,8 @@ void kvm_vm_free(struct kvm_vm *vmp)
 	/* Free sparsebit arrays. */
 	sparsebit_free(&vmp->vpages_valid);
 	sparsebit_free(&vmp->vpages_mapped);
+
+	kvm_arch_vm_free(vmp);
 
 	kvm_vm_release(vmp);
 

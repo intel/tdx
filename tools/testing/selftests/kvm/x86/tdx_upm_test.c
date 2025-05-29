@@ -395,6 +395,8 @@ static void verify_upm_test(bool implicit)
 				    VM_MEM_SRC_ANONYMOUS, TDX_UPM_TEST_AREA_GPA,
 				    3, test_area_npages, KVM_MEM_GUEST_MEMFD);
 	vm->memslots[MEM_REGION_TEST_DATA] = 3;
+	td_mark_pages_for_loading(vm, TDX_UPM_TEST_AREA_GPA,
+				  test_area_npages << vm->page_shift);
 
 	test_area_gva_private = vm_vaddr_alloc_private(vm, TDX_UPM_TEST_AREA_SIZE,
 						       TDX_UPM_TEST_AREA_GVA_PRIVATE,

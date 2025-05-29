@@ -1424,6 +1424,7 @@ void kvm_selftest_arch_init(void);
 void vm_init_descriptor_tables(struct kvm_vm *vm);
 
 void kvm_arch_vm_post_create(struct kvm_vm *vm);
+void kvm_arch_vm_free(struct kvm_vm *vm);
 
 bool vm_is_gpa_protected(struct kvm_vm *vm, vm_paddr_t paddr);
 

@@ -18,6 +18,7 @@ struct kvm_vm_arch {
 	uint64_t c_bit;
 	uint64_t s_bit;
 	int sev_fd;
+	struct sparsebit *tdx_pages_to_initialize;
 	bool is_pt_protected;
 	bool has_protected_regs;
 };

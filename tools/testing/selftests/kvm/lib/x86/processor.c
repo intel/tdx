@@ -4,6 +4,7 @@
  */
 
 #include "linux/bitmap.h"
+#include "sparsebit.h"
 #include "test_util.h"
 #include "kvm_util.h"
 #include "processor.h"
@@ -673,6 +674,11 @@ void kvm_arch_vm_post_create(struct kvm_vm *vm)
 	TEST_ASSERT(r > 0, "KVM_GET_TSC_KHZ did not provide a valid TSC frequency.");
 	guest_tsc_khz = r;
 	sync_global_to_guest(vm, guest_tsc_khz);
+}
+
+void kvm_arch_vm_free(struct kvm_vm *vm)
+{
+	sparsebit_free(&vm->arch.tdx_pages_to_initialize);
 }
 
 void vcpu_arch_set_entry_point(struct kvm_vcpu *vcpu, void *guest_code)

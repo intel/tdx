@@ -19,6 +19,7 @@ void td_initialize_with_extra_mem_pages(struct kvm_vm *vm,
 					enum vm_mem_backing_src_type src_type,
 					uint64_t attributes,
 					size_t extra_mem_pages);
+void td_mark_pages_for_loading(struct kvm_vm *vm, uint64_t gpa, size_t size);
 void td_finalize(struct kvm_vm *vm);
 void td_vcpu_run(struct kvm_vcpu *vcpu);
 void handle_memory_conversion(struct kvm_vm *vm, uint32_t vcpu_id, uint64_t gpa,

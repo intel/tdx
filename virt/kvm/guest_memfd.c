@@ -6,6 +6,7 @@
 #include <linux/guestmem.h>
 #include <linux/kvm_host.h>
 #include <linux/maple_tree.h>
+#include <linux/mman.h>
 #include <linux/pseudo_fs.h>
 #include <linux/pagemap.h>
 
@@ -63,6 +64,35 @@ static bool kvm_gmem_has_custom_allocator(struct inode *inode)
 	return kvm_gmem_private(inode) && kvm_gmem_allocator_ops(inode) != NULL;
 }
 
+static unsigned long
+kvm_gmem_get_unmapped_area(struct file *file, unsigned long addr,
+			   unsigned long len, unsigned long pgoff,
+			   unsigned long flags)
+{
+	struct inode *inode;
+	size_t page_size;
+	size_t nr_pages;
+	void *priv;
+
+	inode = file_inode(file);
+	if (!kvm_gmem_has_custom_allocator(inode))
+		goto out;
+
+	priv = kvm_gmem_allocator_private(inode);
+	nr_pages = kvm_gmem_allocator_ops(inode)->nr_pages_in_folio(priv);
+	page_size = nr_pages << PAGE_SHIFT;
+
+	if (!IS_ALIGNED(len, page_size))
+		return -EINVAL;
+	if (flags & MAP_FIXED && !IS_ALIGNED(addr, page_size))
+		return -EINVAL;
+
+	addr = ALIGN(addr, page_size);
+
+out:
+	return mm_get_unmapped_area(current->mm, file, addr, len, pgoff, flags);
+}
+
 #else
 
 static const struct guestmem_allocator_operations *
@@ -80,6 +110,8 @@ static bool kvm_gmem_has_custom_allocator(struct inode *inode)
 {
 	return false;
 }
+
+#define kvm_gmem_get_unmapped_area NULL
 
 #endif
 
@@ -1729,11 +1761,12 @@ out:
 }
 
 static struct file_operations kvm_gmem_fops = {
-	.mmap		= kvm_gmem_mmap,
-	.open		= generic_file_open,
-	.release	= kvm_gmem_release,
-	.fallocate	= kvm_gmem_fallocate,
-	.unlocked_ioctl	= kvm_gmem_ioctl,
+	.mmap			= kvm_gmem_mmap,
+	.open			= generic_file_open,
+	.release		= kvm_gmem_release,
+	.fallocate		= kvm_gmem_fallocate,
+	.unlocked_ioctl 	= kvm_gmem_ioctl,
+	.get_unmapped_area	= kvm_gmem_get_unmapped_area,
 };
 
 static void kvm_gmem_free_inode(struct inode *inode)

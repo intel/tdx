@@ -389,11 +389,15 @@ static int split_external_spt(struct kvm *kvm, gfn_t gfn, u64 old_spte,
 			      u64 new_spte, int level, bool shared)
 {
 	void *external_spt = get_external_spt(gfn, new_spte, level);
+	kvm_pfn_t pfn_for_gfn = spte_to_pfn(old_spte);
 	int ret;
 
 	KVM_BUG_ON(!external_spt, kvm);
 
-	ret = kvm_x86_call(split_external_spt)(kvm, gfn, level, external_spt, shared);
+	ret = kvm_x86_call(split_external_spt)(kvm, gfn, level,
+					       pfn_for_gfn, external_spt,
+					       shared);
+
 	return ret;
 }
 /**

@@ -1941,7 +1941,8 @@ static int tdx_spte_demote_private_spte(struct kvm *kvm, gfn_t gfn,
 }
 
 static int tdx_sept_split_private_spt(struct kvm *kvm, gfn_t gfn, enum pg_level level,
-				      void *private_spt, bool mmu_lock_shared)
+				      kvm_pfn_t pfn_for_gfn, void *private_spt,
+				      bool mmu_lock_shared)
 {
 	struct page *page = virt_to_page(private_spt);
 	int ret;

@@ -93,6 +93,25 @@ out:
 	return mm_get_unmapped_area(current->mm, file, addr, len, pgoff, flags);
 }
 
+static unsigned long kvm_gmem_get_align_mask(struct file *file,
+					     unsigned long flags)
+{
+	struct inode *inode;
+	size_t page_size;
+	size_t nr_pages;
+	void *priv;
+
+	inode = file_inode(file);
+	if (!kvm_gmem_has_custom_allocator(inode))
+		return arch_get_align_mask(file, flags);
+
+	priv = kvm_gmem_allocator_private(inode);
+	nr_pages = kvm_gmem_allocator_ops(inode)->nr_pages_in_folio(priv);
+	page_size = nr_pages << PAGE_SHIFT;
+
+	return PAGE_MASK & (page_size - 1);
+}
+
 #else
 
 static const struct guestmem_allocator_operations *
@@ -112,6 +131,7 @@ static bool kvm_gmem_has_custom_allocator(struct inode *inode)
 }
 
 #define kvm_gmem_get_unmapped_area NULL
+#define kvm_gmem_get_align_mask NULL
 
 #endif
 
@@ -1767,6 +1787,7 @@ static struct file_operations kvm_gmem_fops = {
 	.fallocate		= kvm_gmem_fallocate,
 	.unlocked_ioctl 	= kvm_gmem_ioctl,
 	.get_unmapped_area	= kvm_gmem_get_unmapped_area,
+	.get_align_mask		= kvm_gmem_get_align_mask,
 };
 
 static void kvm_gmem_free_inode(struct inode *inode)

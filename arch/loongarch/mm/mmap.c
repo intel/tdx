@@ -65,8 +65,8 @@ static unsigned long arch_get_unmapped_area_common(struct file *filp,
 
 	info.length = len;
 	info.align_offset = pgoff << PAGE_SHIFT;
-	if (filp && is_file_hugepages(filp))
-		info.align_mask = huge_page_mask_align(filp);
+	if (filp && filp->f_op->get_align_mask)
+		info.align_mask = filp->f_op->get_align_mask(filp);
 	else
 		info.align_mask = do_color_align ? (PAGE_MASK & SHM_ALIGN_MASK) : 0;
 

@@ -673,6 +673,7 @@ static const struct file_operations shm_file_operations_huge = {
 	.fsync		= shm_fsync,
 	.release	= shm_release,
 	.get_unmapped_area	= shm_get_unmapped_area,
+	.get_align_mask	= huge_page_mask_align,
 	.llseek		= noop_llseek,
 	.fallocate	= shm_fallocate,
 	.fop_flags	= FOP_HUGE_PAGES,

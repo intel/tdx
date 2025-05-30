@@ -1078,7 +1078,8 @@ void hugetlb_unregister_node(struct node *node);
  */
 bool is_raw_hwpoison_page_in_hugepage(struct page *page);
 
-static inline unsigned long huge_page_mask_align(struct file *file)
+static inline unsigned long huge_page_mask_align(struct file *file,
+						 unsigned long flags)
 {
 	return PAGE_MASK & ~huge_page_mask(hstate_file(file));
 }
@@ -1086,7 +1087,8 @@ static inline unsigned long huge_page_mask_align(struct file *file)
 #else	/* CONFIG_HUGETLB_PAGE */
 struct hstate {};
 
-static inline unsigned long huge_page_mask_align(struct file *file)
+static inline unsigned long huge_page_mask_align(struct file *file,
+						 unsigned long flags)
 {
 	return 0;
 }

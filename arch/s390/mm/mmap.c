@@ -67,8 +67,8 @@ static inline unsigned long mmap_base(unsigned long rnd,
 
 static int get_align_mask(struct file *filp, unsigned long flags)
 {
-	if (filp && is_file_hugepages(filp))
-		return huge_page_mask_align(filp);
+	if (filp && filp->f_op->get_align_mask)
+		return filp->f_op->get_align_mask(filp);
 	if (!(current->flags & PF_RANDOMIZE))
 		return 0;
 	if (filp || (flags & MAP_SHARED))

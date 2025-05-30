@@ -28,8 +28,8 @@
  */
 static unsigned long get_align_mask(struct file *filp)
 {
-	if (filp && is_file_hugepages(filp))
-		return huge_page_mask_align(filp);
+	if (filp && filp->f_op->get_align_mask)
+		return filp->f_op->get_align_mask(filp);
 	/* handle 32- and 64-bit case with a single conditional */
 	if (va_align.flags < 0 || !(va_align.flags & (2 - mmap_is_ia32())))
 		return 0;

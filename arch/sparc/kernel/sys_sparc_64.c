@@ -90,8 +90,8 @@ static inline unsigned long COLOR_ALIGN(unsigned long addr,
 
 static unsigned long get_align_mask(struct file *filp, unsigned long flags)
 {
-	if (filp && is_file_hugepages(filp))
-		return huge_page_mask_align(filp);
+	if (filp && filp->f_op->get_align_mask)
+		return filp->f_op->get_align_mask(filp);
 	if (filp || (flags & MAP_SHARED))
 		return PAGE_MASK & (SHMLBA - 1);
 

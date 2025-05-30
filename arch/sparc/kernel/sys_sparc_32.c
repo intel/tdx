@@ -40,6 +40,14 @@ SYSCALL_DEFINE0(getpagesize)
 	return PAGE_SIZE; /* Possibly older binaries want 8192 on sun4's? */
 }
 
+unsigned long arch_get_align_mask(struct file *file, unsigned long flags)
+{
+	if (flags & MAP_SHARED)
+		return PAGE_MASK & (SHMLBA - 1);
+
+	return 0;
+}
+
 unsigned long arch_get_unmapped_area(struct file *filp, unsigned long addr, unsigned long len, unsigned long pgoff, unsigned long flags, vm_flags_t vm_flags)
 {
 	struct vm_unmapped_area_info info = {};
@@ -67,13 +75,10 @@ unsigned long arch_get_unmapped_area(struct file *filp, unsigned long addr, unsi
 	info.length = len;
 	info.low_limit = addr;
 	info.high_limit = TASK_SIZE;
-	if (!file_hugepage) {
-		info.align_mask = (flags & MAP_SHARED) ?
-			(PAGE_MASK & (SHMLBA - 1)) : 0;
+	info.align_mask = call_get_align_mask(filp, flags);
+	if (!file_hugepage)
 		info.align_offset = pgoff << PAGE_SHIFT;
-	} else {
-		info.align_mask = huge_page_mask_align(filp);
-	}
+
 	return vm_unmapped_area(&info);
 }
 

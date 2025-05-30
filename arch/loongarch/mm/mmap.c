@@ -18,6 +18,14 @@
 
 enum mmap_allocation_direction {UP, DOWN};
 
+unsigned long arch_get_align_mask(struct file *file, unsigned long flags)
+{
+	if (file || (flags & MAP_SHARED))
+		return PAGE_MASK & SHM_ALIGN_MASK;
+
+	return 0;
+}
+
 static unsigned long arch_get_unmapped_area_common(struct file *filp,
 	unsigned long addr0, unsigned long len, unsigned long pgoff,
 	unsigned long flags, enum mmap_allocation_direction dir)
@@ -65,10 +73,7 @@ static unsigned long arch_get_unmapped_area_common(struct file *filp,
 
 	info.length = len;
 	info.align_offset = pgoff << PAGE_SHIFT;
-	if (filp && filp->f_op->get_align_mask)
-		info.align_mask = filp->f_op->get_align_mask(filp);
-	else
-		info.align_mask = do_color_align ? (PAGE_MASK & SHM_ALIGN_MASK) : 0;
+	info.align_mask = call_get_align_mask(filp, flags);
 
 	if (dir == DOWN) {
 		info.flags = VM_UNMAPPED_AREA_TOPDOWN;

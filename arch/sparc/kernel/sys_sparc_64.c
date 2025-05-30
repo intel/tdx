@@ -88,11 +88,9 @@ static inline unsigned long COLOR_ALIGN(unsigned long addr,
 	return base + off;
 }
 
-static unsigned long get_align_mask(struct file *filp, unsigned long flags)
+unsigned long arch_get_align_mask(struct file *file, unsigned long flags)
 {
-	if (filp && filp->f_op->get_align_mask)
-		return filp->f_op->get_align_mask(filp);
-	if (filp || (flags & MAP_SHARED))
+	if (file || (flags & MAP_SHARED))
 		return PAGE_MASK & (SHMLBA - 1);
 
 	return 0;
@@ -144,7 +142,7 @@ unsigned long arch_get_unmapped_area(struct file *filp, unsigned long addr, unsi
 	info.length = len;
 	info.low_limit = TASK_UNMAPPED_BASE;
 	info.high_limit = min(task_size, VA_EXCLUDE_START);
-	info.align_mask = get_align_mask(filp, flags);
+	info.align_mask = call_get_align_mask(filp, flags);
 	if (!file_hugepage)
 		info.align_offset = pgoff << PAGE_SHIFT;
 	addr = vm_unmapped_area(&info);
@@ -212,7 +210,7 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 	info.length = len;
 	info.low_limit = PAGE_SIZE;
 	info.high_limit = mm->mmap_base;
-	info.align_mask = get_align_mask(filp, flags);
+	info.align_mask = call_get_align_mask(filp, flags);
 	if (!file_hugepage)
 		info.align_offset = pgoff << PAGE_SHIFT;
 	addr = vm_unmapped_area(&info);

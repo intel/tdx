@@ -26,10 +26,8 @@
 /*
  * Align a virtual address to avoid aliasing in the I$ on AMD F15h.
  */
-static unsigned long get_align_mask(struct file *filp)
+unsigned long arch_get_align_mask(struct file *file, unsigned long flags)
 {
-	if (filp && filp->f_op->get_align_mask)
-		return filp->f_op->get_align_mask(filp);
 	/* handle 32- and 64-bit case with a single conditional */
 	if (va_align.flags < 0 || !(va_align.flags & (2 - mmap_is_ia32())))
 		return 0;
@@ -52,7 +50,7 @@ static unsigned long get_align_mask(struct file *filp)
  */
 static unsigned long get_align_bits(void)
 {
-	return va_align.bits & get_align_mask(NULL);
+	return va_align.bits & call_get_align_mask(NULL, 0);
 }
 
 static int __init control_va_addr_alignment(char *str)
@@ -151,14 +149,13 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr, unsigned long len,
 	info.length = len;
 	info.low_limit = begin;
 	info.high_limit = end;
+	info.align_mask = call_get_align_mask(filp, flags);
 	if (!(filp && is_file_hugepages(filp))) {
 		info.align_offset = pgoff << PAGE_SHIFT;
 		info.start_gap = stack_guard_placement(vm_flags);
 	}
-	if (filp) {
-		info.align_mask = get_align_mask(filp);
+	if (filp)
 		info.align_offset += get_align_bits();
-	}
 
 	return vm_unmapped_area(&info);
 }
@@ -220,10 +217,10 @@ get_unmapped_area:
 	if (addr > DEFAULT_MAP_WINDOW && !in_32bit_syscall())
 		info.high_limit += TASK_SIZE_MAX - DEFAULT_MAP_WINDOW;
 
-	if (filp) {
-		info.align_mask = get_align_mask(filp);
+	info.align_mask = call_get_align_mask(filp, flags);
+	if (filp)
 		info.align_offset += get_align_bits();
-	}
+
 	addr = vm_unmapped_area(&info);
 	if (!(addr & ~PAGE_MASK))
 		return addr;

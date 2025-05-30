@@ -180,6 +180,9 @@ static inline void mm_update_next_owner(struct mm_struct *mm)
 extern void arch_pick_mmap_layout(struct mm_struct *mm,
 				  struct rlimit *rlim_stack);
 
+unsigned long arch_get_align_mask(struct file *file, unsigned long flags);
+unsigned long call_get_align_mask(struct file *file, unsigned long flags);
+
 unsigned long
 arch_get_unmapped_area(struct file *filp, unsigned long addr,
 		       unsigned long len, unsigned long pgoff,
@@ -210,6 +213,7 @@ generic_get_unmapped_area_topdown(struct file *filp, unsigned long addr,
 				  unsigned long len, unsigned long pgoff,
 				  unsigned long flags, vm_flags_t vm_flags);
 #else
+
 static inline void arch_pick_mmap_layout(struct mm_struct *mm,
 					 struct rlimit *rlim_stack) {}
 #endif

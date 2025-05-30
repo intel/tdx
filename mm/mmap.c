@@ -676,6 +676,14 @@ unsigned long vm_unmapped_area(struct vm_unmapped_area_info *info)
 	return addr;
 }
 
+unsigned long call_get_align_mask(struct file *file, unsigned long flags)
+{
+	if (file && file->f_op->get_align_mask)
+		return file->f_op->get_align_mask(file, flags);
+
+	return arch_get_align_mask(file, flags);
+}
+
 /* Get an address range which is currently unmapped.
  * For shmat() with addr=0.
  *
@@ -716,8 +724,7 @@ generic_get_unmapped_area(struct file *filp, unsigned long addr,
 	info.low_limit = mm->mmap_base;
 	info.high_limit = mmap_end;
 	info.start_gap = stack_guard_placement(vm_flags);
-	if (filp && filp->f_op->get_align_mask)
-		info.align_mask = filp->f_op->get_align_mask(filp);
+	info.align_mask = call_get_align_mask(filp, flags);
 	return vm_unmapped_area(&info);
 }
 
@@ -768,8 +775,7 @@ generic_get_unmapped_area_topdown(struct file *filp, unsigned long addr,
 	info.low_limit = PAGE_SIZE;
 	info.high_limit = arch_get_mmap_base(addr, mm->mmap_base);
 	info.start_gap = stack_guard_placement(vm_flags);
-	if (filp && filp->f_op->get_align_mask)
-		info.align_mask = filp->f_op->get_align_mask(filp);
+	info.align_mask = call_get_align_mask(filp, flags);
 	addr = vm_unmapped_area(&info);
 
 	/*

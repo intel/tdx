@@ -757,3 +757,19 @@ void handle_memory_conversion(struct kvm_vm *vm, uint32_t vcpu_id, uint64_t gpa,
 		vm_ioctl(vm, KVM_SET_MEMORY_ATTRIBUTES, &range);
 	}
 }
+
+uint64_t td_guest_accept(uint64_t gpa)
+{
+	uint64_t ret;
+
+#define MEM_PAGE_ACCEPT_LEVEL_4K 0
+#define MEM_PAGE_ACCEPT_LEVEL_2M 1
+#define MEM_PAGE_ACCEPT_LEVEL_1G 2
+	ret = tdg_mem_page_accept(gpa, MEM_PAGE_ACCEPT_LEVEL_1G);
+	if (ret)
+		ret = tdg_mem_page_accept(gpa, MEM_PAGE_ACCEPT_LEVEL_2M);
+	if (ret)
+		ret = tdg_mem_page_accept(gpa, MEM_PAGE_ACCEPT_LEVEL_4K);
+
+	return ret;
+}

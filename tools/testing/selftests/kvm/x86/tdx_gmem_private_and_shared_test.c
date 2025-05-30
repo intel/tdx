@@ -273,9 +273,7 @@ static void guest_ve_handler(struct ex_regs *regs)
 
 	GUEST_PRINTF("\t ... guest accepting 1 page at GPA: 0x%lx\n", ve.gpa);
 
-#define MEM_PAGE_ACCEPT_LEVEL_4K 0
-#define MEM_PAGE_ACCEPT_LEVEL_2M 1
-	ret = tdg_mem_page_accept(ve.gpa & PAGE_MASK, MEM_PAGE_ACCEPT_LEVEL_4K);
+	ret = td_guest_accept(ve.gpa & PAGE_MASK);
 	GUEST_ASSERT(!ret);
 }
 

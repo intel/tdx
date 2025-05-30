@@ -631,9 +631,7 @@ static void guest_ve_handler(struct ex_regs *regs)
 	/* For this test, we will only handle EXIT_REASON_EPT_VIOLATION */
 	GUEST_ASSERT_EQ(ve.exit_reason, EXIT_REASON_EPT_VIOLATION);
 
-#define MEM_PAGE_ACCEPT_LEVEL_4K 0
-#define MEM_PAGE_ACCEPT_LEVEL_2M 1
-	ret = tdg_mem_page_accept(ve.gpa & PAGE_MASK, MEM_PAGE_ACCEPT_LEVEL_4K);
+	ret = td_guest_accept(ve.gpa & PAGE_MASK);
 	GUEST_ASSERT(!ret);
 }
 

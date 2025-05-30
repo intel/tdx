@@ -363,9 +363,7 @@ static void guest_ve_handler(struct ex_regs *regs)
 
 	tdx_test_send_64bit(TDX_UPM_TEST_ACCEPT_PRINT_PORT, ve.gpa);
 
-#define MEM_PAGE_ACCEPT_LEVEL_4K 0
-#define MEM_PAGE_ACCEPT_LEVEL_2M 1
-	ret = tdg_mem_page_accept(ve.gpa & PAGE_MASK, MEM_PAGE_ACCEPT_LEVEL_4K);
+	ret = td_guest_accept(ve.gpa & PAGE_MASK);
 	TDX_UPM_TEST_ASSERT(!ret);
 }
 

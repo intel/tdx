@@ -46,6 +46,7 @@ enum {
 	UCALL_CHECK_MEM = NUM_UCALLS + 1,
 	UCALL_MAP_GPA,
 	UCALL_CONFIGURE_ACCEPT_LEVEL,
+	UCALL_ACCEPT,
 };
 
 static void __guest_use_memory(uint64_t gva, char expected_read_value,
@@ -113,6 +114,13 @@ static void __guest_configure_accept_level(uint32_t index, uint64_t gpa_start,
 	};
 }
 
+static void __guest_accept(uint64_t gpa, uint8_t accept_level)
+{
+	int ret = tdg_mem_page_accept(gpa, accept_level);
+	GUEST_ASSERT(!ret);
+
+}
+
 static void guest_code(void)
 {
 	struct ucall uc;
@@ -132,6 +140,9 @@ static void guest_code(void)
 		case UCALL_CONFIGURE_ACCEPT_LEVEL:
 			__guest_configure_accept_level(
 				uc.args[0], uc.args[1], uc.args[2], uc.args[3]);
+			break;
+		case UCALL_ACCEPT:
+			__guest_accept(uc.args[0], uc.args[1]);
 			break;
 		default:
 			GUEST_FAIL("Unknown ucall %ld.", cmd);
@@ -294,6 +305,22 @@ static void guest_configure_accept_level(struct kvm_vcpu *vcpu, uint32_t index,
 
 	rc = vcpu_run_handle_basic_ucalls(vcpu);
 	TEST_ASSERT(!rc, "Setting expected_accept_level should not fail.");
+}
+
+static void guest_accept(struct kvm_vcpu *vcpu, uint64_t gpa, uint8_t accept_level)
+{
+	struct ucall *p_uc;
+	uint64_t cmd;
+	int rc;
+
+	cmd = get_writable_ucall(vcpu, &p_uc);
+	TEST_ASSERT_EQ(cmd, UCALL_SYNC);
+	p_uc->cmd = UCALL_ACCEPT;
+	p_uc->args[0] = gpa;
+	p_uc->args[1] = accept_level;
+
+	rc = vcpu_run_handle_basic_ucalls(vcpu);
+	TEST_ASSERT(!rc, "guest_accept should not fail.");
 }
 
 /**
@@ -572,6 +599,43 @@ static void test_explicit_conversion_to_private_accept_on_fault(
 	cleanup_test(test_page_size, vm, guest_memfd, mem);
 }
 
+static void test_explicit_conversion_to_private_and_accept(
+	size_t test_page_size, size_t size_to_convert, uint8_t accept_level)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	int guest_memfd;
+	char *mem;
+
+	vm = setup_test(test_page_size, test_page_size, /*init_private=*/false,
+			&vcpu, &guest_memfd, &mem);
+
+	guest_configure_accept_level(vcpu, 0, TEST_GPA, -1,
+				     MEM_PAGE_ACCEPT_LEVEL_NEVER);
+
+	host_use_memory(mem, 0, 'A');
+	guest_use_memory(vcpu, TEST_GVA_SHARED, 'A', 'B', 0);
+
+	guest_map_gpa_private(vm, vcpu, TEST_GPA, size_to_convert, 0, 0);
+	guest_accept(vcpu, TEST_GPA, accept_level);
+
+	assert_host_cannot_fault(mem);
+	guest_use_memory(vcpu, TEST_GVA_PRIVATE, 0, 'C', 0);
+
+	cleanup_test(test_page_size, vm, guest_memfd, mem);
+}
+
+static void test_explicit_conversion_to_private(size_t test_page_size,
+						size_t size_to_convert,
+						uint8_t accept_level)
+{
+	test_explicit_conversion_to_private_accept_on_fault(
+		test_page_size, size_to_convert, accept_level);
+	test_explicit_conversion_to_private_and_accept(
+		test_page_size, size_to_convert, accept_level);
+}
+
+
 static void
 __test_implicit_page_size_conversion_to_private(size_t test_page_size,
 						bool write)
@@ -720,13 +784,12 @@ int main(int argc, char *argv[])
 
 	printf("Test guest_memfd with 4K pages\n");
 	test_with_size(PAGE_SIZE);
-	test_explicit_conversion_to_private_accept_on_fault(PAGE_SIZE, PAGE_SIZE, MEM_PAGE_ACCEPT_LEVEL_4K);
+	test_explicit_conversion_to_private(PAGE_SIZE, PAGE_SIZE, MEM_PAGE_ACCEPT_LEVEL_4K);
 	printf("\tPASSED\n");
 
 	printf("Test guest_memfd with 2M pages\n");
 	test_with_size(SZ_2M);
-	test_explicit_conversion_to_private_accept_on_fault(SZ_2M, SZ_2M, MEM_PAGE_ACCEPT_LEVEL_2M);
-	test_explicit_conversion_to_private_accept_on_fault(SZ_2M, PAGE_SIZE, MEM_PAGE_ACCEPT_LEVEL_4K);
+	test_explicit_conversion_to_private(SZ_2M, SZ_2M, MEM_PAGE_ACCEPT_LEVEL_2M);
 	printf("\tPASSED\n");
 
 	printf("Test guest_memfd with 1G pages\n");
@@ -735,13 +798,13 @@ int main(int argc, char *argv[])
 	 * guest_memfd will merge the entire page back to 1G, TDX can only fault
 	 * in at 2M level (for now).
 	 */
-	test_explicit_conversion_to_private_accept_on_fault(SZ_1G, SZ_1G, MEM_PAGE_ACCEPT_LEVEL_2M);
+	test_explicit_conversion_to_private(SZ_1G, SZ_1G, MEM_PAGE_ACCEPT_LEVEL_2M);
 	/*
 	 * Can only accept at 4K because guest_memfd does not merge to 2M (yet),
 	 * so guest_memfd will return KVM A 4K page when a sub-1G range is
 	 * requested for conversion.
 	 */
-	test_explicit_conversion_to_private_accept_on_fault(SZ_1G, SZ_2M, MEM_PAGE_ACCEPT_LEVEL_4K);
-	test_explicit_conversion_to_private_accept_on_fault(SZ_1G, PAGE_SIZE, MEM_PAGE_ACCEPT_LEVEL_4K);
+	test_explicit_conversion_to_private(SZ_1G, SZ_2M, MEM_PAGE_ACCEPT_LEVEL_4K);
+	test_explicit_conversion_to_private(SZ_1G, PAGE_SIZE, MEM_PAGE_ACCEPT_LEVEL_4K);
 	printf("\tPASSED\n");
 }

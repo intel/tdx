@@ -548,7 +548,8 @@ static void test_init_shared(size_t test_page_size)
 	cleanup_test(test_page_size, vm, guest_memfd, mem);
 }
 
-static void test_explicit_page_size_conversion_to_private(size_t test_page_size)
+static void test_explicit_conversion_to_private_accept_on_fault(
+	size_t test_page_size, size_t size_to_convert, uint8_t accept_level)
 {
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
@@ -561,11 +562,11 @@ static void test_explicit_page_size_conversion_to_private(size_t test_page_size)
 	host_use_memory(mem, 0, 'A');
 	guest_use_memory(vcpu, TEST_GVA_SHARED, 'A', 'B', 0);
 
-	guest_configure_accept_level(vcpu, 0, TEST_GPA, TEST_GPA + PAGE_SIZE,
-				     MEM_PAGE_ACCEPT_LEVEL_4K);
-	guest_map_gpa_private(vm, vcpu, TEST_GPA, PAGE_SIZE, 0, 0);
+	guest_map_gpa_private(vm, vcpu, TEST_GPA, size_to_convert, 0, 0);
 
 	assert_host_cannot_fault(mem);
+	guest_configure_accept_level(vcpu, 0, TEST_GPA,
+				     TEST_GPA + size_to_convert, accept_level);
 	guest_use_memory(vcpu, TEST_GVA_PRIVATE, 0, 'C', 0);
 
 	cleanup_test(test_page_size, vm, guest_memfd, mem);
@@ -703,7 +704,6 @@ static void test_with_size(size_t test_page_size)
 	test_init_private(test_page_size);
 	test_init_shared(test_page_size);
 
-	test_explicit_page_size_conversion_to_private(test_page_size);
 	test_implicit_page_size_conversion_to_private_with_write(test_page_size);
 	test_implicit_page_size_conversion_to_private_with_read(test_page_size);
 
@@ -720,13 +720,28 @@ int main(int argc, char *argv[])
 
 	printf("Test guest_memfd with 4K pages\n");
 	test_with_size(PAGE_SIZE);
+	test_explicit_conversion_to_private_accept_on_fault(PAGE_SIZE, PAGE_SIZE, MEM_PAGE_ACCEPT_LEVEL_4K);
 	printf("\tPASSED\n");
 
 	printf("Test guest_memfd with 2M pages\n");
 	test_with_size(SZ_2M);
+	test_explicit_conversion_to_private_accept_on_fault(SZ_2M, SZ_2M, MEM_PAGE_ACCEPT_LEVEL_2M);
+	test_explicit_conversion_to_private_accept_on_fault(SZ_2M, PAGE_SIZE, MEM_PAGE_ACCEPT_LEVEL_4K);
 	printf("\tPASSED\n");
 
 	printf("Test guest_memfd with 1G pages\n");
 	test_with_size(SZ_1G);
+	/*
+	 * guest_memfd will merge the entire page back to 1G, TDX can only fault
+	 * in at 2M level (for now).
+	 */
+	test_explicit_conversion_to_private_accept_on_fault(SZ_1G, SZ_1G, MEM_PAGE_ACCEPT_LEVEL_2M);
+	/*
+	 * Can only accept at 4K because guest_memfd does not merge to 2M (yet),
+	 * so guest_memfd will return KVM A 4K page when a sub-1G range is
+	 * requested for conversion.
+	 */
+	test_explicit_conversion_to_private_accept_on_fault(SZ_1G, SZ_2M, MEM_PAGE_ACCEPT_LEVEL_4K);
+	test_explicit_conversion_to_private_accept_on_fault(SZ_1G, PAGE_SIZE, MEM_PAGE_ACCEPT_LEVEL_4K);
 	printf("\tPASSED\n");
 }

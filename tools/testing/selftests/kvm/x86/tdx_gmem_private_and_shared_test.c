@@ -45,6 +45,7 @@
 enum {
 	UCALL_CHECK_MEM = NUM_UCALLS + 1,
 	UCALL_MAP_GPA,
+	UCALL_CONFIGURE_ACCEPT_LEVEL,
 };
 
 static void __guest_use_memory(uint64_t gva, char expected_read_value,
@@ -71,6 +72,47 @@ static void __guest_map_gpa(uint64_t gpa, uint64_t size, uint64_t expected_ret,
 		GUEST_ASSERT_EQ(failed_gpa, expected_failed_gpa);
 }
 
+enum {
+	MEM_PAGE_ACCEPT_LEVEL_4K = 0,
+	MEM_PAGE_ACCEPT_LEVEL_2M,
+	MEM_PAGE_ACCEPT_LEVEL_1G,
+	MEM_PAGE_ACCEPT_LEVEL_ANY,
+	MEM_PAGE_ACCEPT_LEVEL_NEVER,
+};
+
+static const char *level_to_string(uint8_t level)
+{
+	switch (level) {
+	case MEM_PAGE_ACCEPT_LEVEL_4K:
+		return "4K";
+	case MEM_PAGE_ACCEPT_LEVEL_2M:
+		return "2M";
+	case MEM_PAGE_ACCEPT_LEVEL_1G:
+		return "1G";
+	default:
+		return NULL;
+	}
+}
+
+struct accept_level_config {
+	uint64_t gpa_start;
+	uint64_t gpa_end;
+	uint8_t accept_level;
+};
+
+static struct accept_level_config accept_level_config[1];
+
+static void __guest_configure_accept_level(uint32_t index, uint64_t gpa_start,
+					   uint64_t gpa_end,
+					   uint8_t accept_level)
+{
+	accept_level_config[index] = (struct accept_level_config){
+		.gpa_start = gpa_start,
+		.gpa_end = gpa_end,
+		.accept_level = accept_level,
+	};
+}
+
 static void guest_code(void)
 {
 	struct ucall uc;
@@ -86,6 +128,10 @@ static void guest_code(void)
 		case UCALL_MAP_GPA:
 			__guest_map_gpa(uc.args[0], uc.args[1], uc.args[2],
 					uc.args[3]);
+			break;
+		case UCALL_CONFIGURE_ACCEPT_LEVEL:
+			__guest_configure_accept_level(
+				uc.args[0], uc.args[1], uc.args[2], uc.args[3]);
 			break;
 		default:
 			GUEST_FAIL("Unknown ucall %ld.", cmd);
@@ -170,11 +216,13 @@ static void do_guest_map_gpa(struct kvm_vm *vm, struct kvm_vcpu *vcpu,
 			     uint64_t expected_ret,
 			     uint64_t expected_failed_gpa)
 {
+	uint64_t expected_map_gpa_size;
 	uint64_t hc_to_private;
 	struct ucall *p_uc;
 	uint64_t hc_size;
 	uint64_t hc_gpa;
 	uint64_t cmd;
+	uint64_t i;
 
 	if (to_shared)
 		gpa |= vm->arch.s_bit;
@@ -187,16 +235,24 @@ static void do_guest_map_gpa(struct kvm_vm *vm, struct kvm_vcpu *vcpu,
 	p_uc->args[2] = expected_ret;
 	p_uc->args[3] = expected_failed_gpa;
 
-	vcpu_run_handle_basic_ucalls(vcpu);
+	/* TDX handles MapGPA requests in multiples of TDX_MAP_GPA_MAX_LEN. */
+#define TDX_MAP_GPA_MAX_LEN (2 * 1024 * 1024UL)
+	expected_map_gpa_size = min(TDX_MAP_GPA_MAX_LEN, size);
 
-	TEST_ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_HYPERCALL);
-	TEST_ASSERT_EQ(vcpu->run->hypercall.nr, KVM_HC_MAP_GPA_RANGE);
-	hc_gpa = vcpu->run->hypercall.args[0];
-	hc_size = vcpu->run->hypercall.args[1] << vm->page_shift;
-	hc_to_private = vcpu->run->hypercall.args[2] & KVM_MAP_GPA_RANGE_ENCRYPTED;
+	for (i = 0; i < size; i += expected_map_gpa_size) {
+		vcpu_run_handle_basic_ucalls(vcpu);
 
-	TEST_ASSERT_EQ(hc_gpa, vm_untag_gpa(vm, gpa));
-	handle_memory_conversion(vm, vcpu->id, hc_gpa, hc_size, hc_to_private);
+		TEST_ASSERT_EQ(vcpu->run->exit_reason, KVM_EXIT_HYPERCALL);
+		TEST_ASSERT_EQ(vcpu->run->hypercall.nr, KVM_HC_MAP_GPA_RANGE);
+		hc_gpa = vcpu->run->hypercall.args[0];
+		hc_size = vcpu->run->hypercall.args[1] << vm->page_shift;
+		hc_to_private = vcpu->run->hypercall.args[2] & KVM_MAP_GPA_RANGE_ENCRYPTED;
+
+		TEST_ASSERT_EQ(hc_gpa, vm_untag_gpa(vm, gpa + i));
+		TEST_ASSERT_EQ(hc_size, expected_map_gpa_size);
+		handle_memory_conversion(vm, vcpu->id, hc_gpa, hc_size,
+					 hc_to_private);
+	}
 
 	/* Let guest check conversion outcome and wait for next command. */
 	vcpu_run_handle_basic_ucalls(vcpu);
@@ -218,6 +274,26 @@ static void guest_map_gpa_private(struct kvm_vm *vm, struct kvm_vcpu *vcpu,
 {
 	do_guest_map_gpa(vm, vcpu, gpa, size, false, expected_ret,
 			 expected_failed_gpa);
+}
+
+static void guest_configure_accept_level(struct kvm_vcpu *vcpu, uint32_t index,
+					 uint64_t gpa_start, uint64_t gpa_end,
+					 uint8_t accept_level)
+{
+	struct ucall *p_uc;
+	uint64_t cmd;
+	int rc;
+
+	cmd = get_writable_ucall(vcpu, &p_uc);
+	TEST_ASSERT_EQ(cmd, UCALL_SYNC);
+	p_uc->cmd = UCALL_CONFIGURE_ACCEPT_LEVEL;
+	p_uc->args[0] = index;
+	p_uc->args[1] = gpa_start;
+	p_uc->args[2] = gpa_end;
+	p_uc->args[3] = accept_level;
+
+	rc = vcpu_run_handle_basic_ucalls(vcpu);
+	TEST_ASSERT(!rc, "Setting expected_accept_level should not fail.");
 }
 
 /**
@@ -260,10 +336,41 @@ static void assert_host_cannot_fault(char *address)
 	}
 }
 
+static int accept_memory_at_level(uint64_t gpa, uint8_t level)
+{
+	int ret;
+
+	GUEST_PRINTF("\t ... guest accepting 1 page: gpa=0x%lx level=%s\n",
+		     gpa, level_to_string(level));
+	ret = tdg_mem_page_accept(gpa, level);
+	if (!ret) {
+		GUEST_PRINTF("\t ... guest accepted 1 page: gpa=0x%lx level=%s\n",
+			     gpa, level_to_string(level));
+	}
+
+	return ret;
+}
+
+static int accept_memory_at_any_level(uint64_t gpa)
+{
+	int level;
+	int ret;
+
+	for (level = 2; level >= 0; level--) {
+		ret = accept_memory_at_level(gpa, level);
+		if (!ret)
+			break;
+	}
+
+	return ret;
+}
+
 static void guest_ve_handler(struct ex_regs *regs)
 {
+	bool found_config;
 	struct ve_info ve;
 	uint64_t ret;
+	uint8_t i;
 
 	ret = tdg_vp_veinfo_get(&ve);
 	GUEST_ASSERT(!ret);
@@ -271,9 +378,35 @@ static void guest_ve_handler(struct ex_regs *regs)
 	/* For this test, we will only handle EXIT_REASON_EPT_VIOLATION */
 	GUEST_ASSERT_EQ(ve.exit_reason, EXIT_REASON_EPT_VIOLATION);
 
-	GUEST_PRINTF("\t ... guest accepting 1 page at GPA: 0x%lx\n", ve.gpa);
+	found_config = false;
+	for (i = 0; !found_config && i < ARRAY_SIZE(accept_level_config); i++) {
+		uint64_t gpa_start;
+		uint64_t gpa_end;
+		uint8_t level;
 
-	ret = td_guest_accept(ve.gpa & PAGE_MASK);
+		gpa_start = accept_level_config[i].gpa_start;
+		gpa_end = accept_level_config[i].gpa_end;
+		if (!(gpa_start <= ve.gpa && ve.gpa <= gpa_end))
+			continue;
+
+		found_config = true;
+		level = accept_level_config[i].accept_level;
+		switch (level) {
+		case MEM_PAGE_ACCEPT_LEVEL_ANY:
+			ret = accept_memory_at_any_level(ve.gpa);
+			break;
+		case MEM_PAGE_ACCEPT_LEVEL_NEVER:
+			GUEST_FAIL("Not expecting to need to accept any memory in gpas [0x%lx, 0x%lx]",
+				   gpa_start, gpa_end);
+		default:
+			ret = accept_memory_at_level(ve.gpa, level);
+		}
+	}
+	if (!found_config) {
+		GUEST_PRINTF("\t ... couldn't find config for page gpa=0x%lx\n", ve.gpa);
+		ret = accept_memory_at_any_level(ve.gpa);
+	}
+
 	GUEST_ASSERT(!ret);
 }
 
@@ -320,6 +453,10 @@ setup_test(size_t test_page_size, size_t test_memory_size, bool init_private,
 	*vcpu = td_vcpu_add(vm, 0, guest_code);
 
 	vm_install_exception_handler(vm, VE_VECTOR, guest_ve_handler);
+	write_guest_global(vm, accept_level_config[0].gpa_start, 0);
+	write_guest_global(vm, accept_level_config[0].gpa_end, -1);
+	write_guest_global(vm, accept_level_config[0].accept_level,
+			   MEM_PAGE_ACCEPT_LEVEL_ANY);
 
 	flags = GUEST_MEMFD_FLAG_SUPPORT_SHARED;
 
@@ -371,12 +508,20 @@ static void cleanup_test(size_t guest_memfd_size, struct kvm_vm *vm,
 static void test_init_private(size_t test_page_size)
 {
 	struct kvm_vcpu *vcpu;
+	uint8_t accept_level;
 	struct kvm_vm *vm;
 	int guest_memfd;
 	char *mem;
 
 	vm = setup_test(test_page_size, test_page_size, /*init_private=*/true,
 			&vcpu, &guest_memfd, &mem);
+
+	accept_level = MEM_PAGE_ACCEPT_LEVEL_4K;
+	if (test_page_size > SZ_4K)
+		accept_level = MEM_PAGE_ACCEPT_LEVEL_2M;
+
+	guest_configure_accept_level(vcpu, 0, TEST_GPA,
+				     TEST_GPA + test_page_size, accept_level);
 
 	assert_host_cannot_fault(mem);
 	guest_use_memory(vcpu, TEST_GVA_PRIVATE, 0, 'A', 0);
@@ -395,13 +540,15 @@ static void test_init_shared(size_t test_page_size)
 	vm = setup_test(test_page_size, test_page_size, /*init_private=*/false,
 			&vcpu, &guest_memfd, &mem);
 
+	guest_configure_accept_level(vcpu, 0, 0, -1, MEM_PAGE_ACCEPT_LEVEL_NEVER);
+
 	host_use_memory(mem, 0, 'A');
 	guest_use_memory(vcpu, TEST_GVA_SHARED, 'A', 'B', 0);
 
 	cleanup_test(test_page_size, vm, guest_memfd, mem);
 }
 
-static void test_explicit_conversion_to_private(size_t test_page_size)
+static void test_explicit_page_size_conversion_to_private(size_t test_page_size)
 {
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
@@ -414,6 +561,8 @@ static void test_explicit_conversion_to_private(size_t test_page_size)
 	host_use_memory(mem, 0, 'A');
 	guest_use_memory(vcpu, TEST_GVA_SHARED, 'A', 'B', 0);
 
+	guest_configure_accept_level(vcpu, 0, TEST_GPA, TEST_GPA + PAGE_SIZE,
+				     MEM_PAGE_ACCEPT_LEVEL_4K);
 	guest_map_gpa_private(vm, vcpu, TEST_GPA, PAGE_SIZE, 0, 0);
 
 	assert_host_cannot_fault(mem);
@@ -422,7 +571,9 @@ static void test_explicit_conversion_to_private(size_t test_page_size)
 	cleanup_test(test_page_size, vm, guest_memfd, mem);
 }
 
-static void __test_implicit_conversion_to_private(size_t test_page_size, bool write)
+static void
+__test_implicit_page_size_conversion_to_private(size_t test_page_size,
+						bool write)
 {
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
@@ -435,6 +586,9 @@ static void __test_implicit_conversion_to_private(size_t test_page_size, bool wr
 
 	host_use_memory(mem, 0, 'A');
 	guest_use_memory(vcpu, TEST_GVA_SHARED, 'A', 'B', 0);
+
+	guest_configure_accept_level(vcpu, 0, TEST_GPA, TEST_GPA + PAGE_SIZE,
+				     MEM_PAGE_ACCEPT_LEVEL_4K);
 
 	if (write) {
 		guest_use_memory(vcpu, TEST_GVA_PRIVATE, 'X', 'C', EFAULT);
@@ -458,17 +612,19 @@ static void __test_implicit_conversion_to_private(size_t test_page_size, bool wr
 	cleanup_test(test_page_size, vm, guest_memfd, mem);
 }
 
-static void test_implicit_conversion_to_private_with_write(size_t test_page_size)
+static void
+test_implicit_page_size_conversion_to_private_with_write(size_t test_page_size)
 {
-	__test_implicit_conversion_to_private(test_page_size, true);
+	__test_implicit_page_size_conversion_to_private(test_page_size, true);
 }
 
-static void test_implicit_conversion_to_private_with_read(size_t test_page_size)
+static void
+test_implicit_page_size_conversion_to_private_with_read(size_t test_page_size)
 {
-	__test_implicit_conversion_to_private(test_page_size, false);
+	__test_implicit_page_size_conversion_to_private(test_page_size, false);
 }
 
-static void test_explicit_conversion_to_shared(size_t test_page_size)
+static void test_explicit_page_size_conversion_to_shared(size_t test_page_size)
 {
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
@@ -481,6 +637,8 @@ static void test_explicit_conversion_to_shared(size_t test_page_size)
 	assert_host_cannot_fault(mem);
 	guest_use_memory(vcpu, TEST_GVA_PRIVATE, 0, 'A', 0);
 
+	guest_configure_accept_level(vcpu, 0, 0, -1, MEM_PAGE_ACCEPT_LEVEL_NEVER);
+
 	guest_map_gpa_shared(vm, vcpu, TEST_GPA, PAGE_SIZE, 0, 0);
 
 	host_use_memory(mem, 0, 'A');
@@ -489,7 +647,7 @@ static void test_explicit_conversion_to_shared(size_t test_page_size)
 	cleanup_test(test_page_size, vm, guest_memfd, mem);
 }
 
-static void __test_implicit_conversion_to_shared(size_t test_page_size, bool write)
+static void __test_implicit_page_size_conversion_to_shared(size_t test_page_size, bool write)
 {
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
@@ -502,6 +660,8 @@ static void __test_implicit_conversion_to_shared(size_t test_page_size, bool wri
 
 	assert_host_cannot_fault(mem);
 	guest_use_memory(vcpu, TEST_GVA_PRIVATE, 0, 'A', 0);
+
+	guest_configure_accept_level(vcpu, 0, 0, -1, MEM_PAGE_ACCEPT_LEVEL_NEVER);
 
 	if (write) {
 		guest_use_memory(vcpu, TEST_GVA_SHARED, 'X', 'B', EFAULT);
@@ -528,14 +688,14 @@ static void __test_implicit_conversion_to_shared(size_t test_page_size, bool wri
 	cleanup_test(test_page_size, vm, guest_memfd, mem);
 }
 
-static void test_implicit_conversion_to_shared_with_write(size_t test_page_size)
+static void test_implicit_page_size_conversion_to_shared_with_write(size_t test_page_size)
 {
-	__test_implicit_conversion_to_shared(test_page_size, true);
+	__test_implicit_page_size_conversion_to_shared(test_page_size, true);
 }
 
-static void test_implicit_conversion_to_shared_with_read(size_t test_page_size)
+static void test_implicit_page_size_conversion_to_shared_with_read(size_t test_page_size)
 {
-	__test_implicit_conversion_to_shared(test_page_size, false);
+	__test_implicit_page_size_conversion_to_shared(test_page_size, false);
 }
 
 static void test_with_size(size_t test_page_size)
@@ -543,13 +703,13 @@ static void test_with_size(size_t test_page_size)
 	test_init_private(test_page_size);
 	test_init_shared(test_page_size);
 
-	test_explicit_conversion_to_private(test_page_size);
-	test_implicit_conversion_to_private_with_write(test_page_size);
-	test_implicit_conversion_to_private_with_read(test_page_size);
+	test_explicit_page_size_conversion_to_private(test_page_size);
+	test_implicit_page_size_conversion_to_private_with_write(test_page_size);
+	test_implicit_page_size_conversion_to_private_with_read(test_page_size);
 
-	test_explicit_conversion_to_shared(test_page_size);
-	test_implicit_conversion_to_shared_with_write(test_page_size);
-	test_implicit_conversion_to_shared_with_read(test_page_size);
+	test_explicit_page_size_conversion_to_shared(test_page_size);
+	test_implicit_page_size_conversion_to_shared_with_write(test_page_size);
+	test_implicit_page_size_conversion_to_shared_with_read(test_page_size);
 }
 
 int main(int argc, char *argv[])

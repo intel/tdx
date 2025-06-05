@@ -99,6 +99,114 @@ initialize::
 
   [..] virt/tdx: module initialization failed ...
 
+Dynamic PAMT
+------------
+
+Dynamic PAMT support in TDX module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Dynamic PAMT is a TDX feature that allows VMM to allocate PAMT_4K as
+needed. PAMT_1G and PAMT_2M are still allocated statically at the time of
+TDX module initialization. At init stage allocation of PAMT_4K is replaced
+with PAMT_PAGE_BITMAP which currently requires one bit of memory per 4k.
+
+VMM is responsible for allocating and freeing PAMT_4K. There's a couple of
+new SEAMCALLs for this: TDH.PHYMEM.PAMT.ADD and TDH.PHYMEM.PAMT.REMOVE.
+They add/remove PAMT memory in form of page pair. There's no requirement
+for these pages to be contiguous.
+
+Page pair supplied via TDH.PHYMEM.PAMT.ADD will cover specified 2M region.
+It allows any 4K from the region to be usable by TDX module.
+
+With Dynamic PAMT, a number of SEAMCALLs can now fail due to missing PAMT
+memory (TDX_MISSING_PAMT_PAGE_PAIR):
+
+ - TDH.MNG.CREATE
+ - TDH.MNG.ADDCX
+ - TDH.VP.ADDCX
+ - TDH.VP.CREATE
+ - TDH.MEM.PAGE.ADD
+ - TDH.MEM.PAGE.AUG
+ - TDH.MEM.PAGE.DEMOTE
+ - TDH.MEM.PAGE.RELOCATE
+
+Basically, if you supply memory to a TD, this memory has to backed by PAMT
+memory.
+
+Once no TD uses the 2M range, the PAMT page pair can be reclaimed with
+TDH.PHYMEM.PAMT.REMOVE.
+
+TDX module track PAMT memory usage and can give VMM a hint that PAMT
+memory can be removed. Such hint is provided from all SEAMCALLs that
+removes memory from TD:
+
+ - TDH.MEM.SEPT.REMOVE
+ - TDH.MEM.PAGE.REMOVE
+ - TDH.MEM.PAGE.PROMOTE
+ - TDH.MEM.PAGE.RELOCATE
+ - TDH.PHYMEM.PAGE.RECLAIM
+
+With Dynamic PAMT, TDH.MEM.PAGE.DEMOTE takes PAMT page pair as additional
+input to populate PAMT_4K on split. TDH.MEM.PAGE.PROMOTE returns no longer
+needed PAMT page pair.
+
+PAMT memory is global resource and not tied to a specific TD. TDX modules
+maintains PAMT memory in a radix tree addressed by physical address. Each
+entry in the tree can be locked with shared or exclusive lock. Any
+modification of the tree requires exclusive lock.
+
+Any SEAMCALL that takes explicit HPA as an argument will walk the tree
+taking shared lock on entries. It required to make sure that the page
+pointed by HPA is of compatible type for the usage.
+
+TDCALLs don't take PAMT locks as none of the take HPA as an argument.
+
+Dynamic PAMT enabling in kernel
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Kernel maintains refcounts for every 2M regions with two helpers
+tdx_pamt_get() and tdx_pamt_put().
+
+The refcount represents number of users for the PAMT memory in the region.
+Kernel calls TDH.PHYMEM.PAMT.ADD on 0->1 transition and
+TDH.PHYMEM.PAMT.REMOVE on transition 1->0.
+
+The function tdx_alloc_page() allocates a new page and ensures that it is
+backed by PAMT memory. Pages allocated in this manner are ready to be used
+for a TD. The function tdx_free_page() frees the page and releases the
+PAMT memory for the 2M region if it is no longer needed.
+
+PAMT memory gets allocated as part of TD init, VCPU init, on populating
+SEPT tree and adding guest memory (both during TD build and via AUG on
+accept). Splitting 2M page into 4K also requires PAMT memory.
+
+PAMT memory removed on reclaim of control pages and guest memory.
+
+Populating PAMT memory on fault and on split is tricky as kernel cannot
+allocate memory from the context where it is needed. These code paths use
+pre-allocated PAMT memory pools.
+
+Previous attempt on Dynamic PAMT enabling
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The initial attempt at kernel enabling was quite different. It was built
+around lazy PAMT allocation: only trying to add a PAMT page pair if a
+SEAMCALL fails due to a missing PAMT and reclaiming it based on hints
+provided by the TDX module.
+
+The motivation was to avoid duplicating the PAMT memory refcounting that
+the TDX module does on the kernel side.
+
+This approach is inherently more racy as there is no serialization of
+PAMT memory add/remove against SEAMCALLs that add/remove memory for a TD.
+Such serialization would require global locking, which is not feasible.
+
+This approach worked, but at some point it became clear that it could not
+be robust as long as the kernel avoids TDX_OPERAND_BUSY loops.
+TDX_OPERAND_BUSY will occur as a result of the races mentioned above.
+
+This approach was abandoned in favor of explicit refcounting.
+
 TDX Interaction to Other Kernel Components
 ------------------------------------------
 

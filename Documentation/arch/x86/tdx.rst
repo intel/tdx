@@ -200,6 +200,34 @@ reflects the TCB of the currently running TDX module and therefore
 changes after an update. By contrast, TEE_TCB_SVN reflects the TCB at TD
 launch time and is not affected.
 
+Dynamic PAMT
+------------
+
+Physical Address Metadata Table (PAMT) is memory that the TDX module needs
+to keep data about each page (think like struct page). It needs to be handed
+to the TDX module for its exclusive use. For normal PAMT, this is installed
+when the TDX module is first loaded and comes to about 0.4% of system memory.
+
+Dynamic PAMT is a TDX module feature that allows VMM to allocate part of the
+PAMT as needed (the parts for tracking 4KB size pages). The other page sizes
+(1GB and 2MB) are still allocated statically at the time of TDX module
+initialization. This reduces the amount of memory that TDX uses while TDs are
+not in use.
+
+When Dynamic PAMT is in use, dmesg shows it like::
+
+  [..] virt/tdx: Enable Dynamic PAMT
+  [..] virt/tdx: 10092 KB allocated for PAMT
+  [..] virt/tdx: TDX-Module initialized
+
+Dynamic PAMT is only enabled when supported and the ``tdx_dpamt=`` kernel
+parameter is set to "on". The feature is off by default because TDX module
+internal details prevent Dynamic PAMT from working on all keyid partitioning
+configurations. When the TDX module is fixed to include these constraints in
+its enumeration of Dynamic PAMT support, kernel support can be changed to
+default on. For more information, consult the Intel TDX documentation about
+Dynamic PAMT.
+
 TDX Interaction to Other Kernel Components
 ------------------------------------------
 

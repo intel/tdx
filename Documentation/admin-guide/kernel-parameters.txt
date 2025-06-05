@@ -1328,6 +1328,9 @@ Kernel parameters
 			Valid parameters: "on", "off"
 			Default: "off"
 
+			For details see:
+			Documentation/arch/x86/tdx.rst
+
 	reg_file_data_sampling=
 			[X86] Controls mitigation for Register File Data
 			Sampling (RFDS) vulnerability. RFDS is a CPU

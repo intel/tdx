@@ -2485,7 +2485,8 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long 
 		}
 
 		folio_unlock(folio);
-		WARN_ON(!IS_ALIGNED(gfn, 1 << max_order));
+		while (!IS_ALIGNED(gfn, 1 << max_order))
+			max_order--;
 
 		npages_to_populate = min(npages - i, 1 << max_order);
 		npages_to_populate = private_npages_to_populate(

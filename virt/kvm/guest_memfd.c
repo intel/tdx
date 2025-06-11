@@ -102,8 +102,10 @@ static unsigned long kvm_gmem_get_align_mask(struct file *file,
 	void *priv;
 
 	inode = file_inode(file);
-	if (!kvm_gmem_has_custom_allocator(inode))
-		return arch_get_align_mask(file, flags);
+	if (!kvm_gmem_has_custom_allocator(inode)) {
+		page_size = 1 << PAGE_SHIFT;
+		return PAGE_MASK & (page_size - 1);
+	}
 
 	priv = kvm_gmem_allocator_private(inode);
 	nr_pages = kvm_gmem_allocator_ops(inode)->nr_pages_in_folio(priv);

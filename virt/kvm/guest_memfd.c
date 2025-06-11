@@ -2456,6 +2456,8 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long 
 	if (!file)
 		return -EFAULT;
 
+	filemap_invalidate_lock(file->f_mapping);
+
 	npages = min_t(ulong, slot->npages - (start_gfn - slot->base_gfn), npages);
 	for (i = 0; i < npages; i += npages_to_populate) {
 		struct folio *folio;
@@ -2469,9 +2471,7 @@ long kvm_gmem_populate(struct kvm *kvm, gfn_t start_gfn, void __user *src, long 
 			break;
 		}
 
-		filemap_invalidate_lock(file->f_mapping);
 		folio = __kvm_gmem_get_pfn(file, slot, index, &pfn, &is_prepared, &max_order);
-		filemap_invalidate_unlock(file->f_mapping);
 		if (IS_ERR(folio)) {
 			ret = PTR_ERR(folio);
 			break;
@@ -2507,6 +2507,7 @@ put_folio_and_exit:
 			break;
 	}
 
+	filemap_invalidate_unlock(file->f_mapping);
 
 	fput(file);
 	return ret && !i ? ret : i;

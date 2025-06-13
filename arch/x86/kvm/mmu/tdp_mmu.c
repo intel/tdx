@@ -1934,7 +1934,8 @@ int kvm_tdp_mmu_get_walk(struct kvm_vcpu *vcpu, u64 addr, u64 *sptes,
 	return __kvm_tdp_mmu_get_walk(vcpu, addr, sptes, root);
 }
 
-bool kvm_tdp_mmu_gpa_is_mapped(struct kvm_vcpu *vcpu, u64 gpa)
+bool kvm_tdp_mmu_gpa_is_mapped(struct kvm_vcpu *vcpu, gpa_t gpa, int level,
+			       kvm_pfn_t *pfn)
 {
 	struct kvm *kvm = vcpu->kvm;
 	bool is_direct = kvm_is_addr_direct(kvm, gpa);
@@ -1947,10 +1948,11 @@ bool kvm_tdp_mmu_gpa_is_mapped(struct kvm_vcpu *vcpu, u64 gpa)
 	rcu_read_lock();
 	leaf = __kvm_tdp_mmu_get_walk(vcpu, gpa, sptes, root_to_sp(root));
 	rcu_read_unlock();
-	if (leaf < 0)
+	if (leaf < 0 || leaf != level)
 		return false;
 
 	spte = sptes[leaf];
+	*pfn = spte_to_pfn(spte);
 	return is_shadow_present_pte(spte) && is_last_spte(spte, leaf);
 }
 EXPORT_SYMBOL_GPL(kvm_tdp_mmu_gpa_is_mapped);

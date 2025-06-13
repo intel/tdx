@@ -1619,9 +1619,9 @@ static int tdx_mem_page_aug(struct kvm *kvm, gfn_t gfn,
 }
 
 /*
- * KVM_TDX_INIT_MEM_REGION calls kvm_gmem_populate() to map guest pages; the
- * callback tdx_gmem_post_populate() then maps pages into private memory.
- * through the a seamcall TDH.MEM.PAGE.ADD().  The SEAMCALL also requires the
+ * KVM_TDX_INIT_MEM_REGION calls tdx_init_mem_populate() to first map guest
+ * pages into mirror page table and then maps pages into private memory through
+ * the a SEAMCALL TDH.MEM.PAGE.ADD().  The SEAMCALL also requires the
  * private EPT structures for the page to have been built before, which is
  * done via kvm_tdp_map_page(). nr_premapped counts the number of pages that
  * were added to the EPT structures but not added with TDH.MEM.PAGE.ADD().
@@ -3163,23 +3163,17 @@ void tdx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 	WARN_ON_ONCE(init_event);
 }
 
-struct tdx_gmem_post_populate_arg {
-	struct kvm_vcpu *vcpu;
-	__u32 flags;
-};
-
-static int tdx_gmem_post_populate(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
-				  void __user *src, size_t npages, void *_arg)
+static int tdx_init_mem_populate(struct kvm_vcpu *vcpu, gpa_t gpa,
+				 void __user *src, __u32 flags)
 {
 	u64 error_code = PFERR_GUEST_FINAL_MASK | PFERR_PRIVATE_ACCESS;
-	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
-	struct tdx_gmem_post_populate_arg *arg = _arg;
-	struct kvm_vcpu *vcpu = arg->vcpu;
-	gpa_t gpa = gfn_to_gpa(gfn);
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
+	struct kvm *kvm = vcpu->kvm;
 	u8 level = PG_LEVEL_4K;
 	struct page *src_page;
 	int ret, i;
 	u64 err, entry, level_state;
+	kvm_pfn_t pfn;
 
 	/*
 	 * Get the source page if it has been faulted in. Return failure if the
@@ -3195,38 +3189,33 @@ static int tdx_gmem_post_populate(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
 	if (ret < 0)
 		goto out;
 
-	/*
-	 * The private mem cannot be zapped after kvm_tdp_map_page()
-	 * because all paths are covered by slots_lock and the
-	 * filemap invalidate lock.  Check that they are indeed enough.
-	 */
-	if (IS_ENABLED(CONFIG_KVM_PROVE_MMU)) {
-		scoped_guard(read_lock, &kvm->mmu_lock) {
-			if (KVM_BUG_ON(!kvm_tdp_mmu_gpa_is_mapped(vcpu, gpa), kvm)) {
-				ret = -EIO;
-				goto out;
-			}
+	KVM_BUG_ON(level != PG_LEVEL_4K, kvm);
+
+	scoped_guard(read_lock, &kvm->mmu_lock) {
+		if (!kvm_tdp_mmu_gpa_is_mapped(vcpu, gpa, level, &pfn)) {
+			ret = -EIO;
+			goto out;
 		}
-	}
 
-	ret = 0;
-	err = tdh_mem_page_add(&kvm_tdx->td, gpa, pfn_to_page(pfn),
-			       src_page, &entry, &level_state);
-	if (err) {
-		ret = unlikely(tdx_operand_busy(err)) ? -EBUSY : -EIO;
-		goto out;
-	}
+		ret = 0;
+		err = tdh_mem_page_add(&kvm_tdx->td, gpa, pfn_to_page(pfn),
+				       src_page, &entry, &level_state);
+		if (err) {
+			ret = unlikely(tdx_operand_busy(err)) ? -EBUSY : -EIO;
+			goto out;
+		}
 
-	if (!KVM_BUG_ON(!atomic64_read(&kvm_tdx->nr_premapped), kvm))
-		atomic64_dec(&kvm_tdx->nr_premapped);
+		if (!KVM_BUG_ON(!atomic64_read(&kvm_tdx->nr_premapped), kvm))
+			atomic64_dec(&kvm_tdx->nr_premapped);
 
-	if (arg->flags & KVM_TDX_MEASURE_MEMORY_REGION) {
-		for (i = 0; i < PAGE_SIZE; i += TDX_EXTENDMR_CHUNKSIZE) {
-			err = tdh_mr_extend(&kvm_tdx->td, gpa + i, &entry,
-					    &level_state);
-			if (err) {
-				ret = -EIO;
-				break;
+		if (flags & KVM_TDX_MEASURE_MEMORY_REGION) {
+			for (i = 0; i < PAGE_SIZE; i += TDX_EXTENDMR_CHUNKSIZE) {
+				err = tdh_mr_extend(&kvm_tdx->td, gpa + i, &entry,
+						    &level_state);
+				if (err) {
+					ret = -EIO;
+					break;
+				}
 			}
 		}
 	}
@@ -3242,8 +3231,6 @@ static int tdx_vcpu_init_mem_region(struct kvm_vcpu *vcpu, struct kvm_tdx_cmd *c
 	struct kvm *kvm = vcpu->kvm;
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	struct kvm_tdx_init_mem_region region;
-	struct tdx_gmem_post_populate_arg arg;
-	long gmem_ret;
 	int ret;
 
 	if (tdx->state != VCPU_TD_STATE_INITIALIZED)
@@ -3276,22 +3263,11 @@ static int tdx_vcpu_init_mem_region(struct kvm_vcpu *vcpu, struct kvm_tdx_cmd *c
 			break;
 		}
 
-		arg = (struct tdx_gmem_post_populate_arg) {
-			.vcpu = vcpu,
-			.flags = cmd->flags,
-		};
-		gmem_ret = kvm_gmem_populate(kvm, gpa_to_gfn(region.gpa),
-					     u64_to_user_ptr(region.source_addr),
-					     1, tdx_gmem_post_populate, &arg);
-		if (gmem_ret < 0) {
-			ret = gmem_ret;
+		ret = tdx_init_mem_populate(vcpu, region.gpa,
+					    u64_to_user_ptr(region.source_addr),
+					    cmd->flags);
+		if (ret)
 			break;
-		}
-
-		if (gmem_ret != 1) {
-			ret = -EIO;
-			break;
-		}
 
 		region.source_addr += PAGE_SIZE;
 		region.gpa += PAGE_SIZE;

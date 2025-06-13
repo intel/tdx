@@ -257,7 +257,8 @@ extern bool tdp_mmu_enabled;
 #define tdp_mmu_enabled false
 #endif
 
-bool kvm_tdp_mmu_gpa_is_mapped(struct kvm_vcpu *vcpu, u64 gpa);
+bool kvm_tdp_mmu_gpa_is_mapped(struct kvm_vcpu *vcpu, gpa_t gpa, int level,
+			       kvm_pfn_t *pfn);
 int kvm_tdp_map_page(struct kvm_vcpu *vcpu, gpa_t gpa, u64 error_code, u8 *level);
 
 static inline bool kvm_memslots_have_rmaps(struct kvm *kvm)

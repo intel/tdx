@@ -3779,7 +3779,8 @@ static int __init __tdx_bringup(void)
 		goto get_sysinfo_err;
 
 	if (enable_tdx_huge_page && !tdx_supports_demote_nointerrupt(tdx_sysinfo))
-		enable_tdx_huge_page = false;
+		pr_warn("TDX module does not support TDX_FEATURES0_ENHANCE_DEMOTE_INTERRUPTIBILITY. Force tdx_huge_page enabled\n");
+
 	/*
 	 * Leave hardware virtualization enabled after TDX is enabled
 	 * successfully.  TDX CPU hotplug depends on this.

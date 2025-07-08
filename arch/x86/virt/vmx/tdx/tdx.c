@@ -1884,10 +1884,11 @@ u64 tdh_mem_page_demote(struct tdx_td *td, u64 gpa, int level, struct folio *gue
 	};
 	/* base pfn for guest private memory */
 	unsigned long guest_base_pfn;
+	bool restartable = false;
 	u64 ret;
 
 	if (!tdx_supports_demote_nointerrupt(&tdx_sysinfo))
-		return TDX_SW_ERROR;
+		restartable = true;
 
 	if (dpamt) {
 		u64 *args_array = dpamt_args_array_ptr_r12(&args);
@@ -1915,7 +1916,9 @@ u64 tdh_mem_page_demote(struct tdx_td *td, u64 gpa, int level, struct folio *gue
 	/* Flush the new S-EPT page to be added */
 	tdx_clflush_page(new_sept_page);
 
-	ret = seamcall_saved_ret(TDH_MEM_PAGE_DEMOTE, &args.args);
+	do {
+		ret = seamcall_saved_ret(TDH_MEM_PAGE_DEMOTE, &args.args);
+	} while (restartable && ret == TDX_INTERRUPTED_RESTARTABLE);
 
 	*ext_err1 = args.args.rcx;
 	*ext_err2 = args.args.rdx;

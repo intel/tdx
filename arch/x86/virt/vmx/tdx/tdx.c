@@ -1845,7 +1845,9 @@ u64 tdh_mem_page_demote(struct tdx_td *td, u64 gpa, int level, struct page *page
 		}
 	}
 	tdx_clflush_page(page);
-	ret = seamcall_saved_ret(TDH_MEM_PAGE_DEMOTE, &args);
+	do {
+		ret = seamcall_saved_ret(TDH_MEM_PAGE_DEMOTE, &args);
+	} while (ret == TDX_INTERRUPTED_RESTARTABLE);
 
 	*ext_err1 = args.rcx;
 	*ext_err2 = args.rdx;

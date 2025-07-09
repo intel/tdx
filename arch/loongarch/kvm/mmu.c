@@ -511,7 +511,7 @@ bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range)
 			range->end << PAGE_SHIFT, &ctx);
 }
 
-bool kvm_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
+int kvm_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
 {
 	kvm_ptw_ctx ctx;
 
@@ -523,15 +523,15 @@ bool kvm_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
 				range->end << PAGE_SHIFT, &ctx);
 }
 
-bool kvm_test_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
+int kvm_test_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
 {
 	gpa_t gpa = range->start << PAGE_SHIFT;
 	kvm_pte_t *ptep = kvm_populate_gpa(kvm, NULL, gpa, 0);
 
 	if (ptep && kvm_pte_present(NULL, ptep) && kvm_pte_young(*ptep))
-		return true;
+		return 1;
 
-	return false;
+	return 0;
 }
 
 /*

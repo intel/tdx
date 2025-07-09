@@ -1806,7 +1806,7 @@ static bool kvm_may_have_shadow_mmu_sptes(struct kvm *kvm)
 	return !tdp_mmu_enabled || READ_ONCE(kvm->arch.indirect_shadow_pages);
 }
 
-bool kvm_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
+int kvm_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
 {
 	bool young = false;
 
@@ -1819,7 +1819,7 @@ bool kvm_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
 	return young;
 }
 
-bool kvm_test_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
+int kvm_test_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
 {
 	bool young = false;
 
@@ -7841,8 +7841,8 @@ static void hugepage_set_mixed(struct kvm_memory_slot *slot, gfn_t gfn,
 	lpage_info_slot(gfn, slot, level)->disallow_lpage |= KVM_LPAGE_MIXED_FLAG;
 }
 
-bool kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
-					struct kvm_gfn_range *range)
+int kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
+				       struct kvm_gfn_range *range)
 {
 	struct kvm_memory_slot *slot = range->slot;
 	int level;
@@ -7859,10 +7859,10 @@ bool kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
 	 * a hugepage can be used for affected ranges.
 	 */
 	if (WARN_ON_ONCE(!kvm_arch_supports_gmem(kvm)))
-		return false;
+		return 0;
 
 	if (WARN_ON_ONCE(range->end <= range->start))
-		return false;
+		return 0;
 
 	/*
 	 * If the head and tail pages of the range currently allow a hugepage,
@@ -7921,8 +7921,8 @@ static bool hugepage_has_attrs(struct kvm *kvm, struct kvm_memory_slot *slot,
 	return true;
 }
 
-bool kvm_arch_post_set_memory_attributes(struct kvm *kvm,
-					 struct kvm_gfn_range *range)
+int kvm_arch_post_set_memory_attributes(struct kvm *kvm,
+					struct kvm_gfn_range *range)
 {
 	unsigned long attrs = range->arg.attributes;
 	struct kvm_memory_slot *slot = range->slot;
@@ -7938,7 +7938,7 @@ bool kvm_arch_post_set_memory_attributes(struct kvm *kvm,
 	 * SHARED may now allow hugepages.
 	 */
 	if (WARN_ON_ONCE(!kvm_arch_supports_gmem(kvm)))
-		return false;
+		return 0;
 
 	/*
 	 * The sequence matters here: upper levels consume the result of lower
@@ -7985,7 +7985,7 @@ bool kvm_arch_post_set_memory_attributes(struct kvm *kvm,
 				hugepage_set_mixed(slot, gfn, level);
 		}
 	}
-	return false;
+	return 0;
 }
 
 void kvm_mmu_init_memslot_memory_attributes(struct kvm *kvm,

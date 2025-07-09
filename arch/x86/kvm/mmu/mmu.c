@@ -8015,10 +8015,16 @@ int kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
 	}
 
 	/* Unmap the old attribute page. */
-	if (range->arg.attributes & KVM_MEMORY_ATTRIBUTE_PRIVATE)
+	if (range->arg.attributes & KVM_MEMORY_ATTRIBUTE_PRIVATE) {
 		range->attr_filter = KVM_FILTER_SHARED;
-	else
+	} else {
+		int ret;
+
 		range->attr_filter = KVM_FILTER_PRIVATE;
+		ret = kvm_split_cross_boundary_leafs(kvm, range, false);
+		if (ret)
+			return ret;
+	}
 
 	return kvm_unmap_gfn_range(kvm, range);
 }

@@ -273,8 +273,8 @@ struct kvm_gfn_range {
 	bool lockless;
 };
 bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range);
-bool kvm_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range);
-bool kvm_test_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range);
+int kvm_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range);
+int kvm_test_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range);
 int kvm_split_cross_boundary_leafs(struct kvm *kvm, struct kvm_gfn_range *range,
 				   bool shared);
 #endif
@@ -734,10 +734,10 @@ static inline bool kvm_arch_has_private_mem(struct kvm *kvm)
 extern bool vm_memory_attributes;
 bool kvm_range_has_vm_memory_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
 				     unsigned long mask, unsigned long attrs);
-bool kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
+int kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
+				       struct kvm_gfn_range *range);
+int kvm_arch_post_set_memory_attributes(struct kvm *kvm,
 					struct kvm_gfn_range *range);
-bool kvm_arch_post_set_memory_attributes(struct kvm *kvm,
-					 struct kvm_gfn_range *range);
 #else
 #define vm_memory_attributes false
 #endif /* CONFIG_KVM_VM_MEMORY_ATTRIBUTES */
@@ -1568,7 +1568,7 @@ void *kvm_mmu_memory_cache_alloc(struct kvm_mmu_memory_cache *mc);
 void kvm_mmu_invalidate_begin(struct kvm *kvm);
 void kvm_mmu_invalidate_range_add(struct kvm *kvm, gfn_t start, gfn_t end);
 void kvm_mmu_invalidate_end(struct kvm *kvm);
-bool kvm_mmu_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range);
+int kvm_mmu_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range);
 
 long kvm_arch_dev_ioctl(struct file *filp,
 			unsigned int ioctl, unsigned long arg);

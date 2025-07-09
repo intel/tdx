@@ -7845,7 +7845,9 @@ int kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
 				       struct kvm_gfn_range *range)
 {
 	struct kvm_memory_slot *slot = range->slot;
+	bool flush = false;
 	int level;
+	int ret;
 
 	/*
 	 * Zap SPTEs even if the slot can't be mapped PRIVATE.  KVM x86 only
@@ -7894,12 +7896,17 @@ int kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
 	}
 
 	/* Unmap the old attribute page. */
-	if (range->arg.attributes & KVM_MEMORY_ATTRIBUTE_PRIVATE)
+	if (range->arg.attributes & KVM_MEMORY_ATTRIBUTE_PRIVATE) {
 		range->attr_filter = KVM_FILTER_SHARED;
-	else
+	} else {
 		range->attr_filter = KVM_FILTER_PRIVATE;
+		ret = kvm_split_cross_boundary_leafs(kvm, range, false);
+		if (ret < 0)
+			return ret;
+		flush |= ret;
+	}
 
-	return kvm_unmap_gfn_range(kvm, range);
+	return kvm_unmap_gfn_range(kvm, range) | flush;
 }
 
 

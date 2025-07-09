@@ -2464,8 +2464,8 @@ bool kvm_range_has_memory_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
 	return true;
 }
 
-static __always_inline void kvm_handle_gfn_range(struct kvm *kvm,
-						 struct kvm_mmu_notifier_range *range)
+static __always_inline int kvm_handle_gfn_range(struct kvm *kvm,
+						struct kvm_mmu_notifier_range *range)
 {
 	struct kvm_gfn_range gfn_range;
 	struct kvm_memory_slot *slot;
@@ -2519,6 +2519,8 @@ err:
 
 	if (found_memslot)
 		KVM_MMU_UNLOCK(kvm);
+
+	return ret < 0 ? ret : 0;
 }
 
 static int kvm_pre_set_memory_attributes(struct kvm *kvm,
@@ -2587,7 +2589,9 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
 		cond_resched();
 	}
 
-	kvm_handle_gfn_range(kvm, &pre_set_range);
+	r = kvm_handle_gfn_range(kvm, &pre_set_range);
+	if (r)
+		goto out_unlock;
 
 	for (i = start; i < end; i++) {
 		r = xa_err(xa_store(&kvm->mem_attr_array, i, entry,
@@ -2596,7 +2600,8 @@ static int kvm_vm_set_mem_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
 		cond_resched();
 	}
 
-	kvm_handle_gfn_range(kvm, &post_set_range);
+	r = kvm_handle_gfn_range(kvm, &post_set_range);
+	KVM_BUG_ON(r, kvm);
 
 out_unlock:
 	mutex_unlock(&kvm->slots_lock);

@@ -1941,7 +1941,7 @@ static int tdx_spte_demote_private_spte(struct kvm *kvm, gfn_t gfn,
 }
 
 static int tdx_sept_split_private_spt(struct kvm *kvm, gfn_t gfn, enum pg_level level,
-				      void *private_spt)
+				      void *private_spt, bool mmu_lock_shared)
 {
 	struct page *page = virt_to_page(private_spt);
 	int ret;
@@ -1949,6 +1949,12 @@ static int tdx_sept_split_private_spt(struct kvm *kvm, gfn_t gfn, enum pg_level 
 	if (KVM_BUG_ON(to_kvm_tdx(kvm)->state != TD_STATE_RUNNABLE ||
 		       level != PG_LEVEL_2M, kvm))
 		return -EINVAL;
+
+	if (WARN_ON_ONCE(mmu_lock_shared)) {
+		pr_warn_once("Splitting of GFN %llx level %d under shared lock occurs when KVM does not support it yet\n",
+			     gfn, level);
+		return -EOPNOTSUPP;
+	}
 
 	ret = tdx_sept_zap_private_spte(kvm, gfn, level, page);
 	if (ret <= 0)

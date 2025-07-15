@@ -2019,6 +2019,53 @@ static inline bool tdx_is_sept_violation_unexpected_pending(struct kvm_vcpu *vcp
 	return !(eq & EPT_VIOLATION_PROT_MASK) && !(eq & EPT_VIOLATION_EXEC_FOR_RING3_LIN);
 }
 
+static inline int tdx_check_accept_level(struct kvm_vcpu *vcpu, gfn_t gfn)
+{
+	struct kvm_memory_slot *slot = gfn_to_memslot(vcpu->kvm, gfn);
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	struct kvm *kvm = vcpu->kvm;
+	u64 eeq_type, eeq_info;
+	int level = -1;
+
+	if (!slot)
+		return 0;
+
+	eeq_type = tdx->ext_exit_qualification & TDX_EXT_EXIT_QUAL_TYPE_MASK;
+	if (eeq_type != TDX_EXT_EXIT_QUAL_TYPE_ACCEPT)
+		return 0;
+
+	eeq_info = (tdx->ext_exit_qualification & TDX_EXT_EXIT_QUAL_INFO_MASK) >>
+		   TDX_EXT_EXIT_QUAL_INFO_SHIFT;
+
+	level = (eeq_info & GENMASK(2, 0)) + 1;
+
+	if (level == PG_LEVEL_4K || level == PG_LEVEL_2M) {
+		if (!hugepage_test_guest_inhibit(slot, gfn, level + 1)) {
+			gfn_t base_gfn = gfn_round_for_level(gfn, level);
+			struct kvm_gfn_range gfn_range = {
+				.start = base_gfn,
+				.end = base_gfn + KVM_PAGES_PER_HPAGE(level),
+				.slot = slot,
+				.may_block = true,
+				.attr_filter = KVM_FILTER_PRIVATE,
+			};
+
+			scoped_guard(write_lock, &kvm->mmu_lock) {
+				int ret;
+
+				ret = kvm_split_cross_boundary_leafs(kvm, &gfn_range, false);
+				if (ret)
+					return ret;
+
+				hugepage_set_guest_inhibit(slot, gfn, level + 1);
+				if (level == PG_LEVEL_4K)
+					hugepage_set_guest_inhibit(slot, gfn, level + 2);
+			}
+		}
+	}
+	return 0;
+}
+
 static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 {
 	unsigned long exit_qual;
@@ -2043,6 +2090,9 @@ static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 		 * due to aliasing a single HPA to multiple GPAs.
 		 */
 		exit_qual = EPT_VIOLATION_ACC_WRITE;
+
+		if (tdx_check_accept_level(vcpu, gpa_to_gfn(gpa)))
+			return RET_PF_RETRY;
 
 		/* Only private GPA triggers zero-step mitigation */
 		local_retry = true;

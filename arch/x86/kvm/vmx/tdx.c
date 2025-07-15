@@ -1983,6 +1983,79 @@ static inline bool tdx_is_sept_violation_unexpected_pending(struct kvm_vcpu *vcp
 	return !(eq & EPT_VIOLATION_PROT_MASK) && !(eq & EPT_VIOLATION_EXEC_FOR_RING3_LIN);
 }
 
+/*
+ * An EPT violation can be either due to the guest's ACCEPT operation or
+ * due to the guest's access of memory before the guest accepts the
+ * memory.
+ *
+ * Type TDX_EXT_EXIT_QUAL_TYPE_ACCEPT in the extended exit qualification
+ * identifies the former case, which must also contain a valid guest
+ * accept level.
+ *
+ * For the former case, honor guest's accept level by setting guest inhibit bit
+ * on levels above the guest accept level and split the existing mapping for the
+ * faulting GFN if it's with a higher level than the guest accept level.
+ *
+ * Do nothing if the EPT violation is due to the latter case. KVM will map the
+ * GFN without considering the guest's accept level (unless the guest inhibit
+ * bit is already set).
+ */
+static inline int tdx_honor_guest_accept_level(struct kvm_vcpu *vcpu, gfn_t gfn)
+{
+	struct kvm_memory_slot *slot = gfn_to_memslot(vcpu->kvm, gfn);
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	struct kvm *kvm = vcpu->kvm;
+	u64 eeq_type, eeq_info;
+	int level = -1;
+
+	if (!slot)
+		return 0;
+
+	eeq_type = tdx->ext_exit_qualification & TDX_EXT_EXIT_QUAL_TYPE_MASK;
+	if (eeq_type != TDX_EXT_EXIT_QUAL_TYPE_ACCEPT)
+		return 0;
+
+	eeq_info = (tdx->ext_exit_qualification & TDX_EXT_EXIT_QUAL_INFO_MASK) >>
+		   TDX_EXT_EXIT_QUAL_INFO_SHIFT;
+
+	level = (eeq_info & GENMASK(2, 0)) + 1;
+
+	if (level == PG_LEVEL_4K || level == PG_LEVEL_2M) {
+		if (!hugepage_test_guest_inhibit(slot, gfn, level + 1)) {
+			gfn_t base_gfn = gfn_round_for_level(gfn, level);
+			struct kvm_gfn_range gfn_range = {
+				.start = base_gfn,
+				.end = base_gfn + KVM_PAGES_PER_HPAGE(level),
+				.slot = slot,
+				.may_block = true,
+				.attr_filter = KVM_FILTER_PRIVATE,
+			};
+
+			scoped_guard(write_lock, &kvm->mmu_lock) {
+				int ret;
+
+				/*
+				 * No kvm_flush_remote_tlbs() is required after
+				 * the split for S-EPT, because the
+				 * "BLOCK + TRACK + kick off vCPUs" sequence in
+				 * tdx_sept_split_private_spte() has guaranteed
+				 * the TLB flush. The hardware also doesn't
+				 * cache stale huge mappings in the fault path.
+				 */
+				ret = kvm_split_cross_boundary_leafs(kvm, &gfn_range,
+								     false);
+				if (ret)
+					return ret;
+
+				hugepage_set_guest_inhibit(slot, gfn, level + 1);
+				if (level == PG_LEVEL_4K)
+					hugepage_set_guest_inhibit(slot, gfn, level + 2);
+			}
+		}
+	}
+	return 0;
+}
+
 static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 {
 	unsigned long exit_qual;
@@ -2007,6 +2080,10 @@ static int tdx_handle_ept_violation(struct kvm_vcpu *vcpu)
 		 * due to aliasing a single HPA to multiple GPAs.
 		 */
 		exit_qual = EPT_VIOLATION_ACC_WRITE;
+
+		ret = tdx_honor_guest_accept_level(vcpu, gpa_to_gfn(gpa));
+		if (ret)
+			return ret;
 
 		/* Only private GPA triggers zero-step mitigation */
 		local_retry = true;

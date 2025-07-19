@@ -1098,8 +1098,10 @@ static int config_tdx_module(struct tdmr_info_list *tdmr_list, u64 global_keyid)
 	args.r8 = global_keyid;
 
 	if (tdx_supports_dynamic_pamt(&tdx_sysinfo)) {
-		pr_info("Enable Dynamic PAMT\n");
+		pr_info("Enable Dynamic PAMT: %llx\n", tdx_sysinfo.features.tdx_features0);
 		args.r8 |= TDX_SYS_CONFIG_DYNAMIC_PAMT;
+	} else {
+		pr_info("Not enabling Dynamic PAMT %llx\n", tdx_sysinfo.features.tdx_features0);
 	}
 
 	ret = seamcall_prerr(TDH_SYS_CONFIG, &args);
@@ -1225,6 +1227,10 @@ static int init_tdx_module(void)
 	ret = get_tdx_sys_info(&tdx_sysinfo);
 	if (ret)
 		return ret;
+
+	pr_info("TDX module version: %u.%u.%u\n", tdx_sysinfo.versions.major_version,
+					     tdx_sysinfo.versions.minor_version,
+					     tdx_sysinfo.versions.update_version);
 
 	/* Check whether the kernel can support this module */
 	ret = check_features(&tdx_sysinfo);

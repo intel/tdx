@@ -1584,6 +1584,27 @@ static bool iter_cross_boundary(struct tdp_iter *iter, gfn_t start, gfn_t end)
 		 (iter->gfn + KVM_PAGES_PER_HPAGE(iter->level)) <= end);
 }
 
+static bool need_topup_mirror_caches(struct kvm *kvm)
+{
+	int nr = tdx_nr_pamt_pages() * 2;
+
+	return kvm_mmu_memory_cache_nr_free_objects(&kvm->arch.pamt_page_cache) < nr;
+}
+
+static int topup_mirror_caches(struct kvm *kvm)
+{
+	int r, nr;
+
+	/* One for external_spt, one for TDH.MEM.PAGE.DEMOTE */
+	nr = tdx_nr_pamt_pages() * 2;
+
+	r = kvm_mmu_topup_memory_cache(&kvm->arch.pamt_page_cache, nr);
+	if (r)
+		return r;
+
+	return 0;
+}
+
 static int tdp_mmu_split_huge_pages_root(struct kvm *kvm,
 					 struct kvm_mmu_page *root,
 					 gfn_t start, gfn_t end,
@@ -1648,6 +1669,36 @@ retry:
 							      iter.old_spte,
 							      iter.level, -ENOMEM);
 				return -ENOMEM;
+			}
+
+			rcu_read_lock();
+
+			iter.yielded = true;
+			continue;
+		}
+
+		if (is_mirror_sp(root) && need_topup_mirror_caches(kvm)) {
+			int r;
+
+			rcu_read_unlock();
+
+			if (shared)
+				read_unlock(&kvm->mmu_lock);
+			else
+				write_unlock(&kvm->mmu_lock);
+
+			r = topup_mirror_caches(kvm);
+
+			if (shared)
+				read_lock(&kvm->mmu_lock);
+			else
+				write_lock(&kvm->mmu_lock);
+
+			if (r) {
+				trace_kvm_mmu_split_huge_page(iter.gfn,
+							      iter.old_spte,
+							      iter.level, r);
+				return r;
 			}
 
 			rcu_read_lock();

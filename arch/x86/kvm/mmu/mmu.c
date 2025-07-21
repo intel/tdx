@@ -6848,6 +6848,7 @@ static void mmu_free_vm_memory_caches(struct kvm *kvm)
 	kvm_mmu_free_memory_cache(&kvm->arch.split_desc_cache);
 	kvm_mmu_free_memory_cache(&kvm->arch.split_page_header_cache);
 	kvm_mmu_free_memory_cache(&kvm->arch.split_shadow_page_cache);
+	kvm_mmu_free_memory_cache(&kvm->arch.pamt_page_cache);
 }
 
 void kvm_mmu_uninit_vm(struct kvm *kvm)

@@ -327,11 +327,12 @@ static void tdx_no_vcpus_enter_stop(struct kvm *kvm)
 }
 
 /* TDH.PHYMEM.PAGE.RECLAIM is allowed only when destroying the TD. */
-static int __tdx_reclaim_page(struct page *page)
+static int tdx_reclaim_folio(struct folio *folio, unsigned long start_idx,
+			     unsigned long npages, bool noclear)
 {
 	u64 err, tdx_pt, tdx_owner, tdx_size;
 
-	err = tdh_phymem_page_reclaim(page, &tdx_pt, &tdx_owner, &tdx_size);
+	err = tdh_phymem_page_reclaim(folio, start_idx, npages, &tdx_pt, &tdx_owner, &tdx_size);
 
 	/*
 	 * No need to check for TDX_OPERAND_BUSY; all TD pages are freed
@@ -342,19 +343,25 @@ static int __tdx_reclaim_page(struct page *page)
 		pr_tdx_error_3(TDH_PHYMEM_PAGE_RECLAIM, err, tdx_pt, tdx_owner, tdx_size);
 		return -EIO;
 	}
+
+	if (!noclear)
+		tdx_clear_folio(folio, start_idx, npages);
 	return 0;
 }
 
 static int tdx_reclaim_page(struct page *page)
 {
-	int r;
+	struct folio *folio = page_folio(page);
 
-	r = __tdx_reclaim_page(page);
-	if (!r)
-		tdx_clear_page(page);
-	return r;
+	return tdx_reclaim_folio(folio, folio_page_idx(folio, page), 1, false);
 }
 
+static int tdx_reclaim_page_noclear(struct page *page)
+{
+	struct folio *folio = page_folio(page);
+
+	return tdx_reclaim_folio(folio, folio_page_idx(folio, page), 1, true);
+}
 
 /*
  * Reclaim the TD control page(s) which are crypto-protected by TDX guest's
@@ -587,7 +594,7 @@ static void tdx_reclaim_td_control_pages(struct kvm *kvm)
 	if (!kvm_tdx->td.tdr_page)
 		return;
 
-	if (__tdx_reclaim_page(kvm_tdx->td.tdr_page))
+	if (tdx_reclaim_page_noclear(kvm_tdx->td.tdr_page))
 		return;
 
 	/*
@@ -1932,11 +1939,13 @@ static int tdx_sept_remove_private_spte(struct kvm *kvm, gfn_t gfn,
 					enum pg_level level, kvm_pfn_t pfn)
 {
 	struct page *page = pfn_to_page(pfn);
+	struct folio *folio = page_folio(page);
 	int ret;
 
 	if (!is_hkid_assigned(to_kvm_tdx(kvm))) {
 		KVM_BUG_ON(!kvm->vm_dead, kvm);
-		ret = tdx_reclaim_page(page);
+		ret = tdx_reclaim_folio(folio, folio_page_idx(folio, page),
+					KVM_PAGES_PER_HPAGE(level), false);
 		if (!ret) {
 			tdx_pamt_put(page, level);
 			tdx_unpin(kvm, page);

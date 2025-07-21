@@ -1648,14 +1648,13 @@ static inline u64 tdx_tdvpr_pa(struct tdx_vp *td)
 	return page_to_phys(td->tdvpr_page);
 }
 
-/*
- * The TDX module exposes a CLFLUSH_BEFORE_ALLOC bit to specify whether
- * a CLFLUSH of pages is required before handing them to the TDX module.
- * Be conservative and make the code simpler by doing the CLFLUSH
- * unconditionally.
- */
 static void tdx_clflush_page(struct page *page)
 {
+	u64 tdx_features0 = tdx_sysinfo.features.tdx_features0;
+
+	if (tdx_features0 & TDX_FEATURES0_CLFLUSH_BEFORE_ALLOC)
+		return;
+
 	clflush_cache_range(page_to_virt(page), PAGE_SIZE);
 }
 
@@ -2030,7 +2029,11 @@ EXPORT_SYMBOL_GPL(tdh_phymem_cache_wb);
 
 u64 tdh_phymem_page_wbinvd_tdr(struct tdx_td *td)
 {
+	u64 tdx_features0 = tdx_sysinfo.features.tdx_features0;
 	struct tdx_module_args args = {};
+
+	if (tdx_features0 & TDX_FEATURES0_CLFLUSH_BEFORE_ALLOC)
+		return 0;
 
 	args.rcx = mk_keyed_paddr(tdx_global_keyid, td->tdr_page);
 
@@ -2041,9 +2044,13 @@ EXPORT_SYMBOL_GPL(tdh_phymem_page_wbinvd_tdr);
 u64 tdh_phymem_page_wbinvd_hkid(u64 hkid, struct folio *folio,
 				unsigned long start_idx, unsigned long npages)
 {
+	u64 tdx_features0 = tdx_sysinfo.features.tdx_features0;
 	struct page *start = folio_page(folio, start_idx);
 	struct tdx_module_args args = {};
 	u64 err;
+
+	if (tdx_features0 & TDX_FEATURES0_CLFLUSH_BEFORE_ALLOC)
+		return 0;
 
 	if (start_idx + npages > folio_nr_pages(folio))
 		return TDX_OPERAND_INVALID;

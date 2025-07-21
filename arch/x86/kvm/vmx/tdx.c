@@ -1924,12 +1924,12 @@ static int tdx_spte_demote_private_spte(struct kvm *kvm, gfn_t gfn,
 	u64 err, entry, level_state;
 
 	err = tdh_mem_page_demote(&kvm_tdx->td, gpa, tdx_level, page,
-				  &entry, &level_state);
+				  NULL, &entry, &level_state);
 
 	if (unlikely(tdx_operand_busy(err))) {
 		tdx_no_vcpus_enter_start(kvm);
 		err = tdh_mem_page_demote(&kvm_tdx->td, gpa, tdx_level, page,
-					  &entry, &level_state);
+					  NULL, &entry, &level_state);
 		tdx_no_vcpus_enter_stop(kvm);
 	}
 

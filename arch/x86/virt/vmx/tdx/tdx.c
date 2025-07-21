@@ -1825,6 +1825,7 @@ u64 tdh_mng_rd(struct tdx_td *td, u64 field, u64 *data)
 EXPORT_SYMBOL_GPL(tdh_mng_rd);
 
 u64 tdh_mem_page_demote(struct tdx_td *td, u64 gpa, int level, struct page *page,
+			struct list_head *pamt_pages,
 			u64 *ext_err1, u64 *ext_err2)
 {
 	struct tdx_module_args args = {
@@ -1832,10 +1833,18 @@ u64 tdh_mem_page_demote(struct tdx_td *td, u64 gpa, int level, struct page *page
 		.rdx = tdx_tdr_pa(td),
 		.r8 = page_to_phys(page),
 	};
-	u64 ret;
+	struct page *pamt_page;
+	u64 *p, ret;
 
+	if (level == TDX_PS_2M) {
+		p = &args.r12;
+		list_for_each_entry(pamt_page, pamt_pages, lru) {
+			*p = page_to_phys(pamt_page);
+			p++;
+		}
+	}
 	tdx_clflush_page(page);
-	ret = seamcall_ret(TDH_MEM_PAGE_DEMOTE, &args);
+	ret = seamcall_saved_ret(TDH_MEM_PAGE_DEMOTE, &args);
 
 	*ext_err1 = args.rcx;
 	*ext_err2 = args.rdx;

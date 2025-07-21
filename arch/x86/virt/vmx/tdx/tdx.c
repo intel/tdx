@@ -188,10 +188,11 @@ int tdx_cpu_enable(void)
 }
 EXPORT_SYMBOL_GPL(tdx_cpu_enable);
 
-static atomic_t *tdx_get_pamt_refcount(unsigned long hpa)
+atomic_t *tdx_get_pamt_refcount(unsigned long hpa)
 {
 	return &pamt_refcounts[hpa / PMD_SIZE];
 }
+EXPORT_SYMBOL_GPL(tdx_get_pamt_refcount);
 
 static int pamt_refcount_populate(pte_t *pte, unsigned long addr, void *data)
 {
@@ -2151,7 +2152,7 @@ static u64 tdh_phymem_pamt_remove(unsigned long hpa,
 
 static DEFINE_SPINLOCK(pamt_lock);
 
-static void tdx_free_pamt_pages(struct list_head *pamt_pages)
+void tdx_free_pamt_pages(struct list_head *pamt_pages)
 {
 	struct page *page;
 
@@ -2160,9 +2161,10 @@ static void tdx_free_pamt_pages(struct list_head *pamt_pages)
 		__free_page(page);
 	}
 }
+EXPORT_SYMBOL_GPL(tdx_free_pamt_pages);
 
-static int tdx_alloc_pamt_pages(struct list_head *pamt_pages,
-				 struct page *(alloc)(void *data), void *data)
+int tdx_alloc_pamt_pages(struct list_head *pamt_pages,
+			 struct page *(alloc)(void *data), void *data)
 {
 	for (int i = 0; i < tdx_nr_pamt_pages(); i++) {
 		struct page *page;
@@ -2180,6 +2182,7 @@ fail:
 	tdx_free_pamt_pages(pamt_pages);
 	return -ENOMEM;
 }
+EXPORT_SYMBOL_GPL(tdx_alloc_pamt_pages);
 
 static int tdx_pamt_add(atomic_t *pamt_refcount, unsigned long hpa,
 			struct list_head *pamt_pages)

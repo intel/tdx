@@ -123,6 +123,10 @@ u32 tdx_get_nr_guest_keyids(void);
 void tdx_guest_keyid_free(unsigned int keyid);
 
 int tdx_nr_pamt_pages(void);
+atomic_t *tdx_get_pamt_refcount(unsigned long hpa);
+int tdx_alloc_pamt_pages(struct list_head *pamt_pages,
+			 struct page *(alloc)(void *data), void *data);
+void tdx_free_pamt_pages(struct list_head *pamt_pages);
 int tdx_pamt_get(struct page *page, enum pg_level level,
 		 struct page *(alloc)(void *data), void *data);
 void tdx_pamt_put(struct page *page, enum pg_level level);

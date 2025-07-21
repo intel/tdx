@@ -1915,28 +1915,48 @@ static int tdx_sept_free_private_spt(struct kvm *kvm, gfn_t gfn,
 	return 0;
 }
 
+static struct page *tdx_alloc_pamt_page_split(void *data)
+{
+	struct kvm *kvm = data;
+	void *p;
+
+	p = kvm_mmu_memory_cache_alloc(&kvm->arch.pamt_page_cache);
+	return virt_to_page(p);
+}
+
 static int tdx_spte_demote_private_spte(struct kvm *kvm, gfn_t gfn,
-					enum pg_level level, struct page *page)
+					enum pg_level level, struct page *page,
+					kvm_pfn_t pfn_for_gfn)
 {
 	int tdx_level = pg_level_to_tdx_sept_level(level);
+	hpa_t hpa = pfn_to_hpa(pfn_for_gfn);
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	gpa_t gpa = gfn_to_gpa(gfn);
 	u64 err, entry, level_state;
+	LIST_HEAD(pamt_pages);
+
+	tdx_pamt_get(page, PG_LEVEL_4K, tdx_alloc_pamt_page_split, kvm);
+	tdx_alloc_pamt_pages(&pamt_pages, tdx_alloc_pamt_page_split, kvm);
 
 	err = tdh_mem_page_demote(&kvm_tdx->td, gpa, tdx_level, page,
-				  NULL, &entry, &level_state);
+				  &pamt_pages, &entry, &level_state);
 
 	if (unlikely(tdx_operand_busy(err))) {
 		tdx_no_vcpus_enter_start(kvm);
 		err = tdh_mem_page_demote(&kvm_tdx->td, gpa, tdx_level, page,
-					  NULL, &entry, &level_state);
+					  &pamt_pages, &entry, &level_state);
 		tdx_no_vcpus_enter_stop(kvm);
 	}
 
 	if (KVM_BUG_ON(err, kvm)) {
+		tdx_free_pamt_pages(&pamt_pages);
+		tdx_pamt_put(page, PG_LEVEL_4K);
 		pr_tdx_error_2(TDH_MEM_PAGE_DEMOTE, err, entry, level_state);
 		return -EIO;
 	}
+
+	if (tdx_supports_dynamic_pamt(tdx_sysinfo))
+		atomic_set(tdx_get_pamt_refcount(hpa), PTRS_PER_PMD);
 	return 0;
 }
 
@@ -1963,7 +1983,7 @@ static int tdx_sept_split_private_spt(struct kvm *kvm, gfn_t gfn, enum pg_level 
 
 	tdx_track(kvm);
 
-	return tdx_spte_demote_private_spte(kvm, gfn, level, page);
+	return tdx_spte_demote_private_spte(kvm, gfn, level, page, pfn_for_gfn);
 }
 
 static int tdx_sept_remove_private_spte(struct kvm *kvm, gfn_t gfn,

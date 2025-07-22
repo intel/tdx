@@ -1923,8 +1923,10 @@ static int tdx_sept_remove_private_spte(struct kvm *kvm, gfn_t gfn,
 	if (!is_hkid_assigned(to_kvm_tdx(kvm))) {
 		KVM_BUG_ON(!kvm->vm_dead, kvm);
 		ret = tdx_reclaim_page(page);
-		if (!ret)
+		if (!ret) {
+			tdx_pamt_put(page, level);
 			tdx_unpin(kvm, page);
+		}
 		return ret;
 	}
 

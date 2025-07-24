@@ -2275,21 +2275,14 @@ static struct folio *alloc_migrate_hugetlb_folio(struct hstate *h, gfp_t gfp_mas
 }
 
 /*
- * Use the VMA's mpolicy to allocate a huge page from the buddy.
+ * Allocate a huge page from the buddy allocator given memory policy and node
+ * information.
  */
-static
-struct folio *alloc_buddy_hugetlb_folio_with_mpol(struct hstate *h,
-		struct vm_area_struct *vma, unsigned long addr)
+static struct folio *alloc_buddy_hugetlb_folio_with_mpol(struct hstate *h,
+		gfp_t gfp_mask, struct mempolicy *mpol, int nid,
+		nodemask_t *nodemask)
 {
 	struct folio *folio = NULL;
-	struct mempolicy *mpol;
-	gfp_t gfp_mask = htlb_alloc_mask(h);
-	int nid;
-	nodemask_t *nodemask;
-	pgoff_t ilx;
-
-	mpol = get_vma_policy(vma, addr, h->order, &ilx);
-	nid = policy_node_nodemask(mpol, gfp_mask, ilx, &nodemask);
 
 	if (mpol_is_preferred_many(mpol)) {
 		gfp_t gfp = gfp_mask & ~(__GFP_DIRECT_RECLAIM | __GFP_NOFAIL);
@@ -2302,7 +2295,7 @@ struct folio *alloc_buddy_hugetlb_folio_with_mpol(struct hstate *h,
 
 	if (!folio)
 		folio = alloc_surplus_hugetlb_folio(h, gfp_mask, nid, nodemask);
-	mpol_cond_put(mpol);
+
 	return folio;
 }
 
@@ -2948,10 +2941,13 @@ struct folio *alloc_hugetlb_folio(struct vm_area_struct *vma,
 	struct hstate *h = hstate_vma(vma);
 	struct folio *folio;
 	long retval, gbl_chg, gbl_reserve;
+	struct mempolicy *mpol;
 	map_chg_state map_chg;
-	int ret, idx;
+	nodemask_t *nodemask;
+	int ret, idx, nid;
+	pgoff_t ilx;
 	struct hugetlb_cgroup *h_cg = NULL;
-	gfp_t gfp = htlb_alloc_mask(h) | __GFP_RETRY_MAYFAIL;
+	gfp_t gfp = htlb_alloc_mask(h);
 
 	idx = hstate_index(h);
 
@@ -3022,7 +3018,11 @@ struct folio *alloc_hugetlb_folio(struct vm_area_struct *vma,
 
 	if (!folio) {
 		spin_unlock_irq(&hugetlb_lock);
-		folio = alloc_buddy_hugetlb_folio_with_mpol(h, vma, addr);
+		mpol = get_vma_policy(vma, addr, h->order, &ilx);
+		nid = policy_node_nodemask(mpol, gfp, ilx, &nodemask);
+		folio = alloc_buddy_hugetlb_folio_with_mpol(h, gfp, mpol, nid,
+							    nodemask);
+		mpol_cond_put(mpol);
 		if (!folio)
 			goto out_uncharge_cgroup;
 		spin_lock_irq(&hugetlb_lock);
@@ -3081,7 +3081,7 @@ struct folio *alloc_hugetlb_folio(struct vm_area_struct *vma,
 		}
 	}
 
-	ret = mem_cgroup_charge_hugetlb(folio, gfp);
+	ret = mem_cgroup_charge_hugetlb(folio, gfp | __GFP_RETRY_MAYFAIL);
 	/*
 	 * Unconditionally increment NR_HUGETLB here. If it turns out that
 	 * mem_cgroup_charge_hugetlb failed, then immediately free the page and

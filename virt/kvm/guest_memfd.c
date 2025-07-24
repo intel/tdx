@@ -540,7 +540,7 @@ static struct inode *kvm_gmem_inode_make_secure_inode(const char *name,
 {
 	struct inode *inode;
 
-	inode = alloc_anon_secure_inode(kvm_gmem_mnt->mnt_sb, name);
+	inode = anon_inode_make_secure_inode(kvm_gmem_mnt->mnt_sb, name, NULL);
 	if (IS_ERR(inode))
 		return inode;
 

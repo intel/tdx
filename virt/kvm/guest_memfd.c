@@ -1990,7 +1990,7 @@ static struct inode *kvm_gmem_inode_make_secure_inode(const char *name,
 
 #ifdef CONFIG_KVM_GMEM_SHARED_MEM
 	if (flags & GUEST_MEMFD_FLAG_SUPPORT_SHARED) {
-		mt_init(&private->shareability);
+		mt_init_flags(&private->shareability, MT_FLAGS_USE_RCU);
 
 		err = kvm_gmem_shareability_setup(private, size, flags);
 		if (err)

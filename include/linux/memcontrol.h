@@ -638,6 +638,11 @@ static inline bool mem_cgroup_below_min(struct mem_cgroup *target,
 		page_counter_read(&memcg->memory);
 }
 
+int mem_cgroup_hugetlb_try_charge(struct mem_cgroup *memcg, gfp_t gfp,
+				  unsigned int nr_pages);
+void mem_cgroup_commit_charge(struct folio *folio, struct mem_cgroup *memcg);
+void mem_cgroup_cancel_charge(struct mem_cgroup *memcg, unsigned int nr_pages);
+
 int __mem_cgroup_charge(struct folio *folio, struct mm_struct *mm, gfp_t gfp);
 
 /**
@@ -1164,6 +1169,20 @@ static inline bool mem_cgroup_below_min(struct mem_cgroup *target,
 					struct mem_cgroup *memcg)
 {
 	return false;
+}
+
+int mem_cgroup_hugetlb_try_charge(struct mem_cgroup *memcg, gfp_t gfp,
+				  unsigned int nr_pages)
+{
+	return 0;
+}
+
+void mem_cgroup_commit_charge(struct folio *folio, struct mem_cgroup *memcg)
+{
+}
+
+void mem_cgroup_cancel_charge(struct mem_cgroup *memcg, unsigned int nr_pages)
+{
 }
 
 static inline int mem_cgroup_charge(struct folio *folio,

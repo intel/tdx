@@ -2898,6 +2898,114 @@ void wait_for_freed_hugetlb_folios(void)
 	flush_work(&free_hpage_work);
 }
 
+/**
+ * hugetlb_alloc_folio() - Allocates a hugetlb folio.
+ *
+ * @h: struct hstate to allocate from.
+ * @mpol: struct mempolicy to apply for this folio allocation.
+ * @ilx: Interleave index for interpretation of @mpol.
+ * @charge_cgroup_rsvd: Set to true to charge cgroup reservation.
+ * @use_existing_reservation: Set to true if this allocation should use an
+ *                            existing hstate reservation.
+ *
+ * This function handles cgroup and global hstate reservations. VMA-related
+ * reservations and subpool debiting must be handled by the caller if necessary.
+ *
+ * Return: folio on success or negated error otherwise.
+ */
+struct folio *hugetlb_alloc_folio(struct hstate *h, struct mempolicy *mpol,
+				  pgoff_t ilx, bool charge_cgroup_rsvd,
+				  bool use_existing_reservation)
+{
+	unsigned int nr_pages = pages_per_huge_page(h);
+	struct hugetlb_cgroup *h_cg = NULL;
+	gfp_t gfp = htlb_alloc_mask(h);
+	int idx = hstate_index(h);
+	struct mem_cgroup *memcg;
+	nodemask_t *nodemask;
+	struct folio *folio;
+	bool memcg_charged;
+	int nid;
+	int ret;
+
+	if (charge_cgroup_rsvd) {
+		ret = hugetlb_cgroup_charge_cgroup_rsvd(idx, nr_pages, &h_cg);
+		if (ret)
+			return ERR_PTR(-ENOSPC);
+	}
+
+	ret = hugetlb_cgroup_charge_cgroup(idx, nr_pages, &h_cg);
+	if (ret) {
+		ret = -ENOSPC;
+		goto out_uncharge_cgroup_reservation;
+	}
+
+	memcg = get_mem_cgroup_from_current();
+	ret = mem_cgroup_hugetlb_try_charge(memcg, gfp, nr_pages);
+	memcg_charged = ret == 0;
+	if (ret == -ENOMEM)
+		goto out_memcg;
+
+	nid = policy_node_nodemask(mpol, gfp, ilx, &nodemask);
+
+	spin_lock_irq(&hugetlb_lock);
+
+	folio = NULL;
+	if (use_existing_reservation || available_huge_pages(h))
+		folio = dequeue_hugetlb_folio_with_mpol(h, gfp, mpol, nid, nodemask);
+
+	if (!folio) {
+		spin_unlock_irq(&hugetlb_lock);
+		folio = alloc_buddy_hugetlb_folio_with_mpol(h, gfp, mpol, nid,
+							    nodemask);
+		if (!folio) {
+			ret = -ENOSPC;
+			goto out_memcg;
+		}
+		spin_lock_irq(&hugetlb_lock);
+		list_add(&folio->lru, &h->hugepage_activelist);
+		folio_ref_unfreeze(folio, 1);
+		/* Fall through */
+	}
+
+	if (use_existing_reservation) {
+		folio_set_hugetlb_restore_reserve(folio);
+		h->resv_huge_pages--;
+	}
+
+	lruvec_stat_mod_folio(folio, NR_HUGETLB, pages_per_huge_page(h));
+
+	if (memcg_charged)
+		mem_cgroup_commit_charge(folio, memcg);
+	mem_cgroup_put(memcg);
+
+	hugetlb_cgroup_commit_charge(idx, pages_per_huge_page(h), h_cg, folio);
+	/* If allocation is not consuming a reservation, also store the
+	 * hugetlb_cgroup pointer on the page.
+	 */
+	if (charge_cgroup_rsvd) {
+		hugetlb_cgroup_commit_charge_rsvd(idx, pages_per_huge_page(h),
+						  h_cg, folio);
+	}
+
+	spin_unlock_irq(&hugetlb_lock);
+
+	return folio;
+
+out_memcg:
+	if (memcg_charged)
+		mem_cgroup_cancel_charge(memcg, pages_per_huge_page(h));
+	mem_cgroup_put(memcg);
+
+	hugetlb_cgroup_uncharge_cgroup(idx, pages_per_huge_page(h), h_cg);
+out_uncharge_cgroup_reservation:
+	if (charge_cgroup_rsvd)
+		hugetlb_cgroup_uncharge_cgroup_rsvd(idx, nr_pages, h_cg);
+
+	return ERR_PTR(ret);
+}
+EXPORT_SYMBOL_FOR_MODULES(hugetlb_alloc_folio, "kvm");
+
 typedef enum {
 	/*
 	 * For either 0/1: we checked the per-vma resv map, and one resv
@@ -2931,17 +3039,12 @@ struct folio *alloc_hugetlb_folio(struct vm_area_struct *vma,
 	struct hstate *h = hstate_vma(vma);
 	struct folio *folio;
 	long retval, gbl_chg, gbl_reserve;
-	struct mem_cgroup *memcg;
+	bool use_existing_reservation;
+	bool charge_cgroup_rsvd;
 	struct mempolicy *mpol;
 	map_chg_state map_chg;
-	nodemask_t *nodemask;
-	bool memcg_charged;
-	int ret, idx, nid;
+	int ret;
 	pgoff_t ilx;
-	struct hugetlb_cgroup *h_cg = NULL;
-	gfp_t gfp = htlb_alloc_mask(h);
-
-	idx = hstate_index(h);
 
 	/* Whether we need a separate per-vma reservation? */
 	if (cow_from_owner) {
@@ -2989,82 +3092,22 @@ struct folio *alloc_hugetlb_folio(struct vm_area_struct *vma,
 	 * If this allocation is not consuming a per-vma reservation,
 	 * charge the hugetlb cgroup now.
 	 */
-	if (map_chg) {
-		ret = hugetlb_cgroup_charge_cgroup_rsvd(
-			idx, pages_per_huge_page(h), &h_cg);
-		if (ret) {
-			ret = -ENOSPC;
-			goto out_subpool_put;
-		}
-	}
+	charge_cgroup_rsvd = (bool)map_chg;
 
-	ret = hugetlb_cgroup_charge_cgroup(idx, pages_per_huge_page(h), &h_cg);
-	if (ret) {
-		ret = -ENOSPC;
-		goto out_uncharge_cgroup_reservation;
-	}
-
-	memcg = get_mem_cgroup_from_current();
-	ret = mem_cgroup_hugetlb_try_charge(memcg, gfp, pages_per_huge_page(h));
-	memcg_charged = ret == 0;
-	if (ret == -ENOMEM)
-		goto out_memcg;
+	/*
+	 * gbl_chg == 0 indicates a reservation exists for the allocation, so
+	 * try to use it.
+	 */
+	use_existing_reservation = gbl_chg == 0;
 
 	mpol = get_vma_policy(vma, addr, h->order, &ilx);
-	nid = policy_node_nodemask(mpol, gfp, ilx, &nodemask);
-
-	spin_lock_irq(&hugetlb_lock);
-	/*
-	 * gbl_chg == 0 indicates a reservation exists for the allocation - so
-	 * try dequeuing a page. If there are available_huge_pages(), try using
-	 * them!
-	 */
-	folio = NULL;
-	if (!gbl_chg || available_huge_pages(h))
-		folio = dequeue_hugetlb_folio_with_mpol(h, gfp, mpol, nid, nodemask);
-
-	if (!folio) {
-		spin_unlock_irq(&hugetlb_lock);
-		folio = alloc_buddy_hugetlb_folio_with_mpol(h, gfp, mpol, nid,
-							    nodemask);
-		if (!folio) {
-			mpol_cond_put(mpol);
-			ret = -ENOSPC;
-			goto out_memcg;
-		}
-		spin_lock_irq(&hugetlb_lock);
-		list_add(&folio->lru, &h->hugepage_activelist);
-		folio_ref_unfreeze(folio, 1);
-		/* Fall through */
-	}
-
+	folio = hugetlb_alloc_folio(h, mpol, ilx, charge_cgroup_rsvd,
+				    use_existing_reservation);
 	mpol_cond_put(mpol);
-
-	/*
-	 * Either dequeued or buddy-allocated folio needs to add special
-	 * mark to the folio when it consumes a global reservation.
-	 */
-	if (!gbl_chg) {
-		folio_set_hugetlb_restore_reserve(folio);
-		h->resv_huge_pages--;
+	if (IS_ERR(folio)) {
+		ret = PTR_ERR(folio);
+		goto out_subpool_put;
 	}
-
-	lruvec_stat_mod_folio(folio, NR_HUGETLB, pages_per_huge_page(h));
-
-	if (memcg_charged)
-		mem_cgroup_commit_charge(folio, memcg);
-	mem_cgroup_put(memcg);
-
-	hugetlb_cgroup_commit_charge(idx, pages_per_huge_page(h), h_cg, folio);
-	/* If allocation is not consuming a reservation, also store the
-	 * hugetlb_cgroup pointer on the page.
-	 */
-	if (map_chg) {
-		hugetlb_cgroup_commit_charge_rsvd(idx, pages_per_huge_page(h),
-						  h_cg, folio);
-	}
-
-	spin_unlock_irq(&hugetlb_lock);
 
 	hugetlb_set_folio_subpool(folio, spool);
 
@@ -3098,16 +3141,6 @@ struct folio *alloc_hugetlb_folio(struct vm_area_struct *vma,
 
 	return folio;
 
-out_memcg:
-	if (memcg_charged)
-		mem_cgroup_cancel_charge(memcg, pages_per_huge_page(h));
-	mem_cgroup_put(memcg);
-
-	hugetlb_cgroup_uncharge_cgroup(idx, pages_per_huge_page(h), h_cg);
-out_uncharge_cgroup_reservation:
-	if (map_chg)
-		hugetlb_cgroup_uncharge_cgroup_rsvd(idx, pages_per_huge_page(h),
-						    h_cg);
 out_subpool_put:
 	/*
 	 * put page to subpool iff the quota of subpool's rsv_hpages is used
@@ -3117,7 +3150,6 @@ out_subpool_put:
 		gbl_reserve = hugepage_subpool_put_pages(spool, 1);
 		hugetlb_acct_memory(h, -gbl_reserve);
 	}
-
 
 out_end_reservation:
 	if (map_chg != MAP_CHG_ENFORCED)

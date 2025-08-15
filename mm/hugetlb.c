@@ -2931,9 +2931,11 @@ struct folio *alloc_hugetlb_folio(struct vm_area_struct *vma,
 	struct hstate *h = hstate_vma(vma);
 	struct folio *folio;
 	long retval, gbl_chg, gbl_reserve;
+	struct mem_cgroup *memcg;
 	struct mempolicy *mpol;
 	map_chg_state map_chg;
 	nodemask_t *nodemask;
+	bool memcg_charged;
 	int ret, idx, nid;
 	pgoff_t ilx;
 	struct hugetlb_cgroup *h_cg = NULL;
@@ -2971,8 +2973,10 @@ struct folio *alloc_hugetlb_folio(struct vm_area_struct *vma,
 	 */
 	if (map_chg) {
 		gbl_chg = hugepage_subpool_get_pages(spool, 1);
-		if (gbl_chg < 0)
+		if (gbl_chg < 0) {
+			ret = -ENOSPC;
 			goto out_end_reservation;
+		}
 	} else {
 		/*
 		 * If we have the vma reservation ready, no need for extra
@@ -2988,13 +2992,23 @@ struct folio *alloc_hugetlb_folio(struct vm_area_struct *vma,
 	if (map_chg) {
 		ret = hugetlb_cgroup_charge_cgroup_rsvd(
 			idx, pages_per_huge_page(h), &h_cg);
-		if (ret)
+		if (ret) {
+			ret = -ENOSPC;
 			goto out_subpool_put;
+		}
 	}
 
 	ret = hugetlb_cgroup_charge_cgroup(idx, pages_per_huge_page(h), &h_cg);
-	if (ret)
+	if (ret) {
+		ret = -ENOSPC;
 		goto out_uncharge_cgroup_reservation;
+	}
+
+	memcg = get_mem_cgroup_from_current();
+	ret = mem_cgroup_hugetlb_try_charge(memcg, gfp, pages_per_huge_page(h));
+	memcg_charged = ret == 0;
+	if (ret == -ENOMEM)
+		goto out_memcg;
 
 	mpol = get_vma_policy(vma, addr, h->order, &ilx);
 	nid = policy_node_nodemask(mpol, gfp, ilx, &nodemask);
@@ -3015,7 +3029,8 @@ struct folio *alloc_hugetlb_folio(struct vm_area_struct *vma,
 							    nodemask);
 		if (!folio) {
 			mpol_cond_put(mpol);
-			goto out_uncharge_cgroup;
+			ret = -ENOSPC;
+			goto out_memcg;
 		}
 		spin_lock_irq(&hugetlb_lock);
 		list_add(&folio->lru, &h->hugepage_activelist);
@@ -3033,6 +3048,12 @@ struct folio *alloc_hugetlb_folio(struct vm_area_struct *vma,
 		folio_set_hugetlb_restore_reserve(folio);
 		h->resv_huge_pages--;
 	}
+
+	lruvec_stat_mod_folio(folio, NR_HUGETLB, pages_per_huge_page(h));
+
+	if (memcg_charged)
+		mem_cgroup_commit_charge(folio, memcg);
+	mem_cgroup_put(memcg);
 
 	hugetlb_cgroup_commit_charge(idx, pages_per_huge_page(h), h_cg, folio);
 	/* If allocation is not consuming a reservation, also store the
@@ -3075,22 +3096,13 @@ struct folio *alloc_hugetlb_folio(struct vm_area_struct *vma,
 		}
 	}
 
-	ret = mem_cgroup_charge_hugetlb(folio, gfp | __GFP_RETRY_MAYFAIL);
-	/*
-	 * Unconditionally increment NR_HUGETLB here. If it turns out that
-	 * mem_cgroup_charge_hugetlb failed, then immediately free the page and
-	 * decrement NR_HUGETLB.
-	 */
-	lruvec_stat_mod_folio(folio, NR_HUGETLB, pages_per_huge_page(h));
-
-	if (ret == -ENOMEM) {
-		free_huge_folio(folio);
-		return ERR_PTR(-ENOMEM);
-	}
-
 	return folio;
 
-out_uncharge_cgroup:
+out_memcg:
+	if (memcg_charged)
+		mem_cgroup_cancel_charge(memcg, pages_per_huge_page(h));
+	mem_cgroup_put(memcg);
+
 	hugetlb_cgroup_uncharge_cgroup(idx, pages_per_huge_page(h), h_cg);
 out_uncharge_cgroup_reservation:
 	if (map_chg)
@@ -3110,7 +3122,7 @@ out_subpool_put:
 out_end_reservation:
 	if (map_chg != MAP_CHG_ENFORCED)
 		vma_end_reservation(h, vma, addr);
-	return ERR_PTR(-ENOSPC);
+	return ERR_PTR(ret);
 }
 
 static __init void *alloc_bootmem(struct hstate *h, int nid, bool node_exact)

@@ -855,11 +855,6 @@ struct kvm_vcpu_arch {
 	struct kvm_mmu_memory_cache mmu_shadow_page_cache;
 	struct kvm_mmu_memory_cache mmu_shadowed_info_cache;
 	struct kvm_mmu_memory_cache mmu_page_header_cache;
-	/*
-	 * This cache is to allocate external page table. E.g. private EPT used
-	 * by the TDX module.
-	 */
-	struct kvm_mmu_memory_cache mmu_external_spt_cache;
 
 	/*
 	 * QEMU userspace and the guest each have their own FPU state.
@@ -1852,6 +1847,15 @@ struct kvm_x86_ops {
 	/* Update external page table from spte getting removed, and flush TLB. */
 	void (*remove_external_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 				     u64 mirror_spte);
+
+	/* Allocation a pages from the external page cache. */
+	void *(*alloc_external_fault_cache)(struct kvm_vcpu *vcpu);
+
+	/* Top up extra pages needed for faulting in external page tables. */
+	int (*topup_external_fault_cache)(struct kvm_vcpu *vcpu, unsigned int cnt);
+
+	/* Free in external page fault cache. */
+	void (*free_external_fault_cache)(struct kvm_vcpu *vcpu);
 
 	bool (*has_wbinvd_exit)(void);
 

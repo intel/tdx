@@ -1639,6 +1639,27 @@ static int tdx_mem_page_add(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 	return 0;
 }
 
+static void *tdx_alloc_external_fault_cache(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	return kvm_mmu_memory_cache_alloc(&tdx->mmu_external_spt_cache);
+}
+
+static int tdx_topup_external_fault_cache(struct kvm_vcpu *vcpu, unsigned int cnt)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	return kvm_mmu_topup_memory_cache(&tdx->mmu_external_spt_cache, cnt);
+}
+
+static void tdx_free_external_fault_cache(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_tdx *tdx = to_tdx(vcpu);
+
+	kvm_mmu_free_memory_cache(&tdx->mmu_external_spt_cache);
+}
+
 static int tdx_mem_page_aug(struct kvm *kvm, gfn_t gfn,
 			    enum pg_level level, kvm_pfn_t pfn)
 {
@@ -3599,4 +3620,7 @@ void __init tdx_hardware_setup(void)
 	vt_x86_ops.free_external_spt = tdx_sept_free_private_spt;
 	vt_x86_ops.remove_external_spte = tdx_sept_remove_private_spte;
 	vt_x86_ops.protected_apic_has_interrupt = tdx_protected_apic_has_interrupt;
+	vt_x86_ops.alloc_external_fault_cache = tdx_alloc_external_fault_cache;
+	vt_x86_ops.topup_external_fault_cache = tdx_topup_external_fault_cache;
+	vt_x86_ops.free_external_fault_cache = tdx_free_external_fault_cache;
 }

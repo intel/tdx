@@ -276,6 +276,28 @@ static void test_fallocate(int fd, size_t total_size)
 	ret = fallocate(fd, FALLOC_FL_KEEP_SIZE, page_size, page_size);
 	TEST_ASSERT(!ret, "fallocate to restore punched hole should succeed");
 	assert_st_blocks_equals_size(fd, page_size, total_size);
+
+	if (page_order > 0) {
+		ret = fallocate(fd, FALLOC_FL_KEEP_SIZE,
+				page_size - getpagesize(), page_size);
+		TEST_ASSERT(ret, "fallocate with offset unaligned with allocator size should fail");
+		assert_st_blocks_equals_size(fd, page_size, total_size);
+
+		ret = fallocate(fd, FALLOC_FL_KEEP_SIZE,
+				page_size, page_size - getpagesize());
+		TEST_ASSERT(ret, "fallocate with size unaligned with allocator size should fail");
+		assert_st_blocks_equals_size(fd, page_size, total_size);
+
+		ret = fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
+				page_size - getpagesize(), page_size);
+		TEST_ASSERT(ret, "fallocate(PUNCH_HOLE) with offset unaligned with allocator size should fail");
+		assert_st_blocks_equals_size(fd, page_size, total_size);
+
+		ret = fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
+				page_size, page_size - getpagesize());
+		TEST_ASSERT(ret, "fallocate(PUNCH_HOLE) with size unaligned with allocator size should fail");
+		assert_st_blocks_equals_size(fd, page_size, total_size);
+	}
 }
 
 static void test_invalid_punch_hole(int fd, size_t total_size)

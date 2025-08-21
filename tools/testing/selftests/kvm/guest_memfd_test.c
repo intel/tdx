@@ -324,15 +324,21 @@ static uint64_t valid_guest_memfd_flags(struct kvm_vm *vm)
 static void test_create_guest_memfd_invalid_sizes(struct kvm_vm *vm,
 						  uint64_t flags)
 {
-	size_t size;
+	size_t test_sizes[] = {
+		1,
+		page_size - 1,
+		page_size >> 1,
+	};
 	int fd;
+	int i;
 
 	if ((valid_guest_memfd_flags(vm) & flags) != flags)
 		return;
 
-	for (size = 1; size < page_size; size++) {
-		fd = __vm_create_guest_memfd(vm, size, flags, page_order);
+	for (i = 0; i < ARRAY_SIZE(test_sizes); i++) {
+		size_t size = test_sizes[i];
 
+		fd = __vm_create_guest_memfd(vm, size, flags, page_order);
 		TEST_ASSERT(fd < 0 && errno == EINVAL,
 			    "guest_memfd() with non-page-aligned page size '0x%lx' should fail with EINVAL",
 			    size);

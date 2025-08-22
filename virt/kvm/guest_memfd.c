@@ -1141,6 +1141,45 @@ void kvm_gmem_unbind(struct kvm_memory_slot *slot)
 	filemap_invalidate_unlock(file->f_mapping);
 }
 
+/**
+ * kvm_gmem_mapping_order - get the mapping order and pfn for gfn as if a
+ * kvm_gmem_get_pfn() were to be called now, but without actually allocating.
+ *
+ * @slot: The memslot (containing gfn) to look up.
+ * @gfn: The gfn we want to look up. Must belong to provided @slot.
+ * @pfn: Pointer to pfn to write to.
+ *
+ * Return: The mapping order for this gfn. Will return order 0 on any
+ *         error. *pfn will only be written if the folio was previously
+ *         allocated, otherwise *pfn will be left unmodified.
+ */
+int kvm_gmem_mapping_order(struct kvm_memory_slot *slot, gfn_t gfn,
+			   kvm_pfn_t *pfn)
+{
+	struct inode *inode;
+	struct folio *folio;
+	struct file *file;
+	pgoff_t index;
+	int order;
+
+	file = kvm_gmem_get_file(slot);
+	if (!file)
+		return 0;
+
+	inode = file_inode(file);
+	order = GMEM_I(inode)->page_order;
+
+	index = kvm_gmem_get_index(slot, gfn);
+	folio = filemap_get_folio(inode->i_mapping, index);
+	if (!IS_ERR(folio)) {
+		*pfn = folio_file_pfn(folio, index);
+		folio_put(folio);
+	}
+
+	fput(file);
+	return order;
+}
+
 /* Returns a locked folio on success.  */
 static struct folio *__kvm_gmem_get_pfn(struct file *file,
 					struct kvm_memory_slot *slot,

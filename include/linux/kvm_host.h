@@ -2560,10 +2560,19 @@ bool kvm_arch_post_set_memory_attributes(struct kvm *kvm,
 unsigned long kvm_gmem_get_memory_attributes(struct kvm *kvm, gfn_t gfn);
 
 #ifdef CONFIG_KVM_GUEST_MEMFD
+int kvm_gmem_mapping_order(struct kvm_memory_slot *slot, gfn_t gfn,
+			   kvm_pfn_t *pfn);
 int kvm_gmem_get_pfn(struct kvm *kvm, struct kvm_memory_slot *slot,
 		     gfn_t gfn, kvm_pfn_t *pfn, struct page **page,
 		     int *max_order);
 #else
+int kvm_gmem_mapping_order(struct kvm_memory_slot *slot, gfn_t gfn,
+			   kvm_pfn_t *pfn)
+{
+	WARN_ON_ONCE(1);
+	return 0;
+}
+
 static inline int kvm_gmem_get_pfn(struct kvm *kvm,
 				   struct kvm_memory_slot *slot, gfn_t gfn,
 				   kvm_pfn_t *pfn, struct page **page,

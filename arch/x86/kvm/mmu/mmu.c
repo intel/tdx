@@ -3318,10 +3318,13 @@ static u8 kvm_gmem_max_mapping_level(struct kvm *kvm, struct kvm_page_fault *fau
 		pfn = fault->pfn;
 		max_level = fault->max_level;
 	} else {
-		/* TODO: Call into guest_memfd once hugepages are supported. */
-		WARN_ONCE(1, "Get pfn+order from guest_memfd");
+		/* TODO: Constify the guest_memfd chain. */
+		struct kvm_memory_slot *__slot = (struct kvm_memory_slot *)slot;
+		int order;
+
 		pfn = KVM_PFN_ERR_FAULT;
-		max_level = PG_LEVEL_4K;
+		order = kvm_gmem_mapping_order(__slot, gfn, &pfn);
+		max_level = kvm_max_level_for_order(order);
 	}
 
 	if (max_level == PG_LEVEL_4K)

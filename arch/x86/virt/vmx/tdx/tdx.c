@@ -2010,13 +2010,23 @@ u64 tdh_phymem_page_wbinvd_hkid(u64 hkid, struct page *page)
 EXPORT_SYMBOL_GPL(tdh_phymem_page_wbinvd_hkid);
 
 /* Number PAMT pages to be provided to TDX module per 2M region of PA */
-static int tdx_dpamt_entry_pages(void)
+int tdx_dpamt_entry_pages(void)
 {
 	if (!tdx_supports_dynamic_pamt(&tdx_sysinfo))
 		return 0;
 
 	return tdx_sysinfo.tdmr.pamt_4k_entry_size * PTRS_PER_PTE / PAGE_SIZE;
 }
+EXPORT_SYMBOL_GPL(tdx_dpamt_entry_pages);
+
+static struct page *alloc_dpamt_page(struct tdx_prealloc *prealloc)
+{
+	if (prealloc)
+		return get_tdx_prealloc_page(prealloc);
+
+	return alloc_page(GFP_KERNEL_ACCOUNT);
+}
+
 
 /*
  * The TDX spec treats the registers like an array, as they are ordered
@@ -2040,13 +2050,13 @@ static u64 *dpamt_args_array_ptr(struct tdx_module_array_args *args)
 	return &args->args_array[TDX_ARG_INDEX(rdx)];
 }
 
-static int alloc_pamt_array(u64 *pa_array)
+static int alloc_pamt_array(u64 *pa_array, struct tdx_prealloc *prealloc)
 {
 	struct page *page;
 	int i;
 
 	for (i = 0; i < tdx_dpamt_entry_pages(); i++) {
-		page = alloc_page(GFP_KERNEL_ACCOUNT);
+		page = alloc_dpamt_page(prealloc);
 		if (!page)
 			goto err;
 		pa_array[i] = page_to_phys(page);
@@ -2134,7 +2144,7 @@ static u64 tdh_phymem_pamt_remove(struct page *page, u64 *pamt_pa_array)
 static DEFINE_SPINLOCK(pamt_lock);
 
 /* Bump PAMT refcount for the given page and allocate PAMT memory if needed */
-int tdx_pamt_get(struct page *page)
+int tdx_pamt_get(struct page *page, struct tdx_prealloc *prealloc)
 {
 	u64 pamt_pa_array[MAX_TDX_ARG_SIZE(rdx)];
 	atomic_t *pamt_refcount;
@@ -2153,7 +2163,7 @@ int tdx_pamt_get(struct page *page)
 	if (atomic_inc_not_zero(pamt_refcount))
 		return 0;
 
-	ret = alloc_pamt_array(pamt_pa_array);
+	ret = alloc_pamt_array(pamt_pa_array, prealloc);
 	if (ret)
 		goto out_free;
 
@@ -2278,7 +2288,7 @@ struct page *tdx_alloc_page(void)
 	if (!page)
 		return NULL;
 
-	if (tdx_pamt_get(page)) {
+	if (tdx_pamt_get(page, NULL)) {
 		__free_page(page);
 		return NULL;
 	}

@@ -1641,23 +1641,34 @@ static int tdx_mem_page_add(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 
 static void *tdx_alloc_external_fault_cache(struct kvm_vcpu *vcpu)
 {
-	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	struct page *page = get_tdx_prealloc_page(&to_tdx(vcpu)->prealloc);
 
-	return kvm_mmu_memory_cache_alloc(&tdx->mmu_external_spt_cache);
+	if (WARN_ON_ONCE(!page))
+		return (void *)__get_free_page(GFP_ATOMIC | __GFP_ACCOUNT);
+
+	return page_address(page);
 }
 
 static int tdx_topup_external_fault_cache(struct kvm_vcpu *vcpu, unsigned int cnt)
 {
-	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	struct tdx_prealloc *prealloc = &to_tdx(vcpu)->prealloc;
+	int min_fault_cache_size;
 
-	return kvm_mmu_topup_memory_cache(&tdx->mmu_external_spt_cache, cnt);
+	/* External page tables */
+	min_fault_cache_size = cnt;
+	/* Dynamic PAMT pages (if enabled) */
+	min_fault_cache_size += tdx_dpamt_entry_pages() * PT64_ROOT_MAX_LEVEL;
+
+	return topup_tdx_prealloc_page(prealloc, min_fault_cache_size);
 }
 
 static void tdx_free_external_fault_cache(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
+	struct page *page;
 
-	kvm_mmu_free_memory_cache(&tdx->mmu_external_spt_cache);
+	while ((page = get_tdx_prealloc_page(&tdx->prealloc)))
+		__free_page(page);
 }
 
 static int tdx_mem_page_aug(struct kvm *kvm, gfn_t gfn,

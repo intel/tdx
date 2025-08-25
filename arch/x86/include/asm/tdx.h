@@ -17,6 +17,7 @@
 #include <uapi/asm/mce.h>
 #include <asm/tdx_global_metadata.h>
 #include <linux/pgtable.h>
+#include <linux/memory.h>
 
 /*
  * Used by the #VE exception handler to gather the #VE exception
@@ -116,7 +117,46 @@ int tdx_guest_keyid_alloc(void);
 u32 tdx_get_nr_guest_keyids(void);
 void tdx_guest_keyid_free(unsigned int keyid);
 
-int tdx_pamt_get(struct page *page);
+int tdx_dpamt_entry_pages(void);
+
+/*
+ * Simple structure for pre-allocating Dynamic
+ * PAMT pages outside of locks.
+ */
+struct tdx_prealloc {
+	struct list_head page_list;
+	int cnt;
+};
+
+static inline struct page *get_tdx_prealloc_page(struct tdx_prealloc *prealloc)
+{
+	struct page *page;
+
+	page = list_first_entry_or_null(&prealloc->page_list, struct page, lru);
+	if (page) {
+		list_del(&page->lru);
+		prealloc->cnt--;
+	}
+
+	return page;
+}
+
+static inline int topup_tdx_prealloc_page(struct tdx_prealloc *prealloc, unsigned int min_size)
+{
+	while (prealloc->cnt < min_size) {
+		struct page *page = alloc_page(GFP_KERNEL);
+
+		if (!page)
+			return -ENOMEM;
+
+		list_add(&page->lru, &prealloc->page_list);
+		prealloc->cnt++;
+	}
+
+	return 0;
+}
+
+int tdx_pamt_get(struct page *page, struct tdx_prealloc *prealloc);
 void tdx_pamt_put(struct page *page);
 
 struct page *tdx_alloc_page(void);
@@ -192,6 +232,7 @@ static inline int tdx_enable(void)  { return -ENODEV; }
 static inline u32 tdx_get_nr_guest_keyids(void) { return 0; }
 static inline const char *tdx_dump_mce_info(struct mce *m) { return NULL; }
 static inline const struct tdx_sys_info *tdx_get_sysinfo(void) { return NULL; }
+static inline int tdx_dpamt_entry_pages(void) { return 0; }
 #endif	/* CONFIG_INTEL_TDX_HOST */
 
 #endif /* !__ASSEMBLER__ */

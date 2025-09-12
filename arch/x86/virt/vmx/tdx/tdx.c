@@ -1997,3 +1997,219 @@ u64 tdh_phymem_page_wbinvd_hkid(u64 hkid, struct page *page)
 	return seamcall(TDH_PHYMEM_PAGE_WBINVD, &args);
 }
 EXPORT_SYMBOL_GPL(tdh_phymem_page_wbinvd_hkid);
+
+/* Number PAMT pages to be provided to TDX module per 2M region of PA */
+static int tdx_dpamt_entry_pages(void)
+{
+	if (!tdx_supports_dynamic_pamt(&tdx_sysinfo))
+		return 0;
+
+	return tdx_sysinfo.tdmr.pamt_4k_entry_size * PTRS_PER_PTE / PAGE_SIZE;
+}
+
+/*
+ * The TDX spec treats the registers like an array, as they are ordered
+ * in the struct. The array size is limited by the number or registers,
+ * so define the max size it could be for worst case allocations and sanity
+ * checking.
+ */
+#define MAX_DPAMT_ARG_SIZE (sizeof(struct tdx_module_args) - \
+			    offsetof(struct tdx_module_args, rdx))
+
+/*
+ * Treat struct the registers like an array that starts at RDX, per
+ * TDX spec. Do some sanitychecks, and return an indexable type.
+ */
+static u64 *dpamt_args_array_ptr(struct tdx_module_args *args)
+{
+	WARN_ON_ONCE(tdx_dpamt_entry_pages() > MAX_DPAMT_ARG_SIZE);
+
+	/*
+	 * FORTIFY_SOUCE could inline this and complain when callers copy
+	 * across fields, which is exactly what this is supposed to be
+	 * used for. Obfuscate it.
+	 */
+	return (u64 *)((u8 *)args + offsetof(struct tdx_module_args, rdx));
+}
+
+static int alloc_pamt_array(u64 *pa_array)
+{
+	struct page *page;
+
+	for (int i = 0; i < tdx_dpamt_entry_pages(); i++) {
+		page = alloc_page(GFP_KERNEL);
+		if (!page)
+			return -ENOMEM;
+		pa_array[i] = page_to_phys(page);
+	}
+
+	return 0;
+}
+
+static void free_pamt_array(u64 *pa_array)
+{
+	for (int i = 0; i < tdx_dpamt_entry_pages(); i++) {
+		if (!pa_array[i])
+			break;
+
+		reset_tdx_pages(pa_array[i], PAGE_SIZE);
+
+		/*
+		 * It might have come from 'prealloc', but this is an error
+		 * path. Don't be fancy, just free them. TDH.PHYMEM.PAMT.ADD
+		 * only modifies RAX, so the encoded array is still in place.
+		 */
+		__free_page(phys_to_page(pa_array[i]));
+	}
+}
+
+/*
+ * Add PAMT memory for the given HPA. Return's negative error code
+ * for kernel side error conditions (-ENOMEM) and 1 for TDX Module
+ * error. In the case of TDX module error, the return code is stored
+ * in tdx_err.
+ */
+static u64 tdh_phymem_pamt_add(unsigned long hpa, u64 *pamt_pa_array)
+{
+	struct tdx_module_args args = {
+		.rcx = hpa,
+	};
+	u64 *args_array = dpamt_args_array_ptr(&args);
+
+	WARN_ON_ONCE(!IS_ALIGNED(hpa & PAGE_MASK, PMD_SIZE));
+
+	/* Copy PAMT page PA's into the struct per the TDX ABI */
+	memcpy(args_array, pamt_pa_array,
+	       tdx_dpamt_entry_pages() * sizeof(*args_array));
+
+	return seamcall(TDH_PHYMEM_PAMT_ADD, &args);
+}
+
+/* Remove PAMT memory for the given HPA */
+static u64 tdh_phymem_pamt_remove(unsigned long hpa, u64 *pamt_pa_array)
+{
+	struct tdx_module_args args = {
+		.rcx = hpa,
+	};
+	u64 *args_array = dpamt_args_array_ptr(&args);
+	u64 ret;
+
+	WARN_ON_ONCE(!IS_ALIGNED(hpa & PAGE_MASK, PMD_SIZE));
+
+	ret = seamcall_ret(TDH_PHYMEM_PAMT_REMOVE, &args);
+	if (ret)
+		return ret;
+
+	/* Copy PAMT page PA's out of the struct per the TDX ABI */
+	memcpy(pamt_pa_array, args_array,
+	       tdx_dpamt_entry_pages() * sizeof(u64));
+
+	return ret;
+}
+
+/* Serializes adding/removing PAMT memory */
+static DEFINE_SPINLOCK(pamt_lock);
+
+/* Bump PAMT refcount for the given page and allocate PAMT memory if needed */
+int tdx_pamt_get(struct page *page)
+{
+	unsigned long hpa = ALIGN_DOWN(page_to_phys(page), PMD_SIZE);
+	u64 pamt_pa_array[MAX_DPAMT_ARG_SIZE];
+	atomic_t *pamt_refcount;
+	u64 tdx_status;
+	int ret;
+
+	if (!tdx_supports_dynamic_pamt(&tdx_sysinfo))
+		return 0;
+
+	ret = alloc_pamt_array(pamt_pa_array);
+	if (ret)
+		return ret;
+
+	pamt_refcount = tdx_find_pamt_refcount(hpa);
+
+	scoped_guard(spinlock, &pamt_lock) {
+		if (atomic_read(pamt_refcount))
+			goto out_free;
+
+		tdx_status = tdh_phymem_pamt_add(hpa | TDX_PS_2M, pamt_pa_array);
+
+		if (IS_TDX_SUCCESS(tdx_status)) {
+			atomic_inc(pamt_refcount);
+		} else {
+			pr_err("TDH_PHYMEM_PAMT_ADD failed: %#llx\n", tdx_status);
+			goto out_free;
+		}
+	}
+
+	return ret;
+out_free:
+	free_pamt_array(pamt_pa_array);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(tdx_pamt_get);
+
+/*
+ * Drop PAMT refcount for the given page and free PAMT memory if it is no
+ * longer needed.
+ */
+void tdx_pamt_put(struct page *page)
+{
+	unsigned long hpa = ALIGN_DOWN(page_to_phys(page), PMD_SIZE);
+	u64 pamt_pa_array[MAX_DPAMT_ARG_SIZE];
+	atomic_t *pamt_refcount;
+	u64 tdx_status;
+
+	if (!tdx_supports_dynamic_pamt(&tdx_sysinfo))
+		return;
+
+	hpa = ALIGN_DOWN(hpa, PMD_SIZE);
+
+	pamt_refcount = tdx_find_pamt_refcount(hpa);
+
+	scoped_guard(spinlock, &pamt_lock) {
+		if (!atomic_read(pamt_refcount))
+			return;
+
+		tdx_status = tdh_phymem_pamt_remove(hpa | TDX_PS_2M, pamt_pa_array);
+
+		if (IS_TDX_SUCCESS(tdx_status)) {
+			atomic_dec(pamt_refcount);
+		} else {
+			pr_err("TDH_PHYMEM_PAMT_REMOVE failed: %#llx\n", tdx_status);
+			return;
+		}
+	}
+
+	free_pamt_array(pamt_pa_array);
+}
+EXPORT_SYMBOL_GPL(tdx_pamt_put);
+
+/* Allocate a page and make sure it is backed by PAMT memory */
+struct page *tdx_alloc_page(void)
+{
+	struct page *page;
+
+	page = alloc_page(GFP_KERNEL);
+	if (!page)
+		return NULL;
+
+	if (tdx_pamt_get(page)) {
+		__free_page(page);
+		return NULL;
+	}
+
+	return page;
+}
+EXPORT_SYMBOL_GPL(tdx_alloc_page);
+
+/* Free a page and release its PAMT memory */
+void tdx_free_page(struct page *page)
+{
+	if (!page)
+		return;
+
+	tdx_pamt_put(page);
+	__free_page(page);
+}
+EXPORT_SYMBOL_GPL(tdx_free_page);

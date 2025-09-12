@@ -2432,3 +2432,74 @@ u64 tdh_spdm_mng(u64 spdm_id, u64 spdm_op, struct page *spdm_param,
 	return ret;
 }
 EXPORT_SYMBOL_FOR_MODULES(tdh_spdm_mng, "tdx-host");
+
+u64 tdh_ide_stream_create(u64 stream_info, u64 spdm_id,
+			  struct page *stream_mt, u64 stream_ctrl,
+			  u64 rid_assoc1, u64 rid_assoc2, u64 addr_assoc1,
+			  u64 addr_assoc2, u64 addr_assoc3, u64 *stream_id)
+{
+	struct tdx_module_args args = {
+		.rcx = stream_info,
+		.rdx = spdm_id,
+		.r8 = page_to_phys(stream_mt),
+		.r9 = stream_ctrl,
+		.r10 = rid_assoc1,
+		.r11 = rid_assoc2,
+		.r12 = addr_assoc1,
+		.r13 = addr_assoc2,
+		.r14 = addr_assoc3,
+	};
+	u64 ret;
+
+	ret = seamcall_saved_ret(TDH_IDE_STREAM_CREATE, &args);
+
+	*stream_id = args.rcx;
+
+	return ret;
+}
+EXPORT_SYMBOL_FOR_MODULES(tdh_ide_stream_create, "tdx-host");
+
+u64 tdh_ide_stream_block(u64 spdm_id, u64 stream_id)
+{
+	struct tdx_module_args args = {
+		.rcx = spdm_id,
+		.rdx = stream_id,
+	};
+
+	return seamcall(TDH_IDE_STREAM_BLOCK, &args);
+}
+EXPORT_SYMBOL_FOR_MODULES(tdh_ide_stream_block, "tdx-host");
+
+u64 tdh_ide_stream_delete(u64 spdm_id, u64 stream_id)
+{
+	struct tdx_module_args args = {
+		.rcx = spdm_id,
+		.rdx = stream_id,
+	};
+
+	return seamcall(TDH_IDE_STREAM_DELETE, &args);
+}
+EXPORT_SYMBOL_FOR_MODULES(tdh_ide_stream_delete, "tdx-host");
+
+u64 tdh_ide_stream_km(u64 spdm_id, u64 stream_id, u64 operation,
+		      struct page *spdm_rsp, struct page *spdm_req,
+		      u64 *spdm_req_len)
+{
+	struct tdx_module_args args = {
+		.rcx = spdm_id,
+		.rdx = stream_id,
+		.r8 = operation,
+		.r9 = page_to_phys(spdm_rsp),
+		.r10 = page_to_phys(spdm_req),
+	};
+	u64 ret;
+
+	do {
+		ret = seamcall_ret(TDH_IDE_STREAM_KM, &args);
+	} while (ret == TDX_INTERRUPTED_RESUMABLE);
+
+	*spdm_req_len = args.rcx;
+
+	return ret;
+}
+EXPORT_SYMBOL_FOR_MODULES(tdh_ide_stream_km, "tdx-host");

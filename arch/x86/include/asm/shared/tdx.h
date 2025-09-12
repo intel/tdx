@@ -145,6 +145,13 @@ struct tdx_module_args {
 	u64 rsi;
 };
 
+struct tdx_module_array_args {
+	union {
+		struct tdx_module_args args;
+		u64 args_array[sizeof(struct tdx_module_args) / sizeof(u64)];
+	};
+};
+
 /* Used to communicate with the TDX module */
 u64 __tdcall(u64 fn, struct tdx_module_args *args);
 u64 __tdcall_ret(u64 fn, struct tdx_module_args *args);

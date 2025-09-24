@@ -3276,8 +3276,7 @@ static bool page_range_has_hwpoisoned(struct page *page, long nr_pages)
  * It splits @folio into @new_order folios and copies the @folio metadata to
  * all the resulting folios.
  */
-static void __split_folio_to_order(struct folio *folio, int old_order,
-		int new_order)
+void __split_folio_to_order(struct folio *folio, int old_order, int new_order)
 {
 	/* Scan poisoned pages when split a poisoned folio to large folios */
 	const bool handle_hwpoison = folio_test_has_hwpoisoned(folio) && new_order;

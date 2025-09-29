@@ -507,6 +507,35 @@ static int kvm_gmem_mmap(struct file *file, struct vm_area_struct *vma)
 	return 0;
 }
 
+unsigned long kvm_gmem_get_memory_attributes(struct kvm *kvm, gfn_t gfn)
+{
+	struct kvm_memory_slot *slot = gfn_to_memslot(kvm, gfn);
+
+	/*
+	 * If this gfn has no associated memslot, there's no chance of the gfn
+	 * being backed by private memory, since guest_memfd must be used for
+	 * private memory, and guest_memfd must be associated with some memslot.
+	 */
+	if (!slot)
+		return 0;
+
+	CLASS(gmem_get_file, file)(slot);
+	if (!file)
+		return false;
+
+	/*
+	 * Don't take the filemap invalidation lock, as temporarily acquiring
+	 * that lock wouldn't provide any meaningful protection.  The caller
+	 * _must_ protect consumption of private vs. shared by checking
+	 * mmu_invalidate_retry_gfn() under mmu_lock.
+	 */
+	guard(rcu)();
+
+	return kvm_gmem_get_attributes(file_inode(file),
+				       kvm_gmem_get_index(slot, gfn));
+}
+EXPORT_SYMBOL_GPL(kvm_gmem_get_memory_attributes);
+
 static struct file_operations kvm_gmem_fops = {
 	.mmap		= kvm_gmem_mmap,
 	.open		= generic_file_open,

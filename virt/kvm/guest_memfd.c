@@ -220,6 +220,12 @@ static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index)
 	} while (IS_ERR(folio) && PTR_ERR(folio) == -EEXIST);
 
 	mpol_cond_put(policy);
+
+	if (IS_ERR(folio))
+		return folio;
+
+	inode_add_bytes(inode, folio_size(folio));
+
 	return folio;
 }
 
@@ -303,6 +309,49 @@ static void kvm_gmem_invalidate_end(struct inode *inode, pgoff_t start,
 		__kvm_gmem_invalidate_end(f, start, end);
 }
 
+static size_t kvm_gmem_truncate_folio(struct folio *folio)
+{
+	size_t nr_bytes;
+
+	folio_lock(folio);
+
+	nr_bytes = folio_size(folio);
+
+	if (folio_mapped(folio))
+		unmap_mapping_folio(folio);
+
+	folio_cancel_dirty(folio);
+	filemap_remove_folio(folio);
+
+	folio_unlock(folio);
+
+	return nr_bytes;
+}
+
+static void kvm_gmem_truncate_range(struct inode *inode, pgoff_t start,
+				    size_t nr_pages)
+{
+	struct folio_batch fbatch;
+	long nr_bytes = 0;
+	pgoff_t next;
+	pgoff_t last;
+	int i;
+
+	last = start + nr_pages - 1;
+
+	folio_batch_init(&fbatch);
+	next = start;
+	while (filemap_get_folios(inode->i_mapping, &next, last, &fbatch)) {
+		for (i = 0; i < folio_batch_count(&fbatch); ++i)
+			nr_bytes += kvm_gmem_truncate_folio(fbatch.folios[i]);
+
+		folio_batch_release(&fbatch);
+		cond_resched();
+	}
+
+	inode_sub_bytes(inode, nr_bytes);
+}
+
 static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 {
 	pgoff_t start = offset >> PAGE_SHIFT;
@@ -316,7 +365,7 @@ static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 
 	kvm_gmem_invalidate_begin(inode, start, end);
 
-	truncate_inode_pages_range(inode->i_mapping, offset, offset + len - 1);
+	kvm_gmem_truncate_range(inode, start, len >> PAGE_SHIFT);
 
 	kvm_gmem_invalidate_end(inode, start, end);
 
@@ -1289,11 +1338,21 @@ static void kvm_gmem_free_inode(struct inode *inode)
 	kmem_cache_free(kvm_gmem_inode_cachep, GMEM_I(inode));
 }
 
+static void kvm_gmem_evict_inode(struct inode *inode)
+{
+	truncate_inode_pages_final_prepare(inode->i_mapping);
+
+	kvm_gmem_truncate_range(inode, 0, inode->i_size >> PAGE_SHIFT);
+
+	clear_inode(inode);
+}
+
 static const struct super_operations kvm_gmem_super_operations = {
 	.statfs		= simple_statfs,
 	.alloc_inode	= kvm_gmem_alloc_inode,
 	.destroy_inode	= kvm_gmem_destroy_inode,
 	.free_inode	= kvm_gmem_free_inode,
+	.evict_inode    = kvm_gmem_evict_inode,
 };
 
 static int kvm_gmem_init_fs_context(struct fs_context *fc)

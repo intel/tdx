@@ -6,6 +6,7 @@
 #include <linux/hugetlb.h>
 #include <linux/hugetlb_cgroup.h>
 #include <linux/kvm.h>
+#include <linux/mempolicy.h>
 
 #include "guest_memfd_hugetlb.h"
 
@@ -101,4 +102,56 @@ void gmem_hugetlb_teardown(struct inode *inode, u8 page_order, u64 flags)
 						      private->h_cg_rsvd);
 
 	kfree(private);
+}
+
+struct folio *gmem_hugetlb_alloc_folio(void *priv, u8 page_order, struct mempolicy *mpol)
+{
+	struct gmem_hugetlb *private = priv;
+	struct folio *folio;
+	struct hstate *h;
+	pgoff_t ilx;
+	int ret;
+
+	ret = hugepage_subpool_get_pages(private->spool, 1);
+	if (ret == -ENOMEM) {
+		return ERR_PTR(-ENOMEM);
+	} else if (ret > 0) {
+		/* guest_memfd will not use surplus pages. */
+		goto err_put_pages;
+	}
+
+	/* TODO: ignore interleaving for now. */
+	ilx = NO_INTERLEAVE_INDEX;
+
+	/*
+	 * charge_cgroup_rsvd is false because we already charged reservations
+	 * when creating the subpool for this
+	 * guest_memfd. use_existing_reservation is true - we're using a
+	 * reservation from the guest_memfd's subpool.
+	 */
+	h = hugetlb_order_to_hstate(page_order);
+	folio = hugetlb_alloc_folio(h, mpol, ilx, false, true);
+	if (IS_ERR_OR_NULL(folio))
+		goto err_put_pages;
+
+	/*
+	 * Clear restore_reserve here so that when this folio is freed,
+	 * free_huge_folio() will always attempt to return the reservation to
+	 * the subpool.  guest_memfd, unlike regular hugetlb, has no resv_map,
+	 * and hence when freeing, the folio needs to be returned to the
+	 * subpool.  guest_memfd does not use surplus hugetlb pages, so in
+	 * free_huge_folio(), returning to subpool will always succeed and the
+	 * hstate reservation will then get restored.
+	 *
+	 * hugetlbfs does this in hugetlb_add_to_page_cache().
+	 */
+	folio_clear_hugetlb_restore_reserve(folio);
+
+	hugetlb_set_folio_subpool(folio, private->spool);
+
+	return folio;
+
+err_put_pages:
+	hugepage_subpool_put_pages(private->spool, 1);
+	return ERR_PTR(-ENOMEM);
 }

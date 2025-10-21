@@ -159,19 +159,30 @@ static int kvm_gmem_prepare_folio(struct kvm *kvm, struct kvm_memory_slot *slot,
 	return r;
 }
 
-static struct folio *__kvm_gmem_get_folio(struct address_space *mapping,
+static struct folio *__kvm_gmem_get_folio(struct inode *inode,
 					  pgoff_t index,
 					  struct mempolicy *policy)
 {
+	struct address_space *mapping = inode->i_mapping;
 	const gfp_t gfp = mapping_gfp_mask(mapping);
 	struct folio *folio;
+	pgoff_t index_floor;
 	int err;
 
 	folio = filemap_lock_folio(mapping, index);
 	if (!IS_ERR(folio))
 		return folio;
 
-	folio = filemap_alloc_folio(gfp, 0, policy);
+	if (IS_ENABLED(CONFIG_KVM_GUEST_MEMFD_HUGETLB) &&
+	    GMEM_I(inode)->flags & GUEST_MEMFD_FLAG_HUGETLB) {
+		folio = gmem_hugetlb_alloc_folio(inode->i_private,
+						 GMEM_I(inode)->page_order, policy);
+		if (IS_ERR(folio))
+			return folio;
+	} else {
+		folio = filemap_alloc_folio(gfp, 0, policy);
+	}
+
 	if (!folio)
 		return ERR_PTR(-ENOMEM);
 
@@ -181,7 +192,8 @@ static struct folio *__kvm_gmem_get_folio(struct address_space *mapping,
 
 	__folio_set_locked(folio);
 
-	err = __filemap_add_folio(mapping, folio, index, gfp, NULL);
+	index_floor = round_down(index, folio_nr_pages(folio));
+	err = __filemap_add_folio(mapping, folio, index_floor, gfp, NULL);
 	if (err) {
 		__folio_clear_locked(folio);
 		goto err_put;
@@ -205,7 +217,6 @@ err_put:
  */
 static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index)
 {
-	/* TODO: Support huge pages. */
 	struct address_space *mapping = inode->i_mapping;
 	struct mempolicy *policy;
 	struct folio *folio;
@@ -220,7 +231,7 @@ static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index)
 
 	policy = mpol_shared_policy_lookup(&GMEM_I(inode)->policy, index);
 	do {
-		folio = __kvm_gmem_get_folio(mapping, index, policy);
+		folio = __kvm_gmem_get_folio(inode, index, policy);
 	} while (IS_ERR(folio) && PTR_ERR(folio) == -EEXIST);
 
 	mpol_cond_put(policy);

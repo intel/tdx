@@ -439,6 +439,7 @@ static long kvm_gmem_allocate(struct inode *inode, loff_t offset, loff_t len)
 static long kvm_gmem_fallocate(struct file *file, int mode, loff_t offset,
 			       loff_t len)
 {
+	size_t page_size;
 	int ret;
 
 	if (!(mode & FALLOC_FL_KEEP_SIZE))
@@ -447,7 +448,8 @@ static long kvm_gmem_fallocate(struct file *file, int mode, loff_t offset,
 	if (mode & ~(FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE))
 		return -EOPNOTSUPP;
 
-	if (!PAGE_ALIGNED(offset) || !PAGE_ALIGNED(len))
+	page_size = PAGE_SIZE << GMEM_I(file_inode(file))->page_order;
+	if (!IS_ALIGNED(offset, page_size) || !IS_ALIGNED(len, page_size))
 		return -EINVAL;
 
 	if (mode & FALLOC_FL_PUNCH_HOLE)

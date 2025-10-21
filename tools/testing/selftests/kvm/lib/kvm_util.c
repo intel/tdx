@@ -1036,7 +1036,8 @@ void vm_mem_add(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
 		if (gmem_fd < 0) {
 			TEST_ASSERT(!gmem_offset,
 				    "Offset must be zero when creating new guest_memfd");
-			gmem_fd = vm_create_guest_memfd(vm, mem_size, gmem_flags);
+			gmem_fd = vm_create_guest_memfd(vm, mem_size,
+							gmem_flags, 0);
 		} else {
 			/*
 			 * Install a unique fd for each memslot so that the fd

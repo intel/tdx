@@ -743,20 +743,32 @@ static inline bool is_smt_on(void)
 void vm_create_irqchip(struct kvm_vm *vm);
 
 static inline int __vm_create_guest_memfd(struct kvm_vm *vm, uint64_t size,
-					uint64_t flags)
+					  uint64_t flags, uint8_t page_order)
 {
 	struct kvm_create_guest_memfd guest_memfd = {
 		.size = size,
 		.flags = flags,
+		.page_order = page_order,
 	};
 
 	return __vm_ioctl(vm, KVM_CREATE_GUEST_MEMFD, &guest_memfd);
 }
 
 static inline int vm_create_guest_memfd(struct kvm_vm *vm, uint64_t size,
-					uint64_t flags)
+					uint64_t flags, uint8_t page_order)
 {
-	int fd = __vm_create_guest_memfd(vm, size, flags);
+	int fd;
+
+	if (page_order)
+		TEST_ASSERT(flags & GUEST_MEMFD_FLAG_HUGETLB,
+			    "Invalid page_order for non-HugeTLB guest_memfd.");
+
+	if (flags & GUEST_MEMFD_FLAG_HUGETLB)
+		TEST_ASSERT(page_order,
+			    "Invalid page_order=%d for HugeTLB guest_memfd.",
+			    page_order);
+
+	fd = __vm_create_guest_memfd(vm, size, flags, page_order);
 
 	TEST_ASSERT(fd >= 0, KVM_IOCTL_ERROR(KVM_CREATE_GUEST_MEMFD, fd));
 	return fd;

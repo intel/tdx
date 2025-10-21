@@ -384,7 +384,7 @@ static void test_invalid_memory_region_flags(void)
 	}
 
 	if (supported_flags & KVM_MEM_GUEST_MEMFD) {
-		int guest_memfd = vm_create_guest_memfd(vm, MEM_REGION_SIZE, 0);
+		int guest_memfd = vm_create_guest_memfd(vm, MEM_REGION_SIZE, 0, 0);
 
 		r = __vm_set_user_memory_region2(vm, 0,
 						 KVM_MEM_LOG_DIRTY_PAGES | KVM_MEM_GUEST_MEMFD,
@@ -488,7 +488,7 @@ static void test_add_private_memory_region(void)
 	close(memfd);
 
 	vm2 = vm_create_barebones_type(KVM_X86_SW_PROTECTED_VM);
-	memfd = vm_create_guest_memfd(vm2, MEM_REGION_SIZE, 0);
+	memfd = vm_create_guest_memfd(vm2, MEM_REGION_SIZE, 0, 0);
 	test_invalid_guest_memfd(vm, memfd, 0, "Other VM's guest_memfd() should fail");
 
 	vm_set_user_memory_region2(vm2, MEM_REGION_SLOT, KVM_MEM_GUEST_MEMFD,
@@ -496,7 +496,7 @@ static void test_add_private_memory_region(void)
 	close(memfd);
 	kvm_vm_free(vm2);
 
-	memfd = vm_create_guest_memfd(vm, MEM_REGION_SIZE, 0);
+	memfd = vm_create_guest_memfd(vm, MEM_REGION_SIZE, 0, 0);
 	for (i = 1; i < PAGE_SIZE; i++)
 		test_invalid_guest_memfd(vm, memfd, i, "Unaligned offset should fail");
 
@@ -517,7 +517,7 @@ static void test_add_overlapping_private_memory_regions(void)
 
 	vm = vm_create_barebones_type(KVM_X86_SW_PROTECTED_VM);
 
-	memfd = vm_create_guest_memfd(vm, MEM_REGION_SIZE * 4, 0);
+	memfd = vm_create_guest_memfd(vm, MEM_REGION_SIZE * 4, 0, 0);
 
 	vm_set_user_memory_region2(vm, MEM_REGION_SLOT, KVM_MEM_GUEST_MEMFD,
 				   MEM_REGION_GPA, MEM_REGION_SIZE * 2, 0, memfd, 0);

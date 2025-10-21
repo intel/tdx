@@ -35,6 +35,9 @@ struct gmem_inode {
 
 	u64 flags;
 	struct maple_tree attributes;
+
+	/* The order of the allocated page (before restructuring, if any). */
+	u8 page_order;
 };
 
 static __always_inline struct gmem_inode *GMEM_I(struct inode *inode)
@@ -877,12 +880,17 @@ bool __weak kvm_arch_supports_gmem_init_shared(struct kvm *kvm)
 	return true;
 }
 
-static int kvm_gmem_init_inode(struct inode *inode, loff_t size, u64 flags)
+static int kvm_gmem_init_inode(struct inode *inode, loff_t size, u64 flags,
+			       u8 page_order)
 {
 	struct gmem_inode *gi = GMEM_I(inode);
 	MA_STATE(mas, &gi->attributes, 0, (size >> PAGE_SHIFT) - 1);
 	u64 attrs;
 	int r;
+
+	r = gmem_hugetlb_init(inode, flags, size, page_order);
+	if (r)
+		return r;
 
 	inode->i_op = &kvm_gmem_iops;
 	inode->i_mapping->a_ops = &kvm_gmem_aops;
@@ -894,6 +902,7 @@ static int kvm_gmem_init_inode(struct inode *inode, loff_t size, u64 flags)
 	WARN_ON_ONCE(!mapping_unevictable(inode->i_mapping));
 
 	gi->flags = flags;
+	gi->page_order = page_order;
 
 	mt_set_external_lock(&gi->attributes,
 			     &inode->i_mapping->invalidate_lock);
@@ -917,7 +926,7 @@ static int kvm_gmem_init_inode(struct inode *inode, loff_t size, u64 flags)
 	return r;
 }
 
-static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
+static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags, u8 page_order)
 {
 	static const char *name = "[kvm-gmem]";
 	struct gmem_file *f;
@@ -947,7 +956,7 @@ static int __kvm_gmem_create(struct kvm *kvm, loff_t size, u64 flags)
 		goto err_fops;
 	}
 
-	err = kvm_gmem_init_inode(inode, size, flags);
+	err = kvm_gmem_init_inode(inode, size, flags, page_order);
 	if (err)
 		goto err_inode;
 
@@ -1000,7 +1009,7 @@ int kvm_gmem_create(struct kvm *kvm, struct kvm_create_guest_memfd *args)
 	if (size <= 0 || !IS_ALIGNED(size, PAGE_SIZE << page_order))
 		return -EINVAL;
 
-	return __kvm_gmem_create(kvm, size, flags);
+	return __kvm_gmem_create(kvm, size, flags, page_order);
 }
 
 int kvm_gmem_bind(struct kvm *kvm, struct kvm_memory_slot *slot,

@@ -1351,6 +1351,13 @@ static void kvm_gmem_destroy_inode(struct inode *inode)
 		__mt_destroy(&gi->attributes);
 		filemap_invalidate_unlock(inode->i_mapping);
 	}
+
+	/*
+	 * Releasing in .free_inode() possibly happens after RCU delay. Hence,
+	 * teardown and release resources in .destroy_inode(), to restore
+	 * HugeTLB resources in process context.
+	 */
+	gmem_hugetlb_teardown(inode, gi->page_order, gi->flags);
 }
 
 static void kvm_gmem_free_inode(struct inode *inode)

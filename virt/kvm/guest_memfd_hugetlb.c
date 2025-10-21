@@ -82,3 +82,23 @@ int gmem_hugetlb_init(struct inode *inode, u64 flags, size_t size,
 
 	return 0;
 }
+
+void gmem_hugetlb_teardown(struct inode *inode, u8 page_order, u64 flags)
+{
+	unsigned long nr_pages = inode->i_size >> PAGE_SHIFT;
+	struct gmem_hugetlb *private = inode->i_private;
+
+	if (!(flags & GUEST_MEMFD_FLAG_HUGETLB))
+		return;
+
+	/* private may be NULL if inode creation process had some error. */
+	if (!private)
+		return;
+
+	hugepage_put_subpool(private->spool);
+
+	hugetlb_cgroup_uncharge_cgroup_rsvd_for_order(page_order, nr_pages,
+						      private->h_cg_rsvd);
+
+	kfree(private);
+}

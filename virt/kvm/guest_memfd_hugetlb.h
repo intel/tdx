@@ -9,6 +9,7 @@
 bool gmem_hugetlb_valid_order(u8 order);
 int gmem_hugetlb_init(struct inode *inode, u64 flags, size_t size,
 		      u8 page_order);
+void gmem_hugetlb_teardown(struct inode *inode, u8 page_order, u64 flags);
 
 #else
 
@@ -22,6 +23,8 @@ static int kvm_gmem_init_hugetlb(struct inode *inode, u64 flags, size_t size,
 {
 	return 0;
 }
+
+static void gmem_hugetlb_teardown(struct inode *inode, u8 page_order, u64 flags) {}
 
 #endif /* CONFIG_KVM_GUEST_MEMFD_HUGETLB */
 

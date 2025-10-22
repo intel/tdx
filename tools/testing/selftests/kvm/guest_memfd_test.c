@@ -325,17 +325,18 @@ static void test_create_guest_memfd_invalid_sizes(struct kvm_vm *vm,
 
 static void test_create_guest_memfd_multiple(struct kvm_vm *vm)
 {
+	uint64_t flags = page_order > 0 ? GUEST_MEMFD_FLAG_HUGETLB : 0;
 	int fd1, fd2, ret;
 	struct stat st1, st2;
 
-	fd1 = __vm_create_guest_memfd(vm, page_size, 0, page_order);
+	fd1 = __vm_create_guest_memfd(vm, page_size, flags, page_order);
 	TEST_ASSERT(fd1 != -1, "memfd creation should succeed");
 
 	ret = fstat(fd1, &st1);
 	TEST_ASSERT(ret != -1, "memfd fstat should succeed");
 	TEST_ASSERT(st1.st_size == page_size, "memfd st_size should match requested size");
 
-	fd2 = __vm_create_guest_memfd(vm, page_size * 2, 0, page_order);
+	fd2 = __vm_create_guest_memfd(vm, page_size * 2, flags, page_order);
 	TEST_ASSERT(fd2 != -1, "memfd creation should succeed");
 
 	ret = fstat(fd2, &st2);

@@ -579,7 +579,7 @@ out:
 	kvm_vm_free(vm);
 }
 
-void run_test_for_page_order(u8 order)
+void test_with_page_order(u8 order)
 {
 	unsigned long vm_types, vm_type;
 
@@ -606,7 +606,12 @@ void run_test_for_page_order(u8 order)
 
 int main(int argc, char *argv[])
 {
+	u8 order;
+
 	TEST_REQUIRE(kvm_has_cap(KVM_CAP_GUEST_MEMFD));
 
-	run_test_for_page_order(0);
+	test_with_page_order(0);
+
+	for_each_valid_hugetlb_page_order(order)
+		test_with_page_order(order);
 }

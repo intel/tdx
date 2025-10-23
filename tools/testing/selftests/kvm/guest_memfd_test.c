@@ -566,7 +566,7 @@ static void guest_code_test_guest_private_mem(uint8_t *mem)
 	GUEST_DONE();
 }
 
-static void test_guest_private_mem(void)
+static void __test_guest_private_mem(bool offset_aligned)
 {
 	uint64_t flags = page_order > 0 ? GUEST_MEMFD_FLAG_HUGETLB : 0;
 	const struct vm_shape shape = {
@@ -583,7 +583,10 @@ static void test_guest_private_mem(void)
 
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
+	size_t memfd_size;
+	loff_t offset;
 	size_t npages;
+	int fd;
 
 	npages = page_size / getpagesize();
 	vm = __vm_create_shape_with_one_vcpu(shape, &vcpu, npages,
@@ -592,8 +595,22 @@ static void test_guest_private_mem(void)
 	if ((valid_guest_memfd_flags(vm) & flags) != flags)
 		goto out;
 
+	if (offset_aligned) {
+		memfd_size = page_size;
+		offset = 0;
+	} else {
+		memfd_size = page_size * 2;
+		offset = getpagesize();
+	}
+
+	/*
+	 * Create guest_memfd outside of vm_mem_add() since when testing
+	 * unaligned offsets, the memfd_size is greater than the size of the
+	 * memslot.
+	 */
+	fd = vm_create_guest_memfd(vm, memfd_size, flags, page_order);
 	vm_mem_add(vm, VM_MEM_SRC_SHMEM, gpa, slot, npages, KVM_MEM_GUEST_MEMFD,
-		   -1, 0, flags, page_order);
+		   fd, offset, flags, page_order);
 
 	virt_map(vm, gpa, gpa, npages);
 	vm_mem_set_private(vm, gpa, page_size);
@@ -603,8 +620,16 @@ static void test_guest_private_mem(void)
 
 	TEST_ASSERT_EQ(get_ucall(vcpu, NULL), UCALL_DONE);
 
+	close(fd);
 out:
 	kvm_vm_free(vm);
+}
+
+static void test_guest_private_mem(void)
+{
+	__test_guest_private_mem(true);
+	if (page_order > 0)
+		__test_guest_private_mem(false);
 }
 
 void test_with_page_order(u8 order)

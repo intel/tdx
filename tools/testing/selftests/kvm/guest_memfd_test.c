@@ -511,6 +511,7 @@ static void guest_code_test_guest_private_mem(uint8_t *mem)
 
 static void test_guest_private_mem(void)
 {
+	uint64_t flags = page_order > 0 ? GUEST_MEMFD_FLAG_HUGETLB : 0;
 	const struct vm_shape shape = {
 		.mode = VM_MODE_DEFAULT,
 		.type = KVM_X86_SW_PROTECTED_VM,
@@ -526,15 +527,13 @@ static void test_guest_private_mem(void)
 	struct kvm_vcpu *vcpu;
 	struct kvm_vm *vm;
 	size_t npages;
-	int fd;
 
 	npages = page_size / getpagesize();
 	vm = __vm_create_shape_with_one_vcpu(shape, &vcpu, npages,
 					     guest_code_test_guest_private_mem);
 
-	fd = vm_create_guest_memfd(vm, page_size, 0, page_order);
 	vm_mem_add(vm, VM_MEM_SRC_SHMEM, gpa, slot, npages, KVM_MEM_GUEST_MEMFD,
-		   fd, 0, 0, 0);
+		   -1, 0, flags, page_order);
 
 	virt_map(vm, gpa, gpa, npages);
 	vm_mem_set_private(vm, gpa, page_size);
@@ -544,7 +543,6 @@ static void test_guest_private_mem(void)
 
 	TEST_ASSERT_EQ(get_ucall(vcpu, NULL), UCALL_DONE);
 
-	close(fd);
 	kvm_vm_free(vm);
 }
 

@@ -45,9 +45,9 @@ def get_default_hugepage_size_in_kb():
         return None
 
 
-def run_tests(executable_path: str, src_type: str, num_memslots: int, num_vcpus: int) -> None:
+def run_tests(executable_path: str, src_type: str, num_memslots: int, num_vcpus: int, private_page_size: str) -> None:
     """Runs the test executable with different arguments."""
-    command = [executable_path, "-s", src_type, "-m", str(num_memslots), "-n", str(num_vcpus)]
+    command = [executable_path, "-s", src_type, "-m", str(num_memslots), "-n", str(num_vcpus), "-p", private_page_size]
     print(" ".join(command))
     _ = subprocess.run(command, check=True)
 
@@ -131,13 +131,19 @@ def main():
     return_code = 0
 
     backing_src_types = ["shmem"] if kvm_has_gmem_attributes() else get_backing_source_types()
+
+    private_page_sizes = ["4K"]
+    if not kvm_has_gmem_attributes():
+        private_page_sizes += ["2M", "1G"]
+
     try:
         for i, src_type in enumerate(backing_src_types):
-            if i > 0:
-                print()
-            run_tests(test_executable, src_type, num_memslots=1, num_vcpus=1)
-            run_tests(test_executable, src_type, num_memslots=1, num_vcpus=NUM_VCPUS_TO_TEST)
-            run_tests(test_executable, src_type, num_memslots=NUM_MEMSLOTS_TO_TEST, num_vcpus=NUM_VCPUS_TO_TEST)
+            for j, private_page_size in enumerate(private_page_sizes):
+                if i > 0 or j > 0:
+                    print()
+                run_tests(test_executable, src_type, num_memslots=1, num_vcpus=1, private_page_size=private_page_size)
+                run_tests(test_executable, src_type, num_memslots=1, num_vcpus=NUM_VCPUS_TO_TEST, private_page_size=private_page_size)
+                run_tests(test_executable, src_type, num_memslots=NUM_MEMSLOTS_TO_TEST, num_vcpus=NUM_VCPUS_TO_TEST, private_page_size=private_page_size)
     except subprocess.CalledProcessError as e:
         print(f"Test failed for source type '{src_type}'. Command: {' '.join(e.cmd)}", file=sys.stderr)
         return_code = e.returncode

@@ -22,6 +22,11 @@
 #include <kvm_util.h>
 #include <processor.h>
 
+/* Global test parameters. */
+static enum vm_mem_backing_src_type src_type;
+static uint32_t nr_memslots;
+static uint32_t nr_vcpus;
+
 #define BASE_DATA_SLOT		10
 #define BASE_DATA_GPA		((uint64_t)(1ull << 32))
 #define PER_CPU_DATA_SIZE	((uint64_t)(SZ_2M + PAGE_SIZE))
@@ -381,8 +386,7 @@ static void *__test_mem_conversions(void *__vcpu)
 	}
 }
 
-static void test_mem_conversions(enum vm_mem_backing_src_type src_type, uint32_t nr_vcpus,
-				 uint32_t nr_memslots)
+static void test_mem_conversions(void)
 {
 	/*
 	 * Allocate enough memory so that each vCPU's chunk of memory can be
@@ -471,15 +475,13 @@ static void usage(const char *cmd)
 
 int main(int argc, char *argv[])
 {
-	enum vm_mem_backing_src_type src_type;
-	uint32_t nr_memslots = 1;
-	uint32_t nr_vcpus = 1;
 	int opt;
 
 	TEST_REQUIRE(kvm_check_cap(KVM_CAP_VM_TYPES) & BIT(KVM_X86_SW_PROTECTED_VM));
 
-	src_type = kvm_has_gmem_attributes ? VM_MEM_SRC_SHMEM :
-					     DEFAULT_VM_MEM_SRC;
+	src_type = kvm_has_gmem_attributes ? VM_MEM_SRC_SHMEM : DEFAULT_VM_MEM_SRC;
+	nr_memslots = 1;
+	nr_vcpus = 1;
 
 	while ((opt = getopt(argc, argv, "hm:s:n:")) != -1) {
 		switch (opt) {
@@ -508,7 +510,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	test_mem_conversions(src_type, nr_vcpus, nr_memslots);
+	test_mem_conversions();
 
 	return 0;
 }

@@ -12,6 +12,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 
+#include <linux/align.h>
 #include <linux/compiler.h>
 #include <linux/kernel.h>
 #include <linux/kvm_para.h>
@@ -26,6 +27,12 @@
 static enum vm_mem_backing_src_type src_type;
 static uint32_t nr_memslots;
 static uint32_t nr_vcpus;
+static size_t private_page_order;
+
+/* Test memory layout parameters. */
+static size_t per_cpu_size;
+static size_t memfd_size;
+static size_t slot_size;
 
 #define BASE_DATA_SLOT		10
 #define BASE_DATA_GPA		((uint64_t)(1ull << 32))
@@ -285,13 +292,24 @@ static void guest_code(uint64_t base_gpa)
 	guest_test_explicit_conversion(base_gpa, false);
 	guest_test_explicit_conversion(base_gpa, true);
 
-	/*
-	 * Run the PUNCH_HOLE test twice too, once with the entire guest_memfd
-	 * faulted in, once with only the target range faulted in.
-	 */
-	guest_test_punch_hole(base_gpa, false);
-	guest_test_punch_hole(base_gpa, true);
+	if (private_page_order == 0) {
+		/*
+		 * Run the PUNCH_HOLE test twice too, once with the entire
+		 * guest_memfd faulted in, once with only the target range
+		 * faulted in.
+		 */
+		guest_test_punch_hole(base_gpa, false);
+		guest_test_punch_hole(base_gpa, true);
+	}
+
 	GUEST_DONE();
+}
+
+static bool fallocate_parameters_valid(uint64_t gpa, uint64_t size)
+{
+	const size_t page_size = getpagesize() << private_page_order;
+
+	return IS_ALIGNED(gpa, page_size) && IS_ALIGNED(size, page_size);
 }
 
 static void handle_exit_hypercall(struct kvm_vcpu *vcpu)
@@ -308,7 +326,7 @@ static void handle_exit_hypercall(struct kvm_vcpu *vcpu)
 		    "Wanted MAP_GPA_RANGE (%u), got '%llu'",
 		    KVM_HC_MAP_GPA_RANGE, run->hypercall.nr);
 
-	if (do_fallocate)
+	if (do_fallocate && fallocate_parameters_valid(gpa, size))
 		vm_guest_mem_fallocate(vm, gpa, size, map_shared);
 
 	if (set_attributes)
@@ -386,16 +404,31 @@ static void *__test_mem_conversions(void *__vcpu)
 	}
 }
 
+static void compute_test_memory_layout(struct kvm_vm *vm)
+{
+	const size_t private_page_size = getpagesize() << private_page_order;
+	size_t alignment;
+
+	alignment = max_t(size_t, SZ_2M, get_backing_src_pagesz(src_type));
+	alignment = max_t(size_t, alignment, private_page_size);
+
+	per_cpu_size = align_up(PER_CPU_DATA_SIZE, alignment);
+	memfd_size = per_cpu_size * nr_vcpus;
+	slot_size = memfd_size / nr_memslots;
+
+	TEST_ASSERT(slot_size * nr_memslots == memfd_size,
+		    "The memfd size (0x%lx) needs to be cleanly divisible by the number of memslots (%u)",
+		    memfd_size, nr_memslots);
+
+	sync_global_to_guest(vm, private_page_order);
+}
+
 static void test_mem_conversions(void)
 {
 	/*
 	 * Allocate enough memory so that each vCPU's chunk of memory can be
 	 * naturally aligned with respect to the size of the backing store.
 	 */
-	const size_t alignment = max_t(size_t, SZ_2M, get_backing_src_pagesz(src_type));
-	const size_t per_cpu_size = align_up(PER_CPU_DATA_SIZE, alignment);
-	const size_t memfd_size = per_cpu_size * nr_vcpus;
-	const size_t slot_size = memfd_size / nr_memslots;
 	struct kvm_vcpu *vcpus[KVM_MAX_VCPUS];
 	pthread_t threads[KVM_MAX_VCPUS];
 	uint64_t gmem_flags;
@@ -407,19 +440,24 @@ static void test_mem_conversions(void)
 		.type = KVM_X86_SW_PROTECTED_VM,
 	};
 
-	TEST_ASSERT(slot_size * nr_memslots == memfd_size,
-		    "The memfd size (0x%lx) needs to be cleanly divisible by the number of memslots (%u)",
-		    memfd_size, nr_memslots);
 	vm = __vm_create_with_vcpus(shape, nr_vcpus, 0, guest_code, vcpus);
 
+	compute_test_memory_layout(vm);
+
 	vm_enable_cap(vm, KVM_CAP_EXIT_HYPERCALL, (1 << KVM_HC_MAP_GPA_RANGE));
+
+	TEST_REQUIRE((kvm_has_gmem_attributes && private_page_order == 0) ||
+		     !kvm_has_gmem_attributes);
 
 	if (kvm_has_gmem_attributes)
 		gmem_flags = GUEST_MEMFD_FLAG_MMAP | GUEST_MEMFD_FLAG_INIT_SHARED;
 	else
 		gmem_flags = 0;
 
-	memfd = vm_create_guest_memfd(vm, memfd_size, gmem_flags, 0);
+	if (private_page_order > 0)
+		gmem_flags |= GUEST_MEMFD_FLAG_HUGETLB;
+
+	memfd = vm_create_guest_memfd(vm, memfd_size, gmem_flags, private_page_order);
 
 	for (i = 0; i < nr_memslots; i++)
 		vm_mem_add(vm, src_type, BASE_DATA_GPA + slot_size * i,
@@ -463,13 +501,15 @@ static void test_mem_conversions(void)
 static void usage(const char *cmd)
 {
 	puts("");
-	printf("usage: %s [-h] [-m nr_memslots] [-s mem_type] [-n nr_vcpus]\n", cmd);
+	printf("usage: %s [-h] [-m nr_memslots] [-s mem_type] [-n nr_vcpus] [-p private_page_size]\n", cmd);
 	puts("");
 	backing_src_help("-s");
 	puts("");
 	puts(" -n: specify the number of vcpus (default: 1)");
 	puts("");
 	puts(" -m: specify the number of memslots (default: 1)");
+	puts("");
+	puts(" -p: specify the private page size 4K, 2M or 1G (default: 4K)");
 	puts("");
 }
 
@@ -482,8 +522,9 @@ int main(int argc, char *argv[])
 	src_type = kvm_has_gmem_attributes ? VM_MEM_SRC_SHMEM : DEFAULT_VM_MEM_SRC;
 	nr_memslots = 1;
 	nr_vcpus = 1;
+	private_page_order = 0;
 
-	while ((opt = getopt(argc, argv, "hm:s:n:")) != -1) {
+	while ((opt = getopt(argc, argv, "hm:s:n:p:")) != -1) {
 		switch (opt) {
 		case 's':
 			src_type = parse_backing_src_type(optarg);
@@ -502,6 +543,18 @@ int main(int argc, char *argv[])
 			break;
 		case 'm':
 			nr_memslots = atoi_positive("nr_memslots", optarg);
+			break;
+		case 'p':
+			if (strcmp(optarg, "4K") == 0) {
+				private_page_order = 0;
+			} else if (strcmp(optarg, "2M") == 0) {
+				private_page_order = 9;
+			} else if (strcmp(optarg, "1G") == 0) {
+				private_page_order = 18;
+			} else {
+				printf("Unexpected private_page_size of %s\n", optarg);
+				exit(1);
+			}
 			break;
 		case 'h':
 		default:

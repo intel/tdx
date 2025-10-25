@@ -237,4 +237,10 @@ char *strdup_printf(const char *fmt, ...) __attribute__((format(printf, 1, 2), n
 
 char *sys_get_cur_clocksource(void);
 
+size_t next_valid_hugetlb_page_order(uint8_t order);
+
+#define for_each_valid_hugetlb_page_order(order)                  \
+	for (order = next_valid_hugetlb_page_order(0); 0 < order; \
+	     order = next_valid_hugetlb_page_order(order))
+
 #endif /* SELFTEST_KVM_TEST_UTIL_H */

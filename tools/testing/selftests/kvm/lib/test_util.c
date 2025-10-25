@@ -8,11 +8,14 @@
 #include <stdarg.h>
 #include <assert.h>
 #include <ctype.h>
+#include <dirent.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <time.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <linux/log2.h>
+#include <linux/bitmap.h>
 #include <linux/mman.h>
 #include "linux/kernel.h"
 
@@ -434,4 +437,46 @@ char *sys_get_cur_clocksource(void)
 	fclose(fp);
 
 	return clk_name;
+}
+
+static unsigned long parse_valid_hugetlb_sizes(void)
+{
+	const char *prefix = "hugepages-";
+	unsigned long valid_sizes = 0;
+	struct dirent *entry;
+	DIR *dir;
+
+	dir = opendir("/sys/kernel/mm/hugepages/");
+	TEST_ASSERT(dir, "Error opening hugepages path.");
+
+	while ((entry = readdir(dir)) != NULL) {
+		unsigned long size_kb = 0;
+
+		if (strncmp(entry->d_name, prefix, strlen(prefix)) == 0 &&
+		    sscanf(entry->d_name, "hugepages-%lukB", &size_kb) == 1) {
+			valid_sizes |= size_kb << 10;
+		}
+	}
+
+	closedir(dir);
+
+	return valid_sizes;
+}
+
+size_t next_valid_hugetlb_page_order(u8 order)
+{
+	int bit = order + ilog2(getpagesize()) + 1;
+	static unsigned long valid_sizes = 0;
+	static bool parsed = false;
+
+	if (!parsed) {
+		valid_sizes = parse_valid_hugetlb_sizes();
+		parsed = true;
+	}
+
+	for_each_set_bit_from(bit, &valid_sizes, sizeof(unsigned long) * 8) {
+		return bit - ilog2(getpagesize());
+	}
+
+	return 0;
 }

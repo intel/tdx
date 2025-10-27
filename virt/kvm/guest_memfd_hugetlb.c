@@ -5,6 +5,7 @@
 
 #include <linux/hugetlb.h>
 #include <linux/hugetlb_cgroup.h>
+#include <linux/hugetlb_restructuring.h>
 #include <linux/kvm.h>
 #include <linux/mempolicy.h>
 
@@ -148,6 +149,12 @@ struct folio *gmem_hugetlb_alloc_folio(void *priv, u8 page_order, struct mempoli
 	folio_clear_hugetlb_restore_reserve(folio);
 
 	hugetlb_set_folio_subpool(folio, private->spool);
+
+	ret = hugetlb_restructuring_metadata_store(folio);
+	if (ret) {
+		folio_put(folio);
+		return ERR_PTR(ret);
+	}
 
 	return folio;
 

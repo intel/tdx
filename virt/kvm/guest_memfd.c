@@ -867,9 +867,22 @@ static void kvm_gmem_free_folio(struct folio *folio)
 
 static const struct address_space_operations kvm_gmem_aops = {
 	.dirty_folio = noop_dirty_folio,
-	.migrate_folio	= kvm_gmem_migrate_folio,
+	.migrate_folio = kvm_gmem_migrate_folio,
 	.error_remove_folio = kvm_gmem_error_folio,
 	.free_folio = kvm_gmem_free_folio,
+};
+
+static void kvm_gmem_hugetlb_free_folio(struct folio *folio)
+{
+	kvm_gmem_free_folio(folio);
+	gmem_hugetlb_free_folio(folio);
+}
+
+static const struct address_space_operations kvm_gmem_hugetlb_aops = {
+	.dirty_folio = noop_dirty_folio,
+	.migrate_folio = kvm_gmem_migrate_folio,
+	.error_remove_folio = kvm_gmem_error_folio,
+	.free_folio = kvm_gmem_hugetlb_free_folio,
 };
 
 static int kvm_gmem_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
@@ -899,7 +912,9 @@ static int kvm_gmem_init_inode(struct inode *inode, loff_t size, u64 flags,
 		return r;
 
 	inode->i_op = &kvm_gmem_iops;
-	inode->i_mapping->a_ops = &kvm_gmem_aops;
+	inode->i_mapping->a_ops = flags & GUEST_MEMFD_FLAG_HUGETLB ?
+					  &kvm_gmem_hugetlb_aops :
+					  &kvm_gmem_aops;
 	inode->i_mode |= S_IFREG;
 	inode->i_size = size;
 	mapping_set_gfp_mask(inode->i_mapping, GFP_HIGHUSER);

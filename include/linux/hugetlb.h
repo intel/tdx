@@ -1075,6 +1075,8 @@ static inline unsigned long huge_page_mask_align(struct file *file)
 	return PAGE_MASK & ~huge_page_mask(hstate_file(file));
 }
 
+struct hstate *hugetlb_order_to_hstate(u8 order);
+
 #else	/* CONFIG_HUGETLB_PAGE */
 struct hstate {};
 
@@ -1312,6 +1314,12 @@ static inline bool hugetlb_bootmem_allocated(void)
 {
 	return false;
 }
+
+static inline struct hstate *hugetlb_order_to_hstate(u8 order)
+{
+	return NULL;
+}
+
 #endif	/* CONFIG_HUGETLB_PAGE */
 
 static inline spinlock_t *huge_pte_lock(struct hstate *h,

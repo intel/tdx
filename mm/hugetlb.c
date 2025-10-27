@@ -8019,3 +8019,9 @@ void fixup_hugetlb_reservations(struct vm_area_struct *vma)
 	if (is_vm_hugetlb_page(vma))
 		clear_vma_resv_huge_pages(vma);
 }
+
+struct hstate *hugetlb_order_to_hstate(u8 order)
+{
+	return hstate_sizelog(order + PAGE_SHIFT);
+}
+EXPORT_SYMBOL_FOR_MODULES(hugetlb_order_to_hstate, "kvm");

@@ -307,6 +307,15 @@ int hugetlb_cgroup_charge_cgroup_rsvd(int idx, unsigned long nr_pages,
 	return __hugetlb_cgroup_charge_cgroup(idx, nr_pages, ptr, true);
 }
 
+int hugetlb_cgroup_charge_cgroup_rsvd_for_order(u8 page_order,
+		unsigned long nr_pages, struct hugetlb_cgroup **ptr)
+{
+	int idx = hstate_index(hugetlb_order_to_hstate(page_order));
+
+	return hugetlb_cgroup_charge_cgroup_rsvd(idx, nr_pages, ptr);
+}
+EXPORT_SYMBOL_FOR_MODULES(hugetlb_cgroup_charge_cgroup_rsvd_for_order, "kvm");
+
 /* Should be called with hugetlb_lock held */
 static void __hugetlb_cgroup_commit_charge(int idx, unsigned long nr_pages,
 					   struct hugetlb_cgroup *h_cg,
@@ -416,6 +425,15 @@ void hugetlb_cgroup_uncharge_cgroup_rsvd(int idx, unsigned long nr_pages,
 {
 	__hugetlb_cgroup_uncharge_cgroup(idx, nr_pages, h_cg, true);
 }
+
+void hugetlb_cgroup_uncharge_cgroup_rsvd_for_order(u8 page_order,
+		unsigned long nr_pages, struct hugetlb_cgroup *h_cg)
+{
+	int idx = hstate_index(hugetlb_order_to_hstate(page_order));
+
+	hugetlb_cgroup_uncharge_cgroup_rsvd(idx, nr_pages, h_cg);
+}
+EXPORT_SYMBOL_FOR_MODULES(hugetlb_cgroup_uncharge_cgroup_rsvd_for_order, "kvm");
 
 void hugetlb_cgroup_uncharge_counter(struct resv_map *resv, unsigned long start,
 				     unsigned long end)

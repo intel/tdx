@@ -188,6 +188,7 @@ struct hugepage_subpool *hugepage_new_subpool(struct hstate *h, long max_hpages,
 
 	return spool;
 }
+EXPORT_SYMBOL_FOR_MODULES(hugepage_new_subpool, "kvm");
 
 void hugepage_put_subpool(struct hugepage_subpool *spool)
 {
@@ -198,6 +199,7 @@ void hugepage_put_subpool(struct hugepage_subpool *spool)
 	spool->count--;
 	unlock_or_release_subpool(spool, flags);
 }
+EXPORT_SYMBOL_FOR_MODULES(hugepage_put_subpool, "kvm");
 
 /*
  * Subpool accounting for allocating and reserving pages.
@@ -244,6 +246,7 @@ unlock_ret:
 	spin_unlock_irq(&spool->lock);
 	return ret;
 }
+EXPORT_SYMBOL_FOR_MODULES(hugepage_subpool_get_pages, "kvm");
 
 /*
  * Subpool accounting for freeing and unreserving pages.
@@ -284,6 +287,7 @@ long hugepage_subpool_put_pages(struct hugepage_subpool *spool, long delta)
 
 	return ret;
 }
+EXPORT_SYMBOL_FOR_MODULES(hugepage_subpool_put_pages, "kvm");
 
 static inline struct hugepage_subpool *subpool_vma(struct vm_area_struct *vma)
 {

@@ -728,6 +728,18 @@ static inline bool kvm_arch_has_private_mem(struct kvm *kvm)
 }
 #endif
 
+#ifdef CONFIG_KVM_VM_MEMORY_ATTRIBUTES
+extern bool vm_memory_attributes;
+bool kvm_range_has_vm_memory_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
+				     unsigned long mask, unsigned long attrs);
+bool kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
+					struct kvm_gfn_range *range);
+bool kvm_arch_post_set_memory_attributes(struct kvm *kvm,
+					 struct kvm_gfn_range *range);
+#else
+#define vm_memory_attributes false
+#endif /* CONFIG_KVM_VM_MEMORY_ATTRIBUTES */
+
 #ifdef CONFIG_KVM_GUEST_MEMFD
 bool kvm_arch_supports_gmem_init_shared(struct kvm *kvm);
 
@@ -737,6 +749,9 @@ static inline u64 kvm_gmem_get_supported_flags(struct kvm *kvm)
 
 	if (!kvm || kvm_arch_supports_gmem_init_shared(kvm))
 		flags |= GUEST_MEMFD_FLAG_INIT_SHARED;
+
+	if (IS_ENABLED(CONFIG_KVM_GUEST_MEMFD_HUGETLB) && vm_memory_attributes)
+		flags |= GUEST_MEMFD_FLAG_HUGETLB;
 
 	return flags;
 }
@@ -2544,18 +2559,6 @@ static inline bool kvm_mem_is_private(struct kvm *kvm, gfn_t gfn)
 	return false;
 }
 #endif
-
-#ifdef CONFIG_KVM_VM_MEMORY_ATTRIBUTES
-extern bool vm_memory_attributes;
-bool kvm_range_has_vm_memory_attributes(struct kvm *kvm, gfn_t start, gfn_t end,
-				     unsigned long mask, unsigned long attrs);
-bool kvm_arch_pre_set_memory_attributes(struct kvm *kvm,
-					struct kvm_gfn_range *range);
-bool kvm_arch_post_set_memory_attributes(struct kvm *kvm,
-					 struct kvm_gfn_range *range);
-#else
-#define vm_memory_attributes false
-#endif /* CONFIG_KVM_VM_MEMORY_ATTRIBUTES */
 
 unsigned long kvm_gmem_get_memory_attributes(struct kvm *kvm, gfn_t gfn);
 

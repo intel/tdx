@@ -1007,6 +1007,9 @@ int kvm_gmem_create(struct kvm *kvm, struct kvm_create_guest_memfd *args)
 		return -EINVAL;
 
 	if (flags & GUEST_MEMFD_FLAG_HUGETLB) {
+		if (flags & GUEST_MEMFD_FLAG_INIT_SHARED)
+			return -EINVAL;
+
 		page_order = args->page_order;
 		if (!gmem_hugetlb_valid_order(page_order))
 			return -EINVAL;

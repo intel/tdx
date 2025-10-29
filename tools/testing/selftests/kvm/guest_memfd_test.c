@@ -23,6 +23,7 @@
 #include "test_util.h"
 #include "ucall_common.h"
 
+static uint8_t page_order;
 static size_t page_size;
 
 static void test_file_read_write(int fd, size_t total_size)
@@ -314,7 +315,8 @@ static void test_create_guest_memfd_invalid_sizes(struct kvm_vm *vm,
 	int fd;
 
 	for (size = 1; size < page_size; size++) {
-		fd = __vm_create_guest_memfd(vm, size, guest_memfd_flags, 0);
+		fd = __vm_create_guest_memfd(vm, size, guest_memfd_flags, page_order);
+
 		TEST_ASSERT(fd < 0 && errno == EINVAL,
 			    "guest_memfd() with non-page-aligned page size '0x%lx' should fail with EINVAL",
 			    size);
@@ -326,14 +328,14 @@ static void test_create_guest_memfd_multiple(struct kvm_vm *vm)
 	int fd1, fd2, ret;
 	struct stat st1, st2;
 
-	fd1 = __vm_create_guest_memfd(vm, page_size, 0, 0);
+	fd1 = __vm_create_guest_memfd(vm, page_size, 0, page_order);
 	TEST_ASSERT(fd1 != -1, "memfd creation should succeed");
 
 	ret = fstat(fd1, &st1);
 	TEST_ASSERT(ret != -1, "memfd fstat should succeed");
 	TEST_ASSERT(st1.st_size == page_size, "memfd st_size should match requested size");
 
-	fd2 = __vm_create_guest_memfd(vm, page_size * 2, 0, 0);
+	fd2 = __vm_create_guest_memfd(vm, page_size * 2, 0, page_order);
 	TEST_ASSERT(fd2 != -1, "memfd creation should succeed");
 
 	ret = fstat(fd2, &st2);
@@ -356,7 +358,7 @@ static void test_guest_memfd_flags(struct kvm_vm *vm)
 	int fd;
 
 	for (flag = BIT(0); flag; flag <<= 1) {
-		fd = __vm_create_guest_memfd(vm, page_size, flag, 0);
+		fd = __vm_create_guest_memfd(vm, page_size, flag, page_order);
 		if (flag & valid_flags) {
 			TEST_ASSERT(fd >= 0,
 				    "guest_memfd() with flag '0x%lx' should succeed",
@@ -372,7 +374,8 @@ static void test_guest_memfd_flags(struct kvm_vm *vm)
 
 #define gmem_test(__test, __vm, __flags)				\
 do {									\
-	int fd = vm_create_guest_memfd(__vm, page_size * 4, __flags, 0);	\
+	int fd = vm_create_guest_memfd(__vm, page_size * 4,		\
+				       __flags, page_order);		\
 									\
 	test_##__test(fd, page_size * 4);				\
 	close(fd);							\
@@ -469,7 +472,7 @@ static void test_guest_shared_mem(void)
 
 	size = vm->page_size;
 	fd = vm_create_guest_memfd(vm, size, GUEST_MEMFD_FLAG_MMAP |
-				   GUEST_MEMFD_FLAG_INIT_SHARED, 0);
+				   GUEST_MEMFD_FLAG_INIT_SHARED, page_order);
 	vm_set_user_memory_region2(vm, slot, KVM_MEM_GUEST_MEMFD, gpa, size, NULL, fd, 0);
 
 	mem = kvm_mmap(size, PROT_READ | PROT_WRITE, MAP_SHARED, fd);
@@ -521,7 +524,7 @@ static void test_guest_private_mem(void)
 	vm = __vm_create_shape_with_one_vcpu(shape, &vcpu, npages,
 					     guest_code_test_guest_private_mem);
 
-	fd = vm_create_guest_memfd(vm, page_size, 0, 0);
+	fd = vm_create_guest_memfd(vm, page_size, 0, page_order);
 	vm_mem_add(vm, VM_MEM_SRC_SHMEM, gpa, slot, npages, KVM_MEM_GUEST_MEMFD,
 		   fd, 0, 0);
 
@@ -537,13 +540,15 @@ static void test_guest_private_mem(void)
 	kvm_vm_free(vm);
 }
 
-int main(int argc, char *argv[])
+void run_test_for_page_order(u8 order)
 {
 	unsigned long vm_types, vm_type;
 
-	TEST_REQUIRE(kvm_has_cap(KVM_CAP_GUEST_MEMFD));
+	page_order = order;
+	page_size = getpagesize() << order;
 
-	page_size = getpagesize();
+	pr_debug("Running tests for page_size=0x%lx page_order=%d\n", page_size,
+		 page_order);
 
 	/*
 	 * Not all architectures support KVM_CAP_VM_TYPES. However, those that
@@ -558,4 +563,11 @@ int main(int argc, char *argv[])
 
 	test_guest_shared_mem();
 	test_guest_private_mem();
+}
+
+int main(int argc, char *argv[])
+{
+	TEST_REQUIRE(kvm_has_cap(KVM_CAP_GUEST_MEMFD));
+
+	run_test_for_page_order(0);
 }

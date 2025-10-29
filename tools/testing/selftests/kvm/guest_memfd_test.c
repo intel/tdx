@@ -308,14 +308,30 @@ static void test_invalid_punch_hole(int fd, size_t total_size)
 	}
 }
 
+static uint64_t valid_guest_memfd_flags(struct kvm_vm *vm)
+{
+	uint64_t valid_flags = vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_FLAGS);
+
+	/* For now, GUEST_MEMFD_FLAG_HUGETLB cannot be used with INIT_SHARED. */
+	if (page_order == 0)
+		valid_flags &= ~GUEST_MEMFD_FLAG_HUGETLB;
+	else
+		valid_flags &= ~GUEST_MEMFD_FLAG_INIT_SHARED;
+
+	return valid_flags;
+}
+
 static void test_create_guest_memfd_invalid_sizes(struct kvm_vm *vm,
-						  uint64_t guest_memfd_flags)
+						  uint64_t flags)
 {
 	size_t size;
 	int fd;
 
+	if ((valid_guest_memfd_flags(vm) & flags) != flags)
+		return;
+
 	for (size = 1; size < page_size; size++) {
-		fd = __vm_create_guest_memfd(vm, size, guest_memfd_flags, page_order);
+		fd = __vm_create_guest_memfd(vm, size, flags, page_order);
 
 		TEST_ASSERT(fd < 0 && errno == EINVAL,
 			    "guest_memfd() with non-page-aligned page size '0x%lx' should fail with EINVAL",
@@ -328,6 +344,9 @@ static void test_create_guest_memfd_multiple(struct kvm_vm *vm)
 	uint64_t flags = page_order > 0 ? GUEST_MEMFD_FLAG_HUGETLB : 0;
 	int fd1, fd2, ret;
 	struct stat st1, st2;
+
+	if ((valid_guest_memfd_flags(vm) & flags) != flags)
+		return;
 
 	fd1 = __vm_create_guest_memfd(vm, page_size, flags, page_order);
 	TEST_ASSERT(fd1 != -1, "memfd creation should succeed");
@@ -354,7 +373,7 @@ static void test_create_guest_memfd_multiple(struct kvm_vm *vm)
 
 static void test_guest_memfd_flags(struct kvm_vm *vm)
 {
-	uint64_t valid_flags = vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_FLAGS);
+	uint64_t valid_flags = valid_guest_memfd_flags(vm);
 	uint64_t flag, f;
 	int fd;
 
@@ -379,8 +398,13 @@ static void test_guest_memfd_flags(struct kvm_vm *vm)
 
 #define gmem_test(__test, __vm, __flags)				\
 do {									\
-	int fd = vm_create_guest_memfd(__vm, page_size * 4,		\
-				       __flags, page_order);		\
+	int fd;								\
+									\
+	if ((valid_guest_memfd_flags(__vm) & __flags) != __flags)	\
+		break;							\
+									\
+	fd = vm_create_guest_memfd(__vm, page_size * 4,			\
+				   __flags, page_order);		\
 									\
 	test_##__test(fd, page_size * 4);				\
 	close(fd);							\
@@ -451,6 +475,7 @@ static void guest_code_test_guest_shared_mem(uint8_t *mem, uint64_t size)
 
 static void test_guest_shared_mem(void)
 {
+	const uint64_t flags = GUEST_MEMFD_FLAG_MMAP | GUEST_MEMFD_FLAG_INIT_SHARED;
 	/*
 	 * Skip the first 4gb and slot0.  slot0 maps <1gb and is used to back
 	 * the guest's code, stack, and page tables, and low memory contains
@@ -465,11 +490,11 @@ static void test_guest_shared_mem(void)
 	size_t size;
 	int fd, i;
 
-	if (!kvm_check_cap(KVM_CAP_GUEST_MEMFD_FLAGS))
-		return;
-
 	vm = __vm_create_shape_with_one_vcpu(VM_SHAPE_DEFAULT, &vcpu, 1,
 					     guest_code_test_guest_shared_mem);
+
+	if ((valid_guest_memfd_flags(vm) & flags) != flags)
+		goto out;
 
 	TEST_ASSERT(vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_FLAGS) & GUEST_MEMFD_FLAG_MMAP,
 		    "Default VM type should support MMAP, supported flags = 0x%x",
@@ -479,8 +504,7 @@ static void test_guest_shared_mem(void)
 		    vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_FLAGS));
 
 	size = vm->page_size;
-	fd = vm_create_guest_memfd(vm, size, GUEST_MEMFD_FLAG_MMAP |
-				   GUEST_MEMFD_FLAG_INIT_SHARED, page_order);
+	fd = vm_create_guest_memfd(vm, size, flags, page_order);
 	vm_set_user_memory_region2(vm, slot, KVM_MEM_GUEST_MEMFD, gpa, size, NULL, fd, 0);
 
 	mem = kvm_mmap(size, PROT_READ | PROT_WRITE, MAP_SHARED, fd);
@@ -498,6 +522,7 @@ static void test_guest_shared_mem(void)
 		TEST_ASSERT_EQ(mem[i], 0xff);
 
 	close(fd);
+out:
 	kvm_vm_free(vm);
 }
 
@@ -532,6 +557,9 @@ static void test_guest_private_mem(void)
 	vm = __vm_create_shape_with_one_vcpu(shape, &vcpu, npages,
 					     guest_code_test_guest_private_mem);
 
+	if ((valid_guest_memfd_flags(vm) & flags) != flags)
+		goto out;
+
 	vm_mem_add(vm, VM_MEM_SRC_SHMEM, gpa, slot, npages, KVM_MEM_GUEST_MEMFD,
 		   -1, 0, flags, page_order);
 
@@ -543,6 +571,7 @@ static void test_guest_private_mem(void)
 
 	TEST_ASSERT_EQ(get_ucall(vcpu, NULL), UCALL_DONE);
 
+out:
 	kvm_vm_free(vm);
 }
 

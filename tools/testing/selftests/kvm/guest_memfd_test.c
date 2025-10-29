@@ -443,18 +443,18 @@ static void __test_guest_memfd(struct kvm_vm *vm, uint64_t flags)
 static void test_guest_memfd(unsigned long vm_type)
 {
 	struct kvm_vm *vm = vm_create_barebones_type(vm_type);
-	uint64_t flags;
+	uint64_t valid_flags;
 
 	test_guest_memfd_flags(vm);
 
 	__test_guest_memfd(vm, 0);
 
-	flags = vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_FLAGS);
-	if (flags & GUEST_MEMFD_FLAG_MMAP)
+	valid_flags = valid_guest_memfd_flags(vm);
+	if (valid_flags & GUEST_MEMFD_FLAG_MMAP)
 		__test_guest_memfd(vm, GUEST_MEMFD_FLAG_MMAP);
 
 	/* MMAP should always be supported if INIT_SHARED is supported. */
-	if (flags & GUEST_MEMFD_FLAG_INIT_SHARED)
+	if (valid_flags & GUEST_MEMFD_FLAG_INIT_SHARED)
 		__test_guest_memfd(vm, GUEST_MEMFD_FLAG_MMAP |
 				       GUEST_MEMFD_FLAG_INIT_SHARED);
 

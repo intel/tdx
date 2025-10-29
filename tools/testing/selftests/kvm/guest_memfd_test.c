@@ -354,20 +354,24 @@ static void test_create_guest_memfd_multiple(struct kvm_vm *vm)
 static void test_guest_memfd_flags(struct kvm_vm *vm)
 {
 	uint64_t valid_flags = vm_check_cap(vm, KVM_CAP_GUEST_MEMFD_FLAGS);
-	uint64_t flag;
+	uint64_t flag, f;
 	int fd;
 
-	for (flag = BIT(0); flag; flag <<= 1) {
+	for (f = BIT(0); f; f <<= 1) {
+		flag = f;
+		if (page_order > 0)
+			flag |= GUEST_MEMFD_FLAG_HUGETLB;
+
 		fd = __vm_create_guest_memfd(vm, page_size, flag, page_order);
-		if (flag & valid_flags) {
+		if (f & valid_flags) {
 			TEST_ASSERT(fd >= 0,
-				    "guest_memfd() with flag '0x%lx' should succeed",
-				    flag);
+				    "guest_memfd() with flag '0x%lx' should succeed for page order %d",
+				    flag, page_order);
 			close(fd);
 		} else {
 			TEST_ASSERT(fd < 0 && errno == EINVAL,
-				    "guest_memfd() with flag '0x%lx' should fail with EINVAL",
-				    flag);
+				    "guest_memfd() with flag '0x%lx' should fail with EINVAL for page order %d",
+				    flag, page_order);
 		}
 	}
 }

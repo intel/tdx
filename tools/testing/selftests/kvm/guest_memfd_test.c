@@ -379,8 +379,12 @@ static void test_guest_memfd_flags(struct kvm_vm *vm)
 
 	for (f = BIT(0); f; f <<= 1) {
 		flag = f;
-		if (page_order > 0)
-			flag |= GUEST_MEMFD_FLAG_HUGETLB;
+		if (page_order > 0) {
+			if (valid_flags & GUEST_MEMFD_FLAG_HUGETLB)
+				flag |= GUEST_MEMFD_FLAG_HUGETLB;
+			else
+				continue;
+		}
 
 		fd = __vm_create_guest_memfd(vm, page_size, flag, page_order);
 		if (f & valid_flags) {

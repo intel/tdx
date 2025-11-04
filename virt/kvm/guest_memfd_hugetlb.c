@@ -162,3 +162,17 @@ err_put_pages:
 	hugepage_subpool_put_pages(private->spool, 1);
 	return ERR_PTR(-ENOMEM);
 }
+
+int gmem_hugetlb_restructure_folio(struct address_space *mapping,
+				   pgoff_t index, u8 to_order)
+{
+	struct folio *folio = filemap_get_folio(mapping, index);
+
+	if (IS_ERR(folio))
+		return 0;
+
+	/* Leave only filemap refcounts on folio. */
+	folio_put(folio);
+
+	return hugetlb_restructuring_restructure_folio(folio, to_order);
+}

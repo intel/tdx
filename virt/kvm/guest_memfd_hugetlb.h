@@ -20,6 +20,9 @@ static inline void gmem_hugetlb_free_folio(struct folio *folio)
 	hugetlb_restructuring_metadata_restore(folio);
 }
 
+int gmem_hugetlb_restructure_folio(struct address_space *mapping,
+				   pgoff_t index, u8 to_order);
+
 #else
 
 static bool gmem_hugetlb_valid_order(u8 order)
@@ -43,6 +46,13 @@ struct folio *gmem_hugetlb_alloc_folio(void *priv, u8 page_order,
 }
 
 static inline void gmem_hugetlb_free_folio(struct folio *folio) {}
+
+static inline int gmem_hugetlb_restructure_folio(struct address_space *mapping,
+						 pgoff_t index, u8 to_order)
+{
+	WARN_ONCE(true, "Unexpected call to gmem_hugetlb_restructure_folio().");
+	return -EOPNOTSUPP;
+}
 
 #endif /* CONFIG_KVM_GUEST_MEMFD_HUGETLB */
 

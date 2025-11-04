@@ -272,11 +272,10 @@ static enum kvm_gfn_range_filter kvm_gmem_get_invalidate_filter(struct inode *in
 	return KVM_FILTER_SHARED | KVM_FILTER_PRIVATE;
 }
 
-static void __kvm_gmem_invalidate_begin(struct gmem_file *f, pgoff_t start,
-					pgoff_t end,
-					enum kvm_gfn_range_filter attr_filter)
+static void __kvm_gmem_zap(struct gmem_file *f, pgoff_t start, pgoff_t end,
+			   enum kvm_gfn_range_filter attr_filter)
 {
-	bool flush = false, found_memslot = false;
+	bool flush = false, locked = false;
 	struct kvm_memory_slot *slot;
 	struct kvm *kvm = f->kvm;
 	unsigned long index;
@@ -292,18 +291,56 @@ static void __kvm_gmem_invalidate_begin(struct gmem_file *f, pgoff_t start,
 			.attr_filter = attr_filter,
 		};
 
-		if (!found_memslot) {
-			found_memslot = true;
-
+		if (!locked) {
 			KVM_MMU_LOCK(kvm);
-			kvm_mmu_invalidate_begin(kvm);
+			locked = true;
 		}
 
-		flush |= kvm_mmu_unmap_gfn_range(kvm, &gfn_range);
+		flush |= kvm_unmap_gfn_range(kvm, &gfn_range);
 	}
 
 	if (flush)
 		kvm_flush_remote_tlbs(kvm);
+
+	if (locked)
+		KVM_MMU_UNLOCK(kvm);
+}
+
+static void kvm_gmem_zap(struct inode *inode, pgoff_t start, pgoff_t end)
+{
+	enum kvm_gfn_range_filter attr_filter;
+	struct gmem_file *f;
+
+	attr_filter = kvm_gmem_get_invalidate_filter(inode);
+
+	kvm_gmem_for_each_file(f, inode->i_mapping)
+		__kvm_gmem_zap(f, start, end, attr_filter);
+}
+
+static void __kvm_gmem_invalidate_begin(struct gmem_file *f, pgoff_t start,
+					pgoff_t end)
+{
+	struct kvm_memory_slot *slot;
+	bool found_memslot = false;
+	struct kvm *kvm = f->kvm;
+	unsigned long index;
+
+	xa_for_each_range(&f->bindings, index, slot, start, end - 1) {
+		pgoff_t pgoff = slot->gmem.pgoff;
+		pgoff_t range_start, range_end;
+
+		range_start = slot->base_gfn + max(pgoff, start) - pgoff;
+		range_end = slot->base_gfn + min(pgoff + slot->npages, end) - pgoff;
+
+		if (!found_memslot) {
+			KVM_MMU_LOCK(kvm);
+			found_memslot = true;
+
+			kvm_mmu_invalidate_begin(kvm);
+		}
+
+		kvm_mmu_invalidate_range_add(kvm, range_start, range_end);
+	}
 
 	if (found_memslot)
 		KVM_MMU_UNLOCK(kvm);
@@ -312,13 +349,10 @@ static void __kvm_gmem_invalidate_begin(struct gmem_file *f, pgoff_t start,
 static void kvm_gmem_invalidate_begin(struct inode *inode, pgoff_t start,
 				      pgoff_t end)
 {
-	enum kvm_gfn_range_filter attr_filter;
 	struct gmem_file *f;
 
-	attr_filter = kvm_gmem_get_invalidate_filter(inode);
-
 	kvm_gmem_for_each_file(f, inode->i_mapping)
-		__kvm_gmem_invalidate_begin(f, start, end, attr_filter);
+		__kvm_gmem_invalidate_begin(f, start, end);
 }
 
 static void __kvm_gmem_invalidate_end(struct gmem_file *f, pgoff_t start,
@@ -397,6 +431,7 @@ static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 	filemap_invalidate_lock(inode->i_mapping);
 
 	kvm_gmem_invalidate_begin(inode, start, end);
+	kvm_gmem_zap(inode, start, end);
 
 	kvm_gmem_truncate_range(inode, start, len >> PAGE_SHIFT);
 
@@ -512,8 +547,8 @@ static int kvm_gmem_release(struct inode *inode, struct file *file)
 	 * Zap all SPTEs pointed at by this file.  Do not free the backing
 	 * memory, as its lifetime is associated with the inode, not the file.
 	 */
-	__kvm_gmem_invalidate_begin(f, 0, -1ul,
-				    kvm_gmem_get_invalidate_filter(inode));
+	__kvm_gmem_invalidate_begin(f, 0, -1ul);
+	__kvm_gmem_zap(f, 0, -1ul, kvm_gmem_get_invalidate_filter(inode));
 	__kvm_gmem_invalidate_end(f, 0, -1ul);
 
 	list_del(&f->entry);
@@ -802,6 +837,7 @@ static int kvm_gmem_convert(struct inode *inode, pgoff_t start,
 	}
 
 	kvm_gmem_invalidate_begin(inode, start, end);
+	kvm_gmem_zap(inode, start, end);
 
 	mas_store_prealloc(&mas, xa_mk_value(attrs));
 
@@ -930,6 +966,7 @@ static int kvm_gmem_error_folio(struct address_space *mapping, struct folio *fol
 	end = start + folio_nr_pages(folio);
 
 	kvm_gmem_invalidate_begin(mapping->host, start, end);
+	kvm_gmem_zap(mapping->host, start, end);
 
 	/*
 	 * Do not truncate the range, what action is taken in response to the

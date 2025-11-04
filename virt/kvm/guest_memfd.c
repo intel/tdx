@@ -192,6 +192,38 @@ err_put:
 	return ERR_PTR(err);
 }
 
+static struct folio *__maybe_split_fresh_folio(struct folio *folio,
+					       pgoff_t requested_index)
+{
+	struct inode *inode = folio->mapping->host;
+	struct gmem_inode *gi = GMEM_I(inode);
+	size_t nr_pages = 1 << gi->page_order;
+	int ret;
+
+	if (!IS_ENABLED(CONFIG_KVM_GUEST_MEMFD_HUGETLB) || gi->page_order == 0)
+		return folio;
+
+	if (kvm_gmem_range_has_attributes(&gi->attributes, folio->index,
+					  nr_pages,
+					  KVM_MEMORY_ATTRIBUTE_PRIVATE))
+		return folio;
+
+	/* Set folio up for splitting, leave only filemap's refcounts on folio. */
+	__folio_clear_locked(folio);
+	folio_put(folio);
+
+	ret = gmem_hugetlb_restructure_folio(inode->i_mapping, folio->index, 0);
+	if (ret)
+		return ERR_PTR(ret);
+
+	folio = (struct folio *)folio_page(folio, requested_index - folio->index);
+	__folio_set_locked(folio);
+	folio_get(folio);
+
+	return folio;
+}
+
+
 /*
  * Returns a locked folio on success.  The caller is responsible for
  * setting the up-to-date flag before the memory is mapped into the guest.
@@ -227,7 +259,7 @@ static struct folio *kvm_gmem_get_folio(struct inode *inode, pgoff_t index)
 
 	inode_add_bytes(inode, folio_size(folio));
 
-	return folio;
+	return __maybe_split_fresh_folio(folio, index);
 }
 
 static enum kvm_gfn_range_filter kvm_gmem_get_invalidate_filter(struct inode *inode)

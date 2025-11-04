@@ -702,6 +702,35 @@ static int kvm_gmem_mas_preallocate(struct ma_state *mas, u64 attributes,
 	return mas_preallocate(mas, xa_mk_value(attributes), GFP_KERNEL);
 }
 
+static int kvm_gmem_restructure(struct inode *inode, pgoff_t start,
+				size_t nr_pages, bool to_private,
+				pgoff_t *err_index)
+{
+	struct gmem_inode *gi = GMEM_I(inode);
+	pgoff_t index;
+	u8 to_order;
+	int ret;
+
+	if (!IS_ENABLED(CONFIG_KVM_GUEST_MEMFD_HUGETLB) || gi->page_order == 0)
+		return 0;
+
+	index = round_down(start, 1 << gi->page_order);
+	to_order = 0;
+	if (to_private) {
+		size_t nr_pages = 1 << gi->page_order;
+
+		if (kvm_gmem_range_has_attributes(&gi->attributes, index, nr_pages,
+						  KVM_MEMORY_ATTRIBUTE_PRIVATE))
+			to_order = gi->page_order;
+	}
+
+	ret = gmem_hugetlb_restructure_folio(inode->i_mapping, index, to_order);
+	if (ret)
+		*err_index = start;
+
+	return ret;
+}
+
 static int kvm_gmem_convert(struct inode *inode, pgoff_t start,
 			    size_t nr_pages, uint64_t attrs,
 			    pgoff_t *err_index)
@@ -732,6 +761,12 @@ static int kvm_gmem_convert(struct inode *inode, pgoff_t start,
 			mas_destroy(&mas);
 			return -EAGAIN;
 		}
+	}
+
+	r = kvm_gmem_restructure(inode, start, nr_pages, to_private, err_index);
+	if (r) {
+		mas_destroy(&mas);
+		return r;
 	}
 
 	kvm_gmem_invalidate_begin(inode, start, end);

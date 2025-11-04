@@ -934,6 +934,7 @@ enum pagetype {
 	PGTY_zsmalloc		= 0xf6,
 	PGTY_unaccepted		= 0xf7,
 	PGTY_large_kmalloc	= 0xf8,
+	PGTY_hugetlb_split	= 0xf9,
 
 	PGTY_mapcount_underflow = 0xff
 };
@@ -1081,6 +1082,18 @@ static inline bool PageSlab(const struct page *page)
 FOLIO_TYPE_OPS(hugetlb, hugetlb)
 #else
 FOLIO_TEST_FLAG_FALSE(hugetlb)
+#endif
+
+/*
+ * PGTY_hugetlb_split identifies a folio as a split HugeTLB folio, requiring
+ * merge and then return to HugeTLB.  This page type is installed only at
+ * truncation time if further cleanup is required.  It is safe to install this
+ * page type at truncation time because by then mapcount would be 0.
+ */
+#ifdef CONFIG_HUGETLB_RESTRUCTURING
+FOLIO_TYPE_OPS(hugetlb_split, hugetlb_split)
+#else
+FOLIO_TEST_FLAG_FALSE(hugetlb_split)
 #endif
 
 PAGE_TYPE_OPS(Zsmalloc, zsmalloc, zsmalloc)

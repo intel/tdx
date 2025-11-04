@@ -749,7 +749,11 @@ static int __kvm_gmem_set_attributes(struct inode *inode, pgoff_t start,
 {
 	struct address_space *mapping = inode->i_mapping;
 	struct gmem_inode *gi = GMEM_I(inode);
+	pgoff_t end = start + nr_pages;
+	pgoff_t batch_start, batch_end;
+	size_t batch_nr_pages;
 	struct maple_tree *mt;
+	size_t batch_size;
 	int r = 0;
 
 	mt = &gi->attributes;
@@ -759,7 +763,21 @@ static int __kvm_gmem_set_attributes(struct inode *inode, pgoff_t start,
 	if (kvm_gmem_range_has_attributes(mt, start, nr_pages, attrs))
 		goto done;
 
-	r = kvm_gmem_convert(inode, start, nr_pages, attrs, err_index);
+	/* For page_order > 0, convert one huge page at a time. */
+	if (gi->page_order > 0)
+		batch_size = 1 << gi->page_order;
+	else
+		batch_size = inode->i_size >> PAGE_SHIFT;
+
+	for (batch_start = start; batch_start < end; batch_start += batch_nr_pages) {
+		batch_end = min(round_up(batch_start + 1, batch_size), end);
+		batch_nr_pages = batch_end - batch_start;
+
+		r = kvm_gmem_convert(inode, batch_start, batch_nr_pages, attrs,
+				     err_index);
+		if (r)
+			break;
+	}
 done:
 	filemap_invalidate_unlock(mapping);
 	return r;

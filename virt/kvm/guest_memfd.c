@@ -798,6 +798,28 @@ static int kvm_gmem_restructure(struct inode *inode, pgoff_t start,
 	return ret;
 }
 
+static pgoff_t kvm_gmem_compute_invalidate_start(struct inode *inode,
+						 pgoff_t index)
+{
+	struct gmem_inode *gi = GMEM_I(inode);
+
+	if (!IS_ENABLED(CONFIG_KVM_GUEST_MEMFD_HUGETLB) || gi->page_order == 0)
+		return index;
+
+	return round_down(index, 1 << gi->page_order);
+}
+
+static pgoff_t kvm_gmem_compute_invalidate_end(struct inode *inode,
+					       pgoff_t index)
+{
+	struct gmem_inode *gi = GMEM_I(inode);
+
+	if (!IS_ENABLED(CONFIG_KVM_GUEST_MEMFD_HUGETLB) || gi->page_order == 0)
+		return index;
+
+	return round_up(index, 1 << gi->page_order);
+}
+
 static int kvm_gmem_convert(struct inode *inode, pgoff_t start,
 			    size_t nr_pages, uint64_t attrs,
 			    pgoff_t *err_index)
@@ -806,6 +828,8 @@ static int kvm_gmem_convert(struct inode *inode, pgoff_t start,
 	struct address_space *mapping = inode->i_mapping;
 	struct gmem_inode *gi = GMEM_I(inode);
 	pgoff_t end = start + nr_pages;
+	pgoff_t invalidate_start;
+	pgoff_t invalidate_end;
 	struct maple_tree *mt;
 	struct ma_state mas;
 	int r;
@@ -836,12 +860,14 @@ static int kvm_gmem_convert(struct inode *inode, pgoff_t start,
 		return r;
 	}
 
-	kvm_gmem_invalidate_begin(inode, start, end);
+	invalidate_start = kvm_gmem_compute_invalidate_start(inode, start);
+	invalidate_end = kvm_gmem_compute_invalidate_end(inode, end);
+	kvm_gmem_invalidate_begin(inode, invalidate_start, invalidate_end);
 	kvm_gmem_zap(inode, start, end);
 
 	mas_store_prealloc(&mas, xa_mk_value(attrs));
 
-	kvm_gmem_invalidate_end(inode, start, end);
+	kvm_gmem_invalidate_end(inode, invalidate_start, invalidate_end);
 
 	return 0;
 }

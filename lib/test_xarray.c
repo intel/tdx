@@ -63,26 +63,6 @@ static void xa_erase_index(struct xarray *xa, unsigned long index)
 	XA_BUG_ON(xa, xa_load(xa, index) != NULL);
 }
 
-/*
- * If anyone needs this, please move it to xarray.c.  We have no current
- * users outside the test suite because all current multislot users want
- * to use the advanced API.
- */
-static void *xa_store_order(struct xarray *xa, unsigned long index,
-		unsigned order, void *entry, gfp_t gfp)
-{
-	XA_STATE_ORDER(xas, xa, index, order);
-	void *curr;
-
-	do {
-		xas_lock(&xas);
-		curr = xas_store(&xas, entry);
-		xas_unlock(&xas);
-	} while (xas_nomem(&xas, gfp));
-
-	return curr;
-}
-
 static noinline void check_xa_err(struct xarray *xa)
 {
 	XA_BUG_ON(xa, xa_err(xa_store_index(xa, 0, GFP_NOWAIT)) != 0);

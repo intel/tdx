@@ -1905,6 +1905,22 @@ unlock:
 }
 EXPORT_SYMBOL(xa_store_range);
 
+void *xa_store_order(struct xarray *xa, unsigned long index,
+		unsigned order, void *entry, gfp_t gfp)
+{
+	XA_STATE_ORDER(xas, xa, index, order);
+	void *curr;
+
+	do {
+		xas_lock(&xas);
+		curr = xas_store(&xas, entry);
+		xas_unlock(&xas);
+	} while (xas_nomem(&xas, gfp));
+
+	return curr;
+}
+EXPORT_SYMBOL(xa_store_order);
+
 /**
  * xas_get_order() - Get the order of an entry.
  * @xas: XArray operation state.

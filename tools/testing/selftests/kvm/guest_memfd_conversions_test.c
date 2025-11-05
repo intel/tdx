@@ -507,14 +507,57 @@ GMEM_CONVERSION_MULTIPAGE_TEST_INIT_SHARED(elevated_refcount, 4)
 	}
 }
 
+static u8 valid_order(long number)
+{
+	u8 order;
+
+	if (number == 0)
+		return number;
+
+	for_each_valid_hugetlb_page_order(order) {
+		if (order == number)
+			return number;
+	}
+
+	return -1;
+}
+
+static u8 parse_order(const char *str)
+{
+	long result_long;
+	char *endptr;
+
+	errno = 0;
+
+	result_long = strtol(str, &endptr, 10);
+	if (errno == ERANGE || endptr == str || *endptr != '\0')
+		return -1;
+
+	return valid_order(result_long);
+}
+
 int main(int argc, char *argv[])
 {
+	char *order_str;
+
 	TEST_REQUIRE(kvm_check_cap(KVM_CAP_VM_TYPES) & BIT(KVM_X86_SW_PROTECTED_VM));
 	TEST_REQUIRE(kvm_check_cap(KVM_CAP_GUEST_MEMFD_MEMORY_ATTRIBUTES) &
 		     KVM_MEMORY_ATTRIBUTE_PRIVATE);
 
-	page_order = 0;
-	page_size = getpagesize();
+	order_str = getenv("GUEST_MEMFD_CONVERSIONS_TEST_ORDER");
+	if (order_str) {
+		page_order = parse_order(order_str);
+		if (page_order == (u8)-1) {
+			pr_debug("Couldn't parse valid order out of '%s'\n",
+				 order_str);
+			return KSFT_FAIL;
+		}
+	}
+
+	page_size = getpagesize() << page_order;
+
+	pr_debug("Running tests for page_size=0x%lx page_order=%d\n", page_size,
+		 page_order);
 
 	return test_harness_run(argc, argv);
 }

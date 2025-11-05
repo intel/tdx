@@ -224,12 +224,25 @@ static void __merge_folio_to_order(struct folio *folio, unsigned int to_order)
 	folio->mapping = mapping;
 }
 
-static int hugetlb_restructuring_merge_folio(struct folio *first_folio, u8 to_order)
+static int merge_unreferenced_folio(struct folio *first_folio, u8 to_order)
 {
-	struct folio *f, *end_folio;
 	struct hstate *h;
 
 	WARN_ON_ONCE(!IS_ALIGNED(first_folio->index, 1 << to_order));
+
+	__merge_folio_to_order(first_folio, to_order);
+
+	__folio_set_hugetlb(first_folio);
+	h = hugetlb_order_to_hstate(folio_order(first_folio));
+	hugetlb_vmemmap_optimize_folio(h, first_folio);
+
+	return 0;
+}
+
+static int hugetlb_restructuring_merge_folio(struct folio *first_folio, u8 to_order)
+{
+	struct folio *f, *end_folio;
+	int ret;
 
 	end_folio = (struct folio *)folio_page(first_folio, 1 << to_order);
 	for (f = first_folio; f != end_folio; f = folio_next(f))
@@ -238,15 +251,12 @@ static int hugetlb_restructuring_merge_folio(struct folio *first_folio, u8 to_or
 	merge_entries(first_folio->mapping, first_folio->index,
 		      folio_order(first_folio), to_order);
 
-	__merge_folio_to_order(first_folio, to_order);
-
-	__folio_set_hugetlb(first_folio);
-	h = hugetlb_order_to_hstate(folio_order(first_folio));
-	hugetlb_vmemmap_optimize_folio(h, first_folio);
+	ret = merge_unreferenced_folio(first_folio, to_order);
+	WARN_ON_ONCE(ret);
 
 	hugetlb_restructuring_unfreeze_folio(first_folio);
 
-	return 0;
+	return ret;
 }
 
 int hugetlb_restructuring_restructure_folio(struct folio *folio, u8 to_order)

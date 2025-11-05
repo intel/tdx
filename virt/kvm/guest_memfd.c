@@ -1322,9 +1322,12 @@ void kvm_gmem_unbind(struct kvm_memory_slot *slot)
 int kvm_gmem_mapping_order(struct kvm_memory_slot *slot, gfn_t gfn,
 			   kvm_pfn_t *pfn)
 {
+	struct gmem_inode *gi;
 	struct inode *inode;
 	struct folio *folio;
+	pgoff_t index_floor;
 	struct file *file;
+	size_t nr_pages;
 	pgoff_t index;
 	int order;
 
@@ -1333,9 +1336,18 @@ int kvm_gmem_mapping_order(struct kvm_memory_slot *slot, gfn_t gfn,
 		return 0;
 
 	inode = file_inode(file);
-	order = GMEM_I(inode)->page_order;
-
+	gi = GMEM_I(inode);
 	index = kvm_gmem_get_index(slot, gfn);
+	nr_pages = 1 << gi->page_order;
+	index_floor = round_down(index, nr_pages);
+
+	order = 0;
+	if (kvm_gmem_range_has_attributes(&gi->attributes, index,
+					  nr_pages,
+					  KVM_MEMORY_ATTRIBUTE_PRIVATE)) {
+		order = gi->page_order;
+	}
+
 	folio = filemap_get_folio(inode->i_mapping, index);
 	if (!IS_ERR(folio)) {
 		*pfn = folio_file_pfn(folio, index);

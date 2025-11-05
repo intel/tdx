@@ -350,3 +350,43 @@ static int __init hugetlb_restructuring_init(void)
 	return 0;
 }
 subsys_initcall(hugetlb_restructuring_init);
+
+static void hugetlb_restructuring_unmark_folio(struct folio *folio)
+{
+	__folio_clear_hugetlb_split(folio);
+
+	/* Restore invariant ahead of merging later. */
+	if (folio_order(folio) > 0)
+		__folio_set_hugetlb(folio);
+}
+
+static void hugetlb_restructuring_defer_cleanup(struct folio *folio)
+{
+	struct llist_node *node;
+
+	/*
+	 * Reuse the folio->mapping pointer as a struct llist_node, since
+	 * folio->mapping is NULL at this point.
+	 */
+	BUILD_BUG_ON(sizeof(folio->mapping) != sizeof(struct llist_node));
+	node = (struct llist_node *)&folio->mapping;
+
+	/*
+	 * Only schedule work if list is previously empty. Otherwise,
+	 * schedule_work() had been called but the workfn hasn't retrieved the
+	 * list yet.
+	 */
+	if (llist_add(node, &hugetlb_restructuring_cleanup_list))
+		queue_work(hugetlb_restructuring_wq, &hugetlb_restructuring_cleanup_work);
+}
+
+void hugetlb_split_handle_folio_put(struct folio *folio)
+{
+	hugetlb_restructuring_unmark_folio(folio);
+
+	/*
+	 * folio_put() can be called in interrupt context, hence do the work
+	 * outside of interrupt context
+	 */
+	hugetlb_restructuring_defer_cleanup(folio);
+}

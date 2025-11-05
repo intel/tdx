@@ -34,6 +34,7 @@
 #include <linux/gfp.h>
 #include <linux/uio.h>
 #include <linux/hugetlb.h>
+#include <linux/hugetlb_restructuring.h>
 #include <linux/page_idle.h>
 #include <linux/local_lock.h>
 #include <linux/buffer_head.h>
@@ -100,6 +101,11 @@ static void free_typed_folio(struct folio *folio)
 #ifdef CONFIG_HUGETLBFS
 	case PGTY_hugetlb:
 		free_huge_folio(folio);
+		return;
+#endif
+#ifdef CONFIG_HUGETLB_RESTRUCTURING
+	case PGTY_hugetlb_split:
+		hugetlb_split_handle_folio_put(folio);
 		return;
 #endif
 	default:

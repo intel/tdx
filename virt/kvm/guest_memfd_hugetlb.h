@@ -17,7 +17,7 @@ struct folio *gmem_hugetlb_alloc_folio(void *priv, u8 page_order,
 
 static inline void gmem_hugetlb_free_folio(struct folio *folio)
 {
-	hugetlb_restructuring_metadata_restore(folio);
+	hugetlb_restructuring_free_folio(folio);
 }
 
 int gmem_hugetlb_restructure_folio(struct address_space *mapping,

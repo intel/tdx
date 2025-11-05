@@ -26,5 +26,6 @@ struct hugetlb_restructuring_metadata *hugetlb_restructuring_metadata_get(unsign
 
 int hugetlb_restructuring_restructure_folio(struct folio *folio, u8 to_order);
 void hugetlb_split_handle_folio_put(struct folio *folio);
+void hugetlb_restructuring_free_folio(struct folio *folio);
 
 #endif  /* _LINUX_HUGETLB_RESTRUCTURING_H */

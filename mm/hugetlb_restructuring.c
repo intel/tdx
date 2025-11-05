@@ -351,6 +351,16 @@ static int __init hugetlb_restructuring_init(void)
 }
 subsys_initcall(hugetlb_restructuring_init);
 
+static void hugetlb_restructuring_mark_folio(struct folio *folio)
+{
+	/*
+	 * Clear HugeTLB page type (if it is set) temporarily to make way for
+	 * guestmem_hugetlb page type.
+	 */
+	__folio_clear_hugetlb(folio);
+	__folio_set_hugetlb_split(folio);
+}
+
 static void hugetlb_restructuring_unmark_folio(struct folio *folio)
 {
 	__folio_clear_hugetlb_split(folio);
@@ -389,4 +399,17 @@ void hugetlb_split_handle_folio_put(struct folio *folio)
 	 * outside of interrupt context
 	 */
 	hugetlb_restructuring_defer_cleanup(folio);
+}
+
+void hugetlb_restructuring_free_folio(struct folio *folio)
+{
+	struct hugetlb_restructuring_metadata *metadata;
+	unsigned long pfn = folio_pfn(folio);
+
+	metadata = hugetlb_restructuring_metadata_get(pfn);
+
+	if (folio_order(folio) == metadata->page_order)
+		hugetlb_restructuring_metadata_restore(folio);
+	else
+		hugetlb_restructuring_mark_folio(folio);
 }

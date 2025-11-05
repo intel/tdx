@@ -16,6 +16,8 @@ struct hugetlb_restructuring_metadata {
 	u8 page_order;
 	/* Whether CMA was used to allocate this HugeTLB folio. */
 	bool hugetlb_cma;
+	/* Count of split pages, individually freed, waiting to be merged. */
+	atomic_t nr_pages_waiting_to_be_merged;
 };
 
 int hugetlb_restructuring_metadata_store(struct folio *folio);

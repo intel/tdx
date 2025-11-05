@@ -7,6 +7,7 @@
 #include <linux/hugetlb.h>
 #include <linux/hugetlb_cgroup.h>
 #include <linux/hugetlb_restructuring.h>
+#include <linux/workqueue.h>
 #include <linux/xarray.h>
 
 #include "hugetlb_vmemmap.h"
@@ -21,6 +22,7 @@ static void hugetlb_restructuring_metadata_initialize(
 	metadata->h_cg = hugetlb_cgroup_from_folio(folio);
 	metadata->h_cg_rsvd = hugetlb_cgroup_from_folio_rsvd(folio);
 	metadata->hugetlb_cma = folio_test_hugetlb_cma(folio);
+	atomic_set(&metadata->nr_pages_waiting_to_be_merged, 0);
 }
 
 static void __hugetlb_restructuring_metadata_restore(
@@ -272,3 +274,79 @@ int hugetlb_restructuring_restructure_folio(struct folio *folio, u8 to_order)
 }
 
 EXPORT_SYMBOL_FOR_MODULES(hugetlb_restructuring_restructure_folio, "kvm");
+
+static struct folio *maybe_merge_unreferenced_folio(struct folio *folio)
+{
+	struct hugetlb_restructuring_metadata *metadata;
+	size_t nr_pages_waiting_to_be_merged;
+	unsigned long first_folio_pfn;
+	struct folio *first_folio;
+	size_t original_nr_pages;
+	u8 original_order;
+	int ret;
+
+	unsigned long pfn = folio_pfn(folio);
+	metadata = hugetlb_restructuring_metadata_get(pfn);
+	original_order = metadata->page_order;
+	original_nr_pages = 1 << original_order;
+
+	nr_pages_waiting_to_be_merged = atomic_add_return(
+		folio_nr_pages(folio), &metadata->nr_pages_waiting_to_be_merged);
+	if (nr_pages_waiting_to_be_merged < original_nr_pages)
+		return NULL;
+
+	first_folio_pfn = round_down(pfn, original_nr_pages);
+	first_folio = pfn_folio(first_folio_pfn);
+
+	ret = merge_unreferenced_folio(first_folio, original_order);
+	if (ret) {
+		WARN_ONCE(ret, "Error merging unreferenced folio.");
+		return ERR_PTR(ret);
+	}
+
+	return first_folio;
+}
+
+static void hugetlb_restructuring_cleanup_folio(struct folio *folio)
+{
+	struct folio *merged_folio = maybe_merge_unreferenced_folio(folio);
+
+	if (!IS_ERR_OR_NULL(merged_folio)) {
+		hugetlb_restructuring_metadata_restore(merged_folio);
+		__folio_put(merged_folio);
+	}
+}
+
+struct workqueue_struct *hugetlb_restructuring_wq __ro_after_init;
+static struct work_struct hugetlb_restructuring_cleanup_work;
+static LLIST_HEAD(hugetlb_restructuring_cleanup_list);
+
+static void hugetlb_restructuring_cleanup_workfn(struct work_struct *work)
+{
+	struct llist_node *node = llist_del_all(&hugetlb_restructuring_cleanup_list);
+
+	while (node) {
+		struct folio *folio;
+
+		folio = container_of((struct address_space **)node,
+				     struct folio, mapping);
+
+		node = node->next;
+		folio->mapping = NULL;
+
+		hugetlb_restructuring_cleanup_folio(folio);
+	}
+}
+
+static int __init hugetlb_restructuring_init(void)
+{
+	INIT_WORK(&hugetlb_restructuring_cleanup_work, hugetlb_restructuring_cleanup_workfn);
+
+	hugetlb_restructuring_wq = alloc_workqueue("hugetlb_restructuring",
+						   WQ_MEM_RECLAIM | WQ_UNBOUND, 0);
+	if (!hugetlb_restructuring_wq)
+		return -ENOMEM;
+
+	return 0;
+}
+subsys_initcall(hugetlb_restructuring_init);

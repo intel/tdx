@@ -376,6 +376,39 @@ static void kvm_gmem_invalidate_end(struct inode *inode, pgoff_t start,
 		__kvm_gmem_invalidate_end(f, start, end);
 }
 
+static bool kvm_gmem_has_safe_refcount(struct inode *inode, pgoff_t start,
+				       size_t nr_pages, pgoff_t *err_index)
+{
+	struct address_space *mapping = inode->i_mapping;
+	const int filemap_get_folios_refcount = 1;
+	pgoff_t last = start + nr_pages - 1;
+	struct folio_batch fbatch;
+	bool safe = true;
+	int i;
+
+	folio_batch_init(&fbatch);
+	while (safe && filemap_get_folios(mapping, &start, last, &fbatch)) {
+
+		for (i = 0; i < folio_batch_count(&fbatch); ++i) {
+			struct folio *folio = fbatch.folios[i];
+
+			if (folio_ref_count(folio) !=
+			    folio_nr_pages(folio) + filemap_get_folios_refcount) {
+				safe = false;
+
+				if (err_index)
+					*err_index = folio->index;
+
+				break;
+			}
+		}
+
+		folio_batch_release(&fbatch);
+	}
+
+	return safe;
+}
+
 static size_t kvm_gmem_truncate_folio(struct folio *folio)
 {
 	size_t nr_bytes;
@@ -707,36 +740,6 @@ unsigned long kvm_gmem_get_memory_attributes(struct kvm *kvm, gfn_t gfn)
 }
 EXPORT_SYMBOL_GPL(kvm_gmem_get_memory_attributes);
 
-static bool kvm_gmem_is_safe_for_conversion(struct inode *inode, pgoff_t start,
-					    size_t nr_pages, pgoff_t *err_index)
-{
-	struct address_space *mapping = inode->i_mapping;
-	const int filemap_get_folios_refcount = 1;
-	pgoff_t last = start + nr_pages - 1;
-	struct folio_batch fbatch;
-	bool safe = true;
-	int i;
-
-	folio_batch_init(&fbatch);
-	while (safe && filemap_get_folios(mapping, &start, last, &fbatch)) {
-
-		for (i = 0; i < folio_batch_count(&fbatch); ++i) {
-			struct folio *folio = fbatch.folios[i];
-
-			if (folio_ref_count(folio) !=
-			    folio_nr_pages(folio) + filemap_get_folios_refcount) {
-				safe = false;
-				*err_index = folio->index;
-				break;
-			}
-		}
-
-		folio_batch_release(&fbatch);
-	}
-
-	return safe;
-}
-
 /*
  * Preallocate memory for attributes to be stored on a maple tree, pointed to
  * by mas.  Adjacent ranges with attributes identical to the new attributes
@@ -847,8 +850,7 @@ static int kvm_gmem_convert(struct inode *inode, pgoff_t start,
 	if (to_private) {
 		unmap_mapping_pages(mapping, start, nr_pages, false);
 
-		if (!kvm_gmem_is_safe_for_conversion(inode, start, nr_pages,
-						     err_index)) {
+		if (!kvm_gmem_has_safe_refcount(inode, start, nr_pages, err_index)) {
 			mas_destroy(&mas);
 			return -EAGAIN;
 		}

@@ -526,7 +526,7 @@ static void test_guest_private_mem(void)
 
 	fd = vm_create_guest_memfd(vm, page_size, 0, page_order);
 	vm_mem_add(vm, VM_MEM_SRC_SHMEM, gpa, slot, npages, KVM_MEM_GUEST_MEMFD,
-		   fd, 0, 0);
+		   fd, 0, 0, 0);
 
 	virt_map(vm, gpa, gpa, npages);
 	vm_mem_set_private(vm, gpa, page_size);

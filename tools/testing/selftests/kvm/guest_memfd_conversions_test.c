@@ -54,7 +54,7 @@ static void gmem_conversions_do_setup(test_data_t *t, int nr_pages,
 	vm = __vm_create_shape_with_one_vcpu(shape, &t->vcpu, nr_pages, guest_do_rmw);
 
 	vm_mem_add(vm, VM_MEM_SRC_SHMEM, gpa, slot, nr_pages,
-		   KVM_MEM_GUEST_MEMFD, -1, 0, gmem_flags);
+		   KVM_MEM_GUEST_MEMFD, -1, 0, gmem_flags, 0);
 
 	t->gmem_fd = kvm_slot_to_fd(vm, slot);
 	t->mem = addr_gpa2hva(vm, gpa);

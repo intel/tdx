@@ -429,6 +429,7 @@ static void test_mem_conversions(void)
 	 * Allocate enough memory so that each vCPU's chunk of memory can be
 	 * naturally aligned with respect to the size of the backing store.
 	 */
+	bool should_convert_to_shared = false;
 	struct kvm_vcpu *vcpus[KVM_MAX_VCPUS];
 	pthread_t threads[KVM_MAX_VCPUS];
 	uint64_t gmem_flags;
@@ -457,6 +458,12 @@ static void test_mem_conversions(void)
 	if (private_page_order > 0)
 		gmem_flags |= GUEST_MEMFD_FLAG_HUGETLB;
 
+	if (gmem_flags & GUEST_MEMFD_FLAG_INIT_SHARED &&
+	    gmem_flags & GUEST_MEMFD_FLAG_HUGETLB) {
+		gmem_flags &= ~GUEST_MEMFD_FLAG_INIT_SHARED;
+		should_convert_to_shared = true;
+	}
+
 	memfd = vm_create_guest_memfd(vm, memfd_size, gmem_flags, private_page_order);
 
 	for (i = 0; i < nr_memslots; i++)
@@ -464,6 +471,9 @@ static void test_mem_conversions(void)
 			   BASE_DATA_SLOT + i, slot_size / vm->page_size,
 			   KVM_MEM_GUEST_MEMFD, memfd, slot_size * i,
 			   gmem_flags, 0);
+
+	if (should_convert_to_shared)
+		vm_mem_set_shared(vm, BASE_DATA_GPA, memfd_size);
 
 	for (i = 0; i < nr_vcpus; i++) {
 		uint64_t gpa =  BASE_DATA_GPA + i * per_cpu_size;

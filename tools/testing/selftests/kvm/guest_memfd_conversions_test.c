@@ -44,6 +44,7 @@ static void gmem_conversions_do_setup(test_data_t *t, int nr_pages,
 		.mode = VM_MODE_DEFAULT,
 		.type = KVM_X86_SW_PROTECTED_VM,
 	};
+	bool should_convert_to_shared = false;
 	/*
 	 * Use high GPA above APIC_DEFAULT_PHYS_BASE to avoid clashing with
 	 * APIC_DEFAULT_PHYS_BASE.
@@ -64,8 +65,17 @@ static void gmem_conversions_do_setup(test_data_t *t, int nr_pages,
 	if (page_order > 0)
 		flags |= GUEST_MEMFD_FLAG_HUGETLB;
 
+	if (flags & GUEST_MEMFD_FLAG_INIT_SHARED &&
+	    flags & GUEST_MEMFD_FLAG_HUGETLB) {
+		flags &= ~GUEST_MEMFD_FLAG_INIT_SHARED;
+		should_convert_to_shared = true;
+	}
+
 	vm_mem_add(vm, VM_MEM_SRC_SHMEM, gpa, slot, nr_page_size_pages,
 		   KVM_MEM_GUEST_MEMFD, -1, 0, flags, page_order);
+
+	if (should_convert_to_shared)
+		vm_mem_set_shared(vm, gpa, gmem_size);
 
 	t->gmem_fd = kvm_slot_to_fd(vm, slot);
 	t->mem = addr_gpa2hva(vm, gpa);

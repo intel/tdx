@@ -452,10 +452,60 @@ static void kvm_gmem_truncate_range(struct inode *inode, pgoff_t start,
 	inode_sub_bytes(inode, nr_bytes);
 }
 
+static int merge_folios_in_range(struct inode *inode, pgoff_t start,
+				 size_t nr_pages)
+{
+	u8 merge_order = GMEM_I(inode)->page_order;
+	size_t merge_nr_pages = 1 << merge_order;
+	pgoff_t index;
+	int ret = 0;
+
+	for (index = start; index < start + nr_pages; index += merge_nr_pages) {
+		ret = gmem_hugetlb_restructure_folio(inode->i_mapping, index,
+						     merge_order);
+		if (ret)
+			return ret;
+	}
+
+	return ret;
+}
+
+/* Assumes that start and nr_pages are aligned to gi->page_order. */
+static int merge_truncate_range(struct inode *inode, pgoff_t start,
+				size_t nr_pages, bool require_merge)
+{
+	int ret;
+
+	if (!(GMEM_I(inode)->flags & GUEST_MEMFD_FLAG_HUGETLB)) {
+		kvm_gmem_truncate_range(inode, start, nr_pages);
+		return 0;
+	}
+
+	unmap_mapping_pages(inode->i_mapping, start, nr_pages, false);
+
+	ret = 0;
+	if (kvm_gmem_has_safe_refcount(inode, start, nr_pages, NULL)) {
+		ret = merge_folios_in_range(inode, start, nr_pages);
+		if (ret) {
+			if (require_merge)
+				return ret;
+			else
+				ret = 0;
+		}
+	} else if (require_merge) {
+		return -EAGAIN;
+	}
+
+	kvm_gmem_truncate_range(inode, start, nr_pages);
+
+	return ret;
+}
+
 static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 {
 	pgoff_t start = offset >> PAGE_SHIFT;
 	pgoff_t end = (offset + len) >> PAGE_SHIFT;
+	long ret;
 
 	/*
 	 * Bindings must be stable across invalidation to ensure the start+end
@@ -466,13 +516,13 @@ static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 	kvm_gmem_invalidate_begin(inode, start, end);
 	kvm_gmem_zap(inode, start, end);
 
-	kvm_gmem_truncate_range(inode, start, len >> PAGE_SHIFT);
+	ret = merge_truncate_range(inode, start, len >> PAGE_SHIFT, true);
 
 	kvm_gmem_invalidate_end(inode, start, end);
 
 	filemap_invalidate_unlock(inode->i_mapping);
 
-	return 0;
+	return ret;
 }
 
 static long kvm_gmem_allocate(struct inode *inode, loff_t offset, loff_t len)

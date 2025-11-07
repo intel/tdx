@@ -447,9 +447,6 @@ static void test_mem_conversions(void)
 
 	vm_enable_cap(vm, KVM_CAP_EXIT_HYPERCALL, (1 << KVM_HC_MAP_GPA_RANGE));
 
-	TEST_REQUIRE((kvm_has_gmem_attributes && private_page_order == 0) ||
-		     !kvm_has_gmem_attributes);
-
 	if (kvm_has_gmem_attributes)
 		gmem_flags = GUEST_MEMFD_FLAG_MMAP | GUEST_MEMFD_FLAG_INIT_SHARED;
 	else

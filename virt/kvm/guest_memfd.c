@@ -1658,7 +1658,7 @@ static void kvm_gmem_evict_inode(struct inode *inode)
 {
 	truncate_inode_pages_final_prepare(inode->i_mapping);
 
-	kvm_gmem_truncate_range(inode, 0, inode->i_size >> PAGE_SHIFT);
+	merge_truncate_range(inode, 0, inode->i_size >> PAGE_SHIFT, false);
 
 	clear_inode(inode);
 }

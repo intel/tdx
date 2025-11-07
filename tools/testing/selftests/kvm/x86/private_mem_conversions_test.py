@@ -132,9 +132,7 @@ def main():
 
     backing_src_types = ["shmem"] if kvm_has_gmem_attributes() else get_backing_source_types()
 
-    private_page_sizes = ["4K"]
-    if not kvm_has_gmem_attributes():
-        private_page_sizes += ["2M", "1G"]
+    private_page_sizes = ["4K", "2M", "1G"]
 
     try:
         for i, src_type in enumerate(backing_src_types):

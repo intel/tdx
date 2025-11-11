@@ -1105,52 +1105,136 @@ EXPORT_SYMBOL_GPL(xas_split_alloc);
 void xas_split(struct xa_state *xas, void *entry, unsigned int order)
 {
 	unsigned int sibs = (1 << (order % XA_CHUNK_SHIFT)) - 1;
-	unsigned int offset, marks;
+	struct xa_node *node_to_split;
+	unsigned int offset_to_split;
+	struct xa_node *stack;
 	struct xa_node *node;
-	void *curr = xas_load(xas);
-	int values = 0;
+	unsigned int offset;
+	unsigned int marks;
+	unsigned int i;
+	void *sibling;
 
-	node = xas->xa_node;
-	if (xas_top(node))
+	xas_load(xas);
+	node_to_split = xas->xa_node;
+	if (xas_top(node_to_split))
 		return;
 
-	marks = node_get_marks(node, xas->xa_offset);
+	marks = node_get_marks(node_to_split, xas->xa_offset);
 
-	offset = xas->xa_offset + sibs;
-	do {
-		if (xas->xa_shift < node->shift) {
-			struct xa_node *child = xas->xa_alloc;
+	/* Horizontal split: just fill in values in existing node. */
+	if (node_to_split->shift == xas->xa_shift) {
+		offset = xas->xa_offset;
 
-			xas->xa_alloc = rcu_dereference_raw(child->parent);
-			__xas_init_node_for_split(xas, child, entry);
-			child->shift = node->shift - XA_CHUNK_SHIFT;
-			child->offset = offset;
-			child->count = XA_CHUNK_SIZE;
-			child->nr_values = xa_is_value(entry) ?
-					XA_CHUNK_SIZE : 0;
-			RCU_INIT_POINTER(child->parent, node);
-			node_set_marks(node, offset, child, xas->xa_sibs,
-					marks);
-			rcu_assign_pointer(node->slots[offset],
-					xa_mk_node(child));
-			if (xa_is_value(curr))
-				values--;
-			xas_update(xas, child);
-		} else {
-			unsigned int canon = offset - xas->xa_sibs;
+		for (i = offset; i < offset + sibs + 1; i++) {
+			if ((i & xas->xa_sibs) == 0) {
+				node_set_marks(node_to_split, i, NULL, 0, marks);
+				rcu_assign_pointer(node_to_split->slots[i], entry);
 
-			node_set_marks(node, canon, NULL, 0, marks);
-			rcu_assign_pointer(node->slots[canon], entry);
-			while (offset > canon)
-				rcu_assign_pointer(node->slots[offset--],
-						xa_mk_sibling(canon));
-			values += (xa_is_value(entry) - xa_is_value(curr)) *
-					(xas->xa_sibs + 1);
+				sibling = xa_mk_sibling(i);
+			} else {
+				rcu_assign_pointer(node_to_split->slots[i], sibling);
+			}
 		}
-	} while (offset-- > xas->xa_offset);
 
-	node->nr_values += values;
-	xas_update(xas, node);
+		xas_update(xas, node_to_split);
+		return;
+	}
+
+	/*
+	 * Vertical split: build tree bottom-up, so that on any RCU lookup (on
+	 * the original tree), the tree is consistent.
+	 */
+	offset_to_split = get_offset(xas->xa_index, node_to_split);
+	stack = NULL;
+	offset = 0;
+	for (;;) {
+		unsigned int next_offset;
+
+		if (stack &&
+		    stack->shift == node_to_split->shift - XA_CHUNK_SHIFT &&
+		    stack->offset == offset_to_split + sibs)
+			break;
+
+		if (stack && stack->offset == XA_CHUNK_SIZE - 1) {
+			unsigned int child_shift;
+
+			node = xas->xa_alloc;
+			xas->xa_alloc = rcu_dereference_raw(node->parent);
+
+			child_shift = stack->shift;
+			for (i = 0; i < XA_CHUNK_SIZE; i++) {
+				struct xa_node *child = stack;
+
+				stack = child->parent;
+
+				node_set_marks(node, child->offset, NULL, 0, marks);
+
+				RCU_INIT_POINTER(child->parent, node);
+				RCU_INIT_POINTER(node->slots[child->offset], xa_mk_node(child));
+			}
+
+			node->array = xas->xa;
+			node->count = XA_CHUNK_SIZE;
+			node->nr_values = 0;
+			node->shift = child_shift + XA_CHUNK_SHIFT;
+			node->offset = 0;
+			if (node->shift == node_to_split->shift - XA_CHUNK_SHIFT)
+				node->offset = offset_to_split;
+			if (stack && stack->shift == node->shift)
+				node->offset = stack->offset + 1;
+
+			next_offset = 0;
+
+			xas_update(xas, node);
+		} else {
+			node = xas->xa_alloc;
+			xas->xa_alloc = rcu_dereference_raw(node->parent);
+
+			for (i = 0; i < XA_CHUNK_SIZE; i++) {
+				if ((i & xas->xa_sibs) == 0) {
+					node_set_marks(node, i, NULL, 0, marks);
+					RCU_INIT_POINTER(node->slots[i], entry);
+
+					sibling = xa_mk_sibling(i);
+				} else {
+					RCU_INIT_POINTER(node->slots[i], sibling);
+				}
+			}
+
+			node->array = xas->xa;
+			node->count = XA_CHUNK_SIZE;
+			node->nr_values = xa_is_value(entry) ? XA_CHUNK_SIZE : 0;
+			node->shift = xas->xa_shift;
+			node->offset = offset;
+			if (node->shift == node_to_split->shift - XA_CHUNK_SHIFT)
+				node->offset = offset_to_split;
+			if (stack && stack->shift == node->shift)
+				node->offset = stack->offset + 1;
+
+			next_offset = offset + 1;
+		}
+
+		node->parent = stack;
+		stack = node;
+
+		offset = next_offset;
+	}
+
+	/* Combine all the new nodes on the stack into node_to_split. */
+	for (i = 0; i < sibs + 1; i++) {
+		node = stack;
+		stack = node->parent;
+
+		node_set_marks(node_to_split, node->offset, NULL, 0, marks);
+
+		rcu_assign_pointer(node->parent, node_to_split);
+		rcu_assign_pointer(node_to_split->slots[node->offset], xa_mk_node(node));
+	}
+
+	WARN_ON(stack);
+
+	node_to_split->nr_values -= xa_is_value(entry) ? sibs + 1 : 0;
+	xas_update(xas, node_to_split);
 }
 EXPORT_SYMBOL_GPL(xas_split);
 

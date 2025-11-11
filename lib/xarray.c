@@ -1060,7 +1060,6 @@ void xas_split_alloc(struct xa_state *xas, void *entry, unsigned int order,
 		if (!node)
 			goto nomem;
 
-		__xas_init_node_for_split(xas, node, entry);
 		RCU_INIT_POINTER(node->parent, xas->xa_alloc);
 		xas->xa_alloc = node;
 	} while (sibs-- > 0);
@@ -1103,6 +1102,7 @@ void xas_split(struct xa_state *xas, void *entry, unsigned int order)
 			struct xa_node *child = xas->xa_alloc;
 
 			xas->xa_alloc = rcu_dereference_raw(child->parent);
+			__xas_init_node_for_split(xas, child, entry);
 			child->shift = node->shift - XA_CHUNK_SHIFT;
 			child->offset = offset;
 			child->count = XA_CHUNK_SIZE;

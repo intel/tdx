@@ -1028,6 +1028,27 @@ static void __xas_init_node_for_split(struct xa_state *xas,
 	}
 }
 
+static void __xas_alloc_nodes(struct xa_state *xas, unsigned int num_nodes, gfp_t gfp)
+{
+	struct xa_node *node;
+	unsigned int i;
+
+	for (i = 0; i < num_nodes; ++i) {
+		node = kmem_cache_alloc_lru(radix_tree_node_cachep, xas->xa_lru, gfp);
+		if (!node)
+			goto nomem;
+
+		RCU_INIT_POINTER(node->parent, xas->xa_alloc);
+		xas->xa_alloc = node;
+	}
+
+	return;
+
+nomem:
+	xas_destroy(xas);
+	xas_set_err(xas, -ENOMEM);
+}
+
 /**
  * xas_split_alloc() - Allocate memory for splitting an entry.
  * @xas: XArray operation state.
@@ -1046,28 +1067,27 @@ void xas_split_alloc(struct xa_state *xas, void *entry, unsigned int order,
 		gfp_t gfp)
 {
 	unsigned int sibs = (1 << (order % XA_CHUNK_SHIFT)) - 1;
+	unsigned int shift = order - (order % XA_CHUNK_SHIFT);
+	unsigned int level_nodes;
+	unsigned int nodes = 0;
 
-	/* XXX: no support for splitting really large entries yet */
-	if (WARN_ON(xas->xa_shift + 2 * XA_CHUNK_SHIFT <= order))
-		goto nomem;
-	if (xas->xa_shift + XA_CHUNK_SHIFT > order)
+	if (shift <= xas->xa_shift)
 		return;
 
-	do {
-		struct xa_node *node;
+	shift -= XA_CHUNK_SHIFT;
 
-		node = kmem_cache_alloc_lru(radix_tree_node_cachep, xas->xa_lru, gfp);
-		if (!node)
-			goto nomem;
+	level_nodes = sibs + 1;
+	for (;;) {
+		nodes += level_nodes;
 
-		RCU_INIT_POINTER(node->parent, xas->xa_alloc);
-		xas->xa_alloc = node;
-	} while (sibs-- > 0);
+		if (shift == xas->xa_shift)
+			break;
 
-	return;
-nomem:
-	xas_destroy(xas);
-	xas_set_err(xas, -ENOMEM);
+		nodes *= XA_CHUNK_SIZE;
+		shift -= XA_CHUNK_SHIFT;
+	}
+
+	__xas_alloc_nodes(xas, nodes, gfp);
 }
 EXPORT_SYMBOL_GPL(xas_split_alloc);
 

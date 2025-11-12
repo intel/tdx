@@ -1905,12 +1905,16 @@ static noinline void check_split(struct xarray *xa)
 
 	XA_BUG_ON(xa, !xa_empty(xa));
 
-	for (order = 1; order < 2 * XA_CHUNK_SHIFT; order++) {
+	for (order = 1; order < 4 * XA_CHUNK_SHIFT; order++) {
 		for (new_order = 0; new_order < order; new_order++) {
 			check_split_1(xa, 0, order, new_order);
 			check_split_1(xa, 1UL << order, order, new_order);
 			check_split_1(xa, 3UL << order, order, new_order);
+		}
+	}
 
+	for (order = 1; order < 2 * XA_CHUNK_SHIFT; order++) {
+		for (new_order = 0; new_order < order; new_order++) {
 			check_split_2(xa, 0, order, new_order);
 			check_split_2(xa, 1UL << order, order, new_order);
 			check_split_2(xa, 3UL << order, order, new_order);

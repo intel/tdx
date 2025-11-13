@@ -649,6 +649,33 @@ GMEM_CONVERSION_TEST_INIT_SHARED(map_page_within_huge_folio)
 	}
 }
 
+GMEM_CONVERSION_TEST_INIT_SHARED(truncate_while_pinned)
+{
+	const size_t native_page_size = getpagesize();
+	int test_case;
+	int ret;
+
+	for (test_case = 0; test_case < 2; test_case++) {
+		kvm_fallocate(t->gmem_fd, FALLOC_FL_KEEP_SIZE, 0, page_size);
+
+		pin_pages(t->mem, test_case ? page_size : native_page_size);
+
+		ret = fallocate(t->gmem_fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
+				0, page_size);
+		if (page_order == 0) {
+			TEST_ASSERT(!ret, "truncate should have succeeded since there is no need to merge");
+		} else {
+			TEST_ASSERT(ret, "truncate should have failed since pages are pinned");
+			TEST_ASSERT_EQ(errno, EAGAIN);
+		}
+
+		unpin_pages();
+	}
+
+	kvm_fallocate(t->gmem_fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, 0,
+		      page_size);
+}
+
 static u8 valid_order(long number)
 {
 	u8 order;

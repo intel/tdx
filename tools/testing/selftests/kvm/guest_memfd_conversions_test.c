@@ -507,6 +507,35 @@ GMEM_CONVERSION_MULTIPAGE_TEST_INIT_SHARED(elevated_refcount, 4)
 	}
 }
 
+void __test_close_while_pinned(test_data_t *t, size_t pinning_page_size)
+{
+	kvm_fallocate(t->gmem_fd, FALLOC_FL_KEEP_SIZE, 0, page_size);
+
+	pin_pages(t->mem, pinning_page_size);
+
+	/*
+	 * Test this with ./guest_memfd_wrap_test_check_hugetlb_reporting.sh to
+	 * check that the HugeTLB page got merged and returned to HugeTLB. Tear
+	 * down everything to close guest_memfd - no errors expected.
+	 */
+	gmem_conversions_do_teardown(t);
+
+	unpin_pages();
+}
+
+GMEM_CONVERSION_TEST_INIT_SHARED(close_while_native_page_size_pinned)
+{
+	__test_close_while_pinned(t, getpagesize());
+}
+
+GMEM_CONVERSION_TEST_INIT_SHARED(close_while_entire_huge_page_pinned)
+{
+	if (page_order == 0)
+		return;
+
+	__test_close_while_pinned(t, page_size);
+}
+
 static u8 valid_order(long number)
 {
 	u8 order;

@@ -231,16 +231,18 @@ static void test_private(test_data_t *t, loff_t pgoff, char starting_val,
 }
 
 static void __test_convert_to_private(test_data_t *t, loff_t offset,
-				      char starting_val, char write_val)
+				      size_t size, char starting_val,
+				      char write_val)
 {
-	gmem_set_private(t->gmem_fd, offset, page_size);
+	gmem_set_private(t->gmem_fd, offset, size);
 	__test_private(t, offset, starting_val, write_val);
 }
 
 static void test_convert_to_private(test_data_t *t, loff_t pgoff,
 				    char starting_val, char write_val)
 {
-	__test_convert_to_private(t, pgoff * page_size, starting_val, write_val);
+	__test_convert_to_private(t, pgoff * page_size, page_size, starting_val,
+				  write_val);
 }
 
 static void __test_shared(test_data_t *t, loff_t offset, char starting_val,
@@ -258,11 +260,11 @@ static void test_shared(test_data_t *t, loff_t pgoff, char starting_val,
 	__test_shared(t, pgoff * page_size, starting_val, host_write_val, write_val);
 }
 
-static void __test_convert_to_shared(test_data_t *t, loff_t offset,
+static void __test_convert_to_shared(test_data_t *t, loff_t offset, size_t size,
 				     char starting_val, char host_write_val,
 				     char write_val)
 {
-	gmem_set_shared(t->gmem_fd, offset, page_size);
+	gmem_set_shared(t->gmem_fd, offset, size);
 	__test_shared(t, offset, starting_val, host_write_val, write_val);
 }
 
@@ -270,7 +272,7 @@ static void test_convert_to_shared(test_data_t *t, loff_t pgoff,
 				   char starting_val, char host_write_val,
 				   char write_val)
 {
-	__test_convert_to_shared(t, pgoff * page_size, starting_val,
+	__test_convert_to_shared(t, pgoff * page_size, page_size, starting_val,
 				 host_write_val, write_val);
 }
 

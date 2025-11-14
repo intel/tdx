@@ -49,21 +49,27 @@ static void gmem_conversions_do_setup(test_data_t *t, int nr_pages,
 	 * APIC_DEFAULT_PHYS_BASE.
 	 */
 	const uint64_t gpa = SZ_4G;
+	size_t nr_page_size_pages;
 	const uint32_t slot = 1;
 	struct kvm_vm *vm;
+	size_t gmem_size;
 	uint64_t flags;
 
-	vm = __vm_create_shape_with_one_vcpu(shape, &t->vcpu, nr_pages, guest_do_rmw);
+	gmem_size = page_size * nr_pages;
+	nr_page_size_pages = gmem_size / getpagesize();
+	vm = __vm_create_shape_with_one_vcpu(shape, &t->vcpu,
+					     nr_page_size_pages, guest_do_rmw);
+
 	flags = gmem_flags;
 	if (page_order > 0)
 		flags |= GUEST_MEMFD_FLAG_HUGETLB;
 
-	vm_mem_add(vm, VM_MEM_SRC_SHMEM, gpa, slot, nr_pages,
+	vm_mem_add(vm, VM_MEM_SRC_SHMEM, gpa, slot, nr_page_size_pages,
 		   KVM_MEM_GUEST_MEMFD, -1, 0, flags, page_order);
 
 	t->gmem_fd = kvm_slot_to_fd(vm, slot);
 	t->mem = addr_gpa2hva(vm, gpa);
-	virt_map(vm, GUEST_MEMFD_SHARING_TEST_GVA, gpa, nr_pages);
+	virt_map(vm, GUEST_MEMFD_SHARING_TEST_GVA, gpa, nr_page_size_pages);
 }
 
 static void gmem_conversions_do_teardown(test_data_t *t)

@@ -28,6 +28,7 @@ typedef FIXTURE_DATA(gmem_conversions) test_data_t;
 FIXTURE_SETUP(gmem_conversions) { }
 
 static uint64_t page_size;
+static uint8_t page_order;
 
 static void guest_do_rmw(void);
 #define GUEST_MEMFD_SHARING_TEST_GVA 0x90000000ULL
@@ -50,11 +51,15 @@ static void gmem_conversions_do_setup(test_data_t *t, int nr_pages,
 	const uint64_t gpa = SZ_4G;
 	const uint32_t slot = 1;
 	struct kvm_vm *vm;
+	uint64_t flags;
 
 	vm = __vm_create_shape_with_one_vcpu(shape, &t->vcpu, nr_pages, guest_do_rmw);
+	flags = gmem_flags;
+	if (page_order > 0)
+		flags |= GUEST_MEMFD_FLAG_HUGETLB;
 
 	vm_mem_add(vm, VM_MEM_SRC_SHMEM, gpa, slot, nr_pages,
-		   KVM_MEM_GUEST_MEMFD, -1, 0, gmem_flags, 0);
+		   KVM_MEM_GUEST_MEMFD, -1, 0, flags, page_order);
 
 	t->gmem_fd = kvm_slot_to_fd(vm, slot);
 	t->mem = addr_gpa2hva(vm, gpa);
@@ -492,6 +497,7 @@ int main(int argc, char *argv[])
 	TEST_REQUIRE(kvm_check_cap(KVM_CAP_GUEST_MEMFD_MEMORY_ATTRIBUTES) &
 		     KVM_MEMORY_ATTRIBUTE_PRIVATE);
 
+	page_order = 0;
 	page_size = getpagesize();
 
 	return test_harness_run(argc, argv);

@@ -600,6 +600,25 @@ GMEM_CONVERSION_TEST_INIT_PRIVATE(share_page_within_huge_folio)
 	}
 }
 
+GMEM_CONVERSION_TEST_INIT_SHARED(conversion_isolation_within_huge_folio)
+{
+	const size_t native_page_size = getpagesize();
+	const size_t increment = page_size >> 3;
+
+	if (page_order == 0)
+		return;
+
+	test_shared(t, 0, 0, 'A', 'B');
+
+	pin_pages(t->mem + increment, native_page_size);
+
+	__test_convert_to_private(t, increment * 2, native_page_size, 0, 'A');
+
+	test_convert_to_shared(t, 0, 'B', 'C', 'D');
+
+	unpin_pages();
+}
+
 static u8 valid_order(long number)
 {
 	u8 order;

@@ -169,13 +169,13 @@ static void guest_do_rmw(void)
 	}
 }
 
-static void run_guest_do_rmw(struct kvm_vcpu *vcpu, loff_t pgoff,
+static void run_guest_do_rmw(struct kvm_vcpu *vcpu, loff_t offset,
 			     char expected_val, char write_val)
 {
 	struct ucall uc;
 	int r;
 
-	guest_data.mem = (void *)GUEST_MEMFD_SHARING_TEST_GVA + pgoff * page_size;
+	guest_data.mem = (void *)GUEST_MEMFD_SHARING_TEST_GVA + offset;
 	guest_data.expected_val = expected_val;
 	guest_data.write_val = write_val;
 	sync_global_to_guest(vcpu->vm, guest_data);
@@ -204,42 +204,74 @@ static void run_guest_do_rmw(struct kvm_vcpu *vcpu, loff_t pgoff,
 	}
 }
 
+static void __host_do_rmw(char *mem, loff_t offset, char expected_val, char write_val)
+{
+	TEST_ASSERT_EQ(READ_ONCE(mem[offset]), expected_val);
+	WRITE_ONCE(mem[offset], write_val);
+}
+
 static void host_do_rmw(char *mem, loff_t pgoff, char expected_val,
 			char write_val)
 {
-	TEST_ASSERT_EQ(READ_ONCE(mem[pgoff * page_size]), expected_val);
-	WRITE_ONCE(mem[pgoff * page_size], write_val);
+	__host_do_rmw(mem, pgoff * page_size, expected_val, write_val);
+}
+
+static void __test_private(test_data_t *t, loff_t offset, char starting_val,
+			   char write_val)
+{
+	TEST_EXPECT_SIGBUS(WRITE_ONCE(t->mem[offset], write_val));
+	run_guest_do_rmw(t->vcpu, offset, starting_val, write_val);
+	TEST_EXPECT_SIGBUS(READ_ONCE(t->mem[offset]));
 }
 
 static void test_private(test_data_t *t, loff_t pgoff, char starting_val,
 			 char write_val)
 {
-	TEST_EXPECT_SIGBUS(WRITE_ONCE(t->mem[pgoff * page_size], write_val));
-	run_guest_do_rmw(t->vcpu, pgoff, starting_val, write_val);
-	TEST_EXPECT_SIGBUS(READ_ONCE(t->mem[pgoff * page_size]));
+	__test_private(t, pgoff *page_size, starting_val, write_val);
+}
+
+static void __test_convert_to_private(test_data_t *t, loff_t offset,
+				      char starting_val, char write_val)
+{
+	gmem_set_private(t->gmem_fd, offset, page_size);
+	__test_private(t, offset, starting_val, write_val);
 }
 
 static void test_convert_to_private(test_data_t *t, loff_t pgoff,
 				    char starting_val, char write_val)
 {
-	gmem_set_private(t->gmem_fd, pgoff * page_size, page_size);
-	test_private(t, pgoff, starting_val, write_val);
+	__test_convert_to_private(t, pgoff * page_size, starting_val, write_val);
 }
+
+static void __test_shared(test_data_t *t, loff_t offset, char starting_val,
+			  char host_write_val, char write_val)
+{
+	__host_do_rmw(t->mem, offset, starting_val, host_write_val);
+	run_guest_do_rmw(t->vcpu, offset, host_write_val, write_val);
+	TEST_ASSERT_EQ(READ_ONCE(t->mem[offset]), write_val);
+}
+
 
 static void test_shared(test_data_t *t, loff_t pgoff, char starting_val,
 			char host_write_val, char write_val)
 {
-	host_do_rmw(t->mem, pgoff, starting_val, host_write_val);
-	run_guest_do_rmw(t->vcpu, pgoff, host_write_val, write_val);
-	TEST_ASSERT_EQ(READ_ONCE(t->mem[pgoff * page_size]), write_val);
+	__test_shared(t, pgoff * page_size, starting_val, host_write_val, write_val);
+}
+
+static void __test_convert_to_shared(test_data_t *t, loff_t offset,
+				     char starting_val, char host_write_val,
+				     char write_val)
+{
+	gmem_set_shared(t->gmem_fd, offset, page_size);
+	__test_shared(t, offset, starting_val, host_write_val, write_val);
 }
 
 static void test_convert_to_shared(test_data_t *t, loff_t pgoff,
 				   char starting_val, char host_write_val,
 				   char write_val)
 {
-	gmem_set_shared(t->gmem_fd, pgoff * page_size, page_size);
-	test_shared(t, pgoff, starting_val, host_write_val, write_val);
+	__test_convert_to_shared(t, pgoff * page_size, starting_val,
+				 host_write_val, write_val);
 }
 
 GMEM_CONVERSION_TEST_INIT_PRIVATE(init_private)

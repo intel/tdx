@@ -570,6 +570,36 @@ GMEM_CONVERSION_TEST_INIT_SHARED(close_while_entire_huge_page_pinned)
 	__test_close_while_pinned(t, page_size);
 }
 
+GMEM_CONVERSION_TEST_INIT_PRIVATE(share_page_within_huge_folio)
+{
+	const size_t native_page_size = getpagesize();
+	const size_t increment = page_size >> 3;
+	char expected;
+	size_t offset;
+
+	if (page_order == 0)
+		return;
+
+	for (offset = 0; offset < page_size; offset += increment)
+		__test_private(t, offset, 0, 'A');
+
+	__test_convert_to_shared(t, increment, native_page_size, 'A', 'B', 'C');
+
+	for (offset = 0; offset < page_size; offset += increment) {
+		if (offset == increment)
+			__test_shared(t, offset, 'C', 'D', 'E');
+		else
+			__test_private(t, offset, 'A', 'B');
+	}
+
+	__test_convert_to_private(t, increment, native_page_size, 'E', 'F');
+
+	for (offset = 0; offset < page_size; offset += increment) {
+		expected = offset == increment ? 'F' : 'B';
+		__test_private(t, offset, expected, 'G');
+	}
+}
+
 static u8 valid_order(long number)
 {
 	u8 order;

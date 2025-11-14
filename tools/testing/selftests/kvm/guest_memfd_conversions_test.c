@@ -619,6 +619,36 @@ GMEM_CONVERSION_TEST_INIT_SHARED(conversion_isolation_within_huge_folio)
 	unpin_pages();
 }
 
+/* Test that the page provided from within the huge folio has the right index. */
+GMEM_CONVERSION_TEST_INIT_SHARED(map_page_within_huge_folio)
+{
+	const size_t increment = page_size >> 3;
+	size_t nr_pages_to_test;
+	unsigned int offset;
+	unsigned int i;
+
+	if (page_order == 0)
+		return;
+
+	nr_pages_to_test = page_size / increment;
+
+	/*
+	 * Loop backwards to check that the correct page from the huge folio was
+	 * returned. Mark pages with values related to page indices, then check
+	 * with second pass to ensure none of the pages returned in the first
+	 * pass were duplicate pages.
+	 */
+	for (i = 0; i < nr_pages_to_test; i++) {
+		offset = page_size - increment - increment * i;
+		__host_do_rmw(t->mem, offset, 0, i);
+	}
+
+	for (i = 0; i < nr_pages_to_test; i++) {
+		offset = increment * i;
+		__host_do_rmw(t->mem, offset, nr_pages_to_test - i - 1, 0);
+	}
+}
+
 static u8 valid_order(long number)
 {
 	u8 order;

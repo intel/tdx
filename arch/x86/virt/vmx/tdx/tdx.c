@@ -2046,13 +2046,24 @@ u64 tdh_phymem_page_wbinvd_tdr(struct tdx_td *td)
 }
 EXPORT_SYMBOL_GPL(tdh_phymem_page_wbinvd_tdr);
 
-u64 tdh_phymem_page_wbinvd_hkid(u64 hkid, struct page *page)
+u64 tdh_phymem_page_wbinvd_hkid(u64 hkid, struct folio *folio,
+				unsigned long start_idx, unsigned long npages)
 {
-	struct tdx_module_args args = {};
+	u64 err;
 
-	args.rcx = mk_keyed_paddr(hkid, page);
+	if (start_idx + npages > folio_nr_pages(folio))
+		return TDX_OPERAND_INVALID;
 
-	return seamcall(TDH_PHYMEM_PAGE_WBINVD, &args);
+	for (unsigned long i = 0; i < npages; i++) {
+		struct page *p = folio_page(folio, start_idx + i);
+		struct tdx_module_args args = {};
+
+		args.rcx = mk_keyed_paddr(hkid, p);
+		err = seamcall(TDH_PHYMEM_PAGE_WBINVD, &args);
+		if (err)
+			break;
+	}
+	return err;
 }
 EXPORT_SYMBOL_GPL(tdh_phymem_page_wbinvd_hkid);
 

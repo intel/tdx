@@ -318,33 +318,40 @@ static inline void tdx_disassociate_vp(struct kvm_vcpu *vcpu)
 })
 
 /* TDH.PHYMEM.PAGE.RECLAIM is allowed only when destroying the TD. */
-static int __tdx_reclaim_page(struct page *page)
+static int tdx_reclaim_folio(struct folio *folio, unsigned long start_idx,
+			     unsigned long npages, bool reset)
 {
-	u64 err, rcx, rdx, r8;
+	u64 err, tdx_pt, tdx_owner, tdx_size;
 
-	err = tdh_phymem_page_reclaim(page, &rcx, &rdx, &r8);
+	err = tdh_phymem_page_reclaim(folio, start_idx, npages, &tdx_pt,
+				      &tdx_owner, &tdx_size);
 
 	/*
 	 * No need to check for TDX_OPERAND_BUSY; all TD pages are freed
 	 * before the HKID is released and control pages have also been
 	 * released at this point, so there is no possibility of contention.
 	 */
-	if (TDX_BUG_ON_3(err, TDH_PHYMEM_PAGE_RECLAIM, rcx, rdx, r8, NULL))
+	if (TDX_BUG_ON_3(err, TDH_PHYMEM_PAGE_RECLAIM, tdx_pt, tdx_owner, tdx_size, NULL))
 		return -EIO;
 
+	if (reset)
+		tdx_quirk_reset_folio(folio, start_idx, npages);
 	return 0;
 }
 
 static int tdx_reclaim_page(struct page *page)
 {
-	int r;
+	struct folio *folio = page_folio(page);
 
-	r = __tdx_reclaim_page(page);
-	if (!r)
-		tdx_quirk_reset_page(page);
-	return r;
+	return tdx_reclaim_folio(folio, folio_page_idx(folio, page), 1, true);
 }
 
+static int tdx_reclaim_page_noreset(struct page *page)
+{
+	struct folio *folio = page_folio(page);
+
+	return tdx_reclaim_folio(folio, folio_page_idx(folio, page), 1, false);
+}
 
 /*
  * Reclaim the TD control page(s) which are crypto-protected by TDX guest's
@@ -583,7 +590,7 @@ static void tdx_reclaim_td_control_pages(struct kvm *kvm)
 	if (!kvm_tdx->td.tdr_page)
 		return;
 
-	if (__tdx_reclaim_page(kvm_tdx->td.tdr_page))
+	if (tdx_reclaim_page_noreset(kvm_tdx->td.tdr_page))
 		return;
 
 	/*

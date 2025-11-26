@@ -1993,18 +1993,26 @@ EXPORT_SYMBOL_GPL(tdh_vp_init);
  * So despite the names, they must be interpted specially as described by the spec. Return
  * them only for error reporting purposes.
  */
-u64 tdh_phymem_page_reclaim(struct page *page, u64 *tdx_pt, u64 *tdx_owner, u64 *tdx_size)
+u64 tdh_phymem_page_reclaim(struct folio *folio, unsigned long start_idx,
+			    unsigned long npages, u64 *tdx_pt, u64 *tdx_owner,
+			    u64 *tdx_size)
 {
 	struct tdx_module_args args = {
-		.rcx = page_to_phys(page),
+		.rcx = page_to_phys(folio_page(folio, start_idx)),
 	};
 	u64 ret;
+
+	if (start_idx + npages > folio_nr_pages(folio))
+		return TDX_OPERAND_INVALID;
 
 	ret = seamcall_ret(TDH_PHYMEM_PAGE_RECLAIM, &args);
 
 	*tdx_pt = args.rcx;
 	*tdx_owner = args.rdx;
 	*tdx_size = args.r8;
+
+	if (!ret && npages != (1 << (*tdx_size) * PTE_SHIFT))
+		return TDX_SW_ERROR;
 
 	return ret;
 }

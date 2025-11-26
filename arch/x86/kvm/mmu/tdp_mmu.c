@@ -509,7 +509,7 @@ static void *get_external_spt(gfn_t gfn, u64 new_spte, int level)
 }
 
 static int split_external_spte(struct kvm *kvm, gfn_t gfn, u64 old_spte,
-			       u64 new_spte, int level)
+			       u64 new_spte, int level, bool shared)
 {
 	void *new_external_spt = get_external_spt(gfn, new_spte, level);
 	int ret;
@@ -517,7 +517,7 @@ static int split_external_spte(struct kvm *kvm, gfn_t gfn, u64 old_spte,
 	KVM_BUG_ON(!new_external_spt, kvm);
 
 	ret = kvm_x86_call(split_external_spte)(kvm, gfn, level, old_spte,
-						new_external_spt);
+						new_external_spt, shared);
 	return ret;
 }
 
@@ -527,10 +527,20 @@ static int __must_check set_external_spte_present(struct kvm *kvm, tdp_ptep_t sp
 {
 	bool was_present = is_shadow_present_pte(old_spte);
 	bool is_present = is_shadow_present_pte(new_spte);
+	bool was_leaf = was_present && is_last_spte(old_spte, level);
 	bool is_leaf = is_present && is_last_spte(new_spte, level);
 	int ret = 0;
 
-	KVM_BUG_ON(was_present, kvm);
+	/*
+	 * The caller __tdp_mmu_set_spte_atomic() has ensured new_spte must be
+	 * present.
+	 *
+	 * Current valid transitions:
+	 * - leaf to non-leaf (demote)
+	 * - !present to present leaf
+	 * - !present to present non-leaf
+	 */
+	KVM_BUG_ON(!(!was_present || (was_leaf && !is_leaf)), kvm);
 
 	lockdep_assert_held(&kvm->mmu_lock);
 	/*
@@ -541,18 +551,24 @@ static int __must_check set_external_spte_present(struct kvm *kvm, tdp_ptep_t sp
 	if (!try_cmpxchg64(rcu_dereference(sptep), &old_spte, FROZEN_SPTE))
 		return -EBUSY;
 
-	/*
-	 * Use different call to either set up middle level
-	 * external page table, or leaf.
-	 */
-	if (is_leaf) {
-		ret = kvm_x86_call(set_external_spte)(kvm, gfn, level, new_spte);
-	} else {
-		void *external_spt = get_external_spt(gfn, new_spte, level);
+	if (!was_present) {
+		/*
+		 * Use different call to either set up middle level external
+		 * page table, or leaf.
+		 */
+		if (is_leaf) {
+			ret = kvm_x86_call(set_external_spte)(kvm, gfn, level, new_spte);
+		} else {
+			void *external_spt = get_external_spt(gfn, new_spte, level);
 
-		KVM_BUG_ON(!external_spt, kvm);
-		ret = kvm_x86_call(link_external_spt)(kvm, gfn, level, external_spt);
+			KVM_BUG_ON(!external_spt, kvm);
+			ret = kvm_x86_call(link_external_spt)(kvm, gfn, level, external_spt);
+		}
+	} else if (was_leaf && !is_leaf) {
+		/* splitting */
+		ret = split_external_spte(kvm, gfn, old_spte, new_spte, level, true);
 	}
+
 	if (ret)
 		__kvm_tdp_mmu_write_spte(sptep, old_spte);
 	else
@@ -782,7 +798,7 @@ static u64 tdp_mmu_set_spte(struct kvm *kvm, int as_id, tdp_ptep_t sptep,
 		if (!is_shadow_present_pte(new_spte))
 			remove_external_spte(kvm, gfn, old_spte, level);
 		else if (is_last_spte(old_spte, level) && !is_last_spte(new_spte, level))
-			split_external_spte(kvm, gfn, old_spte, new_spte, level);
+			split_external_spte(kvm, gfn, old_spte, new_spte, level, false);
 		else
 			KVM_BUG_ON(1, kvm);
 	}
@@ -1331,13 +1347,10 @@ int kvm_tdp_mmu_map(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault)
 
 		sp->nx_huge_page_disallowed = fault->huge_page_disallowed;
 
-		if (is_shadow_present_pte(iter.old_spte)) {
-			/* Don't support large page for mirrored roots (TDX) */
-			KVM_BUG_ON(is_mirror_sptep(iter.sptep), vcpu->kvm);
+		if (is_shadow_present_pte(iter.old_spte))
 			r = tdp_mmu_split_huge_page(kvm, &iter, sp, true);
-		} else {
+		else
 			r = tdp_mmu_link_sp(kvm, &iter, sp, true);
-		}
 
 		/*
 		 * Force the guest to retry if installing an upper level SPTE

@@ -1850,7 +1850,8 @@ struct kvm_x86_ops {
 
 	/* Split a huge mapping into smaller mappings in external page table */
 	int (*split_external_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
-				   u64 old_mirror_spte, void *new_external_spt);
+				   u64 old_mirror_spte, void *new_external_spt,
+				   bool mmu_lock_shared);
 
 	/* Allocation a pages from the external page cache. */
 	void *(*alloc_external_fault_cache)(struct kvm_vcpu *vcpu);

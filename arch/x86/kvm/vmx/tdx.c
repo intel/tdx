@@ -1914,6 +1914,45 @@ static void tdx_sept_remove_private_spte(struct kvm *kvm, gfn_t gfn,
 	tdx_pamt_put(page);
 }
 
+/*
+ * Split a 2MB huge mapping.
+ *
+ * Invoke "BLOCK + TRACK + kick off vCPUs (inside tdx_track())" since DEMOTE
+ * now does not support yet the NON-BLOCKING-RESIZE feature. No UNBLOCK is
+ * needed after a successful DEMOTE.
+ *
+ * Under write mmu_lock, kick off all vCPUs (inside tdh_do_no_vcpus()) to ensure
+ * DEMOTE will succeed on the second invocation if the first invocation returns
+ * BUSY.
+ */
+static int tdx_sept_split_private_spte(struct kvm *kvm, gfn_t gfn, enum pg_level level,
+				       u64 old_mirror_spte, void *new_private_spt)
+{
+	struct page *new_sept_page = virt_to_page(new_private_spt);
+	int tdx_level = pg_level_to_tdx_sept_level(level);
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	gpa_t gpa = gfn_to_gpa(gfn);
+	u64 err, entry, level_state;
+
+	if (KVM_BUG_ON(kvm_tdx->state != TD_STATE_RUNNABLE ||
+		       level != PG_LEVEL_2M, kvm))
+		return -EIO;
+
+	err = tdh_do_no_vcpus(tdh_mem_range_block, kvm, &kvm_tdx->td, gpa,
+			      tdx_level, &entry, &level_state);
+	if (TDX_BUG_ON_2(err, TDH_MEM_RANGE_BLOCK, entry, level_state, kvm))
+		return -EIO;
+
+	tdx_track(kvm);
+
+	err = tdh_do_no_vcpus(tdh_mem_page_demote, kvm, &kvm_tdx->td, gpa,
+			      tdx_level, new_sept_page, &entry, &level_state);
+	if (TDX_BUG_ON_2(err, TDH_MEM_PAGE_DEMOTE, entry, level_state, kvm))
+		return -EIO;
+
+	return 0;
+}
+
 void tdx_deliver_interrupt(struct kvm_lapic *apic, int delivery_mode,
 			   int trig_mode, int vector)
 {
@@ -3672,6 +3711,7 @@ void __init tdx_hardware_setup(void)
 	vt_x86_ops.set_external_spte = tdx_sept_set_private_spte;
 	vt_x86_ops.free_external_spt = tdx_sept_free_private_spt;
 	vt_x86_ops.remove_external_spte = tdx_sept_remove_private_spte;
+	vt_x86_ops.split_external_spte = tdx_sept_split_private_spte;
 	vt_x86_ops.protected_apic_has_interrupt = tdx_protected_apic_has_interrupt;
 	vt_x86_ops.alloc_external_fault_cache = tdx_alloc_external_fault_cache;
 	vt_x86_ops.topup_external_fault_cache = tdx_topup_external_fault_cache;

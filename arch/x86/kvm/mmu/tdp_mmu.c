@@ -508,6 +508,19 @@ static void *get_external_spt(gfn_t gfn, u64 new_spte, int level)
 	return NULL;
 }
 
+static int split_external_spte(struct kvm *kvm, gfn_t gfn, u64 old_spte,
+			       u64 new_spte, int level)
+{
+	void *new_external_spt = get_external_spt(gfn, new_spte, level);
+	int ret;
+
+	KVM_BUG_ON(!new_external_spt, kvm);
+
+	ret = kvm_x86_call(split_external_spte)(kvm, gfn, level, old_spte,
+						new_external_spt);
+	return ret;
+}
+
 static int __must_check set_external_spte_present(struct kvm *kvm, tdp_ptep_t sptep,
 						 gfn_t gfn, u64 old_spte,
 						 u64 new_spte, int level)
@@ -758,12 +771,20 @@ static u64 tdp_mmu_set_spte(struct kvm *kvm, int as_id, tdp_ptep_t sptep,
 	handle_changed_spte(kvm, as_id, gfn, old_spte, new_spte, level, false);
 
 	/*
-	 * Users that do non-atomic setting of PTEs don't operate on mirror
-	 * roots, so don't handle it and bug the VM if it's seen.
+	 * Propagate changes of SPTE to the external page table under write
+	 * mmu_lock.
+	 * Current valid transitions:
+	 * - present leaf to !present.
+	 * - present non-leaf to !present.
+	 * - present leaf to present non-leaf (splitting)
 	 */
 	if (is_mirror_sptep(sptep)) {
-		KVM_BUG_ON(is_shadow_present_pte(new_spte), kvm);
-		remove_external_spte(kvm, gfn, old_spte, level);
+		if (!is_shadow_present_pte(new_spte))
+			remove_external_spte(kvm, gfn, old_spte, level);
+		else if (is_last_spte(old_spte, level) && !is_last_spte(new_spte, level))
+			split_external_spte(kvm, gfn, old_spte, new_spte, level);
+		else
+			KVM_BUG_ON(1, kvm);
 	}
 
 	return old_spte;

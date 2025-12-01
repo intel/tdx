@@ -800,6 +800,17 @@ static void tdx_quirk_reset_paddr(unsigned long base, unsigned long size)
 	mb();
 }
 
+void tdx_quirk_reset_folio(struct folio *folio, unsigned long start_idx,
+			   unsigned long npages)
+{
+	if (WARN_ON_ONCE(start_idx + npages > folio_nr_pages(folio)))
+		return;
+
+	tdx_quirk_reset_paddr(page_to_phys(folio_page(folio, start_idx)),
+			      npages << PAGE_SHIFT);
+}
+EXPORT_SYMBOL_GPL(tdx_quirk_reset_folio);
+
 void tdx_quirk_reset_page(struct page *page)
 {
 	tdx_quirk_reset_paddr(page_to_phys(page), PAGE_SIZE);

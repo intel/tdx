@@ -147,6 +147,8 @@ static inline bool tdx_supports_demote_nointerrupt(const struct tdx_sys_info *sy
 }
 
 void tdx_quirk_reset_page(struct page *page);
+void tdx_quirk_reset_folio(struct folio *folio, unsigned long start_idx,
+			   unsigned long npages);
 
 int tdx_guest_keyid_alloc(void);
 u32 tdx_get_nr_guest_keyids(void);

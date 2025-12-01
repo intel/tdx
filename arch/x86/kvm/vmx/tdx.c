@@ -1902,7 +1902,8 @@ static void tdx_sept_remove_private_spte(struct kvm *kvm, gfn_t gfn,
 	if (TDX_BUG_ON(err, TDH_PHYMEM_PAGE_WBINVD, kvm))
 		return;
 
-	tdx_quirk_reset_page(page);
+	tdx_quirk_reset_folio(folio, folio_page_idx(folio, page),
+			      KVM_PAGES_PER_HPAGE(level));
 	tdx_pamt_put(page);
 }
 

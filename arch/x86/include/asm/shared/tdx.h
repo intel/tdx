@@ -122,9 +122,11 @@
 #include <linux/compiler_attributes.h>
 
 /*
- * Used in __tdcall*() to gather the input/output registers' values of the
- * TDCALL instruction when requesting services from the TDX module. This is a
- * software only structure and not part of the TDX module/VMM ABI
+ * Used in __tdcall*() to gather the input/output parameters of the TDCALL
+ * instruction when requesting services from the TDX module. "version" is
+ * encoded in RAX along with the leaf number. Others are raw input/output
+ * registers' values. This is a software only structure and not part of the TDX
+ * module/VMM ABI.
  */
 struct tdx_module_args {
 	/* callee-clobbered */
@@ -143,6 +145,8 @@ struct tdx_module_args {
 	u64 rbx;
 	u64 rdi;
 	u64 rsi;
+	/* leaf ABI version, encoded in rax */
+	u8  version;
 };
 
 /* Used to communicate with the TDX module */

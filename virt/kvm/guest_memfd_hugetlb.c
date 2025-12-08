@@ -131,7 +131,7 @@ struct folio *gmem_hugetlb_alloc_folio(void *priv, u8 page_order, struct mempoli
 	 * reservation from the guest_memfd's subpool.
 	 */
 	h = hugetlb_order_to_hstate(page_order);
-	folio = hugetlb_alloc_folio(h, mpol, ilx, false, true);
+	folio = hugetlb_alloc_folio(h, mpol ? mpol : get_task_policy(current), ilx, false, true);
 	if (IS_ERR_OR_NULL(folio))
 		goto err_put_pages;
 

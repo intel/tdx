@@ -998,12 +998,22 @@ static __init int construct_tdmrs(struct list_head *tmb_list,
 	return ret;
 }
 
+/* List all kernel supported add-on features0 bits here */
+#define TDX_KERNEL_SUPPORTED_ADDON_FEATURES0	(0)
+
+static u64 get_tdx_addon_features0(void)
+{
+	return tdx_sysinfo.features.tdx_features0 &
+		TDX_KERNEL_SUPPORTED_ADDON_FEATURES0;
+}
+
 struct tdmr_info_pa_array {
 	DECLARE_FLEX_ARRAY(u64, phys);
 };
 
 static __init int tdx_sys_config(struct tdmr_info_pa_array *tdmr_pa_array,
-				 u64 nr_tdmr_pa, u64 global_keyid)
+				 u64 nr_tdmr_pa, u64 global_keyid,
+				 u64 addon_features0)
 {
 	struct tdx_module_args args = {
 		.rcx = __pa(tdmr_pa_array),
@@ -1011,12 +1021,22 @@ static __init int tdx_sys_config(struct tdmr_info_pa_array *tdmr_pa_array,
 		.r8 = global_keyid,
 	};
 
+	/*
+	 * Use SEAMCALL version 1 that supports add-on features if any are
+	 * requested. Use version 0 if none for backward compatibility.
+	 */
+	if (addon_features0) {
+		args.r9 = addon_features0;
+		args.version = 1;
+	}
+
 	return seamcall_prerr(TDH_SYS_CONFIG, &args);
 }
 
 static __init int config_tdx_module(struct tdmr_info_list *tdmr_list,
 				    u64 global_keyid)
 {
+	u64 addon_features0 = get_tdx_addon_features0();
 	struct tdmr_info_pa_array *tdmr_pa_array;
 	size_t array_sz;
 	int i, ret;
@@ -1039,7 +1059,7 @@ static __init int config_tdx_module(struct tdmr_info_list *tdmr_list,
 		tdmr_pa_array->phys[i] = __pa(tdmr_entry(tdmr_list, i));
 
 	ret = tdx_sys_config(tdmr_pa_array, tdmr_list->nr_consumed_tdmrs,
-			     global_keyid);
+			     global_keyid, addon_features0);
 
 	/* Free the array as it is not required anymore. */
 	kfree(tdmr_pa_array);
@@ -1319,18 +1339,28 @@ int tdx_module_shutdown(void)
 	return 0;
 }
 
-static int tdx_sys_update(void)
+static int tdx_sys_update(u64 addon_features0)
 {
 	struct tdx_module_args args = {};
+
+	/*
+	 * Use SEAMCALL version 1 that supports add-on features if any are
+	 * requested. Use version 0 if none for backward compatibility.
+	 */
+	if (addon_features0) {
+		args.r9 = addon_features0;
+		args.version = 1;
+	}
 
 	return seamcall_prerr(TDH_SYS_UPDATE, &args);
 }
 
 int tdx_module_run_update(void)
 {
+	u64 addon_features0 = get_tdx_addon_features0();
 	int ret;
 
-	ret = tdx_sys_update();
+	ret = tdx_sys_update(addon_features0);
 	if (ret)
 		return ret;
 

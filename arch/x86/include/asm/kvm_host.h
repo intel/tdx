@@ -1862,6 +1862,23 @@ struct kvm_x86_ops {
 	/* Free in external page fault cache. */
 	void (*free_external_fault_cache)(struct kvm_vcpu *vcpu);
 
+	/*
+	 * Top up extra pages needed in the per-VM cache for splitting external
+	 * page table.
+	 */
+	int (*topup_external_per_vm_split_cache)(struct kvm *kvm,
+						 enum pg_level level);
+
+	/* Free the per-VM cache for splitting external page table. */
+	void (*free_external_per_vm_split_cache)(struct kvm *kvm);
+
+	/*
+	 * Check if it's necessary to top up the per-VM cache for splitting
+	 * external page table.
+	 */
+	bool (*need_topup_external_per_vm_split_cache)(struct kvm *kvm,
+						       enum pg_level level);
+
 	bool (*has_wbinvd_exit)(void);
 
 	u64 (*get_l2_tsc_offset)(struct kvm_vcpu *vcpu);

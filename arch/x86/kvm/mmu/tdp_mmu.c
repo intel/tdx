@@ -1606,6 +1606,55 @@ static bool iter_cross_boundary(struct tdp_iter *iter, gfn_t start, gfn_t end)
 		 (iter->gfn + KVM_PAGES_PER_HPAGE(iter->level)) <= end);
 }
 
+/*
+ * Check the per-VM external split cache under write mmu_lock or read mmu_lock
+ * in tdp_mmu_split_huge_pages_root().
+ *
+ * When need_topup_external_split_cache() returns false, the mmu_lock is held
+ * throughout the exectution from
+ * (a) need_topup_external_split_cache(), and
+ * (b) the cache dequeuing (in tdx_sept_split_private_spte() called by
+ *     tdp_mmu_split_huge_page()).
+ *
+ * - When mmu_lock is held for write, the per-VM external split cache is
+ *   exclusively accessed by a single user. Therefore, the result returned from
+ *   need_topup_external_split_cache() is accurate.
+ *
+ * - When mmu_lock is held for read, the per-VM external split cache can be
+ *   shared among multiple users. Cache dequeuing in
+ *   tdx_sept_split_private_spte() thus needs to check again of the cache page
+ *   count after acquiring its internal split cache lock and return an error for
+ *   retry if the cache page count is not sufficient.
+ */
+static bool need_topup_external_split_cache(struct kvm *kvm, int level)
+{
+	return kvm_x86_call(need_topup_external_per_vm_split_cache)(kvm, level);
+}
+
+static int topup_external_split_cache(struct kvm *kvm, int level, bool shared)
+{
+	int r;
+
+	rcu_read_unlock();
+
+	if (shared)
+		read_unlock(&kvm->mmu_lock);
+	else
+		write_unlock(&kvm->mmu_lock);
+
+	r = kvm_x86_call(topup_external_per_vm_split_cache)(kvm, level);
+
+	if (shared)
+		read_lock(&kvm->mmu_lock);
+	else
+		write_lock(&kvm->mmu_lock);
+
+	if (!r)
+		rcu_read_lock();
+
+	return r;
+}
+
 static int tdp_mmu_split_huge_pages_root(struct kvm *kvm,
 					 struct kvm_mmu_page *root,
 					 gfn_t start, gfn_t end,
@@ -1614,6 +1663,7 @@ static int tdp_mmu_split_huge_pages_root(struct kvm *kvm,
 {
 	struct kvm_mmu_page *sp = NULL;
 	struct tdp_iter iter;
+	int r = 0;
 
 	rcu_read_lock();
 
@@ -1672,6 +1722,21 @@ retry:
 			continue;
 		}
 
+		if (is_mirror_sp(root) &&
+		    need_topup_external_split_cache(kvm, iter.level)) {
+			r = topup_external_split_cache(kvm, iter.level, shared);
+
+			if (r) {
+				trace_kvm_mmu_split_huge_page(iter.gfn,
+							      iter.old_spte,
+							      iter.level, r);
+				goto out;
+			}
+
+			iter.yielded = true;
+			continue;
+		}
+
 		tdp_mmu_init_child_sp(sp, &iter);
 
 		if (tdp_mmu_split_huge_page(kvm, &iter, sp, shared))
@@ -1682,15 +1747,17 @@ retry:
 
 	rcu_read_unlock();
 
+out:
 	/*
 	 * It's possible to exit the loop having never used the last sp if, for
 	 * example, a vCPU doing HugePage NX splitting wins the race and
-	 * installs its own sp in place of the last sp we tried to split.
+	 * installs its own sp in place of the last sp we tried to split or
+	 * topup_external_split_cache() failure.
 	 */
 	if (sp)
 		tdp_mmu_free_sp(sp);
 
-	return 0;
+	return r;
 }
 
 

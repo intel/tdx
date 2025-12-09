@@ -1996,6 +1996,7 @@ static int tdx_sept_split_private_spte(struct kvm *kvm, gfn_t gfn, enum pg_level
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	gpa_t gpa = gfn_to_gpa(gfn);
 	u64 err, entry, level_state;
+	int ret;
 
 	if (KVM_BUG_ON(kvm_tdx->state != TD_STATE_RUNNABLE ||
 		       level != PG_LEVEL_2M, kvm))
@@ -2014,10 +2015,18 @@ static int tdx_sept_split_private_spte(struct kvm *kvm, gfn_t gfn, enum pg_level
 
 	tdx_track(kvm);
 
+	spin_lock(&kvm_tdx->prealloc_split_cache_lock);
+	ret = tdx_pamt_get(new_sept_page, &kvm_tdx->prealloc_split_cache);
+	spin_unlock(&kvm_tdx->prealloc_split_cache_lock);
+	if (KVM_BUG_ON(ret, kvm))
+		return -EIO;
+
 	err = tdh_do_no_vcpus(tdh_mem_page_demote, kvm, &kvm_tdx->td, gpa,
 			      tdx_level, new_sept_page, &entry, &level_state);
-	if (TDX_BUG_ON_2(err, TDH_MEM_PAGE_DEMOTE, entry, level_state, kvm))
+	if (TDX_BUG_ON_2(err, TDH_MEM_PAGE_DEMOTE, entry, level_state, kvm)) {
+		tdx_pamt_put(new_sept_page);
 		return -EIO;
+	}
 
 	return 0;
 }

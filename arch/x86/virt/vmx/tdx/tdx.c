@@ -1848,25 +1848,69 @@ u64 tdh_mng_rd(struct tdx_td *td, u64 field, u64 *data)
 }
 EXPORT_SYMBOL_GPL(tdh_mng_rd);
 
+static int alloc_pamt_array(u64 *pa_array, struct tdx_prealloc *prealloc);
+static void free_pamt_array(u64 *pa_array);
+/*
+ * The TDX spec treats the registers like an array, as they are ordered
+ * in the struct. The array size is limited by the number or registers,
+ * so define the max size it could be for worst case allocations and sanity
+ * checking.
+ */
+#define MAX_TDX_ARG_SIZE(reg) ((sizeof(struct tdx_module_args) - \
+			       offsetof(struct tdx_module_args, reg)) / sizeof(u64))
+#define TDX_ARG_INDEX(reg) (offsetof(struct tdx_module_args, reg) / \
+			    sizeof(u64))
+/*
+ * Treat struct the registers like an array that starts at R12, per
+ * TDX spec. Do some sanitychecks, and return an indexable type.
+ */
+static u64 *dpamt_args_array_ptr_r12(struct tdx_module_array_args *args)
+{
+	WARN_ON_ONCE(tdx_dpamt_entry_pages() > MAX_TDX_ARG_SIZE(r12));
+
+	return &args->args_array[TDX_ARG_INDEX(r12)];
+}
+
 u64 tdh_mem_page_demote(struct tdx_td *td, u64 gpa, int level, struct page *new_sept_page,
+			struct tdx_prealloc *prealloc,
 			u64 *ext_err1, u64 *ext_err2)
 {
-	struct tdx_module_args args = {
-		.rcx = gpa | level,
-		.rdx = tdx_tdr_pa(td),
-		.r8 = page_to_phys(new_sept_page),
+	bool dpamt = tdx_supports_dynamic_pamt(&tdx_sysinfo) && level == TDX_PS_2M;
+	u64 guest_memory_pamt_page[MAX_TDX_ARG_SIZE(r12)];
+	struct tdx_module_array_args args = {
+		.args.rcx = gpa | level,
+		.args.rdx = tdx_tdr_pa(td),
+		.args.r8 = page_to_phys(new_sept_page),
 	};
 	u64 ret;
 
 	if (!tdx_supports_demote_nointerrupt(&tdx_sysinfo))
 		return TDX_SW_ERROR;
 
+	if (dpamt) {
+		u64 *args_array = dpamt_args_array_ptr_r12(&args);
+
+		if (alloc_pamt_array(guest_memory_pamt_page, prealloc))
+			return TDX_SW_ERROR;
+
+		/*
+		 * Copy PAMT page PAs of the guest memory into the struct per the
+		 * TDX ABI
+		 */
+		memcpy(args_array, guest_memory_pamt_page,
+		       tdx_dpamt_entry_pages() * sizeof(*args_array));
+	}
+
 	/* Flush the new S-EPT page to be added */
 	tdx_clflush_page(new_sept_page);
-	ret = seamcall_ret(TDH_MEM_PAGE_DEMOTE, &args);
 
-	*ext_err1 = args.rcx;
-	*ext_err2 = args.rdx;
+	ret = seamcall_saved_ret(TDH_MEM_PAGE_DEMOTE, &args.args);
+
+	*ext_err1 = args.args.rcx;
+	*ext_err2 = args.args.rdx;
+
+	if (dpamt && ret)
+		free_pamt_array(guest_memory_pamt_page);
 
 	return ret;
 }
@@ -2104,23 +2148,11 @@ static struct page *alloc_dpamt_page(struct tdx_prealloc *prealloc)
 	return alloc_page(GFP_KERNEL_ACCOUNT);
 }
 
-
-/*
- * The TDX spec treats the registers like an array, as they are ordered
- * in the struct. The array size is limited by the number or registers,
- * so define the max size it could be for worst case allocations and sanity
- * checking.
- */
-#define MAX_TDX_ARG_SIZE(reg) (sizeof(struct tdx_module_args) - \
-			       offsetof(struct tdx_module_args, reg))
-#define TDX_ARG_INDEX(reg) (offsetof(struct tdx_module_args, reg) / \
-			    sizeof(u64))
-
 /*
  * Treat struct the registers like an array that starts at RDX, per
  * TDX spec. Do some sanitychecks, and return an indexable type.
  */
-static u64 *dpamt_args_array_ptr(struct tdx_module_array_args *args)
+static u64 *dpamt_args_array_ptr_rdx(struct tdx_module_array_args *args)
 {
 	WARN_ON_ONCE(tdx_dpamt_entry_pages() > MAX_TDX_ARG_SIZE(rdx));
 
@@ -2188,7 +2220,7 @@ static u64 tdh_phymem_pamt_add(struct page *page, u64 *pamt_pa_array)
 	struct tdx_module_array_args args = {
 		.args.rcx = pamt_2mb_arg(page)
 	};
-	u64 *dpamt_arg_array = dpamt_args_array_ptr(&args);
+	u64 *dpamt_arg_array = dpamt_args_array_ptr_rdx(&args);
 
 	/* Copy PAMT page PA's into the struct per the TDX ABI */
 	memcpy(dpamt_arg_array, pamt_pa_array,
@@ -2216,7 +2248,7 @@ static u64 tdh_phymem_pamt_remove(struct page *page, u64 *pamt_pa_array)
 	struct tdx_module_array_args args = {
 		.args.rcx = pamt_2mb_arg(page),
 	};
-	u64 *args_array = dpamt_args_array_ptr(&args);
+	u64 *args_array = dpamt_args_array_ptr_rdx(&args);
 	u64 ret;
 
 	ret = seamcall_ret(TDH_PHYMEM_PAMT_REMOVE, &args.args);

@@ -2021,8 +2021,11 @@ static int tdx_sept_split_private_spte(struct kvm *kvm, gfn_t gfn, enum pg_level
 	if (KVM_BUG_ON(ret, kvm))
 		return -EIO;
 
+	spin_lock(&kvm_tdx->prealloc_split_cache_lock);
 	err = tdh_do_no_vcpus(tdh_mem_page_demote, kvm, &kvm_tdx->td, gpa,
-			      tdx_level, new_sept_page, &entry, &level_state);
+			      tdx_level, new_sept_page,
+			      &kvm_tdx->prealloc_split_cache, &entry, &level_state);
+	spin_unlock(&kvm_tdx->prealloc_split_cache_lock);
 	if (TDX_BUG_ON_2(err, TDH_MEM_PAGE_DEMOTE, entry, level_state, kvm)) {
 		tdx_pamt_put(new_sept_page);
 		return -EIO;

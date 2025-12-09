@@ -1991,7 +1991,9 @@ static int tdx_sept_split_private_spte(struct kvm *kvm, gfn_t gfn, enum pg_level
 				       u64 old_mirror_spte, void *new_private_spt,
 				       bool mmu_lock_shared)
 {
+	struct page *guest_page = pfn_to_page(spte_to_pfn(old_mirror_spte));
 	struct page *new_sept_page = virt_to_page(new_private_spt);
+	struct folio *guest_folio = page_folio(guest_page);
 	int tdx_level = pg_level_to_tdx_sept_level(level);
 	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
 	gpa_t gpa = gfn_to_gpa(gfn);
@@ -2022,9 +2024,10 @@ static int tdx_sept_split_private_spte(struct kvm *kvm, gfn_t gfn, enum pg_level
 		return -EIO;
 
 	spin_lock(&kvm_tdx->prealloc_split_cache_lock);
-	err = tdh_do_no_vcpus(tdh_mem_page_demote, kvm, &kvm_tdx->td, gpa,
-			      tdx_level, new_sept_page,
-			      &kvm_tdx->prealloc_split_cache, &entry, &level_state);
+	err = tdh_do_no_vcpus(tdh_mem_page_demote, kvm, &kvm_tdx->td, gpa, tdx_level,
+			      guest_folio, folio_page_idx(guest_folio, guest_page),
+			      new_sept_page, &kvm_tdx->prealloc_split_cache,
+			      &entry, &level_state);
 	spin_unlock(&kvm_tdx->prealloc_split_cache_lock);
 	if (TDX_BUG_ON_2(err, TDH_MEM_PAGE_DEMOTE, entry, level_state, kvm)) {
 		tdx_pamt_put(new_sept_page);

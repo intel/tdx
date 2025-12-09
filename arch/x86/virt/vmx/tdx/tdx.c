@@ -1871,9 +1871,9 @@ static u64 *dpamt_args_array_ptr_r12(struct tdx_module_array_args *args)
 	return &args->args_array[TDX_ARG_INDEX(r12)];
 }
 
-u64 tdh_mem_page_demote(struct tdx_td *td, u64 gpa, int level, struct page *new_sept_page,
-			struct tdx_prealloc *prealloc,
-			u64 *ext_err1, u64 *ext_err2)
+u64 tdh_mem_page_demote(struct tdx_td *td, u64 gpa, int level, struct folio *guest_folio,
+			unsigned long guest_start_idx, struct page *new_sept_page,
+			struct tdx_prealloc *prealloc, u64 *ext_err1, u64 *ext_err2)
 {
 	bool dpamt = tdx_supports_dynamic_pamt(&tdx_sysinfo) && level == TDX_PS_2M;
 	u64 guest_memory_pamt_page[MAX_TDX_ARG_SIZE(r12)];
@@ -1882,6 +1882,8 @@ u64 tdh_mem_page_demote(struct tdx_td *td, u64 gpa, int level, struct page *new_
 		.args.rdx = tdx_tdr_pa(td),
 		.args.r8 = page_to_phys(new_sept_page),
 	};
+	/* base pfn for guest private memory */
+	unsigned long guest_base_pfn;
 	u64 ret;
 
 	if (!tdx_supports_demote_nointerrupt(&tdx_sysinfo))
@@ -1889,6 +1891,15 @@ u64 tdh_mem_page_demote(struct tdx_td *td, u64 gpa, int level, struct page *new_
 
 	if (dpamt) {
 		u64 *args_array = dpamt_args_array_ptr_r12(&args);
+		unsigned long npages = 1 << (level * PTE_SHIFT);
+		struct page *guest_page;
+
+		guest_page = folio_page(guest_folio, guest_start_idx);
+		guest_base_pfn = page_to_pfn(guest_page);
+
+		if (guest_start_idx + npages > folio_nr_pages(guest_folio) ||
+		    !IS_ALIGNED(guest_base_pfn, npages))
+			return TDX_OPERAND_INVALID;
 
 		if (alloc_pamt_array(guest_memory_pamt_page, prealloc))
 			return TDX_SW_ERROR;
@@ -1909,9 +1920,18 @@ u64 tdh_mem_page_demote(struct tdx_td *td, u64 gpa, int level, struct page *new_
 	*ext_err1 = args.args.rcx;
 	*ext_err2 = args.args.rdx;
 
-	if (dpamt && ret)
-		free_pamt_array(guest_memory_pamt_page);
+	if (dpamt) {
+		if (ret) {
+			free_pamt_array(guest_memory_pamt_page);
+		} else {
+			/* PAMT refcount for guest private memory */
+			atomic_t *pamt_refcount;
 
+			pamt_refcount = tdx_find_pamt_refcount(guest_base_pfn);
+			WARN_ON_ONCE(atomic_cmpxchg_release(pamt_refcount, 0,
+							    PTRS_PER_PMD));
+		}
+	}
 	return ret;
 }
 EXPORT_SYMBOL_GPL(tdh_mem_page_demote);

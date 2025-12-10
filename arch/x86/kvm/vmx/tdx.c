@@ -1722,9 +1722,11 @@ static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	WARN_ON_ONCE(!is_shadow_present_pte(mirror_spte) ||
 		     (mirror_spte & VMX_EPT_RWX_MASK) != VMX_EPT_RWX_MASK);
 
-	ret = tdx_pamt_get(page, &tdx->prealloc);
-	if (ret)
-		return ret;
+	if (level == PG_LEVEL_4K) {
+		ret = tdx_pamt_get(page, &tdx->prealloc);
+		if (ret)
+			return ret;
+	}
 
 	/*
 	 * Ensure pre_fault_allowed is read by kvm_arch_vcpu_pre_fault_memory()
@@ -1743,7 +1745,7 @@ static int tdx_sept_set_private_spte(struct kvm *kvm, gfn_t gfn,
 	else
 		ret = tdx_mem_page_add(kvm, gfn, level, pfn);
 
-	if (ret)
+	if (ret && level == PG_LEVEL_4K)
 		tdx_pamt_put(page);
 
 	return ret;
@@ -1911,7 +1913,9 @@ static void tdx_sept_remove_private_spte(struct kvm *kvm, gfn_t gfn,
 
 	tdx_quirk_reset_folio(folio, folio_page_idx(folio, page),
 			      KVM_PAGES_PER_HPAGE(level));
-	tdx_pamt_put(page);
+
+	if (level == PG_LEVEL_4K)
+		tdx_pamt_put(page);
 }
 
 /*

@@ -2348,8 +2348,7 @@ void tdx_pamt_put(struct page *page)
 			 */
 			atomic_inc(pamt_refcount);
 
-			pr_err("TDH_PHYMEM_PAMT_REMOVE failed: %#llx\n", tdx_status);
-
+			WARN_ONCE(1, "TDH_PHYMEM_PAMT_REMOVE failed: %#llx\n", tdx_status);
 			/*
 			 * Don't free pamt_pa_array as it could hold garbage
 			 * when tdh_phymem_pamt_remove() fails.

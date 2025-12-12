@@ -671,6 +671,9 @@ int tdx_vm_init(struct kvm *kvm)
 
 	kvm_tdx->state = TD_STATE_UNINITIALIZED;
 
+	INIT_LIST_HEAD(&kvm_tdx->prealloc_split_cache.page_list);
+	spin_lock_init(&kvm_tdx->prealloc_split_cache_lock);
+
 	return 0;
 }
 
@@ -1677,6 +1680,61 @@ static void tdx_free_external_fault_cache(struct kvm_vcpu *vcpu)
 	struct page *page;
 
 	while ((page = get_tdx_prealloc_page(&tdx->prealloc)))
+		__free_page(page);
+}
+
+/*
+ * Need to prepare at least 2 pairs of PAMT pages (i.e., 4 PAMT pages) for
+ * splitting a S-EPT PG_LEVEL_2M mapping when Dynamic PAMT is enabled:
+ * - 1 pair for the new 4KB S-EPT page for splitting, which may be dequeued in
+ *   tdx_sept_split_private_spte() when there are no installed PAMT pages for
+ *   the 2MB physical range of the S-EPT page.
+ * - 1 pair for demoting guest private memory from 2MB to 4KB, which will be
+ *   dequeued in tdh_mem_page_demote().
+ */
+static int tdx_min_split_cache_sz(struct kvm *kvm, int level)
+{
+	KVM_BUG_ON(level != PG_LEVEL_2M, kvm);
+
+	if (!tdx_supports_dynamic_pamt(tdx_sysinfo))
+		return 0;
+
+	return tdx_dpamt_entry_pages() * 2;
+}
+
+static int tdx_topup_vm_split_cache(struct kvm *kvm, enum pg_level level)
+{
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(kvm);
+	struct tdx_prealloc *prealloc = &kvm_tdx->prealloc_split_cache;
+	int cnt = tdx_min_split_cache_sz(kvm, level);
+
+	while (READ_ONCE(prealloc->cnt) < cnt) {
+		struct page *page = alloc_page(GFP_KERNEL);
+
+		if (!page)
+			return -ENOMEM;
+
+		spin_lock(&kvm_tdx->prealloc_split_cache_lock);
+		list_add(&page->lru, &prealloc->page_list);
+		prealloc->cnt++;
+		spin_unlock(&kvm_tdx->prealloc_split_cache_lock);
+	}
+
+	return 0;
+}
+
+static bool tdx_need_topup_vm_split_cache(struct kvm *kvm, enum pg_level level)
+{
+	struct tdx_prealloc *prealloc = &to_kvm_tdx(kvm)->prealloc_split_cache;
+
+	return prealloc->cnt < tdx_min_split_cache_sz(kvm, level);
+}
+
+static void tdx_free_vm_split_cache(struct kvm *kvm)
+{
+	struct page *page;
+
+	while ((page = get_tdx_prealloc_page(&to_kvm_tdx(kvm)->prealloc_split_cache)))
 		__free_page(page);
 }
 
@@ -3804,4 +3862,7 @@ void __init tdx_hardware_setup(void)
 	vt_x86_ops.alloc_external_fault_cache = tdx_alloc_external_fault_cache;
 	vt_x86_ops.topup_external_fault_cache = tdx_topup_external_fault_cache;
 	vt_x86_ops.free_external_fault_cache = tdx_free_external_fault_cache;
+	vt_x86_ops.topup_external_per_vm_split_cache = tdx_topup_vm_split_cache;
+	vt_x86_ops.need_topup_external_per_vm_split_cache = tdx_need_topup_vm_split_cache;
+	vt_x86_ops.free_external_per_vm_split_cache = tdx_free_vm_split_cache;
 }

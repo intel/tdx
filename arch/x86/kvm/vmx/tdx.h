@@ -48,6 +48,11 @@ struct kvm_tdx {
 	 * Set/unset is protected with kvm->mmu_lock.
 	 */
 	bool wait_for_sept_zap;
+
+	/* The per-VM cache for splitting S-EPT */
+	struct tdx_prealloc prealloc_split_cache;
+	/* Protect page enqueuing/dequeuing in prealloc_split_cache */
+	spinlock_t prealloc_split_cache_lock;
 };
 
 /* TDX module vCPU states */

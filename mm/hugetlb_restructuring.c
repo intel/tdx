@@ -413,3 +413,4 @@ void hugetlb_restructuring_free_folio(struct folio *folio)
 	else
 		hugetlb_restructuring_mark_folio(folio);
 }
+EXPORT_SYMBOL_FOR_MODULES(hugetlb_restructuring_free_folio, "kvm");

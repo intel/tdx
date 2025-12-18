@@ -891,21 +891,19 @@ static int kvm_gmem_convert(struct inode *inode, pgoff_t start,
 		}
 	}
 
+	invalidate_start = kvm_gmem_compute_invalidate_start(inode, start);
+	invalidate_end = kvm_gmem_compute_invalidate_end(inode, end);
+	kvm_gmem_invalidate_begin(inode, invalidate_start, invalidate_end);
+	kvm_gmem_zap(inode, start, end);
+	kvm_gmem_invalidate_end(inode, invalidate_start, invalidate_end);
+
 	r = kvm_gmem_restructure(inode, start, nr_pages, to_private, err_index);
 	if (r) {
 		mas_destroy(&mas);
 		return r;
 	}
 
-	invalidate_start = kvm_gmem_compute_invalidate_start(inode, start);
-	invalidate_end = kvm_gmem_compute_invalidate_end(inode, end);
-	kvm_gmem_invalidate_begin(inode, invalidate_start, invalidate_end);
-	kvm_gmem_zap(inode, start, end);
-
 	mas_store_prealloc(&mas, xa_mk_value(attrs));
-
-	kvm_gmem_invalidate_end(inode, invalidate_start, invalidate_end);
-
 	return 0;
 }
 

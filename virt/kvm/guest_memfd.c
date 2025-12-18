@@ -812,24 +812,37 @@ static int kvm_gmem_restructure(struct inode *inode, pgoff_t start,
 				pgoff_t *err_index)
 {
 	struct gmem_inode *gi = GMEM_I(inode);
-	pgoff_t index;
+	pgoff_t aligned_start, aligned_end;
+	pgoff_t end = start + nr_pages;
 	u8 to_order;
 	int ret;
 
 	if (!IS_ENABLED(CONFIG_KVM_GUEST_MEMFD_HUGETLB) || gi->page_order == 0)
 		return 0;
 
-	index = round_down(start, 1 << gi->page_order);
+	aligned_start = round_down(start, 1 << gi->page_order);
+	aligned_end = aligned_start + (1 << gi->page_order);
 	to_order = 0;
 	if (to_private) {
-		size_t nr_pages = 1 << gi->page_order;
+		bool all_rest_private = true;
 
-		if (kvm_gmem_range_has_attributes(&gi->attributes, index, nr_pages,
-						  KVM_MEMORY_ATTRIBUTE_PRIVATE))
+		if (start > aligned_start &&
+		    !kvm_gmem_range_has_attributes(&gi->attributes, aligned_start,
+						   start - aligned_start,
+						   KVM_MEMORY_ATTRIBUTE_PRIVATE))
+			all_rest_private = false;
+
+		if (all_rest_private && end < aligned_end &&
+		    !kvm_gmem_range_has_attributes(&gi->attributes, end,
+						   aligned_end - end,
+						   KVM_MEMORY_ATTRIBUTE_PRIVATE))
+			all_rest_private = false;
+
+		if (all_rest_private)
 			to_order = gi->page_order;
 	}
 
-	ret = gmem_hugetlb_restructure_folio(inode->i_mapping, index, to_order);
+	ret = gmem_hugetlb_restructure_folio(inode->i_mapping, aligned_start, to_order);
 	if (ret)
 		*err_index = start;
 

@@ -5,6 +5,7 @@
 #include <linux/kvm.h>
 #include <stdint.h>
 #include <sys/ioctl.h>
+#include <linux/align.h>
 
 #include "kvm_util.h"
 #include "processor.h"
@@ -657,4 +658,13 @@ void handle_memory_conversion(struct kvm_vm *vm, uint32_t vcpu_id, uint64_t gpa,
 		 vcpu_id, gpa, size, range.attributes);
 
 	vm_ioctl(vm, KVM_SET_MEMORY_ATTRIBUTES, &range);
+}
+
+void handle_memory_conversion_v2(struct kvm_vm *vm, uint32_t vcpu_id, uint64_t gpa,
+			         uint64_t size, bool shared_to_private)
+{
+	uint64_t attrs = shared_to_private ? KVM_MEMORY_ATTRIBUTE_PRIVATE : 0;
+	pr_debug("\t... call KVM_SET_MEMORY_ATTRIBUTES2 ioctl from vCPU %u with gpa=%#lx, size=%#lx, attributes=%#lx\n",
+		 vcpu_id, gpa, size, attrs);
+	vm_mem_set_memory_attributes(vm, gpa, size, attrs);
 }

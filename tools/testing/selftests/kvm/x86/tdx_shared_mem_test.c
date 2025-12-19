@@ -66,7 +66,7 @@ int verify_shared_mem(void)
 	struct kvm_vm *vm;
 
 	vm = td_create();
-	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);
+	td_initialize(vm, VM_MEM_SRC_SHMEM, 0);
 	vcpu = td_vcpu_add(vm, 0, guest_shared_mem);
 
 	/*
@@ -122,6 +122,11 @@ int main(int argc, char **argv)
 	if (!is_tdx_enabled()) {
 		printf("TDX is not supported by the KVM\n"
 		       "Skipping the TDX tests.\n");
+		return 0;
+	}
+
+	if (!(kvm_check_cap(KVM_CAP_GUEST_MEMFD_MEMORY_ATTRIBUTES) & KVM_MEMORY_ATTRIBUTE_PRIVATE)) {
+		printf("equirement not met: kvm_check_cap(KVM_CAP_GUEST_MEMFD_MEMORY_ATTRIBUTES) & KVM_MEMORY_ATTRIBUTE_PRIVATE\n");
 		return 0;
 	}
 

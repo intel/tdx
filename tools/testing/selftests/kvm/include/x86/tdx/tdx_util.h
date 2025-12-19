@@ -19,5 +19,7 @@ void td_finalize(struct kvm_vm *vm);
 void td_vcpu_run(struct kvm_vcpu *vcpu);
 void handle_memory_conversion(struct kvm_vm *vm, uint32_t vcpu_id, uint64_t gpa,
 			      uint64_t size, bool shared_to_private);
+void handle_memory_conversion_v2(struct kvm_vm *vm, uint32_t vcpu_id, uint64_t gpa,
+				 uint64_t size, bool shared_to_private);
 
 #endif // SELFTESTS_TDX_KVM_UTIL_H

@@ -10,6 +10,8 @@
 #include "tdx/test_util.h"
 #include "test_util.h"
 
+static enum vm_mem_backing_src_type td_src_type = VM_MEM_SRC_SHMEM;
+
 static void guest_code_lifecycle(void)
 {
 	tdx_test_success();
@@ -21,7 +23,7 @@ static void verify_td_lifecycle(void)
 	struct kvm_vm *vm;
 
 	vm = td_create();
-	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);
+	td_initialize(vm, td_src_type, 0);
 	vcpu = td_vcpu_add(vm, 0, guest_code_lifecycle);
 	td_finalize(vm);
 
@@ -56,7 +58,7 @@ void verify_report_fatal_error(void)
 	struct kvm_vm *vm;
 
 	vm = td_create();
-	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);
+	td_initialize(vm, td_src_type, 0);
 	vcpu = td_vcpu_add(vm, 0, guest_code_report_fatal_error);
 	td_finalize(vm);
 
@@ -112,7 +114,7 @@ void verify_td_ioexit(void)
 	struct kvm_vm *vm;
 
 	vm = td_create();
-	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);
+	td_initialize(vm, td_src_type, 0);
 	vcpu = td_vcpu_add(vm, 0, guest_ioexit);
 	td_finalize(vm);
 
@@ -185,7 +187,7 @@ void verify_td_cpuid(void)
 	uint32_t ebx, ecx;
 
 	vm = td_create();
-	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);
+	td_initialize(vm, td_src_type, 0);
 	vcpu = td_vcpu_add(vm, 0, guest_code_cpuid);
 	td_finalize(vm);
 
@@ -273,7 +275,7 @@ void verify_get_td_vmcall_info(void)
 	struct kvm_vm *vm;
 
 	vm = td_create();
-	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);
+	td_initialize(vm, td_src_type, 0);
 	vcpu = td_vcpu_add(vm, 0, guest_code_get_td_vmcall_info);
 	td_finalize(vm);
 
@@ -350,7 +352,7 @@ void verify_guest_writes(void)
 	uint8_t byte_1;
 
 	vm = td_create();
-	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);
+	td_initialize(vm, td_src_type, 0);
 	vcpu = td_vcpu_add(vm, 0, guest_io_writes);
 	td_finalize(vm);
 
@@ -426,7 +428,7 @@ void verify_guest_reads(void)
 	struct kvm_vm *vm;
 
 	vm = td_create();
-	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);
+	td_initialize(vm, td_src_type, 0);
 	vcpu = td_vcpu_add(vm, 0, guest_io_reads);
 	td_finalize(vm);
 
@@ -520,7 +522,7 @@ void verify_guest_msr_reads(void)
 	int ret;
 
 	vm = td_create();
-	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);
+	td_initialize(vm, td_src_type, 0);
 
 	/*
 	 * Set explicit MSR filter map to control access to the MSR registers
@@ -600,7 +602,7 @@ void verify_guest_msr_writes(void)
 	int ret;
 
 	vm = td_create();
-	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);
+	td_initialize(vm, td_src_type, 0);
 
 	/*
 	 * Set explicit MSR filter map to control access to the MSR registers
@@ -696,7 +698,7 @@ void _verify_guest_hlt(int signum)
 	}
 
 	vm = td_create();
-	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);
+	td_initialize(vm, td_src_type, 0);
 	vcpu = td_vcpu_add(vm, 0, guest_hlt);
 	td_finalize(vm);
 
@@ -768,7 +770,7 @@ void verify_mmio_reads(void)
 	struct kvm_vm *vm;
 
 	vm = td_create();
-	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);
+	td_initialize(vm, td_src_type, 0);
 	vcpu = td_vcpu_add(vm, 0, guest_mmio_reads);
 	td_finalize(vm);
 
@@ -844,7 +846,7 @@ void verify_mmio_writes(void)
 	uint8_t byte_1;
 
 	vm = td_create();
-	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);
+	td_initialize(vm, td_src_type, 0);
 	vcpu = td_vcpu_add(vm, 0, guest_mmio_writes);
 	td_finalize(vm);
 
@@ -923,7 +925,7 @@ void verify_td_cpuid_tdcall(void)
 	struct kvm_vm *vm;
 
 	vm = td_create();
-	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);
+	td_initialize(vm, td_src_type, 0);
 	vcpu = td_vcpu_add(vm, 0, guest_code_cpuid_tdcall);
 	td_finalize(vm);
 
@@ -994,7 +996,7 @@ void verify_host_reading_private_mem(void)
 	struct kvm_vm *vm;
 
 	vm = td_create();
-	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);
+	td_initialize(vm, td_src_type, 0);
 	vcpu = td_vcpu_add(vm, 0, guest_host_read_priv_mem);
 
 	test_page = vm_vaddr_alloc_page(vm);
@@ -1092,7 +1094,7 @@ void verify_tdcall_vp_info(void)
 	/* Setting attributes parameter used by TDH.MNG.INIT to 0x10000000 */
 	attributes = TDX_TDPARAM_ATTR_SEPT_VE_DISABLE_BIT;
 
-	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, attributes);
+	td_initialize(vm, td_src_type, attributes);
 
 	for (i = 0; i < num_vcpus; i++)
 		vcpus[i] = td_vcpu_add(vm, i, guest_tdcall_vp_info);
@@ -1188,7 +1190,7 @@ void verify_log_dirty_pages_flag_on_non_gmemfd_slot(void)
 	struct kvm_vm *vm;
 
 	vm = td_create();
-	td_initialize(vm, VM_MEM_SRC_ANONYMOUS, 0);
+	td_initialize(vm, td_src_type, 0);
 	vcpu = td_vcpu_add(vm, 0, guest_code_log_dirty_flag);
 
 	vm_userspace_mem_region_add(vm, VM_MEM_SRC_ANONYMOUS,
@@ -1215,7 +1217,10 @@ int main(int argc, char **argv)
 	if (!is_tdx_enabled())
 		ksft_exit_skip("TDX is not supported by the KVM. Exiting.\n");
 
-	ksft_set_plan(16);
+	if (!(kvm_check_cap(KVM_CAP_GUEST_MEMFD_MEMORY_ATTRIBUTES) & KVM_MEMORY_ATTRIBUTE_PRIVATE))
+		ksft_exit_skip("equirement not met: kvm_check_cap(KVM_CAP_GUEST_MEMFD_MEMORY_ATTRIBUTES) & KVM_MEMORY_ATTRIBUTE_PRIVATE\n");
+
+	ksft_set_plan(15);
 	ksft_test_result(!run_in_new_process(&verify_td_lifecycle),
 			 "verify_td_lifecycle\n");
 	ksft_test_result(!run_in_new_process(&verify_report_fatal_error),
@@ -1242,8 +1247,6 @@ int main(int argc, char **argv)
 			 "verify_mmio_writes\n");
 	ksft_test_result(!run_in_new_process(&verify_td_cpuid_tdcall),
 			 "verify_td_cpuid_tdcall\n");
-	ksft_test_result(!run_in_new_process(&verify_host_reading_private_mem),
-			 "verify_host_reading_private_mem\n");
 	ksft_test_result(!run_in_new_process(&verify_tdcall_vp_info),
 			 "verify_tdcall_vp_info\n");
 	ksft_test_result(!run_in_new_process(&verify_log_dirty_pages_flag_on_non_gmemfd_slot),

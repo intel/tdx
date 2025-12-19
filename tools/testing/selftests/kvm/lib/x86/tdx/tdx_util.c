@@ -326,21 +326,6 @@ static void tdx_td_finalize_mr(struct kvm_vm *vm)
 }
 
 /*
- * Other ioctls
- */
-
-/*
- * Register a memory region that may contain encrypted data in KVM.
- */
-static void register_encrypted_memory_region(struct kvm_vm *vm,
-					     struct userspace_mem_region *region)
-{
-	vm_set_memory_attributes(vm, region->region.guest_phys_addr,
-				 region->region.memory_size,
-				 KVM_MEMORY_ATTRIBUTE_PRIVATE);
-}
-
-/*
  * TD creation/setup/finalization
  */
 
@@ -461,6 +446,7 @@ struct kvm_vcpu *td_vcpu_add(struct kvm_vm *vm, uint32_t vcpu_id, void *guest_co
 	return vcpu;
 }
 
+#define TDX_SUPPORT_INPLACE_COPY false
 static void load_td_memory_region(struct kvm_vm *vm,
 				  struct userspace_mem_region *region)
 {
@@ -468,6 +454,7 @@ static void load_td_memory_region(struct kvm_vm *vm,
 	const vm_paddr_t gpa_base = region->region.guest_phys_addr;
 	const uint64_t hva_base = region->region.userspace_addr;
 	const sparsebit_idx_t lowest_page_in_region = gpa_base >> vm->page_shift;
+	bool tmp_shared_backend = !TDX_SUPPORT_INPLACE_COPY;
 
 	sparsebit_idx_t i;
 	sparsebit_idx_t j;
@@ -475,8 +462,6 @@ static void load_td_memory_region(struct kvm_vm *vm,
 	if (!sparsebit_any_set(pages))
 		return;
 
-	if (region->region.guest_memfd != -1)
-		register_encrypted_memory_region(vm, region);
 
 	sparsebit_for_each_set_range(pages, i, j) {
 		const uint64_t size_to_load = (j - i + 1) * vm->page_size;
@@ -488,9 +473,9 @@ static void load_td_memory_region(struct kvm_vm *vm,
 
 		/*
 		 * KVM_TDX_INIT_MEM_REGION ioctl cannot encrypt memory in place.
-		 * Make a copy if there's only one backing memory source.
+		 * Make a copy before converting GPA to private.
 		 */
-		if (region->region.guest_memfd == -1) {
+		if (tmp_shared_backend) {
 			source_addr = mmap(NULL, size_to_load, PROT_READ | PROT_WRITE,
 					   MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 			TEST_ASSERT(source_addr,
@@ -500,9 +485,13 @@ static void load_td_memory_region(struct kvm_vm *vm,
 			memset((void *)hva, 0, size_to_load);
 		}
 
+		/* Must set init memory GPA to private after copying from its mmap'd HVA */
+		if (region->region.guest_memfd != -1)
+			vm_mem_set_memory_attributes(vm, gpa, size_to_load, KVM_MEMORY_ATTRIBUTE_PRIVATE);
+
 		tdx_init_mem_region(vm, source_addr, gpa, size_to_load);
 
-		if (region->region.guest_memfd == -1)
+		if (tmp_shared_backend)
 			munmap(source_addr, size_to_load);
 	}
 }
@@ -527,6 +516,37 @@ struct kvm_vm *td_create(void)
 	return ____vm_create(shape);
 }
 
+static void td_add_init_memory_region(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
+			  uint64_t gpa, uint32_t slot, uint64_t npages)
+{
+	struct userspace_mem_region *region;
+	uint64_t flags = GUEST_MEMFD_FLAG_MMAP;
+	bool found = false;
+	int order = 9;
+
+	if (IS_ALIGNED(npages, 1 << order)) {
+		flags |= GUEST_MEMFD_FLAG_HUGETLB;
+	} else {
+		order = 0;
+		flags |= GUEST_MEMFD_FLAG_INIT_SHARED;
+	}
+
+	vm_mem_add(vm, src_type, gpa, slot, npages, KVM_MEM_GUEST_MEMFD, -1, 0, flags, order);
+
+	hash_for_each_possible(vm->regions.slot_hash, region, slot_node, slot) {
+		if (region->region.slot != slot)
+			continue;
+
+		found = true;
+		break;
+	}
+
+	TEST_ASSERT(found, "Add TDX init memory region failure slot=%d\n", slot);
+	if (flags & GUEST_MEMFD_FLAG_HUGETLB)
+		vm_mem_set_memory_attributes(vm, gpa, npages << PAGE_SHIFT, 0);
+
+}
+
 static void td_setup_boot_code(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type)
 {
 	size_t boot_code_allocation = round_up(TD_BOOT_CODE_SIZE, PAGE_SIZE);
@@ -534,8 +554,7 @@ static void td_setup_boot_code(struct kvm_vm *vm, enum vm_mem_backing_src_type s
 	size_t npages = DIV_ROUND_UP(boot_code_allocation, PAGE_SIZE);
 	vm_vaddr_t addr;
 
-	vm_userspace_mem_region_add(vm, src_type, boot_code_base_gpa, 1, npages,
-				    KVM_MEM_GUEST_MEMFD);
+	td_add_init_memory_region(vm, src_type, boot_code_base_gpa, 1, npages);
 	vm->memslots[MEM_REGION_CODE] = 1;
 	addr = vm_vaddr_identity_alloc(vm, boot_code_allocation,
 				       boot_code_base_gpa, MEM_REGION_CODE);
@@ -560,8 +579,7 @@ static void td_setup_boot_parameters(struct kvm_vm *vm, enum vm_mem_backing_src_
 	size_t total_size = npages * PAGE_SIZE;
 	vm_vaddr_t addr;
 
-	vm_userspace_mem_region_add(vm, src_type, TD_BOOT_PARAMETERS_GPA, 2,
-				    npages, KVM_MEM_GUEST_MEMFD);
+	td_add_init_memory_region(vm, src_type, TD_BOOT_PARAMETERS_GPA, 2, npages);
 	vm->memslots[MEM_REGION_TDX_BOOT_PARAMS] = 2;
 	addr = vm_vaddr_identity_alloc(vm, total_size, TD_BOOT_PARAMETERS_GPA,
 				       MEM_REGION_TDX_BOOT_PARAMS);
@@ -583,8 +601,7 @@ void td_initialize(struct kvm_vm *vm, enum vm_mem_backing_src_type src_type,
 	 * Add memory (add 0th memslot) for TD. This will be used to setup the
 	 * CPU (provide stack space for the CPU) and to load the elf file.
 	 */
-	vm_userspace_mem_region_add(vm, src_type, 0, 0, nr_pages_required,
-				    KVM_MEM_GUEST_MEMFD);
+	td_add_init_memory_region(vm, src_type, 0, 0, nr_pages_required);
 
 	kvm_vm_elf_load(vm, program_invocation_name);
 	tdx_s_bit = vm->arch.s_bit;

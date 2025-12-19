@@ -48,6 +48,7 @@ struct userspace_mem_region {
 	struct rb_node gpa_node;
 	struct rb_node hva_node;
 	struct hlist_node slot_node;
+	bool init_mem;
 };
 
 struct kvm_binary_stats {

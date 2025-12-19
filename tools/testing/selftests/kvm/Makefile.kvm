@@ -159,6 +159,7 @@ TEST_GEN_PROGS_x86 += steal_time
 TEST_GEN_PROGS_x86 += system_counter_offset_test
 TEST_GEN_PROGS_x86 += pre_fault_memory_test
 TEST_GEN_PROGS_x86 += x86/tdx_vm_test
+TEST_GEN_PROGS_x86 += x86/tdx_vm_huge_page
 TEST_GEN_PROGS_x86 += x86/tdx_shared_mem_test
 
 # Compiled outputs used by test targets

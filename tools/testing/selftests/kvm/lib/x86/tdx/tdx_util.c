@@ -460,9 +460,11 @@ static void load_td_memory_region(struct kvm_vm *vm,
 	sparsebit_idx_t i;
 	sparsebit_idx_t j;
 
-	if (!sparsebit_any_set(pages))
+	if (!region->init_mem)
 		return;
 
+	if (!sparsebit_any_set(pages))
+		return;
 
 	sparsebit_for_each_set_range(pages, i, j) {
 		const uint64_t size_to_load = (j - i + 1) * vm->page_size;
@@ -543,6 +545,7 @@ static void td_add_init_memory_region(struct kvm_vm *vm, enum vm_mem_backing_src
 	}
 
 	TEST_ASSERT(found, "Add TDX init memory region failure slot=%d\n", slot);
+	region->init_mem = true;
 	if (flags & GUEST_MEMFD_FLAG_HUGETLB)
 		vm_mem_set_memory_attributes(vm, gpa, npages << PAGE_SHIFT, 0);
 

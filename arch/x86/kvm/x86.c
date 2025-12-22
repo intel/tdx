@@ -13412,7 +13412,7 @@ kvm_should_allow_lpage_for_slot(struct kvm_memory_slot *slot, int level)
 	 * If slot->userspace_addr is 0 (disabled), 0 is always aligned so the
 	 * check is deferred to gmem.pgoff.
 	 */
-	if (!gfn_and_userspace_addr_aligned)
+	if (!gfn_and_userspace_addr_aligned && !kvm_slot_has_gmem(slot))
 		return false;
 
 	if (kvm_slot_has_gmem(slot)) {

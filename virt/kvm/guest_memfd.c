@@ -486,6 +486,55 @@ static int merge_truncate_range(struct inode *inode, pgoff_t start,
 	return ret;
 }
 
+static int __kvm_gmem_split_private(struct gmem_file *f, pgoff_t start, pgoff_t end)
+{
+	enum kvm_gfn_range_filter attr_filter = KVM_FILTER_PRIVATE;
+
+	bool locked = false;
+	struct kvm_memory_slot *slot;
+	struct kvm *kvm = f->kvm;
+	unsigned long index;
+	int ret = 0;
+
+	xa_for_each_range(&f->bindings, index, slot, start, end - 1) {
+		pgoff_t pgoff = slot->gmem.pgoff;
+		struct kvm_gfn_range gfn_range = {
+			.start = slot->base_gfn + max(pgoff, start) - pgoff,
+			.end = slot->base_gfn + min(pgoff + slot->npages, end) - pgoff,
+			.slot = slot,
+			.may_block = true,
+			.attr_filter = attr_filter,
+		};
+
+		if (!locked) {
+			KVM_MMU_LOCK(kvm);
+			locked = true;
+		}
+
+		ret = kvm_split_cross_boundary_leafs(kvm, &gfn_range, false);
+		if (ret)
+			break;
+	}
+
+	if (locked)
+		KVM_MMU_UNLOCK(kvm);
+
+	return ret;
+}
+
+static int kvm_gmem_split_private(struct inode *inode, pgoff_t start, pgoff_t end)
+{
+	struct gmem_file *f;
+	int r = 0;
+
+	kvm_gmem_for_each_file(f, inode->i_mapping) {
+		r = __kvm_gmem_split_private(f, start, end);
+		if (r)
+			break;
+	}
+	return r;
+}
+
 static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 {
 	pgoff_t start = offset >> PAGE_SHIFT;
@@ -499,6 +548,13 @@ static long kvm_gmem_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 	filemap_invalidate_lock(inode->i_mapping);
 
 	kvm_gmem_invalidate_begin(inode, start, end);
+
+	ret = kvm_gmem_split_private(inode, start, end);
+	if (ret) {
+		kvm_gmem_invalidate_end(inode, start, end);
+		filemap_invalidate_unlock(inode->i_mapping);
+		return ret;
+	}
 	kvm_gmem_zap(inode, start, end);
 
 	ret = merge_truncate_range(inode, start, len >> PAGE_SHIFT, true);
@@ -907,6 +963,17 @@ static int kvm_gmem_convert(struct inode *inode, pgoff_t start,
 	invalidate_start = kvm_gmem_compute_invalidate_start(inode, start);
 	invalidate_end = kvm_gmem_compute_invalidate_end(inode, end);
 	kvm_gmem_invalidate_begin(inode, invalidate_start, invalidate_end);
+
+	if (!to_private) {
+		r = kvm_gmem_split_private(inode, start, end);
+		if (r) {
+			*err_index = start;
+			mas_destroy(&mas);
+			kvm_gmem_invalidate_end(inode, invalidate_start, invalidate_end);
+			return r;
+		}
+	}
+
 	kvm_gmem_zap(inode, start, end);
 	kvm_gmem_invalidate_end(inode, invalidate_start, invalidate_end);
 

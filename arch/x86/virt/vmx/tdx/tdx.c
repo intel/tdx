@@ -1872,9 +1872,7 @@ EXPORT_SYMBOL_FOR_KVM(tdh_phymem_page_wbinvd_hkid);
 #ifdef CONFIG_KEXEC_CORE
 void tdx_cpu_flush_cache_for_kexec(void)
 {
-	lockdep_assert_preemption_disabled();
-
-	if (!this_cpu_read(cache_state_incoherent))
+	if (!__this_cpu_read(cache_state_incoherent))
 		return;
 
 	/*
@@ -1883,7 +1881,7 @@ void tdx_cpu_flush_cache_for_kexec(void)
 	 * there should be no more SEAMCALLs on this CPU.
 	 */
 	wbinvd();
-	this_cpu_write(cache_state_incoherent, false);
+	__this_cpu_write(cache_state_incoherent, false);
 }
 EXPORT_SYMBOL_FOR_KVM(tdx_cpu_flush_cache_for_kexec);
 #endif

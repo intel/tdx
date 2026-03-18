@@ -150,7 +150,11 @@ struct cpuinfo_x86 {
 	int			x86_tlbsize;
 #endif
 #ifdef CONFIG_X86_VMX_FEATURE_NAMES
-	__u32			vmx_capability[NVMXINTS];
+	/* See the comment of 'x86_capability_alignment' below */
+	union {
+		__u32		vmx_capability[NVMXINTS];
+		unsigned long	vmx_capability_alignment;
+	};
 #endif
 	__u8			x86_virt_bits;
 	__u8			x86_phys_bits;

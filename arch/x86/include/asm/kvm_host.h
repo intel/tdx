@@ -799,8 +799,8 @@ struct kvm_vcpu_arch {
 	 * kvm_{register,rip}_{read,write} functions.
 	 */
 	unsigned long regs[NR_VCPU_REGS];
-	u32 regs_avail;
-	u32 regs_dirty;
+	unsigned long regs_avail;
+	unsigned long regs_dirty;
 
 	unsigned long cr0;
 	unsigned long cr0_guest_owned_bits;

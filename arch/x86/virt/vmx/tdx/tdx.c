@@ -1174,6 +1174,30 @@ static __init int init_tdmrs(struct tdmr_info_list *tdmr_list)
 	return 0;
 }
 
+static __init int init_tdx_module_extensions(void)
+{
+	int ret;
+
+	if (!(tdx_sysinfo.features.tdx_features0 & TDX_FEATURES0_EXT))
+		return 0;
+
+	ret = get_tdx_sys_info_ext(&tdx_sysinfo.ext);
+	if (ret)
+		return ret;
+
+	/*
+	 * ext_required indicates if any add-on features requiring TDX module
+	 * extensions are configured via TDH.SYS.CONFIG. If none, skip the
+	 * initialization.
+	 */
+	if (!tdx_sysinfo.ext.ext_required)
+		return 0;
+
+	/* TODO: add the extensions enabling steps here */
+
+	return 0;
+}
+
 static __init int init_tdx_module(void)
 {
 	int ret;
@@ -1225,6 +1249,10 @@ static __init int init_tdx_module(void)
 
 	/* Initialize TDMRs to complete the TDX module initialization */
 	ret = init_tdmrs(&tdx_tdmr_list);
+	if (ret)
+		goto err_reset_pamts;
+
+	ret = init_tdx_module_extensions();
 	if (ret)
 		goto err_reset_pamts;
 

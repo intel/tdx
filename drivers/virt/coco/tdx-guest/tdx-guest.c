@@ -171,26 +171,7 @@ static void tdx_mr_deinit(const struct attribute_group *mr_grp)
 #define GET_QUOTE_SUCCESS		0
 #define GET_QUOTE_IN_FLIGHT		0xffffffffffffffff
 
-#define TDX_QUOTE_MAX_LEN		(GET_QUOTE_BUF_SIZE - sizeof(struct tdx_quote_buf))
-
-/* struct tdx_quote_buf: Format of Quote request buffer.
- * @version: Quote format version, filled by TD.
- * @status: Status code of Quote request, filled by VMM.
- * @in_len: Length of TDREPORT, filled by TD.
- * @out_len: Length of Quote data, filled by VMM.
- * @data: Quote data on output or TDREPORT on input.
- *
- * More details of Quote request buffer can be found in TDX
- * Guest-Host Communication Interface (GHCI) for Intel TDX 1.0,
- * section titled "TDG.VP.VMCALL<GetQuote>"
- */
-struct tdx_quote_buf {
-	u64 version;
-	u64 status;
-	u32 in_len;
-	u32 out_len;
-	u8 data[];
-};
+#define TDX_QUOTE_MAX_LEN		(GET_QUOTE_BUF_SIZE - sizeof(struct tdx_quote_req))
 
 /* Quote data buffer */
 static void *quote_data;
@@ -241,7 +222,7 @@ static void *alloc_quote_buf(void)
 
 /*
  * wait_for_quote_completion() - Wait for Quote request completion
- * @quote_buf: Address of Quote buffer.
+ * @quote_req: Address of Quote buffer.
  * @timeout: Timeout in seconds to wait for the Quote generation.
  *
  * As per TDX GHCI v1.0 specification, sec titled "TDG.VP.VMCALL<GetQuote>",
@@ -250,7 +231,7 @@ static void *alloc_quote_buf(void)
  * or error code after processing is complete. So wait till the status
  * changes from GET_QUOTE_IN_FLIGHT or the request being timed out.
  */
-static int wait_for_quote_completion(struct tdx_quote_buf *quote_buf, u32 timeout)
+static int wait_for_quote_completion(struct tdx_quote_req *quote_req, u32 timeout)
 {
 	int i = 0;
 
@@ -258,7 +239,7 @@ static int wait_for_quote_completion(struct tdx_quote_buf *quote_buf, u32 timeou
 	 * Quote requests usually take a few seconds to complete, so waking up
 	 * once per second to recheck the status is fine for this use case.
 	 */
-	while (quote_buf->status == GET_QUOTE_IN_FLIGHT && i++ < timeout) {
+	while (quote_req->status == GET_QUOTE_IN_FLIGHT && i++ < timeout) {
 		if (msleep_interruptible(MSEC_PER_SEC))
 			return -EINTR;
 	}
@@ -269,7 +250,7 @@ static int wait_for_quote_completion(struct tdx_quote_buf *quote_buf, u32 timeou
 static int tdx_report_new_locked(struct tsm_report *report, void *data)
 {
 	u8 *buf;
-	struct tdx_quote_buf *quote_buf = quote_data;
+	struct tdx_quote_req *quote_req = quote_data;
 	struct tsm_report_desc *desc = &report->desc;
 	u32 out_len;
 	int ret;
@@ -280,7 +261,7 @@ static int tdx_report_new_locked(struct tsm_report *report, void *data)
 	 * Quote buf status is still in GET_QUOTE_IN_FLIGHT (owned by
 	 * VMM), don't permit any new request.
 	 */
-	if (quote_buf->status == GET_QUOTE_IN_FLIGHT)
+	if (quote_req->status == GET_QUOTE_IN_FLIGHT)
 		return -EBUSY;
 
 	if (desc->inblob_len != TDX_REPORTDATA_LEN)
@@ -289,11 +270,11 @@ static int tdx_report_new_locked(struct tsm_report *report, void *data)
 	memset(quote_data, 0, GET_QUOTE_BUF_SIZE);
 
 	/* Update Quote buffer header */
-	quote_buf->version = GET_QUOTE_CMD_VER;
-	quote_buf->in_len = TDX_REPORT_LEN;
+	quote_req->version = GET_QUOTE_CMD_VER;
+	quote_req->in_len = TDX_REPORT_LEN;
 
 	ret = tdx_do_report(KERNEL_SOCKPTR(desc->inblob),
-			    KERNEL_SOCKPTR(quote_buf->data));
+			    KERNEL_SOCKPTR(quote_req->data));
 	if (ret)
 		return ret;
 
@@ -303,23 +284,23 @@ static int tdx_report_new_locked(struct tsm_report *report, void *data)
 		return -EIO;
 	}
 
-	ret = wait_for_quote_completion(quote_buf, getquote_timeout);
+	ret = wait_for_quote_completion(quote_req, getquote_timeout);
 	if (ret) {
 		pr_err("GetQuote request timedout\n");
 		return ret;
 	}
 
-	if (quote_buf->status != GET_QUOTE_SUCCESS) {
-		pr_debug("GetQuote request failed, status:%llx\n", quote_buf->status);
+	if (quote_req->status != GET_QUOTE_SUCCESS) {
+		pr_debug("GetQuote request failed, status:%llx\n", quote_req->status);
 		return -EIO;
 	}
 
-	out_len = READ_ONCE(quote_buf->out_len);
+	out_len = READ_ONCE(quote_req->out_len);
 
 	if (out_len > TDX_QUOTE_MAX_LEN)
 		return -EFBIG;
 
-	buf = kvmemdup(quote_buf->data, out_len, GFP_KERNEL);
+	buf = kvmemdup(quote_req->data, out_len, GFP_KERNEL);
 	if (!buf)
 		return -ENOMEM;
 

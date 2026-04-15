@@ -47,6 +47,12 @@ struct kvm_tdx {
 	 * Set/unset is protected with kvm->mmu_lock.
 	 */
 	bool wait_for_sept_zap;
+
+	/*
+	 * Whether to get the quote directly in kernel, without exiting to
+	 * userspace.
+	 */
+	bool get_quote_in_kernel;
 };
 
 /* TDX module vCPU states */

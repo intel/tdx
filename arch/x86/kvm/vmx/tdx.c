@@ -1558,11 +1558,133 @@ static int tdx_get_quote_user(struct kvm_vcpu *vcpu, u64 gpa, u64 size)
 	return 0;
 }
 
+static bool write_quote_status_to_guest(struct kvm_vcpu *vcpu, u64 status,
+					gpa_t gpa)
+{
+	if (kvm_vcpu_write_guest(vcpu,
+				 gpa + offsetof(struct tdx_quote_req, status),
+				 &status, sizeof(status)))
+		return false;
+
+	return true;
+}
+
+static bool write_quote_to_guest(struct kvm_vcpu *vcpu, void *quote_data,
+				 u32 quote_len, gpa_t gpa)
+{
+	if (kvm_vcpu_write_guest(vcpu,
+				 gpa + TDX_QUOTE_REQ_HDR_SIZE,
+				 quote_data, quote_len))
+		return false;
+
+	if (kvm_vcpu_write_guest(vcpu,
+				 gpa + offsetof(struct tdx_quote_req, out_len),
+				 &quote_len, sizeof(quote_len)))
+		return false;
+
+	return true;
+}
+
+static u64 get_quote_kernel(struct kvm_vcpu *vcpu, struct tdx_quote_req *req,
+			    gpa_t req_gpa, size_t total_len)
+{
+	struct tdx_td *td = &to_kvm_tdx(vcpu->kvm)->td;
+
+	/* Only support version 1 as defined in the GHCI spec */
+	if (req->version != 1)
+		return TDX_QUOTE_STATUS_ERROR;
+
+	/* Header + input data must fit in the page read from guest memory */
+	if ((size_t)req->in_len + TDX_QUOTE_REQ_HDR_SIZE > PAGE_SIZE)
+		return TDX_QUOTE_STATUS_ERROR;
+
+	/* Caller owns the requested quote */
+	void *quote_data __free(kvfree) =
+		tdx_quote_generate(td, req->data, req->in_len, &req->out_len);
+
+	if (!quote_data)
+		return TDX_QUOTE_STATUS_UNAVAILABLE;
+
+	if ((size_t)req->out_len + TDX_QUOTE_REQ_HDR_SIZE > total_len)
+		return TDX_QUOTE_STATUS_ERROR;
+
+	if (!write_quote_to_guest(vcpu, quote_data, req->out_len, req_gpa))
+		return TDX_QUOTE_STATUS_ERROR;
+
+	return TDX_QUOTE_STATUS_SUCCESS;
+}
+
+static u64 tdx_get_quote_check_args(struct kvm_vcpu *vcpu, u64 gpa, u64 size)
+{
+	gfn_t gfn_start, gfn_end;
+	u64 end;
+
+	if (!size)
+		return TDVMCALL_STATUS_INVALID_OPERAND;
+
+	if (!PAGE_ALIGNED(gpa) || !PAGE_ALIGNED(size))
+		return TDVMCALL_STATUS_ALIGN_ERROR;
+
+	if (check_add_overflow(gpa, size, &end))
+		return TDVMCALL_STATUS_INVALID_OPERAND;
+
+	gfn_start = gpa_to_gfn(gpa);
+	gfn_end = gpa_to_gfn(end);
+
+	/*
+	 * Reject if the guest didn't explicitly convert its quote pages to
+	 * shared.
+	 */
+	if (!kvm_range_has_memory_attributes(vcpu->kvm, gfn_start, gfn_end,
+					     KVM_MEMORY_ATTRIBUTE_PRIVATE, 0))
+		return TDVMCALL_STATUS_INVALID_OPERAND;
+
+	return TDVMCALL_STATUS_SUCCESS;
+}
+
+static int tdx_get_quote_kernel(struct kvm_vcpu *vcpu, u64 gpa, u64 size)
+{
+	void *first_page = NULL;
+	u64 err, qerr;
+
+	err = tdx_get_quote_check_args(vcpu, gpa, size);
+	if (err != TDVMCALL_STATUS_SUCCESS)
+		goto out;
+
+	err = TDVMCALL_STATUS_INVALID_OPERAND;
+
+	first_page = kmalloc(PAGE_SIZE, GFP_KERNEL);
+	if (!first_page)
+		goto out;
+
+	/*
+	 * Read the first GetQuote page for its header + input data. The check
+	 * above ensures that this GetQuote message is at least one page in
+	 * size. in_data spanning more than a page is not supported.
+	 */
+	if (kvm_vcpu_read_guest(vcpu, gpa, first_page, PAGE_SIZE))
+		goto out;
+
+	qerr = get_quote_kernel(vcpu, first_page, (gpa_t)gpa, size);
+
+	if (write_quote_status_to_guest(vcpu, qerr, (gpa_t)gpa) &&
+	    qerr == TDX_QUOTE_STATUS_SUCCESS)
+		err = TDVMCALL_STATUS_SUCCESS;
+
+out:
+	kfree(first_page);
+	tdvmcall_set_return_code(vcpu, err);
+
+	return 1;
+}
+
 static int tdx_get_quote(struct kvm_vcpu *vcpu)
 {
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 	u64 gpa = tdx->vp_enter_args.r12;
 	u64 size = tdx->vp_enter_args.r13;
+	int ret;
 
 	/* The gpa of buffer must have shared bit set. */
 	if (vt_is_tdx_private_gpa(vcpu->kvm, gpa)) {
@@ -1572,7 +1694,12 @@ static int tdx_get_quote(struct kvm_vcpu *vcpu)
 
 	gpa &= ~gfn_to_gpa(kvm_gfn_direct_bits(vcpu->kvm));
 
-	return tdx_get_quote_user(vcpu, gpa, size);
+	if (kvm_tdx->get_quote_in_kernel)
+		ret = tdx_get_quote_kernel(vcpu, gpa, size);
+	else
+		ret = tdx_get_quote_user(vcpu, gpa, size);
+
+	return ret;
 }
 
 static int tdx_setup_event_notify_interrupt(struct kvm_vcpu *vcpu)
@@ -2832,6 +2959,12 @@ static int tdx_td_init(struct kvm *kvm, struct kvm_tdx_cmd *cmd)
 		kvm->arch.gfn_direct_bits = TDX_SHARED_BIT_PWL_5;
 	else
 		kvm->arch.gfn_direct_bits = TDX_SHARED_BIT_PWL_4;
+
+	/*
+	 * Check only once at TD creation. Switching between userspace and
+	 * in-kernel quoting is not supported.
+	 */
+	kvm_tdx->get_quote_in_kernel = tdx_quote_enabled();
 
 	kvm_tdx->state = TD_STATE_INITIALIZED;
 out:

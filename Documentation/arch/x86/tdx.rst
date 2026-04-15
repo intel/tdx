@@ -522,15 +522,16 @@ provided by attestation service so the TDREPORT can be verified uniquely.
 More details about the TDREPORT can be found in Intel TDX Module
 specification, section titled "TDG.MR.REPORT Leaf".
 
-After getting the TDREPORT, the second step of the attestation process
-is to send it to the Quoting Enclave (QE) to generate the Quote. TDREPORT
-by design can only be verified on the local platform as the MAC key is
-bound to the platform. To support remote verification of the TDREPORT,
-TDX leverages Intel SGX Quoting Enclave to verify the TDREPORT locally
-and convert it to a remotely verifiable Quote. Method of sending TDREPORT
-to QE is implementation specific. Attestation software can choose
-whatever communication channel available (i.e. vsock or TCP/IP) to
-send the TDREPORT to QE and receive the Quote.
+After getting the TDREPORT, the second step of the attestation process is to
+convert it to a Quote. A TDREPORT by design can only be verified on the local
+platform, as the MAC key is bound to the platform. A Quote makes the TDREPORT
+remotely verifiable. It can be generated either through a Quoting Enclave
+(QE) in userspace or through the Quoting service in kernel space. In
+userspace, the Intel SGX Quoting Enclave verifies the TDREPORT locally and
+converts it to a Quote. The method of sending the TDREPORT to the QE and
+receiving the Quote is implementation-specific. If the TDX module supports the
+Quoting service, the kernel can convert a TDREPORT to a Quote directly through
+a SEAMCALL. In this case, the Quote is generated entirely by the TDX module.
 
 References
 ==========

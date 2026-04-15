@@ -1544,6 +1544,20 @@ static int tdx_complete_simple(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static int tdx_get_quote_user(struct kvm_vcpu *vcpu, u64 gpa, u64 size)
+{
+	vcpu->run->exit_reason = KVM_EXIT_TDX;
+	vcpu->run->tdx.flags = 0;
+	vcpu->run->tdx.nr = TDVMCALL_GET_QUOTE;
+	vcpu->run->tdx.get_quote.ret = TDVMCALL_STATUS_SUBFUNC_UNSUPPORTED;
+	vcpu->run->tdx.get_quote.gpa = gpa;
+	vcpu->run->tdx.get_quote.size = size;
+
+	vcpu->arch.complete_userspace_io = tdx_complete_simple;
+
+	return 0;
+}
+
 static int tdx_get_quote(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
@@ -1556,16 +1570,9 @@ static int tdx_get_quote(struct kvm_vcpu *vcpu)
 		return 1;
 	}
 
-	vcpu->run->exit_reason = KVM_EXIT_TDX;
-	vcpu->run->tdx.flags = 0;
-	vcpu->run->tdx.nr = TDVMCALL_GET_QUOTE;
-	vcpu->run->tdx.get_quote.ret = TDVMCALL_STATUS_SUBFUNC_UNSUPPORTED;
-	vcpu->run->tdx.get_quote.gpa = gpa & ~gfn_to_gpa(kvm_gfn_direct_bits(tdx->vcpu.kvm));
-	vcpu->run->tdx.get_quote.size = size;
+	gpa &= ~gfn_to_gpa(kvm_gfn_direct_bits(vcpu->kvm));
 
-	vcpu->arch.complete_userspace_io = tdx_complete_simple;
-
-	return 0;
+	return tdx_get_quote_user(vcpu, gpa, size);
 }
 
 static int tdx_setup_event_notify_interrupt(struct kvm_vcpu *vcpu)

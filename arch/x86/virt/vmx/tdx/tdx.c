@@ -2057,31 +2057,49 @@ static int tdx_pamt_get(kvm_pfn_t pfn)
 	if (!tdx_supports_dynamic_pamt(&tdx_sysinfo))
 		return 0;
 
+	pamt_refcount = tdx_find_pamt_refcount(pfn);
+
+	/*
+	 * If the pamt page is already added (i.e. refcount >= 1),
+	 * then just increment the refcount.
+	 */
+	if (atomic_inc_not_zero(pamt_refcount))
+		return 0;
+
 	ret = alloc_pamt_array(pamt_pages);
 	if (ret)
 		return ret;
 
-	pamt_refcount = tdx_find_pamt_refcount(pfn);
+	spin_lock(&pamt_lock);
 
-	scoped_guard(spinlock, &pamt_lock) {
-		/*
-		 * If the pamt page is already added (i.e. refcount >= 1),
-		 * then just increment the refcount.
-		 */
-		if (atomic_read(pamt_refcount)) {
-			atomic_inc(pamt_refcount);
-			goto out_free;
-		}
-
-		/* Try to add the pamt page and take the refcount 0->1. */
-		tdx_status = tdh_phymem_pamt_add(pfn, pamt_pages);
-		if (WARN_ON_ONCE(tdx_status != TDX_SUCCESS)) {
-			ret = -EIO;
-			goto out_free;
-		}
-
-		atomic_set(pamt_refcount, 1);
+	/*
+	 * Unlike tdx_pamt_put() which uses atomic_dec_and_lock() to
+	 * atomically handle the 1->0 transition, the get side has no
+	 * equivalent combined primitive for 0->1. Recheck under the
+	 * lock since another get may have already done the 0->1
+	 * transition after both saw atomic_inc_not_zero() fail.
+	 */
+	if (atomic_read(pamt_refcount)) {
+		atomic_inc(pamt_refcount);
+		spin_unlock(&pamt_lock);
+		goto out_free;
 	}
+
+	tdx_status = tdh_phymem_pamt_add(pfn, pamt_pages);
+	if (tdx_status == TDX_SUCCESS) {
+		/*
+		 * The refcount is zero, and this locked path is the
+		 * only way to increase it from 0->1.
+		 */
+		atomic_set(pamt_refcount, 1);
+	} else {
+		WARN_ON_ONCE(1);
+		ret = -EIO;
+		spin_unlock(&pamt_lock);
+		goto out_free;
+	}
+
+	spin_unlock(&pamt_lock);
 
 	return 0;
 out_free:
@@ -2104,31 +2122,33 @@ static void tdx_pamt_put(kvm_pfn_t pfn)
 
 	pamt_refcount = tdx_find_pamt_refcount(pfn);
 
-	scoped_guard(spinlock, &pamt_lock) {
+	/*
+	 * If there is more than 1 reference on the pamt page, don't
+	 * remove it yet. Just decrement the refcount.
+	 */
+	if (!atomic_dec_and_lock(pamt_refcount, &pamt_lock))
+		return;
+
+	tdx_status = tdh_phymem_pamt_remove(pfn, pamt_pages);
+
+	/*
+	 * Don't free pamt_pages as it could hold garbage when
+	 * tdh_phymem_pamt_remove() fails.  Don't panic/BUG_ON(), as
+	 * there is no risk of data corruption, but do yell loudly as
+	 * failure indicates a kernel bug, memory is being leaked, and
+	 * the dangling PAMT entry may cause future operations to fail.
+	 */
+	if (WARN_ON_ONCE(tdx_status != TDX_SUCCESS)) {
 		/*
-		 * If the there are more than 1 references on the pamt page,
-		 * don't remove it yet. Just decrement the refcount.
+		 * atomic_dec_and_lock() already decremented it to 0,
+		 * but the PAMT entry still exists since REMOVE failed.
 		 */
-		if (atomic_read(pamt_refcount) > 1) {
-			atomic_dec(pamt_refcount);
-			return;
-		}
-
-		/* Try to remove the pamt page and take the refcount 1->0. */
-		tdx_status = tdh_phymem_pamt_remove(pfn, pamt_pages);
-
-		/*
-		 * Don't free pamt_pages as it could hold garbage when
-		 * tdh_phymem_pamt_remove() fails.  Don't panic/BUG_ON(), as
-		 * there is no risk of data corruption, but do yell loudly as
-		 * failure indicates a kernel bug, memory is being leaked, and
-		 * the dangling PAMT entry may cause future operations to fail.
-		 */
-		if (WARN_ON_ONCE(tdx_status != TDX_SUCCESS))
-			return;
-
-		atomic_set(pamt_refcount, 0);
+		atomic_set(pamt_refcount, 1);
+		spin_unlock(&pamt_lock);
+		return;
 	}
+
+	spin_unlock(&pamt_lock);
 
 	free_pamt_array(pamt_pages);
 }

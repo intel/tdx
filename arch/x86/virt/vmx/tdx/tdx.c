@@ -999,7 +999,7 @@ static __init int construct_tdmrs(struct list_head *tmb_list,
 }
 
 /* List all kernel supported add-on features0 bits here */
-#define TDX_KERNEL_SUPPORTED_ADDON_FEATURES0	(0)
+#define TDX_KERNEL_SUPPORTED_ADDON_FEATURES0	(TDX_FEATURES0_TDXCONNECT)
 
 static u64 get_tdx_addon_features0(void)
 {

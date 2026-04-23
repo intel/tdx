@@ -609,14 +609,6 @@ nmi_restart:
 		goto nmi_restart;
 }
 
-#if IS_ENABLED(CONFIG_KVM_INTEL)
-DEFINE_IDTENTRY_RAW(exc_nmi_kvm_vmx)
-{
-	exc_nmi(regs);
-}
-EXPORT_SYMBOL_FOR_KVM(asm_exc_nmi_kvm_vmx);
-#endif
-
 #ifdef CONFIG_NMI_CHECK_CPU
 
 static char *nmi_check_stall_msg[] = {

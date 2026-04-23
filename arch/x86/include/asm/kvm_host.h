@@ -1899,9 +1899,6 @@ struct kvm_x86_ops {
 	int (*free_external_spt)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
 				 void *external_spt);
 
-	/* Update external page table from spte getting removed, and flush TLB. */
-	void (*remove_external_spte)(struct kvm *kvm, gfn_t gfn, enum pg_level level,
-				     u64 mirror_spte);
 
 	bool (*has_wbinvd_exit)(void);
 

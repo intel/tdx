@@ -100,6 +100,11 @@ static inline unsigned int x86_cpuid_family(void)
 	return x86_family(eax);
 }
 
+static inline bool x86_cpuid_has_hypervisor(void)
+{
+	return native_cpuid_ecx(1) & BIT(31);
+}
+
 extern bool force_minrev;
 
 #ifdef CONFIG_CPU_SUP_AMD

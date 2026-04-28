@@ -135,7 +135,7 @@ bool __init microcode_loader_disabled(void)
 	 * 3) Certain AMD patch levels are not allowed to be
 	 *    overwritten.
 	 */
-	hypervisor_present = native_cpuid_ecx(1) & BIT(31);
+	hypervisor_present = x86_cpuid_has_hypervisor();
 
 	if ((hypervisor_present && !IS_ENABLED(CONFIG_MICROCODE_DBG)) ||
 	    amd_check_current_patch_level())

@@ -147,6 +147,10 @@ u32 intel_get_platform_id(void)
 	if (intel_cpuid_vfm() <= INTEL_PENTIUM_II_KLAMATH)
 		return 0;
 
+	/* Don't try to read microcode bits when virtualized. */
+	if (x86_cpuid_has_hypervisor())
+		return 0;
+
 	/* get processor flags from MSR 0x17 */
 	native_rdmsr(MSR_IA32_PLATFORM_ID, val[0], val[1]);
 

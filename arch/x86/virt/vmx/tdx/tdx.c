@@ -2043,10 +2043,14 @@ static u64 tdh_phymem_pamt_remove(kvm_pfn_t pfn, struct page **pamt_pages)
 	return 0;
 }
 
-/* Allocate PAMT memory for the given page */
+/* Serializes adding/removing PAMT memory */
+static DEFINE_SPINLOCK(pamt_lock);
+
+/* Bump PAMT refcount for the given page and allocate PAMT memory if needed */
 static int tdx_pamt_get(kvm_pfn_t pfn)
 {
 	struct page *pamt_pages[TDX_DPAMT_ENTRY_PAGE_CNT];
+	atomic_t *pamt_refcount;
 	u64 tdx_status;
 	int ret;
 
@@ -2057,10 +2061,26 @@ static int tdx_pamt_get(kvm_pfn_t pfn)
 	if (ret)
 		return ret;
 
-	tdx_status = tdh_phymem_pamt_add(pfn, pamt_pages);
-	if (tdx_status != TDX_SUCCESS) {
-		ret = -EIO;
-		goto out_free;
+	pamt_refcount = tdx_find_pamt_refcount(pfn);
+
+	scoped_guard(spinlock, &pamt_lock) {
+		/*
+		 * If the pamt page is already added (i.e. refcount >= 1),
+		 * then just increment the refcount.
+		 */
+		if (atomic_read(pamt_refcount)) {
+			atomic_inc(pamt_refcount);
+			goto out_free;
+		}
+
+		/* Try to add the pamt page and take the refcount 0->1. */
+		tdx_status = tdh_phymem_pamt_add(pfn, pamt_pages);
+		if (WARN_ON_ONCE(tdx_status != TDX_SUCCESS)) {
+			ret = -EIO;
+			goto out_free;
+		}
+
+		atomic_set(pamt_refcount, 1);
 	}
 
 	return 0;
@@ -2069,26 +2089,46 @@ out_free:
 	return ret;
 }
 
-/* Free PAMT memory for the given page */
+/*
+ * Drop PAMT refcount for the given page and free PAMT memory if it is no
+ * longer needed.
+ */
 static void tdx_pamt_put(kvm_pfn_t pfn)
 {
 	struct page *pamt_pages[TDX_DPAMT_ENTRY_PAGE_CNT] = {};
+	atomic_t *pamt_refcount;
 	u64 tdx_status;
 
 	if (!tdx_supports_dynamic_pamt(&tdx_sysinfo))
 		return;
 
-	tdx_status = tdh_phymem_pamt_remove(pfn, pamt_pages);
+	pamt_refcount = tdx_find_pamt_refcount(pfn);
 
-	/*
-	 * Don't free pamt_pages as it could hold garbage when
-	 * tdh_phymem_pamt_remove() fails.  Don't panic/BUG_ON(), as
-	 * there is no risk of data corruption, but do yell loudly as
-	 * failure indicates a kernel bug, memory is being leaked, and
-	 * the dangling PAMT entry may cause future operations to fail.
-	 */
-	if (WARN_ON_ONCE(tdx_status != TDX_SUCCESS))
-		return;
+	scoped_guard(spinlock, &pamt_lock) {
+		/*
+		 * If the there are more than 1 references on the pamt page,
+		 * don't remove it yet. Just decrement the refcount.
+		 */
+		if (atomic_read(pamt_refcount) > 1) {
+			atomic_dec(pamt_refcount);
+			return;
+		}
+
+		/* Try to remove the pamt page and take the refcount 1->0. */
+		tdx_status = tdh_phymem_pamt_remove(pfn, pamt_pages);
+
+		/*
+		 * Don't free pamt_pages as it could hold garbage when
+		 * tdh_phymem_pamt_remove() fails.  Don't panic/BUG_ON(), as
+		 * there is no risk of data corruption, but do yell loudly as
+		 * failure indicates a kernel bug, memory is being leaked, and
+		 * the dangling PAMT entry may cause future operations to fail.
+		 */
+		if (WARN_ON_ONCE(tdx_status != TDX_SUCCESS))
+			return;
+
+		atomic_set(pamt_refcount, 0);
+	}
 
 	free_pamt_array(pamt_pages);
 }

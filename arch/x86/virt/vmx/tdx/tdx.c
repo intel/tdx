@@ -289,7 +289,7 @@ static __init void free_pamt_refcounts(void)
 	pamt_refcounts = NULL;
 }
 
-static atomic_t * __maybe_unused tdx_find_pamt_refcount(unsigned long pfn)
+static atomic_t *tdx_find_pamt_refcount(unsigned long pfn)
 {
 	/* Find which PMD a PFN is in. */
 	unsigned long index = pfn >> (PMD_SHIFT - PAGE_SHIFT);
@@ -2120,10 +2120,14 @@ static u64 tdh_phymem_pamt_remove(kvm_pfn_t pfn, struct page **pamt_pages)
 	return 0;
 }
 
-/* Allocate PAMT memory for the given page */
+/* Serializes adding/removing PAMT memory */
+static DEFINE_SPINLOCK(pamt_lock);
+
+/* Bump PAMT refcount for the given pfn and allocate PAMT backing if needed. */
 static int tdx_pamt_get(kvm_pfn_t pfn)
 {
 	struct page *pamt_pages[TDX_DPAMT_ENTRY_PAGE_CNT];
+	atomic_t *pamt_refcount;
 	u64 tdx_status;
 	int ret;
 
@@ -2134,29 +2138,58 @@ static int tdx_pamt_get(kvm_pfn_t pfn)
 	if (ret)
 		return ret;
 
+	pamt_refcount = tdx_find_pamt_refcount(pfn);
+
+	spin_lock(&pamt_lock);
+
+	/*
+	 * If the pamt page is already added (i.e. refcount >= 1),
+	 * then just increment the refcount.
+	 */
+	if (atomic_inc_not_zero(pamt_refcount))
+		goto out_free;
+
+	/* Try to add the PAMT page and take the refcount 0->1. */
 	tdx_status = tdh_phymem_pamt_add(pfn, pamt_pages);
-	if (tdx_status != TDX_SUCCESS) {
+	if (WARN_ON_ONCE(tdx_status != TDX_SUCCESS)) {
 		ret = -EIO;
 		goto out_free;
 	}
 
+	atomic_set(pamt_refcount, 1);
+	spin_unlock(&pamt_lock);
 	return 0;
 
 out_free:
+	spin_unlock(&pamt_lock);
 	free_pamt_array(pamt_pages);
 
 	return ret;
 }
 
-/* Free PAMT memory for the given page */
+/* Drop PAMT refcount for the given pfn and free PAMT backing if needed. */
 static void tdx_pamt_put(kvm_pfn_t pfn)
 {
 	struct page *pamt_pages[TDX_DPAMT_ENTRY_PAGE_CNT] = {};
+	atomic_t *pamt_refcount;
 	u64 tdx_status;
 
 	if (!tdx_supports_dynamic_pamt(&tdx_sysinfo))
 		return;
 
+	pamt_refcount = tdx_find_pamt_refcount(pfn);
+
+	spin_lock(&pamt_lock);
+	/*
+	 * If there is more than 1 reference on the pamt page, don't
+	 * remove it yet. Just decrement the refcount.
+	 */
+	if (atomic_read(pamt_refcount) > 1) {
+		atomic_dec(pamt_refcount);
+		goto out_unlock;
+	}
+
+	/* Try to remove the pamt page and take the refcount 1->0. */
 	tdx_status = tdh_phymem_pamt_remove(pfn, pamt_pages);
 
 	/*
@@ -2167,9 +2200,14 @@ static void tdx_pamt_put(kvm_pfn_t pfn)
 	 * the dangling PAMT entry may cause future operations to fail.
 	 */
 	if (WARN_ON_ONCE(tdx_status != TDX_SUCCESS))
-		return;
+		goto out_unlock;
 
+	atomic_set(pamt_refcount, 0);
+	spin_unlock(&pamt_lock);
 	free_pamt_array(pamt_pages);
+	return;
+out_unlock:
+	spin_unlock(&pamt_lock);
 }
 
 /*

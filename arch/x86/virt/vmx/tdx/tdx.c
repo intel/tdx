@@ -1175,6 +1175,32 @@ static __init int init_tdmrs(struct tdmr_info_list *tdmr_list)
 	return 0;
 }
 
+/* Initialize quoting extension */
+static __init int tdx_quote_init(void)
+{
+	struct tdx_module_args args = {};
+	u64 r;
+
+	do {
+		r = seamcall(TDH_QUOTE_INIT, &args);
+	} while (r == TDX_INTERRUPTED_RESUMABLE);
+
+	if (r != TDX_SUCCESS)
+		return -EFAULT;
+
+	return 0;
+}
+
+static __init void init_tdx_quoting_extension(void)
+{
+	int ret;
+
+	if (tdx_addon_feature0 & TDX_FEATURES0_QUOTE) {
+		ret = tdx_quote_init();
+		WARN_ON_ONCE(ret);
+	}
+}
+
 #define TDX_HPA_LIST_MAX_NR_PAGES	(PAGE_SIZE / sizeof(u64))
 
 struct tdx_hpa_list {
@@ -1329,7 +1355,13 @@ static __init int init_tdx_module_extensions(void)
 	if (ret)
 		return ret;
 
-	return tdx_ext_init();
+	ret = tdx_ext_init();
+	if (ret)
+		return ret;
+
+	init_tdx_quoting_extension();
+
+	return 0;
 }
 
 /*

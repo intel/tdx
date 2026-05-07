@@ -149,6 +149,8 @@ struct tdx_vp {
 };
 
 bool tdx_quote_enabled(void);
+void *tdx_quote_generate(struct tdx_td *td, void *in_data, u32 in_data_len,
+			 u32 *quote_len);
 void tdx_sys_disable(void);
 
 u64 tdh_vp_enter(struct tdx_vp *vp, struct tdx_module_args *args);

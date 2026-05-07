@@ -185,7 +185,7 @@ static void td_init_cpuid_entry2(struct kvm_cpuid_entry2 *entry, unsigned char i
 	tdx_clear_unsupported_cpuid(entry);
 }
 
-#define TDVMCALLINFO_SETUP_EVENT_NOTIFY_INTERRUPT	BIT(1)
+#define TDVMCALLINFO_SETUP_EVENT_NOTIFY_INTERRUPT	BIT_ULL(1)
 
 static int init_kvm_tdx_caps(const struct tdx_sys_info_td_conf *td_conf,
 			     struct kvm_tdx_capabilities *caps)
@@ -202,8 +202,15 @@ static int init_kvm_tdx_caps(const struct tdx_sys_info_td_conf *td_conf,
 
 	caps->cpuid.nent = td_conf->num_cpuid_config;
 
-	caps->user_tdvmcallinfo_1_r11 =
-		TDVMCALLINFO_SETUP_EVENT_NOTIFY_INTERRUPT;
+	/*
+	 * Don't advertise userspace event-notify interrupt support if TDX
+	 * quoting service is enabled, as quote generation will be handled
+	 * entirely in the kernel. Support in the kernel can be added later.
+	 */
+	if (!tdx_quote_enabled()) {
+		caps->user_tdvmcallinfo_1_r11 |=
+			TDVMCALLINFO_SETUP_EVENT_NOTIFY_INTERRUPT;
+	}
 
 	for (i = 0; i < td_conf->num_cpuid_config; i++)
 		td_init_cpuid_entry2(&caps->cpuid.entries[i], i);
@@ -1704,8 +1711,15 @@ static int tdx_get_quote(struct kvm_vcpu *vcpu)
 
 static int tdx_setup_event_notify_interrupt(struct kvm_vcpu *vcpu)
 {
+	struct kvm_tdx *kvm_tdx = to_kvm_tdx(vcpu->kvm);
 	struct vcpu_tdx *tdx = to_tdx(vcpu);
 	u64 vector = tdx->vp_enter_args.r12;
+
+	/* See comment in init_kvm_tdx_caps() */
+	if (kvm_tdx->get_quote_in_kernel) {
+		tdvmcall_set_return_code(vcpu, TDVMCALL_STATUS_SUBFUNC_UNSUPPORTED);
+		return 1;
+	}
 
 	if (vector < 32 || vector > 255) {
 		tdvmcall_set_return_code(vcpu, TDVMCALL_STATUS_INVALID_OPERAND);

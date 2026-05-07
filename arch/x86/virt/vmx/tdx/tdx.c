@@ -1201,6 +1201,16 @@ static inline phys_addr_t tdx_vmalloc_to_pa(const void *addr)
 	return PFN_PHYS(pfn);
 }
 
+bool tdx_quote_enabled(void)
+{
+	/*
+	 * No need for locking here. The quote buffer is initialized as part of
+	 * core TDX bringup, which comes before KVM is ready for userspace.
+	 */
+	return !!tdx_quote.buf;
+}
+EXPORT_SYMBOL_FOR_KVM(tdx_quote_enabled);
+
 #define HPAS_PER_NODE			(PAGE_SIZE / sizeof(u64))
 
 /*

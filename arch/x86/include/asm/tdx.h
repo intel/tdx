@@ -148,6 +148,7 @@ struct tdx_vp {
 	struct page **tdcx_pages;
 };
 
+bool tdx_quote_enabled(void);
 void tdx_sys_disable(void);
 
 u64 tdh_vp_enter(struct tdx_vp *vp, struct tdx_module_args *args);

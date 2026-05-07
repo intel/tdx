@@ -1194,6 +1194,11 @@ static __init int init_tdmrs(struct tdmr_info_list *tdmr_list)
 	return 0;
 }
 
+static inline u64 tdx_tdr_pa(struct tdx_td *td)
+{
+	return page_to_phys(td->tdr_page);
+}
+
 static inline phys_addr_t tdx_vmalloc_to_pa(const void *addr)
 {
 	unsigned long pfn = vmalloc_to_pfn(addr);
@@ -1987,11 +1992,6 @@ void tdx_guest_keyid_free(unsigned int keyid)
 	ida_free(&tdx_guest_keyid_pool, keyid);
 }
 EXPORT_SYMBOL_FOR_KVM(tdx_guest_keyid_free);
-
-static inline u64 tdx_tdr_pa(struct tdx_td *td)
-{
-	return page_to_phys(td->tdr_page);
-}
 
 /*
  * The TDX module exposes a CLFLUSH_BEFORE_ALLOC bit to specify whether

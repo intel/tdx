@@ -1,0 +1,105 @@
+From bf3b60318a9d2cc670e0678e58137cb9a6f4603e Mon Sep 17 00:00:00 2001
+From: Xu Yilun <yilun.xu@linux.intel.com>
+Date: Thu, 18 Jun 2026 15:50:24 +0800
+Subject: [PATCH v2 00/17] Enable TDX module extensions
+
+We are trying to get detailed review and some acks for this series.
+
+Dave please feel free to ignore. Kiryl, Rick and TDX developers, please
+help take a look.
+
+== Why it's split out ==
+
+The extension patches are pre-requisite for several TDX features (DICE,
+TDISP, TD migration). We would appreciate community review and ack so
+that all of the extension-based work can build on it.
+
+Previously this series had been posted along with DICE [1]. But now it
+is split. It was confusing review to have them together and DICE needs
+more time to implement feedback.
+
+The DICE part is in the full branch [2] as an example for extensions.
+But it does not include the other DICE feedbacks.
+
+[1] https://lore.kernel.org/lkml/20260618081355.3253581-1-yilun.xu@linux.intel.com/
+[2] https://github.com/intel-staging/tdx/tree/tdx-module-ext
+
+== Branch stack ==
+
+This is based on v7.2-rc1, the full branch contains:
+
+  Patch 1:   SEAMCALL version patch [3] which is WIP on community review.
+  Patch 2~8: This series, including this cover-letter.
+  Patch 9~N: The old DICE part as an example.
+
+[3] https://lore.kernel.org/all/20260722084634.131020-1-yilun.xu@linux.intel.com/
+
+== Overview ==
+
+To date, SEAMCALL execution must complete quickly to avoid stalling the
+host, or yield quickly at pre-defined interrupt checkpoints. This is
+acceptable for the existing SEAMCALL leaves, which perform simple,
+bounded operations.
+
+However, some new features such as attestation and TD migration require
+higher level security protocols inside the TDX module, which cannot fit
+within that constraint. TDX solves this by making those operations
+inherently preemptible and resumable like OS tasks. TDX provides a
+separate SEAMCALL execution environment - the TDX module extensions -
+for those operations.
+
+This capability allows for higher-level SEAMCALL ABI design - like
+"create a DICE-based quote". Several new features, such as DICE-based
+quoting, TDISP and TD migration, use SEAMCALL leaves backed by the TDX
+module extensions.
+
+The TDX module extensions need memory for their own internal state and
+data to serve these SEAMCALL leaves, so they need extra setup during TDX
+module initialization. At runtime, the host invokes these SEAMCALL
+leaves just as normal ones - if interrupted, simply re-invoke the leaf
+to resume.
+
+For more information on TDX module extensions, please refer to [4].
+
+[4] https://lore.kernel.org/lkml/20260618081355.3253581-1-yilun.xu@linux.intel.com/
+
+== Changes ==
+
+Dave pointed out the SEAMCALL version change could be a separate
+discussion. Split the patch out from this series.
+
+Chao asked if the extensions re-initialization flow could be simplified
+by unconditionally executing TDH.EXT.INIT and leaving the validity check
+to the module. Yilun pointed out that if we don't honor the updated
+metadata, the SEAMCALL leaf may fail then the entire update fails. Rick
+pointed out if an update results in different metadata for the
+extensions, it is an incompatible update so the update failure is
+expected. We agreed on this, so now the simplified re-initialization
+flow is: execute TDH.EXT.INIT unless the extensions were originally not
+required at boot time. This also moves the extensions' metadata back to
+tdx_sys_info, as they now read at boot time and never updated afterward.
+
+Another comment is that Xiaoyao and Rick pointed out the interruptible
+resumable capability provided by the extensions is not new. From the
+host perspective, some existing SEAMCALL leaves can save states, return
+from interrupt and resume. So I no longer emphasize that the new
+SEAMCALL leaves are new type of resumable calls. Instead I explained the
+yielding details in TDX module to justify why TDX module extensions are
+needed.
+
+Rick pointed out the selection of SEAMCALL leaf version for
+TDH.SYS.CONFIG is the TDX ABI detail, mixing the operation with other
+kernel operations makes the version selection logic tenuous. Make a new
+patch which adds SEAMCALL helpers for TDH.SYS.CONFIG/UPDATE.
+
+Quoting v2: https://lore.kernel.org/lkml/20260618081355.3253581-1-yilun.xu@linux.intel.com/
+
+Quoting v1: https://lore.kernel.org/all/20260522034128.3144354-1-yilun.xu@linux.intel.com/
+
+
+
+base-commit: 2b9ad7a6154e0938b9458691536296dd0224942d
+-- 
+2.25.1
+
+

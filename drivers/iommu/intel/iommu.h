@@ -187,6 +187,7 @@
  */
 
 #define ecap_pms(e)		(((e) >> 51) & 0x1)
+#define ecap_tdxc(e)		(((e) >> 50) & 0x1)
 #define ecap_rps(e)		(((e) >> 49) & 0x1)
 #define ecap_smpwc(e)		(((e) >> 48) & 0x1)
 #define ecap_flts(e)		(((e) >> 47) & 0x1)
@@ -1322,6 +1323,12 @@ static inline void intel_iommu_debugfs_remove_dev(struct device_domain_info *inf
 static inline void intel_iommu_debugfs_create_dev_pasid(struct dev_pasid_info *dev_pasid) {}
 static inline void intel_iommu_debugfs_remove_dev_pasid(struct dev_pasid_info *dev_pasid) {}
 #endif /* CONFIG_INTEL_IOMMU_DEBUGFS */
+
+#ifdef CONFIG_INTEL_IOMMU_TDX_CONNECT
+extern bool intel_tdxc_initialized;
+#else
+#define intel_tdxc_initialized (0)
+#endif /* CONFIG_INTEL_IOMMU_TDX_CONNECT */
 
 extern const struct attribute_group *intel_iommu_groups[];
 struct context_entry *iommu_context_addr(struct intel_iommu *iommu, u8 bus,

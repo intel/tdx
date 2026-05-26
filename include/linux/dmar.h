@@ -166,6 +166,18 @@ static inline int dmar_iommu_hotplug(struct dmar_drhd_unit *dmaru, bool insert)
 }
 #endif /* CONFIG_INTEL_IOMMU */
 
+#ifdef CONFIG_INTEL_IOMMU_TDX_CONNECT
+int intel_tdxc_init(void);
+void intel_tdxc_exit(void);
+#else
+static inline int intel_tdxc_init(void)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline void intel_tdxc_exit(void) { }
+#endif /* CONFIG_INTEL_IOMMU_TDX_CONNECT */
+
 #ifdef CONFIG_IRQ_REMAP
 extern int dmar_ir_hotplug(struct dmar_drhd_unit *dmaru, bool insert);
 #else  /* CONFIG_IRQ_REMAP */

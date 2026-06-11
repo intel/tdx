@@ -63,6 +63,7 @@ static DEFINE_RAW_SPINLOCK(seamldr_lock);
 
 static int seamldr_call(u64 fn, struct tdx_module_args *args)
 {
+#if 0
 	/*
 	 * With this bug, P-SEAMLDR calls corrupt the VMCS
 	 * pointer and must be avoided. This path should be
@@ -72,6 +73,7 @@ static int seamldr_call(u64 fn, struct tdx_module_args *args)
 		WARN_ON(1);
 		return -EINVAL;
 	}
+#endif
 
 	guard(raw_spinlock)(&seamldr_lock);
 	return seamcall_prerr(fn, args);

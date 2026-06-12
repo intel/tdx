@@ -1298,7 +1298,7 @@ out_free_hpa_list:
 	return ret;
 }
 
-static __init int tdx_ext_init(void)
+static int tdx_ext_init(void)
 {
 	struct tdx_module_args args = {};
 	u64 ret;
@@ -1337,6 +1337,19 @@ static __init int init_tdx_module_extensions(void)
 	ret = tdx_ext_mem_setup();
 	if (ret)
 		return ret;
+
+	return tdx_ext_init();
+}
+
+/*
+ * Don't update the extensions metadata, just follow the requirement originated
+ * during TDX module initialization. Let the extensions re-initialization fail
+ * if more memory is needed, or if ext_required is dropped after updates.
+ */
+static int reinit_tdx_module_extensions(void)
+{
+	if (!tdx_sysinfo.ext.ext_required)
+		return 0;
 
 	return tdx_ext_init();
 }
@@ -1531,6 +1544,10 @@ int tdx_module_run_update(void)
 	int ret;
 
 	ret = tdx_sys_update();
+	if (ret)
+		return ret;
+
+	ret = reinit_tdx_module_extensions();
 	if (ret)
 		return ret;
 

@@ -151,3 +151,17 @@ static __init int get_tdx_sys_info_ext(struct tdx_sys_info_ext *sysinfo_ext)
 
 	return 0;
 }
+
+static __init int get_tdx_sys_info_quote(struct tdx_sys_info_quote *sysinfo_quote)
+{
+	int ret;
+	u64 val;
+
+	ret = read_sys_metadata_field(0x2300000200000002, &val);
+	if (ret)
+		return ret;
+
+	sysinfo_quote->max_quote_size = val;
+
+	return 0;
+}

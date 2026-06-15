@@ -58,4 +58,8 @@ struct tdx_sys_info {
 	struct tdx_sys_info_ext ext;
 };
 
+struct tdx_sys_info_quote {
+	u32 max_quote_size;
+};
+
 #endif

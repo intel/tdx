@@ -30,6 +30,7 @@
 #include <linux/suspend.h>
 #include <linux/syscore_ops.h>
 #include <linux/idr.h>
+#include <linux/vmalloc.h>
 #include <asm/page.h>
 #include <asm/special_insns.h>
 #include <asm/msr-index.h>
@@ -67,6 +68,24 @@ static struct tdmr_info_list tdx_tdmr_list;
 static LIST_HEAD(tdx_memlist);
 
 static struct tdx_sys_info tdx_sysinfo;
+
+/*
+ * Quote buffer shared with the TDX module for quote generation, in HPA linked
+ * list format.
+ *
+ * @buf: Virtual address of the quote buffer.
+ * @buf_len: Size of @buf in bytes.
+ * @hpa_entries: HPA entries, starting at the first list node.
+ * @hpa_entries_pa: Physical address for @hpa_entries.
+ */
+struct tdx_quote_data {
+	void		*buf;
+	u64		buf_len;
+	u64		*hpa_entries;
+	phys_addr_t	hpa_entries_pa;
+};
+
+static struct tdx_quote_data tdx_quote;
 
 static DEFINE_RAW_SPINLOCK(sysinit_lock);
 
@@ -1175,6 +1194,81 @@ static __init int init_tdmrs(struct tdmr_info_list *tdmr_list)
 	return 0;
 }
 
+static inline phys_addr_t tdx_vmalloc_to_pa(const void *addr)
+{
+	unsigned long pfn = vmalloc_to_pfn(addr);
+
+	return PFN_PHYS(pfn);
+}
+
+#define HPAS_PER_NODE			(PAGE_SIZE / sizeof(u64))
+
+/*
+ * Pass the quote buffer to the TDX module as an HPA linked list, where each
+ * node holds 4KB page HPAs and the last entry points to the next node.
+ */
+static __init int tdx_quote_create_buf(unsigned int npages,
+				       struct tdx_quote_data *qdata)
+{
+	unsigned int nnodes;
+	u64 *hpas;
+	void *qbuf;
+	int i, j;
+
+	if (!npages)
+		return -EINVAL;
+
+	/*
+	 * Each node holds up to (HPAS_PER_NODE - 1) 4KB page HPAs.
+	 * The last entry of the node points to the next node.
+	 */
+	nnodes = DIV_ROUND_UP(npages, HPAS_PER_NODE - 1);
+
+	hpas = vmalloc_array(nnodes, PAGE_SIZE);
+	if (!hpas)
+		return -ENOMEM;
+
+	/*
+	 * ~0ULL is the list terminator for HPA_LINKED_LIST.
+	 *
+	 * Pre-fill the last node with 0xff bytes so that unused entries are
+	 * terminators. Overwrite populated entries later.
+	 */
+	memset((u8 *)hpas + (nnodes - 1) * PAGE_SIZE, 0xff, PAGE_SIZE);
+
+	qbuf = vcalloc(npages, PAGE_SIZE);
+	if (!qbuf)
+		goto out_nomem;
+
+	/* Populate the linked list */
+	for (i = 0, j = 0; j < npages; i++) {
+		if ((i % HPAS_PER_NODE) == HPAS_PER_NODE - 1) {
+			/*
+			 * The last node entry always points to the next node.
+			 * The address of the following entry must be on next
+			 * node's page boundary.
+			 */
+			hpas[i] = tdx_vmalloc_to_pa(&hpas[i + 1]);
+			continue;
+		}
+
+		hpas[i] = tdx_vmalloc_to_pa((u8 *)qbuf + j * PAGE_SIZE);
+		j++;
+	}
+
+	qdata->buf = qbuf;
+	qdata->buf_len = (u64)npages * PAGE_SIZE;
+	qdata->hpa_entries = hpas;
+	qdata->hpa_entries_pa = tdx_vmalloc_to_pa(hpas);
+
+	return 0;
+
+out_nomem:
+	vfree(hpas);
+
+	return -ENOMEM;
+}
+
 /* Initialize quoting extension */
 static __init int tdx_quote_init(void)
 {
@@ -1193,12 +1287,25 @@ static __init int tdx_quote_init(void)
 
 static __init void init_tdx_quoting_extension(void)
 {
-	int ret;
+	struct tdx_sys_info_quote sysinfo_quote;
+	unsigned int nr_quote_pages;
 
-	if (tdx_addon_feature0 & TDX_FEATURES0_QUOTE) {
-		ret = tdx_quote_init();
-		WARN_ON_ONCE(ret);
+	if (!(tdx_addon_feature0 & TDX_FEATURES0_QUOTE))
+		return;
+
+	if (tdx_quote_init()) {
+		WARN_ON_ONCE(1);
+		return;
 	}
+
+	/* Quoting metadata is valid only after initialization */
+	if (get_tdx_sys_info_quote(&sysinfo_quote))
+		return;
+
+	nr_quote_pages = PAGE_ALIGN(sysinfo_quote.max_quote_size) /
+			 PAGE_SIZE;
+	if (tdx_quote_create_buf(nr_quote_pages, &tdx_quote))
+		pr_err("Failed to create quote buffer\n");
 }
 
 #define TDX_HPA_LIST_MAX_NR_PAGES	(PAGE_SIZE / sizeof(u64))

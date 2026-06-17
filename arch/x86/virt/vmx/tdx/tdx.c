@@ -1361,8 +1361,11 @@ out_nomem:
 	return -ENOMEM;
 }
 
-/* Initialize quoting extension */
-static __init int tdx_quote_init(void)
+/*
+ * Initialize quoting extension.
+ * It also rekeys the TDX module after a runtime module update.
+ */
+static int tdx_quote_init(void)
 {
 	struct tdx_module_args args = {};
 	u64 r;
@@ -1563,6 +1566,22 @@ static __init int init_tdx_module_extensions(void)
 	return 0;
 }
 
+static void update_tdx_quoting_extension(void)
+{
+	int ret;
+
+	if (tdx_addon_feature0 & TDX_FEATURES0_QUOTE) {
+		/*
+		 * The TDH.QUOTE.INIT call renews the quoting keys.
+		 *
+		 * A module update must not increase the quote buffer size, or
+		 * quote generation may fail and break attestation.
+		 */
+		ret = tdx_quote_init();
+		WARN_ON(ret);
+	}
+}
+
 /*
  * Don't update the extensions metadata, just follow the requirement originated
  * during TDX module initialization. Let the extensions re-initialization fail
@@ -1570,10 +1589,18 @@ static __init int init_tdx_module_extensions(void)
  */
 static int update_tdx_module_extensions(void)
 {
+	int ret;
+
 	if (!tdx_sysinfo.ext.ext_required)
 		return 0;
 
-	return tdx_ext_init();
+	ret = tdx_ext_init();
+	if (ret)
+		return ret;
+
+	update_tdx_quoting_extension();
+
+	return 0;
 }
 
 static __init int init_tdx_module(void)

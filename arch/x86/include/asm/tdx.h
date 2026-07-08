@@ -148,6 +148,15 @@ struct tdx_vp {
 	struct page **tdcx_pages;
 };
 
+struct tdx_hpa_list;
+
+struct tdx_hpa_list_info {
+	/* HPA_LIST structure */
+	struct tdx_hpa_list *hpa_list;
+	/* Number of valid pages in HPA_LIST structure */
+	unsigned int nr_pages;
+};
+
 void tdx_sys_disable(void);
 
 u64 tdh_vp_enter(struct tdx_vp *vp, struct tdx_module_args *args);

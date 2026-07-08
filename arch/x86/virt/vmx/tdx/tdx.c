@@ -2176,28 +2176,41 @@ int tdx_pamt_get(kvm_pfn_t pfn, struct tdx_pamt_cache *cache)
 	if (!tdx_supports_dynamic_pamt(&tdx_sysinfo))
 		return 0;
 
-	ret = alloc_pamt_array(pamt_pages, cache);
-	if (ret)
-		return ret;
-
 	dpamt_refcount = tdx_find_dpamt_refcount(pfn);
-
-	spin_lock(&dpamt_lock);
 
 	/*
 	 * If the DPAMT entry is already added (i.e. refcount >= 1),
 	 * then just increment the refcount.
 	 */
 	if (atomic_inc_not_zero(dpamt_refcount))
+		return 0;
+
+	ret = alloc_pamt_array(pamt_pages, cache);
+	if (ret)
+		return ret;
+
+	spin_lock(&dpamt_lock);
+
+	/*
+	 * Unlike tdx_pamt_put() which uses atomic_dec_and_lock() to
+	 * atomically handle the 1->0 transition, the get side has no
+	 * equivalent combined primitive for 0->1. Recheck under the
+	 * lock since another get may have already done the 0->1
+	 * transition after both saw atomic_inc_not_zero() fail.
+	 */
+	if (atomic_inc_not_zero(dpamt_refcount))
 		goto out_free;
 
-	/* Try to add the PAMT page and take the refcount 0->1. */
 	tdx_status = tdh_phymem_pamt_add(pfn, pamt_pages);
 	if (WARN_ON_ONCE(tdx_status != TDX_SUCCESS)) {
 		ret = -EIO;
 		goto out_free;
 	}
 
+	/*
+	 * The refcount is zero, and this locked path is the
+	 * only way to increase it from 0->1.
+	 */
 	atomic_set(dpamt_refcount, 1);
 	spin_unlock(&dpamt_lock);
 	return 0;
@@ -2222,17 +2235,13 @@ void tdx_pamt_put(kvm_pfn_t pfn)
 
 	dpamt_refcount = tdx_find_dpamt_refcount(pfn);
 
-	spin_lock(&dpamt_lock);
 	/*
 	 * If there is more than 1 reference on the DPAMT entry, don't
 	 * remove it yet. Just decrement the refcount.
 	 */
-	if (atomic_read(dpamt_refcount) > 1) {
-		atomic_dec(dpamt_refcount);
-		goto out_unlock;
-	}
+	if (!atomic_dec_and_lock(dpamt_refcount, &dpamt_lock))
+		return;
 
-	/* Try to remove the pamt page and take the refcount 1->0. */
 	tdx_status = tdh_phymem_pamt_remove(pfn, pamt_pages);
 
 	/*
@@ -2242,10 +2251,15 @@ void tdx_pamt_put(kvm_pfn_t pfn)
 	 * failure indicates a kernel bug, memory is being leaked, and
 	 * the dangling DPAMT entry may cause future operations to fail.
 	 */
-	if (WARN_ON_ONCE(tdx_status != TDX_SUCCESS))
+	if (WARN_ON_ONCE(tdx_status != TDX_SUCCESS)) {
+		/*
+		 * atomic_dec_and_lock() already decremented it to 0,
+		 * but the DPAMT entry still exists since REMOVE failed.
+		 */
+		atomic_set(dpamt_refcount, 1);
 		goto out_unlock;
+	}
 
-	atomic_set(dpamt_refcount, 0);
 	spin_unlock(&dpamt_lock);
 	free_pamt_array(pamt_pages);
 	return;

@@ -1408,6 +1408,8 @@ static int reinit_tdx_module_extensions(void)
 	return tdx_ext_init();
 }
 
+static struct page *tdisp_dummy_page;
+
 static __init int init_tdx_module(void)
 {
 	int ret;
@@ -1467,6 +1469,9 @@ static __init int init_tdx_module(void)
 		goto err_reset_pamts;
 
 	pr_info("%lu KB allocated for PAMT\n", tdmrs_count_pamt_kb(&tdx_tdmr_list));
+
+	tdisp_dummy_page = alloc_page(GFP_KERNEL | __GFP_ZERO);
+	WARN_ON(!tdisp_dummy_page);
 
 out_put_tdxmem:
 	/*
@@ -2404,11 +2409,7 @@ u64 tdh_spdm_delete(u64 spdm_id)
 {
 	struct tdx_module_args args = {
 		.rcx = spdm_id,
-		/*
-		 * All 1-s means no buffer, no need to receive the HPA list for
-		 * released pages.
-		 */
-		.rdx = U64_MAX,
+		.rdx = page_to_phys(tdisp_dummy_page),
 	};
 
 	return seamcall(TDH_SPDM_DELETE, &args);

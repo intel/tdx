@@ -157,6 +157,10 @@ struct tdx_hpa_list_info {
 	unsigned int nr_pages;
 };
 
+int tdx_hpa_list_info_setup(struct tdx_hpa_list_info *info, const void *addr,
+			    unsigned int nr_pages);
+void tdx_hpa_list_info_free(struct tdx_hpa_list_info *info);
+
 void tdx_sys_disable(void);
 
 u64 tdh_vp_enter(struct tdx_vp *vp, struct tdx_module_args *args);

@@ -1182,6 +1182,68 @@ struct tdx_hpa_list {
 
 static_assert(sizeof(struct tdx_hpa_list) == PAGE_SIZE);
 
+static void tdx_hpa_list_info_populate(struct tdx_hpa_list_info *info,
+				       const void *addr, unsigned int nr_pages)
+{
+	int i;
+
+	for (i = 0; i < nr_pages; i++)
+		info->hpa_list->phys[i] = __pa((const u8 *)addr + i * PAGE_SIZE);
+
+	info->nr_pages = nr_pages;
+}
+
+static int tdx_hpa_list_info_init(struct tdx_hpa_list_info *info)
+{
+	struct tdx_hpa_list *hpa_list;
+
+	/*
+	 * Allocate the container page for the HPA_LIST. tdx_hpa_list is
+	 * guaranteed to be page-sized by static_assert(), so kzalloc()
+	 * guarantees the page alignment.
+	 */
+	hpa_list = kzalloc_obj(*hpa_list);
+	if (!hpa_list)
+		return -ENOMEM;
+
+	info->hpa_list = hpa_list;
+	return 0;
+}
+
+void tdx_hpa_list_info_free(struct tdx_hpa_list_info *info)
+{
+	if (!info)
+		return;
+
+	kfree(info->hpa_list);
+}
+EXPORT_SYMBOL_FOR_MODULES(tdx_hpa_list_info_free, "tdx-host");
+
+/*
+ * @addr points to a kernel allocated memory. Transform it into @info which is
+ * the input of SEAMCALL helpers.
+ *
+ * Note only direct-mapped memory is currently supported. vmalloc()'d memory is
+ * not yet supported.
+ */
+int tdx_hpa_list_info_setup(struct tdx_hpa_list_info *info, const void *addr,
+			    unsigned int nr_pages)
+{
+	int ret;
+
+	if (!nr_pages || nr_pages > TDX_HPA_LIST_MAX_NR_PAGES)
+		return -EINVAL;
+
+	ret = tdx_hpa_list_info_init(info);
+	if (ret)
+		return ret;
+
+	tdx_hpa_list_info_populate(info, addr, nr_pages);
+
+	return 0;
+}
+EXPORT_SYMBOL_FOR_MODULES(tdx_hpa_list_info_setup, "tdx-host");
+
 #define HPA_LIST_INFO_FIRST_ENTRY	GENMASK_U64(11, 3)
 #define HPA_LIST_INFO_PFN		GENMASK_U64(51, 12)
 #define HPA_LIST_INFO_LAST_ENTRY	GENMASK_U64(63, 55)
@@ -1221,7 +1283,6 @@ static __init int tdx_ext_mem_setup(void)
 {
 	unsigned int required_pages = tdx_sysinfo.ext.memory_pool_required_pages;
 	struct tdx_hpa_list_info info;
-	struct tdx_hpa_list *hpa_list;
 	unsigned int added_pages;
 	struct page *page;
 	int ret;
@@ -1238,16 +1299,9 @@ static __init int tdx_ext_mem_setup(void)
 	if (!required_pages)
 		return 0;
 
-	/*
-	 * Allocate the container page for the HPA_LIST. tdx_hpa_list is
-	 * guaranteed to be page-sized by static_assert(), so kzalloc()
-	 * guarantees the page alignment.
-	 */
-	hpa_list = kzalloc_obj(*hpa_list);
-	if (!hpa_list)
-		return -ENOMEM;
-
-	info.hpa_list = hpa_list;
+	ret = tdx_hpa_list_info_init(&info);
+	if (ret)
+		return ret;
 
 	/*
 	 * Memory for TDX module extensions is never reclaimed and can be tens
@@ -1266,12 +1320,9 @@ static __init int tdx_ext_mem_setup(void)
 		unsigned int chunk_pages = min(required_pages - added_pages,
 					       TDX_HPA_LIST_MAX_NR_PAGES);
 		struct page *chunk = page + added_pages;
-		unsigned int i;
 
-		for (i = 0; i < chunk_pages; i++)
-			hpa_list->phys[i] = page_to_phys(chunk + i);
-
-		info.nr_pages = chunk_pages;
+		tdx_hpa_list_info_populate(&info, page_address(chunk),
+					   chunk_pages);
 
 		ret = tdx_ext_mem_add(&info);
 		if (ret) {
@@ -1296,7 +1347,7 @@ static __init int tdx_ext_mem_setup(void)
 		required_pages * PAGE_SIZE / 1024);
 
 out_free_hpa_list:
-	kfree(hpa_list);
+	tdx_hpa_list_info_free(&info);
 
 	return ret;
 }

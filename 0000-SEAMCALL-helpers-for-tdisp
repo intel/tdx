@@ -1,0 +1,113 @@
+From 87c9d116fc5248f9ed9a6ef2aa9e2c7ef062f52f Mon Sep 17 00:00:00 2001
+From: Xu Yilun <yilun.xu@intel.com>
+Date: Tue, 21 Jul 2026 07:44:32 -0400
+Subject: [PATCH 0/4] SEAMCALL helpers for TDX PCIe Link Encryption
+
+This posting is just to collect initial review. They are all
+x86/virt/tdx changes, so Dave, Krill, Rick and Dan please take a look.
+
+This series adds SEAMCALL helpers in preparation for PCIe link
+encryption on TDX platforms. It is part of the TDX PCIe Link Encryption
+feature but is split out for 2 purposes:
+
+ 1. The SEAMCALL helpers are relatively independent so the splitting
+    reduces the size of the Link Encryption series, making it easier to
+    review.
+
+ 2. Invite earlier discussion on the abstraction of HPA_LIST_INFO, which
+    is used across multiple SEAMCALLs for TDX module extensions, TDX
+    TDISP and TD migration.
+
+== Overview ==
+
+TDISP (TEE Device Interface Security Protocol) is a PCI-SIG standard
+for link encryption & trust establishment between CoCo-VM and assigned
+devices, allowing CoCo-VM to accept devices for private memory access
+(private DMA), improving I/O performance for Confidential
+Computing (CC). This series focuses on the link encryption part of the
+TDX TDISP feature.
+
+Two protocols, SPDM (Security Protocol and Data Model) and PCI
+IDE (Integrity and Data Encryption) work together to establish the link
+encryption. SPDM creates trust on untrusted transit for key exchange.
+IDE performs the actual real-time encryption for data traffic. In the CC
+world, they are managed by secure firmware. On TDX platforms, the TDX
+module plays this role, and the host drives these operations through
+these newly introduced SEAMCALLs.
+
+One major problem to solve in this series is the generic abstraction for
+the SEAMCALL parameter type - HPA_LIST_INFO. This is a TDX module
+defined structure to carry multi-page memory exchanges between the host
+and TDX module. This concept is first introduced in TDX module
+extensions initialization but is described by separate parameters, a
+page of HPA list entries and an entry count. This pattern would bloat
+the parameter list and diverge from the TDX module ABI as it appears in
+more and more SEAMCALL helpers.
+
+A struct tdx_hpa_list_info is introduced to consolidate the parameters
+for SEAMCALL helpers. Several helpers are also introduced to setup/free
+the tdx_hpa_list_info structure in a generic way.
+
+== Some history ==
+
+There was another page list structure defined in TDX module ABI -
+HPA_ARRAY_T - which is similar to HPA_LIST_INFO but has an extra
+"singleton mode" optimization. Recent discussions show the optimization
+is premature so HPA_ARRAY_T is removed from TDX module ABI. It is either
+replaced by HPA_LIST_INFO for multi-page cases, or by an HPA for
+single-page cases.
+
+Some destroy SEAMCALLs (such as TDH.SPDM.DELETE) previously required the
+host to provide a container page (called AUX page in TDX module ABI) to
+receive an HPA list of released pages. Linux doesn't rely on this
+mechanism to track memory lifecycle so the ABI is changed to allow for a
+NULL_PA (U64_MAX) input.
+
+These 2 ABI changes are not published yet, so may cause confusing when
+refering to ABI spec.
+
+== References ==
+
+The HPA_LIST_INFO definition can be found at "Intel TDX Module ABI
+Specification" [1], Section 3.5.3
+
+The SEAMCALL definitions for TDX TDISP can be found at "Intel TDX
+Connect ABI Specification" [2].
+
+The SEAMCALL definitions for TD Migration can be found at "Intel TDX
+Module TD Migration ABI Specification" [3].
+
+This series is based on the TDX module Extensions Initialization, which
+is part of the "DICE-based TDX Quoting Extension" series [4]. This
+series doesn't include the actual TDX Link Encryption implementation
+which is the user of these exported helpers. Those patches will be sent
+later. A full preview of all these dependencies and follow-ups can be
+found at [5].
+
+  Patch 1-6:   TDX module extensions initialization, posted at [4].
+  Patch 7-13:  Introduce trusted IOMMU support for TEE I/O
+  Patch 14-18: This series, including this cover letter
+  Patch 19-N:  PCIe Link Encryption Establishment via TDX platform services
+
+
+Link: https://cdrdv2.intel.com/v1/dl/getContent/733579 # [1]
+Link: https://cdrdv2.intel.com/v1/dl/getContent/858625 # [2]
+Link: https://cdrdv2.intel.com/v1/dl/getContent/921589 # [3]
+Link: https://lore.kernel.org/all/20260618081355.3253581-1-yilun.xu@linux.intel.com/ [4]
+Link: https://github.com/intel-staging/tdx/tree/tdisp_phase1 # [5]
+
+
+Xu Yilun (4):
+  x86/virt/tdx: Consolidate HPA list parameters into a structure
+  x86/virt/tdx: Add SEAMCALL helpers for SPDM management
+  x86/virt/tdx: Add SEAMCALL helpers for IDE stream management
+  x86/virt/tdx: Add APIs to support HPA_LIST_INFO ops for TDX TDISP
+
+ arch/x86/include/asm/tdx.h  |  34 +++++
+ arch/x86/virt/vmx/tdx/tdx.c | 252 +++++++++++++++++++++++++++++++++---
+ arch/x86/virt/vmx/tdx/tdx.h |   9 ++
+ 3 files changed, 279 insertions(+), 16 deletions(-)
+
+-- 
+2.27.0
+

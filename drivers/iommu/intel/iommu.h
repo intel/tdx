@@ -680,6 +680,17 @@ struct iommu_pmu {
 #define IOMMU_IRQ_ID_OFFSET_PRQ		(DMAR_UNITS_SUPPORTED)
 #define IOMMU_IRQ_ID_OFFSET_PERF	(2 * DMAR_UNITS_SUPPORTED)
 
+/*
+ * Represents a list of pages for TDX Module defined IOMMU_MT object.
+ * Typically it uses a "root page" as the medium to exchange a list of
+ * data pages between host and TDX Module.
+ */
+struct tdxc_pages {
+	u64 *root;
+	void **pages;
+	unsigned int nr_entries;
+};
+
 struct intel_iommu {
 	void __iomem	*reg; /* Pointer to hardware regs, virtual addr */
 	u64 		reg_phys; /* physical address of hw register set */
@@ -736,6 +747,12 @@ struct intel_iommu {
 	void *perf_statistic;
 
 	struct iommu_pmu *pmu;
+#ifdef CONFIG_INTEL_IOMMU_TDX_CONNECT
+	/* mutex to protect below tdx state data */
+	struct mutex tdx_lock;
+	u64 tdx_iommu_id;
+	struct tdxc_pages *mt_pages;
+#endif
 };
 
 /* PCI domain-device relationship */

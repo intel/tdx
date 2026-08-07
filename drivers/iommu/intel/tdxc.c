@@ -129,6 +129,7 @@ free_array:
 
 static int intel_iommu_bringup_tdxc(struct intel_iommu *iommu, unsigned int nr_pages)
 {
+	unsigned long ndoms = cap_ndoms(iommu->cap);
 	struct dmar_drhd_unit *drhd = iommu->drhd;
 	u64 r, tdx_iommu_id;
 
@@ -144,6 +145,10 @@ static int intel_iommu_bringup_tdxc(struct intel_iommu *iommu, unsigned int nr_p
 	if (!iommu_mt)
 		return -ENOMEM;
 
+	guard(mutex)(&iommu->did_lock);
+	if (ida_find_first_range(&iommu->domain_ida, ndoms >> 1, ndoms - 1) > 0)
+		return -EBUSY;
+
 	guard(mutex)(&iommu->tdx_lock);
 	r = tdh_iommu_setup(drhd->reg_base_addr, iommu_mt->root, &tdx_iommu_id);
 	/* TDX Extension is not supported on this iommu. Nothing to do. */
@@ -155,17 +160,27 @@ static int intel_iommu_bringup_tdxc(struct intel_iommu *iommu, unsigned int nr_p
 		return -EFAULT;
 	}
 
+	/*
+	 * Intel TDX Connect Architecture Specification, Section 2.2 Trusted DMA
+	 *
+	 * When IOMMU is enabled to support TDX Connect, the IOMMU restricts
+	 * the VMM’s DID setting, reserving the MSB bit for the TDX module. The
+	 * TDX module always sets this reserved bit on the trusted DMA table.
+	 */
+	iommu->max_domain_id = ndoms >> 1;
 	iommu->tdx_iommu_id = tdx_iommu_id;
 	iommu->mt_pages = no_free_ptr(iommu_mt);
 
-	/* Bring-up is not complete yet; report as unsupported for now. */
-	return -EOPNOTSUPP;
+	pr_info("Trusted IOMMU for TEE initialized on %s\n", iommu->name);
+
+	return 0;
 }
 
 static void intel_iommu_teardown_tdxc(struct intel_iommu *iommu)
 {
 	u64 r;
 
+	guard(mutex)(&iommu->did_lock);
 	guard(mutex)(&iommu->tdx_lock);
 
 	if (!iommu->mt_pages)
@@ -181,6 +196,7 @@ static void intel_iommu_teardown_tdxc(struct intel_iommu *iommu)
 	free_mt_pages(iommu->mt_pages);
 	iommu->mt_pages = NULL;
 	iommu->tdx_iommu_id = 0;
+	iommu->max_domain_id = cap_ndoms(iommu->cap);
 }
 
 void intel_tdxc_exit(void)

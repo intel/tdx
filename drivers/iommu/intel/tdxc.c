@@ -186,7 +186,7 @@ static void intel_iommu_teardown_tdxc(struct intel_iommu *iommu)
 	if (!iommu->mt_pages)
 		return;
 
-	r = tdh_iommu_clear(iommu->tdx_iommu_id);
+	r = tdh_iommu_clear(iommu->tdx_iommu_id, iommu->mt_pages->root);
 	if (r) {
 		pr_err("%s: Fail to disable trusted DMA for TEE, error 0x%llx\n",
 		       iommu->name, r);

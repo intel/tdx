@@ -2308,16 +2308,18 @@ u64 tdh_iommu_setup(u64 reg_base, void *root, u64 *tdx_iommu_id)
 /**
  * tdh_iommu_clear() - Wrapper for TDH.IOMMU.CLEAR leaf.
  * @tdx_iommu_id: Trusted IOMMU identifier returned by tdh_iommu_setup().
+ * @root: KVA of the same IOMMU_MT parameter page passed to setup.
  *
  * TDH.IOMMU.CLEAR terminates Secure TDX Mode for the target IOMMU and
  * restores control of related hardware resources to the host.
  *
  * Return: TDX SEAMCALL status code.
  */
-u64 tdh_iommu_clear(u64 tdx_iommu_id)
+u64 tdh_iommu_clear(u64 tdx_iommu_id, void *root)
 {
 	struct tdx_module_args args = {
 		.rcx = tdx_iommu_id,
+		.rdx = __pa(root),
 	};
 	u64 r;
 

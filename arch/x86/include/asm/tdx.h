@@ -179,7 +179,7 @@ u64 tdh_phymem_cache_wb(bool resume);
 u64 tdh_phymem_page_wbinvd_tdr(struct tdx_td *td);
 u64 tdh_phymem_page_wbinvd_hkid(u64 hkid, kvm_pfn_t pfn);
 u64 tdh_iommu_setup(u64 reg_base, void *root, u64 *tdx_iommu_id);
-u64 tdh_iommu_clear(u64 tdx_iommu_id);
+u64 tdh_iommu_clear(u64 tdx_iommu_id, void *root);
 #else
 static inline void tdx_init(void) { }
 static inline u32 tdx_get_nr_guest_keyids(void) { return 0; }

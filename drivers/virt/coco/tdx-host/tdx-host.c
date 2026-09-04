@@ -369,6 +369,38 @@ static void tdx_spdm_session_teardown(struct tdx_tsm_link *tlink)
 	tdx_spdm_delete(tlink);
 }
 
+enum tdx_ide_stream_km_op {
+	TDX_IDE_STREAM_KM_SETUP = 0,
+	TDX_IDE_STREAM_KM_REFRESH = 1,
+	TDX_IDE_STREAM_KM_STOP = 2,
+};
+
+static int tdx_ide_stream_km(struct tdx_tsm_link *tlink,
+			     enum tdx_ide_stream_km_op op)
+{
+	u64 sret, out_msg_sz;
+	int ret;
+
+	do {
+		sret = tdh_ide_stream_km(tlink->spdm_id, tlink->stream_id, op,
+					 tlink->in_msg, tlink->out_msg,
+					 &out_msg_sz);
+		ret = tdx_spdm_event_handler(tlink, sret, out_msg_sz);
+	} while (ret == -EAGAIN);
+
+	return ret;
+}
+
+static int tdx_ide_stream_key_program(struct tdx_tsm_link *tlink)
+{
+	return tdx_ide_stream_km(tlink, TDX_IDE_STREAM_KM_SETUP);
+}
+
+static void tdx_ide_stream_key_stop(struct tdx_tsm_link *tlink)
+{
+	tdx_ide_stream_km(tlink, TDX_IDE_STREAM_KM_STOP);
+}
+
 static void sel_stream_block_regs(struct pci_dev *pdev, struct pci_ide *ide,
 				  struct pci_ide_regs *regs)
 {
@@ -500,10 +532,25 @@ static int tdx_ide_stream_setup(struct tdx_tsm_link *tlink)
 	ide->partner[PCI_IDE_EP].default_stream = 1;
 	pci_ide_stream_setup(pdev, ide);
 
+	/* Key Programming for RP & target device, enable IDE stream for RP */
+	ret = tdx_ide_stream_key_program(tlink);
+	if (ret)
+		goto out_pci_ide_stream_teardown;
+
+	/* Enable IDE stream for target device */
+	ret = pci_ide_stream_enable(pdev, ide);
+	if (ret)
+		goto out_tdx_ide_stream_key_stop;
+
 	tlink->ide = ide;
 
 	return 0;
 
+out_tdx_ide_stream_key_stop:
+	tdx_ide_stream_key_stop(tlink);
+out_pci_ide_stream_teardown:
+	pci_ide_stream_teardown(pdev, ide);
+	pci_ide_stream_unregister(ide);
 out_tdx_ide_stream_delete:
 	tdx_ide_stream_delete(tlink);
 out_pci_ide_stream_free:
@@ -516,6 +563,8 @@ static void tdx_ide_stream_teardown(struct tdx_tsm_link *tlink)
 {
 	struct pci_ide *ide = tlink->ide;
 
+	pci_ide_stream_disable(ide->pdev, ide);
+	tdx_ide_stream_key_stop(tlink);
 	pci_ide_stream_teardown(ide->pdev, ide);
 	pci_ide_stream_unregister(ide);
 	tdx_ide_stream_delete(tlink);

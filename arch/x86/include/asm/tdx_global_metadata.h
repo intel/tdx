@@ -52,6 +52,7 @@ struct tdx_sys_info_ext {
 struct tdx_sys_info_connect {
 	u16 spdm_mt_page_count;
 	u16 iommu_mt_page_count;
+	u16 spdm_max_dev_info_pages;
 };
 
 struct tdx_sys_info {

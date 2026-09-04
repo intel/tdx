@@ -130,6 +130,12 @@ static __init int get_tdx_sys_info_connect(struct tdx_sys_info_connect *sysinfo_
 
 	sysinfo_connect->iommu_mt_page_count = val;
 
+	ret = read_sys_metadata_field(0x3000000100000007, &val);
+	if (ret)
+		return ret;
+
+	sysinfo_connect->spdm_max_dev_info_pages = val;
+
 	return 0;
 }
 

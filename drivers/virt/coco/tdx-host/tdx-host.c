@@ -204,8 +204,11 @@ static int tdx_spdm_event_handler(struct tdx_tsm_link *tlink, u64 sret,
 
 static int tdx_spdm_session_connect(struct tdx_tsm_link *tlink)
 {
+	unsigned int dev_info_nr_pages = tdx_sysinfo->tdx_connect.spdm_max_dev_info_pages;
 	struct spdm_config_info_t *spdm_conf;
+	struct tdx_hpa_list_info info;
 	u64 sret, out_msg_sz;
+	void *dev_info;
 	int ret;
 
 	/* create & fill SPDM configuration buffer - a single page */
@@ -217,16 +220,36 @@ static int tdx_spdm_session_connect(struct tdx_tsm_link *tlink)
 	spdm_conf->vmm_spdm_cap = SPDM_CAP_KEY_UPD;
 	spdm_conf->certificate_slot_mask = 0xff;
 
+	/*
+	 * create dev_info buffer - an hpa list.
+	 *
+	 * Attestation and negociation data will be filled by TDX module, but
+	 * they are not used for now. Ignore the data and free the buffer after
+	 * SPDM connect.
+	 */
+	dev_info = alloc_pages_exact(dev_info_nr_pages * PAGE_SIZE,
+				     GFP_KERNEL | __GFP_ZERO);
+	if (!dev_info)
+		goto out_free_spdm_conf;
+
+	ret = tdx_hpa_list_info_setup(&info, dev_info, dev_info_nr_pages);
+	if (ret)
+		goto out_free_dev_info;
+
 	do {
 		mutex_lock(&tdx_spdm_lock);
 		sret = tdh_spdm_connect(tlink->spdm_id,
 					virt_to_page(spdm_conf),
 					tlink->in_msg, tlink->out_msg,
-					NULL, &out_msg_sz);
+					&info, &out_msg_sz);
 		mutex_unlock(&tdx_spdm_lock);
 		ret = tdx_spdm_xfer_handler(tlink, sret, out_msg_sz);
 	} while (ret == -EAGAIN);
 
+	tdx_hpa_list_info_free(&info);
+out_free_dev_info:
+	free_pages_exact(dev_info, dev_info_nr_pages * PAGE_SIZE);
+out_free_spdm_conf:
 	free_page((unsigned long)spdm_conf);
 
 	return ret;

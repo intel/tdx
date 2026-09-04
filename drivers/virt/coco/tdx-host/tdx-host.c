@@ -163,6 +163,45 @@ static int tdx_spdm_xfer_handler(struct tdx_tsm_link *tlink, u64 sret,
 	return -EIO;
 }
 
+enum tdx_spdm_mng_op {
+	TDX_SPDM_MNG_HEARTBEAT = 0,
+	TDX_SPDM_MNG_KEY_UPDATE = 1,
+	TDX_SPDM_MNG_RECOLLECT = 2,
+};
+
+static int tdx_spdm_session_keyupdate(struct tdx_tsm_link *tlink)
+{
+	u64 sret, out_msg_sz;
+	int ret;
+
+	do {
+		mutex_lock(&tdx_spdm_lock);
+		sret = tdh_spdm_mng(tlink->spdm_id, TDX_SPDM_MNG_KEY_UPDATE,
+				    NULL, tlink->in_msg, tlink->out_msg, NULL,
+				    &out_msg_sz);
+		mutex_unlock(&tdx_spdm_lock);
+		ret = tdx_spdm_xfer_handler(tlink, sret, out_msg_sz);
+	} while (ret == -EAGAIN);
+
+	return ret;
+}
+
+static int tdx_spdm_event_handler(struct tdx_tsm_link *tlink, u64 sret,
+				  u64 out_msg_sz)
+{
+	int ret;
+
+	if (sret == TDX_SPDM_SESSION_KEY_REQUIRE_REFRESH) {
+		ret = tdx_spdm_session_keyupdate(tlink);
+		if (ret)
+			return ret;
+
+		return -EAGAIN;
+	}
+
+	return tdx_spdm_xfer_handler(tlink, sret, out_msg_sz);
+}
+
 static int tdx_spdm_session_connect(struct tdx_tsm_link *tlink)
 {
 	struct spdm_config_info_t *spdm_conf;
@@ -175,6 +214,7 @@ static int tdx_spdm_session_connect(struct tdx_tsm_link *tlink)
 	if (!spdm_conf)
 		return -ENOMEM;
 
+	spdm_conf->vmm_spdm_cap = SPDM_CAP_KEY_UPD;
 	spdm_conf->certificate_slot_mask = 0xff;
 
 	do {
@@ -202,7 +242,7 @@ static void tdx_spdm_session_disconnect(struct tdx_tsm_link *tlink)
 		sret = tdh_spdm_disconnect(tlink->spdm_id, tlink->in_msg,
 					   tlink->out_msg, &out_msg_sz);
 		mutex_unlock(&tdx_spdm_lock);
-		ret = tdx_spdm_xfer_handler(tlink, sret, out_msg_sz);
+		ret = tdx_spdm_event_handler(tlink, sret, out_msg_sz);
 	} while (ret == -EAGAIN);
 
 	WARN_ON(ret);

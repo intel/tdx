@@ -1,0 +1,24 @@
+Subject: [PATCH 0/4] Enable PCIe Link Encryption
+
+== Overview ==
+
+This series adds a PCI/TSM low-level driver implementation for TDX
+Connect (the TEE I/O architecture for Intel platforms). PCI/TSM is the
+Linux PCI core subsystem [1][2] that supports Link Encryption & trust
+establishment between CoCo-VM and assigned devices, allowing CoCo-VM to
+accept devices for private memory access (private DMA). This series
+only implements Link Encryption. It is a pre-requisite for trusted
+device assignment in TDX system.
+
+Two protocols, SPDM (Security Protocol and Data Model) and PCI
+IDE (Integrity and Data Encryption) work together to establish the Link
+Encryption. SPDM creates trust on untrusted transit for key exchanging.
+IDE performs the actual real-time encryption for data traffic. In TSM
+world, they are managed by secure firmwares, e.g. TDX Module.
+
+To manage these protocols, TDX Module introduces Extensions to support
+long running / hard-irq preemptible flows inside. Host invokes these
+flows via Extension-SEAMCALLs.
+
+[1]: https://lore.kernel.org/linux-coco/20251031212902.2256310-1-dan.j.williams@intel.com/
+[2]: https://lore.kernel.org/linux-coco/20251105040055.2832866-1-dan.j.williams@intel.com/
